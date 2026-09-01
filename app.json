@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "gorevtamamlama",
+    "name": "Saha Takip Raporu",
     "slug": "gorevtamamlama",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,11 +11,10 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.sahatakip.raporu",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -34,11 +33,21 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6d96f444-375a-445d-8f80-8c957d93d650"
+      }
+    },
+    "owner": "gorevtamamlama"
   }
 }
