@@ -40,11 +40,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormMsg(null);
 
-    const res = addUser({
+    const res = await addUser({
       username: newUsername,
       password: newPassword,
       name: newName,
@@ -66,7 +66,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   };
 
-  const handleRoleToggle = (userId: string, currentRole: UserRole) => {
+  const handleRoleToggle = async (userId: string, currentRole: UserRole) => {
     const nextRole: UserRole = currentRole === 'admin' ? 'staff' : 'admin';
     const roleName = nextRole === 'admin' ? 'Sistem Yöneticisi (Admin)' : 'Saha Yetkilisi';
 
@@ -75,19 +75,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         `Bu kullanıcının yetkisini "${roleName}" olarak değiştirmek istediğinize emin misiniz?`
       )
     ) {
-      const res = updateUser(userId, { role: nextRole });
+      const res = await updateUser(userId, { role: nextRole });
       if (!res.success && res.error) {
         alert(res.error);
       }
     }
   };
 
-  const handleSaveNewPassword = (userId: string) => {
+  const handleSaveNewPassword = async (userId: string) => {
     if (!changedPassword || changedPassword.length < 3) {
       alert('Şifre en az 3 karakter olmalıdır.');
       return;
     }
-    const res = updateUser(userId, { password: changedPassword });
+    const res = await updateUser(userId, { password: changedPassword });
     if (res.success) {
       alert('Şifre başarıyla güncellendi.');
       setEditingPasswordUserId(null);
@@ -97,13 +97,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   };
 
-  const handleDelete = (userId: string, username: string) => {
+  const handleDelete = async (userId: string, username: string) => {
     if (
       window.confirm(
         `"${username}" kullanıcısını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
       )
     ) {
-      const res = deleteUser(userId);
+      const res = await deleteUser(userId);
       if (!res.success && res.error) {
         alert(res.error);
       }

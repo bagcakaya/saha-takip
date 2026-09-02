@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserAccount, UserRole } from '../types/auth';
 import { UserService } from '../services/userService';
+import { supabase } from '../services/supabaseClient';
 
 interface AuthContextType {
   user: User | null;
@@ -8,9 +9,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (username: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
-  addUser: (params: { username: string; password: string; name: string; role: UserRole }) => { success: boolean; error?: string };
-  updateUser: (id: string, updates: { name?: string; role?: UserRole; password?: string }) => { success: boolean; error?: string };
-  deleteUser: (id: string) => { success: boolean; error?: string };
+  addUser: (params: { username: string; password: string; name: string; role: UserRole }) => Promise<{ success: boolean; error?: string }>;
+  updateUser: (id: string, updates: { name?: string; role?: UserRole; password?: string }) => Promise<{ success: boolean; error?: string }>;
+  deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -39,9 +40,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(Boolean(user));
   }, [user]);
 
-  // Sync users list whenever modified
-  const refreshUsers = () => {
-    setUsers(UserService.getUsers());
+  // Initial cloud fetch & realtime subscription
+  useEffect(() => {
+    UserService.fetchUsersFromCloud().then((cloudUsers) => {
+      setUsers(cloudUsers);
+    });
+
+    // Supabase Realtime channel for app_users table
+    const channel = supabase
+      .channel('app_users_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_users' }, async () => {
+        const cloudUsers = await UserService.fetchUsersFromCloud();
+        setUsers(cloudUsers);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const refreshUsers = async () => {
+    const cloudUsers = await UserService.fetchUsersFromCloud();
+    setUsers(cloudUsers);
   };
 
   const login = async (
@@ -49,7 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     rememberMe = true
   ): Promise<{ success: boolean; error?: string }> => {
-    const authResult = UserService.authenticate(username, password);
+    const authResult = await UserService.authenticate(username, password);
 
     if (!authResult.success || !authResult.user) {
       return { success: false, error: authResult.error || 'Giriş yapılamadı.' };
@@ -85,19 +106,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const addUser = (params: { username: string; password: string; name: string; role: UserRole }) => {
-    const res = UserService.addUser(params);
+  const addUser = async (params: { username: string; password: string; name: string; role: UserRole }) => {
+    const res = await UserService.addUser(params);
     if (res.success) {
-      refreshUsers();
+      await refreshUsers();
     }
     return res;
   };
 
-  const updateUser = (id: string, updates: { name?: string; role?: UserRole; password?: string }) => {
-    const res = UserService.updateUser(id, updates);
+  const updateUser = async (id: string, updates: { name?: string; role?: UserRole; password?: string }) => {
+    const res = await UserService.updateUser(id, updates);
     if (res.success) {
-      refreshUsers();
-      // If updating currently logged in user, refresh their session
+      await refreshUsers();
       if (user && user.id === id) {
         const updatedUser: User = {
           ...user,
@@ -110,10 +130,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   };
 
-  const deleteUser = (id: string) => {
-    const res = UserService.deleteUser(id);
+  const deleteUser = async (id: string) => {
+    const res = await UserService.deleteUser(id);
     if (res.success) {
-      refreshUsers();
+      await refreshUsers();
     }
     return res;
   };

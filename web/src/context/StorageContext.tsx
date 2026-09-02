@@ -4,6 +4,7 @@ import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
 import { useAuth } from './AuthContext';
+import { supabase } from '../services/supabaseClient';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -65,7 +66,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load initial data on mount
+  // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
     const initData = async () => {
       try {
@@ -89,6 +90,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     };
     initData();
+
+    // Realtime listeners for locations, notes & standard_tasks
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
+        async () => {
+          const locs = await StorageService.getLocations();
+          setAllLocations(locs);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notes' },
+        async () => {
+          const nts = await StorageService.getNotes();
+          setAllNotes(nts);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'standard_tasks' },
+        async () => {
+          const tasks = await StorageService.getStandardTasks();
+          setStandardTasks(tasks);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // Filter locations based on role:
