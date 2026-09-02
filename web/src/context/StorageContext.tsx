@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -60,6 +60,27 @@ const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 };
 
+const SEEN_NOTES_KEY = (userId: string) => `@seen_notes_${userId}`;
+const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
+
+const getStoredSet = (key: string): Set<string> => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {
+    // ignore
+  }
+  return new Set();
+};
+
+const saveStoredSet = (key: string, setObj: Set<string>) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(Array.from(setObj)));
+  } catch {
+    // ignore
+  }
+};
+
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
 
@@ -68,9 +89,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{ title: string; body: string } | null>(null);
-
-  // Track known note IDs to alert on newly arrived incoming notes
-  const knownNoteIdsRef = useRef<Set<string>>(new Set());
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
@@ -89,9 +107,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllLocations(migratedLocs);
         setStandardTasks(tasks);
         setAllNotes(nts);
-
-        // Populate initial known note IDs
-        knownNoteIdsRef.current = new Set(nts.map((n) => n.id));
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -129,7 +144,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .subscribe();
 
-    // High-frequency background sync for mobile devices when websockets suspend
+    // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
         const nts = await StorageService.getNotes();
@@ -142,7 +157,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {
         // ignore
       }
-    }, 3500);
+    }, 3000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -185,26 +200,58 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, [allNotes, user]);
 
-  // Check incoming direct notes from other users & timed reminders
+  // Check incoming direct notes & timed reminders per user device
   useEffect(() => {
     if (!user || allNotes.length === 0) return;
 
-    // Check if any new note was targeted to this user that wasn't previously known
+    const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id));
+    const seenReminders = getStoredSet(SEEN_REMINDERS_KEY(user.id));
+    const now = Date.now();
+    let seenNotesChanged = false;
+    let seenRemindersChanged = false;
+
     allNotes.forEach((n) => {
-      if (!knownNoteIdsRef.current.has(n.id)) {
-        knownNoteIdsRef.current.add(n.id);
+      // 1. Check if note is targeted to this user
+      const isTargetedToMe =
+        n.createdBy !== user.id &&
+        (n.targetMode === 'all' ||
+          n.targetUserId === 'all' ||
+          (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+          n.targetUserId === user.id);
 
-        // If created by someone else and targeted to current user
-        if (n.createdBy !== user.id) {
-          const isTargetedToMe =
-            n.targetMode === 'all' ||
-            n.targetUserId === 'all' ||
-            (n.targetMode === 'custom' && n.targetUserIds?.includes(user.id)) ||
-            n.targetUserId === user.id;
+      // 2. Instant Arrival Notification for targeted note
+      if (isTargetedToMe) {
+        if (!seenNotes.has(n.id)) {
+          seenNotes.add(n.id);
+          seenNotesChanged = true;
 
-          if (isTargetedToMe) {
-            const sender = n.createdByName || 'Yönetici';
-            const title = `📩 ${sender} Size Yeni Bir Not İletti!`;
+          const sender = n.createdByName || 'Yönetici';
+          const title = `📩 ${sender} Size Yeni Bir Not İletti!`;
+          NotificationService.sendNotification(title, n.content);
+          setActiveToast({ title, body: n.content });
+        }
+      } else if (n.createdBy === user.id) {
+        // Mark creator's own note as already seen so creator never gets arrival alert
+        if (!seenNotes.has(n.id)) {
+          seenNotes.add(n.id);
+          seenNotesChanged = true;
+        }
+      }
+
+      // 3. Timed Reminders Check (Only trigger for the intended recipient/creator)
+      if (n.reminderActive && n.reminderDate) {
+        const isReminderForMe =
+          (n.targetMode === 'self' && n.createdBy === user.id) ||
+          isTargetedToMe ||
+          (n.createdBy === user.id && (!n.targetMode || n.targetMode === 'self'));
+
+        if (isReminderForMe) {
+          const reminderTime = new Date(n.reminderDate).getTime();
+          if (reminderTime <= now && !seenReminders.has(n.id)) {
+            seenReminders.add(n.id);
+            seenRemindersChanged = true;
+
+            const title = '🔔 Görev & Not Hatırlatıcısı';
             NotificationService.sendNotification(title, n.content);
             setActiveToast({ title, body: n.content });
           }
@@ -212,33 +259,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     });
 
-    // Reminders checker
-    const checkReminders = async () => {
-      const now = Date.now();
-      let hasUpdates = false;
-
-      const updatedNotes = allNotes.map((note) => {
-        if (note.reminderActive && note.reminderDate && !note.notified) {
-          const reminderTime = new Date(note.reminderDate).getTime();
-          if (reminderTime <= now) {
-            const title = '🔔 Görev & Not Hatırlatıcısı';
-            NotificationService.sendNotification(title, note.content);
-            setActiveToast({ title, body: note.content });
-            hasUpdates = true;
-            return { ...note, notified: true };
-          }
-        }
-        return note;
-      });
-
-      if (hasUpdates) {
-        setAllNotes(updatedNotes);
-        await StorageService.saveNotes(updatedNotes);
-      }
-    };
-
-    const interval = setInterval(checkReminders, 4000);
-    return () => clearInterval(interval);
+    if (seenNotesChanged) {
+      saveStoredSet(SEEN_NOTES_KEY(user.id), seenNotes);
+    }
+    if (seenRemindersChanged) {
+      saveStoredSet(SEEN_REMINDERS_KEY(user.id), seenReminders);
+    }
   }, [allNotes, user]);
 
   const dismissToast = () => {
@@ -442,7 +468,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       reminderDate: reminderActive ? reminderDate : undefined,
       notified: false,
     };
-    knownNoteIdsRef.current.add(newNote.id);
+
+    // Mark as seen on creator's device immediately
+    if (user?.id) {
+      const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id));
+      seenNotes.add(newNote.id);
+      saveStoredSet(SEEN_NOTES_KEY(user.id), seenNotes);
+    }
+
     const newNotes = [newNote, ...allNotes];
     await saveNotes(newNotes);
   };
