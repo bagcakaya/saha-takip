@@ -129,8 +129,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .subscribe();
 
+    // High-frequency background sync for mobile devices when websockets suspend
+    const syncInterval = setInterval(async () => {
+      try {
+        const nts = await StorageService.getNotes();
+        setAllNotes((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(nts)) {
+            return nts;
+          }
+          return prev;
+        });
+      } catch {
+        // ignore
+      }
+    }, 3500);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(syncInterval);
     };
   }, []);
 
