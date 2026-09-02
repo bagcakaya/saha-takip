@@ -13,12 +13,15 @@ import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
+import { ToastNotification } from './components/common/ToastNotification';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('installations');
   const {
     notes,
+    activeToast,
+    dismissToast,
     deleteLocation,
     updateTaskStatus,
     addCustomTaskToLocation,
@@ -156,6 +159,16 @@ const MainApp: React.FC = () => {
 
       {/* PWA Home Screen Install & Notification Prompt */}
       <PwaInstallPrompt />
+
+      {/* Realtime In-App Toast Notification Popup */}
+      <ToastNotification
+        toast={activeToast}
+        onClose={dismissToast}
+        onClick={() => {
+          setActiveTab('notes');
+          dismissToast();
+        }}
+      />
     </div>
   );
 };

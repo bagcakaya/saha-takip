@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -13,6 +13,8 @@ interface StorageContextType {
   notes: GeneralNote[];
   allNotes: GeneralNote[];
   isLoading: boolean;
+  activeToast: { title: string; body: string } | null;
+  dismissToast: () => void;
   addLocation: (name: string) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
   updateTaskStatus: (locationId: string, taskId: string, status: TaskStatus) => Promise<void>;
@@ -65,6 +67,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeToast, setActiveToast] = useState<{ title: string; body: string } | null>(null);
+
+  // Track known note IDs to alert on newly arrived incoming notes
+  const knownNoteIdsRef = useRef<Set<string>>(new Set());
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
@@ -83,6 +89,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllLocations(migratedLocs);
         setStandardTasks(tasks);
         setAllNotes(nts);
+
+        // Populate initial known note IDs
+        knownNoteIdsRef.current = new Set(nts.map((n) => n.id));
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -160,10 +169,34 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, [allNotes, user]);
 
-  // Check reminders dynamically every 4 seconds
+  // Check incoming direct notes from other users & timed reminders
   useEffect(() => {
-    if (allNotes.length === 0) return;
+    if (!user || allNotes.length === 0) return;
 
+    // Check if any new note was targeted to this user that wasn't previously known
+    allNotes.forEach((n) => {
+      if (!knownNoteIdsRef.current.has(n.id)) {
+        knownNoteIdsRef.current.add(n.id);
+
+        // If created by someone else and targeted to current user
+        if (n.createdBy !== user.id) {
+          const isTargetedToMe =
+            n.targetMode === 'all' ||
+            n.targetUserId === 'all' ||
+            (n.targetMode === 'custom' && n.targetUserIds?.includes(user.id)) ||
+            n.targetUserId === user.id;
+
+          if (isTargetedToMe) {
+            const sender = n.createdByName || 'Yönetici';
+            const title = `📩 ${sender} Size Yeni Bir Not İletti!`;
+            NotificationService.sendNotification(title, n.content);
+            setActiveToast({ title, body: n.content });
+          }
+        }
+      }
+    });
+
+    // Reminders checker
     const checkReminders = async () => {
       const now = Date.now();
       let hasUpdates = false;
@@ -172,8 +205,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (note.reminderActive && note.reminderDate && !note.notified) {
           const reminderTime = new Date(note.reminderDate).getTime();
           if (reminderTime <= now) {
-            // Trigger browser notification and sound
-            NotificationService.sendNotification('🔔 Not Hatırlatıcısı', note.content);
+            const title = '🔔 Görev & Not Hatırlatıcısı';
+            NotificationService.sendNotification(title, note.content);
+            setActiveToast({ title, body: note.content });
             hasUpdates = true;
             return { ...note, notified: true };
           }
@@ -189,7 +223,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const interval = setInterval(checkReminders, 4000);
     return () => clearInterval(interval);
-  }, [allNotes]);
+  }, [allNotes, user]);
+
+  const dismissToast = () => {
+    setActiveToast(null);
+  };
 
   // Save locations helper
   const saveLocations = async (newLocations: LocationItem[]) => {
@@ -388,6 +426,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       reminderDate: reminderActive ? reminderDate : undefined,
       notified: false,
     };
+    knownNoteIdsRef.current.add(newNote.id);
     const newNotes = [newNote, ...allNotes];
     await saveNotes(newNotes);
   };
@@ -455,6 +494,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notes: visibleNotes,
         allNotes,
         isLoading,
+        activeToast,
+        dismissToast,
         addLocation,
         deleteLocation,
         updateTaskStatus,

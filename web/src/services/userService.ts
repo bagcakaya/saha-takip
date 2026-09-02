@@ -47,9 +47,11 @@ export const UserService = {
   },
 
   /**
-   * Fetches latest users from Supabase cloud database
+   * Fetches latest users from Supabase cloud database and syncs both ways
    */
   async fetchUsersFromCloud(): Promise<UserAccount[]> {
+    const localUsers = this.getUsers();
+
     try {
       const { data, error } = await supabase
         .from('app_users')
@@ -66,14 +68,52 @@ export const UserService = {
           createdAt: Number(row.created_at) || Date.now(),
         }));
 
-        this.saveUsers(cloudUsers);
-        return cloudUsers;
+        // Merge any local users not yet in cloud
+        const cloudUsernames = new Set(cloudUsers.map((u) => u.username.toLowerCase()));
+        const missingLocal = localUsers.filter((u) => !cloudUsernames.has(u.username.toLowerCase()));
+
+        if (missingLocal.length > 0) {
+          try {
+            await supabase.from('app_users').upsert(
+              missingLocal.map((u) => ({
+                id: u.id,
+                username: u.username,
+                password: u.password,
+                name: u.name,
+                role: u.role,
+                created_at: u.createdAt,
+              }))
+            );
+          } catch {
+            // ignore
+          }
+        }
+
+        const merged = [...cloudUsers, ...missingLocal];
+        this.saveUsers(merged);
+        return merged;
+      } else if (!error && data && data.length === 0 && localUsers.length > 0) {
+        // Cloud table exists but empty -> seed from local
+        try {
+          await supabase.from('app_users').upsert(
+            localUsers.map((u) => ({
+              id: u.id,
+              username: u.username,
+              password: u.password,
+              name: u.name,
+              role: u.role,
+              created_at: u.createdAt,
+            }))
+          );
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       console.warn('Supabase kullanıcı senkronizasyonu atlandı:', e);
     }
 
-    return this.getUsers();
+    return localUsers;
   },
 
   /**
@@ -114,7 +154,7 @@ export const UserService = {
 
     // Sync to Supabase in background
     try {
-      await supabase.from('app_users').insert([
+      await supabase.from('app_users').upsert([
         {
           id: newUser.id,
           username: newUser.username,
@@ -184,12 +224,16 @@ export const UserService = {
     try {
       await supabase
         .from('app_users')
-        .update({
-          name: updatedUser.name,
-          role: updatedUser.role,
-          password: updatedUser.password,
-        })
-        .eq('id', id);
+        .upsert([
+          {
+            id: updatedUser.id,
+            username: updatedUser.username,
+            name: updatedUser.name,
+            role: updatedUser.role,
+            password: updatedUser.password,
+            created_at: updatedUser.createdAt,
+          },
+        ]);
     } catch (err) {
       console.warn('Supabase kullanıcı güncelleme hatası:', err);
     }
