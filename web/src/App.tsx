@@ -12,6 +12,7 @@ import { TemplateView } from './views/TemplateView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
+import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -33,7 +34,12 @@ const MainApp: React.FC = () => {
 
   // If user is not authenticated, show Login Screen
   if (!isAuthenticated) {
-    return <LoginView />;
+    return (
+      <>
+        <LoginView />
+        <PwaInstallPrompt />
+      </>
+    );
   }
 
   const getHeaderInfo = () => {
@@ -147,6 +153,9 @@ const MainApp: React.FC = () => {
           }
         }}
       />
+
+      {/* PWA Home Screen Install & Notification Prompt */}
+      <PwaInstallPrompt />
     </div>
   );
 };
