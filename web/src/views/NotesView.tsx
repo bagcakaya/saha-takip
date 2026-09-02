@@ -233,8 +233,16 @@ export const NotesView: React.FC = () => {
             <NoteCard
               key={note.id}
               note={note}
-              onEdit={() => handleOpenEdit(note)}
+              onEdit={() => {
+                if (isAdmin || note.createdBy === currentUser?.id) {
+                  handleOpenEdit(note);
+                }
+              }}
               onDelete={() => {
+                if (!isAdmin && note.createdBy !== currentUser?.id) {
+                  alert('Bu not yönetici tarafından eklenmiştir. Yalnızca notu ekleyen yetkili silebilir.');
+                  return;
+                }
                 if (window.confirm('Bu notu silmek istediğinize emin misiniz?')) {
                   deleteNote(note.id);
                 }

@@ -14,6 +14,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
   const isAdmin = currentUser?.role === 'admin';
   const isCreatedByMe = note.createdBy === currentUser?.id;
 
+  // Only the creator or an Admin can edit or delete a note
+  const canModify = isAdmin || isCreatedByMe;
+
   const isDirectToMe =
     !isCreatedByMe &&
     ((note.targetMode === 'custom' && Array.isArray(note.targetUserIds) && note.targetUserIds.includes(currentUser?.id || '')) ||
@@ -67,7 +70,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-slate-500">
             <span>{formattedCreated}</span>
-            {isAdmin && note.createdByName && (
+            {note.createdByName && (
               <>
                 <span>•</span>
                 <span className="text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1">
@@ -83,7 +86,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
             {isDirectToMe && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                 <Mail className="w-3 h-3" />
-                <span>Yönetici Tarafından Size Gönderildi</span>
+                <span>Yönetici Tarafından Size Gönderildi (Salt Okunur)</span>
               </span>
             )}
 
@@ -114,26 +117,33 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={onEdit}
-            className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-            title="Notu Düzenle / Hatırlatıcıyı Ertele"
-            aria-label="Düzenle"
-          >
-            <Edit3 className="w-4 h-4" />
-          </button>
+        {/* Action Buttons: Only Creator or Admin can Edit / Delete */}
+        {canModify ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={onEdit}
+              className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+              title="Notu Düzenle / Hatırlatıcıyı Ertele"
+              aria-label="Düzenle"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
 
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-            title="Notu Sil"
-            aria-label="Sil"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+              title="Notu Sil"
+              aria-label="Sil"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-slate-400 text-[10px] font-bold">
+            <Lock className="w-3 h-3" />
+            <span>Kilitli</span>
+          </div>
+        )}
       </div>
 
       {/* Note Content */}
