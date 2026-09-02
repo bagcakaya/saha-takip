@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -34,16 +34,18 @@ interface StorageContextType {
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode?: NoteTargetMode,
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => Promise<void>;
   updateNote: (
     id: string,
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode?: NoteTargetMode,
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
@@ -103,18 +105,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Filter notes based on role and target sharing:
   // Admin -> Sees ALL notes
-  // Staff -> Strictly sees notes created by themselves, OR notes targeted directly to them, OR public announcements ('all')
+  // Staff -> Strictly sees notes created by themselves, OR notes targeted directly to them (single/multi), OR public announcements ('all')
   const visibleNotes = useMemo(() => {
     if (!user) return [];
     if (user.role === 'admin') {
       return allNotes;
     }
-    return allNotes.filter(
-      (n) =>
-        n.createdBy === user.id ||
-        n.targetUserId === user.id ||
-        n.targetUserId === 'all'
-    );
+    return allNotes.filter((n) => {
+      // 1. Creator always sees own notes
+      if (n.createdBy === user.id) return true;
+      // 2. Public notes for all
+      if (n.targetMode === 'all' || n.targetUserId === 'all') return true;
+      // 3. Multi-user targeted notes
+      if (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) {
+        return true;
+      }
+      // 4. Legacy single user target
+      if (n.targetUserId === user.id) return true;
+      return false;
+    });
   }, [allNotes, user]);
 
   // Check reminders dynamically every 4 seconds
@@ -319,13 +328,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Add general note with target user sharing
+  // Add general note with single/multi target user sharing
   const addNote = async (
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode: NoteTargetMode = 'self',
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => {
     if (!content.trim()) return;
     const newNote: GeneralNote = {
@@ -334,8 +344,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: Date.now(),
       createdBy: user?.id,
       createdByName: user?.name || user?.username || 'Yetkili',
-      targetUserId: targetUserId || 'self',
-      targetUserName: targetUserName || 'Sadece Kendim',
+      targetMode,
+      targetUserIds: targetUserIds || [],
+      targetUserNames: targetUserNames || [],
+      // For backwards compatibility
+      targetUserId: targetMode === 'all' ? 'all' : targetMode === 'self' ? 'self' : targetUserIds?.[0] || 'self',
+      targetUserName: targetMode === 'all' ? 'Tüm Personeller' : targetMode === 'self' ? 'Sadece Kendim' : targetUserNames?.join(', ') || 'Özel',
       reminderActive,
       reminderDate: reminderActive ? reminderDate : undefined,
       notified: false,
@@ -344,25 +358,33 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveNotes(newNotes);
   };
 
-  // Update general note with target user sharing
+  // Update general note with single/multi target user sharing
   const updateNote = async (
     id: string,
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode?: NoteTargetMode,
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => {
     if (!content.trim()) return;
     const newNotes = allNotes.map((n) => {
       if (n.id === id) {
+        const nextMode = targetMode !== undefined ? targetMode : n.targetMode || 'self';
+        const nextIds = targetUserIds !== undefined ? targetUserIds : n.targetUserIds || [];
+        const nextNames = targetUserNames !== undefined ? targetUserNames : n.targetUserNames || [];
+
         return {
           ...n,
           content: content.trim(),
           reminderActive,
           reminderDate: reminderActive ? reminderDate : undefined,
-          targetUserId: targetUserId !== undefined ? targetUserId : n.targetUserId,
-          targetUserName: targetUserName !== undefined ? targetUserName : n.targetUserName,
+          targetMode: nextMode,
+          targetUserIds: nextIds,
+          targetUserNames: nextNames,
+          targetUserId: nextMode === 'all' ? 'all' : nextMode === 'self' ? 'self' : nextIds[0] || 'self',
+          targetUserName: nextMode === 'all' ? 'Tüm Personeller' : nextMode === 'self' ? 'Sadece Kendim' : nextNames.join(', ') || 'Özel',
           notified: false,
         };
       }

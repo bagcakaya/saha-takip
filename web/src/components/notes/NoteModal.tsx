@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
-import { GeneralNote } from '../../types/storage';
-import { Bell, Calendar, Clock, Users } from 'lucide-react';
+import { GeneralNote, NoteTargetMode } from '../../types/storage';
+import { Bell, Calendar, Clock, Users, Check } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
 import { useAuth } from '../../context/AuthContext';
 
@@ -13,8 +13,9 @@ interface NoteModalProps {
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode?: NoteTargetMode,
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => Promise<void>;
 }
 
@@ -31,14 +32,39 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const [reminderActive, setReminderActive] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
-  const [targetUserId, setTargetUserId] = useState<string>('self');
+  const [targetMode, setTargetMode] = useState<NoteTargetMode>('self');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Other users list (excluding current user)
+  const otherUsers = users.filter((u) => u.id !== currentUser?.id);
 
   useEffect(() => {
     if (editingNote) {
       setContent(editingNote.content);
       setReminderActive(editingNote.reminderActive);
-      setTargetUserId(editingNote.targetUserId || 'self');
+
+      const mode =
+        editingNote.targetMode ||
+        (editingNote.targetUserId === 'all'
+          ? 'all'
+          : editingNote.targetUserId && editingNote.targetUserId !== 'self'
+          ? 'custom'
+          : 'self');
+
+      setTargetMode(mode);
+
+      if (mode === 'custom') {
+        if (editingNote.targetUserIds && editingNote.targetUserIds.length > 0) {
+          setSelectedUserIds(editingNote.targetUserIds);
+        } else if (editingNote.targetUserId && editingNote.targetUserId !== 'self' && editingNote.targetUserId !== 'all') {
+          setSelectedUserIds([editingNote.targetUserId]);
+        } else {
+          setSelectedUserIds([]);
+        }
+      } else {
+        setSelectedUserIds([]);
+      }
 
       if (editingNote.reminderDate) {
         const d = new Date(editingNote.reminderDate);
@@ -52,7 +78,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     } else {
       setContent('');
       setReminderActive(false);
-      setTargetUserId('self');
+      setTargetMode('self');
+      setSelectedUserIds([]);
       setDefaultDateTime();
     }
   }, [editingNote, isOpen]);
@@ -72,9 +99,28 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     }
   };
 
+  const handleToggleUser = (userId: string) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleSelectAllUsers = () => {
+    setSelectedUserIds(otherUsers.map((u) => u.id));
+  };
+
+  const handleClearUsers = () => {
+    setSelectedUserIds([]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
+
+    if (isAdmin && targetMode === 'custom' && selectedUserIds.length === 0) {
+      alert('Lütfen notun iletileceği en az 1 kullanıcı seçin veya "Sadece Kendim" modunu belirleyin.');
+      return;
+    }
 
     let reminderIso: string | undefined = undefined;
 
@@ -94,20 +140,21 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       reminderIso = combinedDate.toISOString();
     }
 
-    // Determine human-readable target user name
-    let targetUserName = 'Sadece Kendim';
-    if (targetUserId === 'all') {
-      targetUserName = 'Tüm Personeller';
-    } else if (targetUserId !== 'self') {
-      const targetAccount = users.find((u) => u.id === targetUserId);
-      if (targetAccount) {
-        targetUserName = targetAccount.name;
-      }
-    }
+    // Determine target user names
+    const targetUserNames = selectedUserIds
+      .map((id) => users.find((u) => u.id === id)?.name)
+      .filter(Boolean) as string[];
 
     try {
       setIsSubmitting(true);
-      await onSave(content.trim(), reminderActive, reminderIso, targetUserId, targetUserName);
+      await onSave(
+        content.trim(),
+        reminderActive,
+        reminderIso,
+        targetMode,
+        targetMode === 'custom' ? selectedUserIds : [],
+        targetMode === 'custom' ? targetUserNames : []
+      );
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -123,36 +170,136 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Target User / Visibility Selector for Admin */}
         {isAdmin && (
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-2">
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-3">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-blue-500" />
               <span>Not Kiminle Paylaşılsın?</span>
             </label>
 
-            <select
-              value={targetUserId}
-              onChange={(e) => setTargetUserId(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="self">🔒 Sadece Kendim (Gizli Not)</option>
-              <option value="all">📢 Tüm Kullanıcılar (Genel Duyuru)</option>
-              <optgroup label="👤 Belirli Bir Personele Özel:">
-                {users
-                  .filter((u) => u.id !== currentUser?.id)
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      👤 {u.name} (@{u.username}) {u.role === 'admin' ? '• Yönetici' : '• Saha Yetkilisi'}
-                    </option>
-                  ))}
-              </optgroup>
-            </select>
+            {/* Target Mode Segment Buttons */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setTargetMode('self')}
+                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                  targetMode === 'self'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                🔒 Sadece Kendim
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTargetMode('all')}
+                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                  targetMode === 'all'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                📢 Tüm Personel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTargetMode('custom')}
+                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                  targetMode === 'custom'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                👥 Kişi(leri) Seç
+              </button>
+            </div>
+
+            {/* Multi-User Selection List */}
+            {targetMode === 'custom' && (
+              <div className="pt-2 space-y-2 border-t border-slate-200/80 dark:border-slate-800 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-700 dark:text-slate-300">
+                    Paylaşılacak Kişileri Seçin ({selectedUserIds.length}/{otherUsers.length}):
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllUsers}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Tümünü Seç
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <button
+                      type="button"
+                      onClick={handleClearUsers}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    >
+                      Temizle
+                    </button>
+                  </div>
+                </div>
+
+                {/* User Checkbox List */}
+                <div className="max-h-44 overflow-y-auto space-y-1.5 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 scrollbar-thin">
+                  {otherUsers.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-slate-400">
+                      Henüz sistemde başka kayıtlı kullanıcı bulunmuyor.
+                    </div>
+                  ) : (
+                    otherUsers.map((u) => {
+                      const isSelected = selectedUserIds.includes(u.id);
+                      return (
+                        <div
+                          key={u.id}
+                          onClick={() => handleToggleUser(u.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all border ${
+                            isSelected
+                              ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800'
+                              : 'bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
+                                isSelected
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                            </div>
+
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                {u.name}
+                              </span>
+                              <span className="text-[10px] font-medium text-slate-400 block truncate">
+                                @{u.username}
+                              </span>
+                            </div>
+                          </div>
+
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-extrabold shrink-0">
+                            {u.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
 
             <span className="text-[11px] text-slate-400 block">
-              {targetUserId === 'self'
+              {targetMode === 'self'
                 ? 'Bu notu sadece siz görebilirsiniz.'
-                : targetUserId === 'all'
-                ? 'Bu not tüm saha ekibine ve yöneticilere açık olacaktır.'
-                : 'Bu not yalnızca seçtiğiniz kullanıcıya özel olarak iletilecektir.'}
+                : targetMode === 'all'
+                ? 'Bu not tüm saha ekibine ve yöneticilere açık duyuru olacaktır.'
+                : selectedUserIds.length > 0
+                ? `Bu not yalnızca seçtiğiniz ${selectedUserIds.length} kullanıcıya özel olarak iletilecektir.`
+                : 'Lütfen listeden en az bir kullanıcı seçin.'}
             </span>
           </div>
         )}

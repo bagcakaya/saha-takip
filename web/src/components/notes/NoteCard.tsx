@@ -13,7 +13,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
   const isCreatedByMe = note.createdBy === currentUser?.id;
-  const isDirectToMe = note.targetUserId === currentUser?.id && !isCreatedByMe;
+
+  const isDirectToMe =
+    !isCreatedByMe &&
+    ((note.targetMode === 'custom' && Array.isArray(note.targetUserIds) && note.targetUserIds.includes(currentUser?.id || '')) ||
+      note.targetUserId === currentUser?.id);
 
   const isReminderPast = note.reminderDate
     ? new Date(note.reminderDate).getTime() < Date.now()
@@ -36,6 +40,19 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         minute: '2-digit',
       })
     : '';
+
+  // Determine target description for admin
+  const isCustomTarget =
+    note.targetMode === 'custom' ||
+    (note.targetUserId && note.targetUserId !== 'self' && note.targetUserId !== 'all');
+
+  const targetCount = note.targetUserNames?.length || (note.targetUserId ? 1 : 0);
+  const targetNamesText = note.targetUserNames && note.targetUserNames.length > 0
+    ? note.targetUserNames.join(', ')
+    : note.targetUserName || 'Seçilen Kişiler';
+
+  const isAllTarget = note.targetMode === 'all' || note.targetUserId === 'all';
+  const isSelfTarget = (!note.targetMode && !note.targetUserId) || note.targetMode === 'self' || note.targetUserId === 'self';
 
   return (
     <div
@@ -70,21 +87,25 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
               </span>
             )}
 
-            {isAdmin && note.targetUserId && note.targetUserId !== 'self' && note.targetUserId !== 'all' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                <User className="w-3 h-3" />
-                <span>Kişiye Özel: {note.targetUserName}</span>
+            {isAdmin && isCustomTarget && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800" title={targetNamesText}>
+                <Users className="w-3 h-3" />
+                <span>
+                  {targetCount > 1
+                    ? `Seçilen Kişiler (${targetCount} Kişi: ${targetNamesText})`
+                    : `Kişiye Özel: ${targetNamesText}`}
+                </span>
               </span>
             )}
 
-            {note.targetUserId === 'all' && (
+            {isAllTarget && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
                 <Users className="w-3 h-3" />
                 <span>Tüm Personel (Genel)</span>
               </span>
             )}
 
-            {isAdmin && (!note.targetUserId || note.targetUserId === 'self') && (
+            {isAdmin && isSelfTarget && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400">
                 <Lock className="w-3 h-3" />
                 <span>Sadece Kendim</span>

@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, StickyNote, Search, X, Bell, Mail, User } from 'lucide-react';
+import { Plus, StickyNote, Search, X, Bell, Mail, Users } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { NoteCard } from '../components/notes/NoteCard';
 import { NoteModal } from '../components/notes/NoteModal';
-import { GeneralNote } from '../types/storage';
+import { GeneralNote, NoteTargetMode } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
 
 export const NotesView: React.FC = () => {
@@ -26,15 +26,26 @@ export const NotesView: React.FC = () => {
 
   const directNotesCount = useMemo(() => {
     if (isAdmin) {
-      return notes.filter((n) => n.targetUserId && n.targetUserId !== 'self' && n.targetUserId !== 'all').length;
+      return notes.filter(
+        (n) =>
+          n.targetMode === 'custom' ||
+          (n.targetUserId && n.targetUserId !== 'self' && n.targetUserId !== 'all')
+      ).length;
     }
-    return notes.filter((n) => n.targetUserId === currentUser?.id && n.createdBy !== currentUser?.id).length;
+    return notes.filter(
+      (n) =>
+        n.createdBy !== currentUser?.id &&
+        ((n.targetMode === 'custom' && n.targetUserIds?.includes(currentUser?.id || '')) ||
+          n.targetUserId === currentUser?.id)
+    ).length;
   }, [notes, isAdmin, currentUser]);
 
   const filteredNotes = useMemo(() => {
     return sortedNotes.filter((n) => {
+      const allTargetNames = (n.targetUserNames || []).join(' ');
       const matchesSearch =
         n.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        allTargetNames.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (n.targetUserName && n.targetUserName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (n.createdByName && n.createdByName.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -45,9 +56,16 @@ export const NotesView: React.FC = () => {
       }
       if (activeFilter === 'direct') {
         if (isAdmin) {
-          return Boolean(n.targetUserId && n.targetUserId !== 'self' && n.targetUserId !== 'all');
+          return (
+            n.targetMode === 'custom' ||
+            Boolean(n.targetUserId && n.targetUserId !== 'self' && n.targetUserId !== 'all')
+          );
         }
-        return n.targetUserId === currentUser?.id && n.createdBy !== currentUser?.id;
+        return (
+          n.createdBy !== currentUser?.id &&
+          ((n.targetMode === 'custom' && n.targetUserIds?.includes(currentUser?.id || '')) ||
+            n.targetUserId === currentUser?.id)
+        );
       }
 
       return true;
@@ -68,13 +86,29 @@ export const NotesView: React.FC = () => {
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
-    targetUserId?: string,
-    targetUserName?: string
+    targetMode?: NoteTargetMode,
+    targetUserIds?: string[],
+    targetUserNames?: string[]
   ) => {
     if (editingNote) {
-      await updateNote(editingNote.id, content, reminderActive, reminderDate, targetUserId, targetUserName);
+      await updateNote(
+        editingNote.id,
+        content,
+        reminderActive,
+        reminderDate,
+        targetMode,
+        targetUserIds,
+        targetUserNames
+      );
     } else {
-      await addNote(content, reminderActive, reminderDate, targetUserId, targetUserName);
+      await addNote(
+        content,
+        reminderActive,
+        reminderDate,
+        targetMode,
+        targetUserIds,
+        targetUserNames
+      );
     }
   };
 
@@ -147,8 +181,8 @@ export const NotesView: React.FC = () => {
                   : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {isAdmin ? <User className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
-              <span>{isAdmin ? `Kişiye Özel Paylaşılanlar (${directNotesCount})` : `Bana Gelen Notlar (${directNotesCount})`}</span>
+              {isAdmin ? <Users className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+              <span>{isAdmin ? `Kişi(ler)e Özel Paylaşılanlar (${directNotesCount})` : `Bana Gelen Notlar (${directNotesCount})`}</span>
             </button>
           )}
         </div>
@@ -174,7 +208,7 @@ export const NotesView: React.FC = () => {
           <p className="text-xs text-slate-400 leading-relaxed mb-5">
             {searchQuery
               ? 'Lütfen arama teriminizi kontrol edin.'
-              : 'Kendiniz için not alabilir veya belirli bir kullanıcıya özel not paylaşabilirsiniz.'}
+              : 'Kendiniz için not alabilir veya seçtiğiniz kişi(ler)le özel not paylaşabilirsiniz.'}
           </p>
           <button
             onClick={() => {

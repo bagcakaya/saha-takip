@@ -20,14 +20,19 @@ export interface LocationItem {
   tasks: Task[];
 }
 
+export type NoteTargetMode = 'self' | 'all' | 'custom';
+
 export interface GeneralNote {
   id: string;
   content: string;
   createdAt: number;
   createdBy?: string; // User ID who created this note
   createdByName?: string; // User name
-  targetUserId?: string; // 'self' | 'all' | specific user ID
-  targetUserName?: string; // 'Sadece Kendim' | 'Tüm Personel' | specific user name
+  targetMode?: NoteTargetMode; // 'self' | 'all' | 'custom'
+  targetUserIds?: string[]; // Array of target user IDs
+  targetUserNames?: string[]; // Array of target user names
+  targetUserId?: string; // Legacy single user ID / fallback
+  targetUserName?: string; // Legacy single user name / fallback
   reminderActive: boolean;
   reminderDate?: string; // ISO String
   notified?: boolean;
