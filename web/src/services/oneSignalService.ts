@@ -110,8 +110,9 @@ export const OneSignalService = {
     targetMode?: 'all' | 'custom' | 'self';
     targetUserIds?: string[];
     url?: string;
+    sendAfter?: string;
   }): Promise<void> {
-    const { title, message, targetMode = 'all', targetUserIds = [], url } = params;
+    const { title, message, targetMode = 'all', targetUserIds = [], url, sendAfter } = params;
 
     // If API Key or App ID is not configured, skip
     if (
@@ -138,6 +139,10 @@ export const OneSignalService = {
         contents: { en: message, tr: message },
         url: url || 'https://saha-takip-beige.vercel.app',
       };
+
+      if (sendAfter) {
+        payload.send_after = sendAfter;
+      }
 
       if (targetMode === 'all') {
         payload.included_segments = ['Total Subscriptions'];

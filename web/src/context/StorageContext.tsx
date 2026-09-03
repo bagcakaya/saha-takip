@@ -479,6 +479,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Send hardware push notification directly to locked phones via OneSignal
     if (targetMode !== 'self') {
+      // 1. Immediate arrival alert
       OneSignalService.sendPushNotification({
         title: `📩 ${newNote.createdByName} Size Yeni Bir Not İletti!`,
         message: newNote.content,
@@ -486,6 +487,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds,
         url: 'https://saha-takip-beige.vercel.app',
       });
+
+      // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
+      if (reminderActive && reminderDate) {
+        OneSignalService.sendPushNotification({
+          title: `🔔 Görev & Not Hatırlatıcısı (${newNote.createdByName})`,
+          message: newNote.content,
+          targetMode,
+          targetUserIds,
+          url: 'https://saha-takip-beige.vercel.app',
+          sendAfter: new Date(reminderDate).toISOString(),
+        });
+      }
     }
 
     const newNotes = [newNote, ...allNotes];
