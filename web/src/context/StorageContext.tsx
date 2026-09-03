@@ -5,6 +5,7 @@ import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
 import { useAuth } from './AuthContext';
 import { supabase } from '../services/supabaseClient';
+import { OneSignalService } from '../services/oneSignalService';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -474,6 +475,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id));
       seenNotes.add(newNote.id);
       saveStoredSet(SEEN_NOTES_KEY(user.id), seenNotes);
+    }
+
+    // Send hardware push notification directly to locked phones via OneSignal
+    if (targetMode !== 'self') {
+      OneSignalService.sendPushNotification({
+        title: `📩 ${newNote.createdByName} Size Yeni Bir Not İletti!`,
+        message: newNote.content,
+        targetMode,
+        targetUserIds,
+        url: 'https://saha-takip-beige.vercel.app',
+      });
     }
 
     const newNotes = [newNote, ...allNotes];

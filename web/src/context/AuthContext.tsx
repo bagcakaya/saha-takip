@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserAccount, UserRole } from '../types/auth';
 import { UserService } from '../services/userService';
 import { supabase } from '../services/supabaseClient';
+import { OneSignalService } from '../services/oneSignalService';
 
 interface AuthContextType {
   user: User | null;
@@ -38,6 +39,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     setIsAuthenticated(Boolean(user));
+    if (user) {
+      OneSignalService.loginUser(user.id, user.name, user.role);
+    }
   }, [user]);
 
   // Initial cloud fetch & realtime subscription
@@ -79,6 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const authenticatedUser = authResult.user;
     setUser(authenticatedUser);
     setIsAuthenticated(true);
+    OneSignalService.loginUser(authenticatedUser.id, authenticatedUser.name, authenticatedUser.role);
 
     try {
       if (rememberMe) {
@@ -96,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    OneSignalService.logoutUser();
     setUser(null);
     setIsAuthenticated(false);
     try {
