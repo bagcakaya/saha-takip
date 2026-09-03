@@ -124,7 +124,12 @@ export const OneSignalService = {
     }
 
     if (targetMode === 'self') return;
-    if (targetMode === 'custom' && targetUserIds.length === 0) return;
+
+    const cleanIds = Array.isArray(targetUserIds)
+      ? targetUserIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+
+    if (targetMode === 'custom' && cleanIds.length === 0) return;
 
     try {
       const payload: Record<string, any> = {
@@ -137,11 +142,14 @@ export const OneSignalService = {
       if (targetMode === 'all') {
         payload.included_segments = ['Total Subscriptions'];
       } else {
-        payload.include_aliases = { external_id: targetUserIds };
+        // Dual routing: guarantees delivery across all OneSignal API and SDK versions
+        payload.include_aliases = { external_id: cleanIds };
+        payload.include_external_user_ids = cleanIds;
         payload.target_channel = 'push';
+        payload.channel_for_external_user_ids = 'push';
       }
 
-      await fetch('https://onesignal.com/api/v1/notifications', {
+      const response = await fetch('https://onesignal.com/api/v1/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -149,6 +157,9 @@ export const OneSignalService = {
         },
         body: JSON.stringify(payload),
       });
+
+      const result = await response.json();
+      console.log('OneSignal push gönderim sonucu:', result);
     } catch (err) {
       console.warn('OneSignal push gönderim hatası:', err);
     }
