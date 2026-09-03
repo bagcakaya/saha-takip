@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download, X, Bell, Smartphone, Share, PlusSquare } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
+import { OneSignalService } from '../../services/oneSignalService';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -83,6 +84,7 @@ export const PwaInstallPrompt: React.FC = () => {
     }
 
     const granted = await NotificationService.requestPermission();
+    await OneSignalService.requestPermission();
     if (granted) {
       setNotificationState('granted');
       NotificationService.sendNotification(
