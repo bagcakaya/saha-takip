@@ -38,7 +38,7 @@ export const OneSignalService = {
         appId: ONESIGNAL_CONFIG.APP_ID,
         allowLocalhostAsSecureOrigin: ONESIGNAL_CONFIG.ALLOW_LOCAL_HOST,
         serviceWorkerParam: { scope: '/' },
-        serviceWorkerPath: '/OneSignalSDKWorker.js',
+        serviceWorkerPath: '/sw.js',
       });
     });
   },
@@ -138,6 +138,10 @@ export const OneSignalService = {
         headings: { en: title, tr: title },
         contents: { en: message, tr: message },
         url: url || 'https://saha-takip-beige.vercel.app',
+        priority: 10,
+        android_visibility: 1,
+        android_sound: 'default',
+        ios_sound: 'default',
       };
 
       if (sendAfter) {
