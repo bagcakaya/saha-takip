@@ -63,6 +63,7 @@ const generateId = () => {
 
 const SEEN_NOTES_KEY = (userId: string) => `@seen_notes_${userId}`;
 const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
+const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -83,7 +84,7 @@ const saveStoredSet = (key: string, setObj: Set<string>) => {
 };
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
@@ -148,7 +149,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
-        const nts = await StorageService.getNotes();
+        const [locs, nts] = await Promise.all([
+          StorageService.getLocations(),
+          StorageService.getNotes(),
+        ]);
+        setAllLocations((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(locs)) {
+            return locs;
+          }
+          return prev;
+        });
         setAllNotes((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(nts)) {
             return nts;
@@ -268,6 +278,40 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [allNotes, user]);
 
+  // Check incoming locations from staff members (Admin notification)
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || allLocations.length === 0) return;
+
+    const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id));
+    let seenChanged = false;
+
+    allLocations.forEach((loc) => {
+      // If created by a staff member (or someone else)
+      if (loc.createdBy && loc.createdBy !== user.id) {
+        if (!seenLocs.has(loc.id)) {
+          seenLocs.add(loc.id);
+          seenChanged = true;
+
+          const staffName = loc.createdByName || 'Saha Personeli';
+          const title = '📍 Yeni Kurulum Eklendi!';
+          const body = `${staffName}, "${loc.name}" için yeni bir kurulum kaydı oluşturdu.`;
+
+          NotificationService.sendNotification(title, body);
+          setActiveToast({ title, body });
+        }
+      } else if (loc.createdBy === user.id) {
+        if (!seenLocs.has(loc.id)) {
+          seenLocs.add(loc.id);
+          seenChanged = true;
+        }
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(SEEN_LOCATIONS_KEY(user.id), seenLocs);
+    }
+  }, [allLocations, user]);
+
   const dismissToast = () => {
     setActiveToast(null);
   };
@@ -290,7 +334,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveNotes(newNotes);
   };
 
-  // Add location with creator tracking
+  // Add location with creator tracking & Admin notification
   const addLocation = async (name: string) => {
     if (!name.trim()) return;
     const newLocation: LocationItem = {
@@ -305,18 +349,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         status: 'pending',
       })),
     };
+
+    // Mark as seen on creator's device immediately
+    if (user?.id) {
+      const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id));
+      seenLocs.add(newLocation.id);
+      saveStoredSet(SEEN_LOCATIONS_KEY(user.id), seenLocs);
+    }
+
     const newLocations = [newLocation, ...allLocations];
     await saveLocations(newLocations);
+
+    // If added by Field Staff, send hardware push notification directly to all Admins!
+    if (user?.role !== 'admin') {
+      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+      if (adminIds.length > 0) {
+        const staffName = user?.name || user?.username || 'Saha Personeli';
+        OneSignalService.sendPushNotification({
+          title: '📍 Yeni Kurulum Eklendi!',
+          message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app',
+        });
+      }
+    }
   };
 
-  // Delete location
+  // Delete location (guarded: admin or creator only)
   const deleteLocation = async (id: string) => {
+    const target = allLocations.find((loc) => loc.id === id);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      alert('Bu kurulumu silme yetkiniz bulunmuyor.');
+      return;
+    }
     const newLocations = allLocations.filter((loc) => loc.id !== id);
     await saveLocations(newLocations);
   };
 
-  // Update task status inside a location
+  // Update task status inside a location (guarded: admin or creator only)
   const updateTaskStatus = async (locationId: string, taskId: string, status: TaskStatus) => {
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         return {
@@ -334,9 +410,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Add custom task to specific location
+  // Add custom task to specific location (guarded: admin or creator only)
   const addCustomTaskToLocation = async (locationId: string, taskName: string) => {
     if (!taskName.trim()) return;
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         return {
@@ -356,8 +436,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Delete custom task from specific location
+  // Delete custom task from specific location (guarded: admin or creator only)
   const deleteCustomTaskFromLocation = async (locationId: string, taskId: string) => {
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         return {
@@ -388,7 +472,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveStandardTasks(DEFAULT_STANDARD_TASKS);
   };
 
-  // Update location address, notes, and optionally name & coordinates
+  // Update location address, notes, and optionally name & coordinates (guarded: admin or creator only)
   const updateLocationDetails = async (
     locationId: string,
     address: string,
@@ -397,6 +481,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     longitude?: number,
     name?: string
   ) => {
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         return {
@@ -413,8 +501,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Add photo to location
+  // Add photo to location (guarded: admin or creator only)
   const addPhotoToLocation = async (locationId: string, photoDataUrl: string) => {
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         const currentPhotos = loc.photos || [];
@@ -428,8 +520,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Delete photo from location
+  // Delete photo from location (guarded: admin or creator only)
   const deletePhotoFromLocation = async (locationId: string, photoDataUrl: string) => {
+    const target = allLocations.find((loc) => loc.id === locationId);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      return;
+    }
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         const currentPhotos = loc.photos || [];
