@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   FileText,
   User as UserIcon,
+  MessageCircle,
 } from 'lucide-react';
 import { LocationItem } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
 import { LocationService } from '../../services/locationService';
+import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
 
 interface LocationCardProps {
@@ -182,6 +184,21 @@ export const LocationCard: React.FC<LocationCardProps> = ({
             aria-label="Haritada Göster"
           >
             <MapPin className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              WhatsappService.shareLocation({
+                locationName: location.name,
+                staffName: location.createdByName || 'Saha Yetkilisi',
+              });
+            }}
+            className="p-2 rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors"
+            title="WhatsApp ile Paylaş / Yöneticiye Bildir"
+            aria-label="WhatsApp ile Paylaş"
+          >
+            <MessageCircle className="w-4 h-4" />
           </button>
 
           <button

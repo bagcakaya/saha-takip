@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { GeneralNote, NoteTargetMode } from '../../types/storage';
-import { Bell, Calendar, Clock, Users, Check } from 'lucide-react';
+import { Bell, Calendar, Clock, Users, Check, MessageCircle } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
+import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
 
 interface NoteModalProps {
@@ -34,6 +35,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const [timeStr, setTimeStr] = useState('');
   const [targetMode, setTargetMode] = useState<NoteTargetMode>('self');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Other users list (excluding current user)
@@ -155,6 +157,15 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         targetMode === 'custom' ? selectedUserIds : [],
         targetMode === 'custom' ? targetUserNames : []
       );
+
+      if (notifyWhatsapp && targetMode !== 'self') {
+        WhatsappService.shareNote({
+          content: content.trim(),
+          senderName: currentUser?.name || currentUser?.username || 'Yetkili',
+          targetUserName: targetMode === 'all' ? 'Tüm Personeller' : targetUserNames.join(', '),
+        });
+      }
+
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -381,6 +392,22 @@ export const NoteModal: React.FC<NoteModalProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* WhatsApp Notification Option */}
+        {targetMode !== 'self' && (
+          <label className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer transition-colors hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40">
+            <input
+              type="checkbox"
+              checked={notifyWhatsapp}
+              onChange={(e) => setNotifyWhatsapp(e.target.checked)}
+              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+            />
+            <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+              Kaydedildiğinde WhatsApp ile İlet
+            </span>
+          </label>
         )}
 
         {/* Action Buttons */}

@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
+import { MessageCircle } from 'lucide-react';
+import { WhatsappService } from '../../services/whatsappService';
+import { useAuth } from '../../context/AuthContext';
 
 interface AddLocationModalProps {
   isOpen: boolean;
@@ -12,16 +15,25 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
   onClose,
   onAdd,
 }) => {
+  const { user } = useAuth();
   const [name, setName] = useState('');
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const locName = name.trim();
+    if (!locName) return;
 
     try {
       setIsSubmitting(true);
-      await onAdd(name.trim());
+      await onAdd(locName);
+      if (notifyWhatsapp) {
+        WhatsappService.shareLocation({
+          locationName: locName,
+          staffName: user?.name || user?.username || 'Saha Yetkilisi',
+        });
+      }
       setName('');
       onClose();
     } finally {
@@ -46,6 +58,20 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
           />
         </div>
 
+        {/* WhatsApp Notification Option */}
+        <label className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer transition-colors hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40">
+          <input
+            type="checkbox"
+            checked={notifyWhatsapp}
+            onChange={(e) => setNotifyWhatsapp(e.target.checked)}
+            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+          />
+          <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+            Eklendiğinde WhatsApp ile Bildir
+          </span>
+        </label>
+
         <div className="flex items-center gap-3 pt-2">
           <button
             type="button"
@@ -57,9 +83,16 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
           <button
             type="submit"
             disabled={!name.trim() || isSubmitting}
-            className="flex-1 py-3 px-4 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white text-sm font-bold shadow-md disabled:opacity-50 transition-all"
+            className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
           >
-            {isSubmitting ? 'Ekleniyor...' : 'Ekle'}
+            {isSubmitting ? (
+              'Ekleniyor...'
+            ) : (
+              <>
+                <MessageCircle className="w-4 h-4" />
+                <span>Kaydet {notifyWhatsapp ? '& Gönder' : ''}</span>
+              </>
+            )}
           </button>
         </div>
       </form>

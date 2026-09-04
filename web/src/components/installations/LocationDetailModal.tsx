@@ -6,6 +6,7 @@ import {
   ListTodo,
   FileText,
   Loader2,
+  MessageCircle,
 } from 'lucide-react';
 import { LocationItem, TaskStatus } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
@@ -13,6 +14,7 @@ import { ChecklistTab } from './ChecklistTab';
 import { NotesMediaTab } from './NotesMediaTab';
 import { Lightbox } from '../common/Lightbox';
 import { PdfService } from '../../services/pdfService';
+import { WhatsappService } from '../../services/whatsappService';
 
 interface LocationDetailModalProps {
   location: LocationItem | null;
@@ -102,6 +104,20 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
 
             {/* Header Right Actions */}
             <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => {
+                  WhatsappService.shareLocation({
+                    locationName: location.name,
+                    staffName: location.createdByName || 'Saha Yetkilisi',
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold transition-colors border border-emerald-200/80 dark:border-emerald-800/80"
+                title="WhatsApp ile Paylaş / Yöneticiye Bildir"
+              >
+                <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
+
               <button
                 onClick={handleExportPdf}
                 disabled={isExportingPdf}

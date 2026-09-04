@@ -1,7 +1,8 @@
 import React from 'react';
-import { Edit3, Trash2, Bell, BellRing, User, Users, Lock, Mail } from 'lucide-react';
+import { Edit3, Trash2, Bell, BellRing, User, Users, Lock, Mail, MessageCircle } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { WhatsappService } from '../../services/whatsappService';
 
 interface NoteCardProps {
   note: GeneralNote;
@@ -117,33 +118,51 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
           </div>
         </div>
 
-        {/* Action Buttons: Only Creator or Admin can Edit / Delete */}
-        {canModify ? (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={onEdit}
-              className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-              title="Notu Düzenle / Hatırlatıcıyı Ertele"
-              aria-label="Düzenle"
-            >
-              <Edit3 className="w-4 h-4" />
-            </button>
+        {/* Actions Strip */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => {
+              WhatsappService.shareNote({
+                content: note.content,
+                senderName: note.createdByName || 'Yetkili',
+                targetUserName: note.targetUserName,
+              });
+            }}
+            className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+            title="WhatsApp ile İlet / Paylaş"
+            aria-label="WhatsApp ile Paylaş"
+          >
+            <MessageCircle className="w-4 h-4" />
+          </button>
 
-            <button
-              onClick={onDelete}
-              className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-              title="Notu Sil"
-              aria-label="Sil"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-slate-400 text-[10px] font-bold">
-            <Lock className="w-3 h-3" />
-            <span>Kilitli</span>
-          </div>
-        )}
+          {/* Action Buttons: Only Creator or Admin can Edit / Delete */}
+          {canModify ? (
+            <>
+              <button
+                onClick={onEdit}
+                className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                title="Notu Düzenle / Hatırlatıcıyı Ertele"
+                aria-label="Düzenle"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={onDelete}
+                className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                title="Notu Sil"
+                aria-label="Sil"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-slate-400 text-[10px] font-bold">
+              <Lock className="w-3 h-3" />
+              <span>Kilitli</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Note Content */}
