@@ -87,7 +87,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
             {isDirectToMe && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                 <Mail className="w-3 h-3" />
-                <span>Yönetici Tarafından Size Gönderildi (Salt Okunur)</span>
+                <span>Yönetici Tarafından Size Atandı (Salt Okunur)</span>
               </span>
             )}
 
@@ -141,7 +141,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
               <button
                 onClick={onEdit}
                 className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                title="Notu Düzenle / Hatırlatıcıyı Ertele"
+                title="İş Emrini Düzenle / Hatırlatıcıyı Ertele"
                 aria-label="Düzenle"
               >
                 <Edit3 className="w-4 h-4" />
@@ -150,7 +150,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
               <button
                 onClick={onDelete}
                 className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-                title="Notu Sil"
+                title="İş Emrini Sil"
                 aria-label="Sil"
               >
                 <Trash2 className="w-4 h-4" />

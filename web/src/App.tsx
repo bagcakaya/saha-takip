@@ -54,8 +54,8 @@ const MainApp: React.FC = () => {
         };
       case 'notes':
         return {
-          subtitle: 'Not Defteri',
-          title: 'Notlar & Hatırlatıcılar',
+          subtitle: 'Görev & Takip',
+          title: 'İş Emirleri & Hatırlatıcılar',
         };
       case 'template':
         return {

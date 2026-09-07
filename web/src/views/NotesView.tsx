@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, StickyNote, Search, X, Bell, Mail, Users } from 'lucide-react';
+import { Plus, ClipboardList, Search, X, Bell, Mail, Users } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { NoteCard } from '../components/notes/NoteCard';
 import { NoteModal } from '../components/notes/NoteModal';
@@ -124,7 +124,7 @@ export const NotesView: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Not veya personel adında ara..."
+              placeholder="İş emri veya personel adında ara..."
               className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium"
             />
             {searchQuery && (
@@ -143,7 +143,7 @@ export const NotesView: React.FC = () => {
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all active:scale-95 shrink-0"
           >
             <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>Yeni Not Ekle</span>
+            <span>Yeni İş Emri Ekle</span>
           </button>
         </div>
 
@@ -157,7 +157,7 @@ export const NotesView: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Tüm Notlar ({notes.length})
+            Tüm İş Emirleri ({notes.length})
           </button>
 
           <button
@@ -182,7 +182,7 @@ export const NotesView: React.FC = () => {
               }`}
             >
               {isAdmin ? <Users className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
-              <span>{isAdmin ? `Kişi(ler)e Özel Paylaşılanlar (${directNotesCount})` : `Bana Gelen Notlar (${directNotesCount})`}</span>
+              <span>{isAdmin ? `Personele Atanan İş Emirleri (${directNotesCount})` : `Bana Atanan İş Emirleri (${directNotesCount})`}</span>
             </button>
           )}
         </div>
@@ -194,21 +194,21 @@ export const NotesView: React.FC = () => {
       ) : filteredNotes.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 p-8 max-w-xl mx-auto shadow-xs">
           <div className="w-16 h-16 rounded-3xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900/50 flex items-center justify-center mx-auto mb-4 text-blue-500">
-            <StickyNote className="w-8 h-8" />
+            <ClipboardList className="w-8 h-8" />
           </div>
           <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 mb-1.5">
             {searchQuery
-              ? 'Aramayla eşleşen not bulunamadı'
+              ? 'Aramayla eşleşen iş emri bulunamadı'
               : activeFilter === 'reminders'
               ? 'Henüz kurulmuş bir hatırlatıcı yok'
               : activeFilter === 'direct'
-              ? 'Henüz bu filtrede not bulunmuyor'
-              : 'Henüz not eklenmedi'}
+              ? 'Henüz bu filtrede iş emri bulunmuyor'
+              : 'Henüz iş emri eklenmedi'}
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed mb-5">
             {searchQuery
               ? 'Lütfen arama teriminizi kontrol edin.'
-              : 'Kendiniz için not alabilir veya seçtiğiniz kişi(ler)le özel not paylaşabilirsiniz.'}
+              : 'Kendiniz için iş emri oluşturabilir veya personele iş emri atayabilirsiniz.'}
           </p>
           <button
             onClick={() => {
@@ -223,7 +223,7 @@ export const NotesView: React.FC = () => {
           >
             <Plus className="w-4 h-4" />
             <span>
-              {activeFilter !== 'all' || searchQuery ? 'Filtreyi Temizle' : 'İlk Notu Ekle'}
+              {activeFilter !== 'all' || searchQuery ? 'Filtreyi Temizle' : 'İlk İş Emrini Ekle'}
             </span>
           </button>
         </div>
@@ -240,10 +240,10 @@ export const NotesView: React.FC = () => {
               }}
               onDelete={() => {
                 if (!isAdmin && note.createdBy !== currentUser?.id) {
-                  alert('Bu not yönetici tarafından eklenmiştir. Yalnızca notu ekleyen yetkili silebilir.');
+                  alert('Bu iş emri yönetici tarafından eklenmiştir. Yalnızca oluşturan yetkili silebilir.');
                   return;
                 }
-                if (window.confirm('Bu notu silmek istediğinize emin misiniz?')) {
+                if (window.confirm('Bu iş emrini silmek istediğinize emin misiniz?')) {
                   deleteNote(note.id);
                 }
               }}

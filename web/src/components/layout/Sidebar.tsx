@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Building2,
-  StickyNote,
+  ClipboardList,
   ListTodo,
   Users,
   LogOut,
@@ -105,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </span>
             </button>
 
-            {/* 2. Notlar & Hatırlatıcılar */}
+            {/* 2. İş Emirleri & Hatırlatıcılar */}
             <button
               onClick={() => setActiveTab('notes')}
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
@@ -115,8 +115,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               }`}
             >
               <div className="flex items-center gap-3">
-                <StickyNote className="w-4 h-4" />
-                <span>Notlar & Hatırlatıcı</span>
+                <ClipboardList className="w-4 h-4" />
+                <span>İş Emirleri & Hatırlatıcı</span>
               </div>
               {remindersCount > 0 && (
                 <span

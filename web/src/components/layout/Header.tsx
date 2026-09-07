@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { Building2, StickyNote, ListTodo, LogOut, User, Users, ShieldCheck } from 'lucide-react';
+import { Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 
@@ -71,8 +71,8 @@ export const Header: React.FC<HeaderProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
               }`}
             >
-              <StickyNote className="w-4 h-4" />
-              <span>Notlar</span>
+              <ClipboardList className="w-4 h-4" />
+              <span>İş Emirleri</span>
             </button>
             <button
               onClick={() => setActiveTab('template')}

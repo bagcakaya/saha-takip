@@ -120,7 +120,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     if (!content.trim()) return;
 
     if (isAdmin && targetMode === 'custom' && selectedUserIds.length === 0) {
-      alert('Lütfen notun iletileceği en az 1 kullanıcı seçin veya "Sadece Kendim" modunu belirleyin.');
+      alert('Lütfen iş emrinin iletileceği en az 1 kullanıcı seçin veya "Sadece Kendim" modunu belirleyin.');
       return;
     }
 
@@ -176,7 +176,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={editingNote ? 'Notu Düzenle' : 'Yeni Not & Hatırlatıcı'}
+      title={editingNote ? 'İş Emrini Düzenle' : 'Yeni İş Emri & Hatırlatıcı'}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Target User / Visibility Selector for Admin */}
@@ -184,7 +184,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-3">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-blue-500" />
-              <span>Not Kiminle Paylaşılsın?</span>
+              <span>İş Emri Kiminle Paylaşılsın?</span>
             </label>
 
             {/* Target Mode Segment Buttons */}
@@ -305,11 +305,11 @@ export const NoteModal: React.FC<NoteModalProps> = ({
 
             <span className="text-[11px] text-slate-400 block">
               {targetMode === 'self'
-                ? 'Bu notu sadece siz görebilirsiniz.'
+                ? 'Bu iş emrini sadece siz görebilirsiniz.'
                 : targetMode === 'all'
-                ? 'Bu not tüm saha ekibine ve yöneticilere açık duyuru olacaktır.'
+                ? 'Bu iş emri tüm saha ekibine ve yöneticilere açık duyuru olacaktır.'
                 : selectedUserIds.length > 0
-                ? `Bu not yalnızca seçtiğiniz ${selectedUserIds.length} kullanıcıya özel olarak iletilecektir.`
+                ? `Bu iş emri yalnızca seçtiğiniz ${selectedUserIds.length} personele özel olarak iletilecektir.`
                 : 'Lütfen listeden en az bir kullanıcı seçin.'}
             </span>
           </div>
@@ -318,13 +318,13 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         {/* Textarea */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-            Not İçeriği
+            İş Emri Detayları
           </label>
           <textarea
             rows={4}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Notunuzu yazın..."
+            placeholder="İş emri detaylarını yazın..."
             autoFocus
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium resize-none"
           />

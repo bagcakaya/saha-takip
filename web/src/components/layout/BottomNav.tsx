@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, StickyNote, ListTodo } from 'lucide-react';
+import { Building2, ClipboardList, ListTodo } from 'lucide-react';
 import { TabType } from './Header';
 
 interface BottomNavProps {
@@ -29,7 +29,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           <span className="text-[11px] tracking-tight">Kurulumlar</span>
         </button>
 
-        {/* Tab 2: Notlar */}
+        {/* Tab 2: İş Emirleri */}
         <button
           onClick={() => setActiveTab('notes')}
           className={`flex-1 flex flex-col items-center justify-center py-1 relative transition-all ${
@@ -39,14 +39,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           }`}
         >
           <div className="relative">
-            <StickyNote className={`w-5 h-5 mb-1 ${activeTab === 'notes' ? 'stroke-[2.5]' : ''}`} />
+            <ClipboardList className={`w-5 h-5 mb-1 ${activeTab === 'notes' ? 'stroke-[2.5]' : ''}`} />
             {notesCount > 0 && (
               <span className="absolute -top-1 -right-2 w-4 h-4 bg-blue-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
                 {notesCount > 9 ? '9+' : notesCount}
               </span>
             )}
           </div>
-          <span className="text-[11px] tracking-tight">Notlar</span>
+          <span className="text-[11px] tracking-tight">İş Emirleri</span>
         </button>
 
         {/* Tab 3: Şablon */}

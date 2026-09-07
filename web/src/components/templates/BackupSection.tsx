@@ -76,7 +76,7 @@ export const BackupSection: React.FC = () => {
       </div>
 
       <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-        Tüm geçmiş kurulumlarınızı, görev durumlarını, adresleri, fotoğrafları ve notları JSON dosyası olarak yedekleyin veya başka bir cihaza/tarayıcıya aktarın.
+        Tüm geçmiş kurulumlarınızı, görev durumlarını, adresleri, fotoğrafları ve iş emirlerini JSON dosyası olarak yedekleyin veya başka bir cihaza/tarayıcıya aktarın.
       </p>
 
       {/* Action Buttons */}

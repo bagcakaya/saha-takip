@@ -74,11 +74,11 @@ export const WhatsappService = {
     const { content, senderName, targetUserName, targetPhone } = params;
 
     const message = [
-      '📩 *YENİ GÖREV / NOT BİLDİRİMİ*',
+      '📋 *YENİ İŞ EMRİ BİLDİRİMİ*',
       '━━━━━━━━━━━━━━━━━━━',
       `👤 *Gönderen:* ${senderName}`,
       targetUserName ? `🎯 *Kime:* ${targetUserName}` : '',
-      `📝 *Not:* ${content}`,
+      `📝 *İş Emri:* ${content}`,
       '━━━━━━━━━━━━━━━━━━━',
       '🔗 *Saha Takip Paneli:*',
       'https://saha-takip-beige.vercel.app',

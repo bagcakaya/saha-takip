@@ -352,7 +352,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 Yetki Bilgilendirmesi:
               </span>
               • <strong>Sistem Yöneticisi (Admin)</strong>: Diğer kullanıcıları yönetebilir, yeni kullanıcılar ekleyebilir ve yetkilerini değiştirebilir.
-              <br />• <strong>Saha Yetkilisi</strong>: Kurulumları, notları ve şablonları yönetebilir fakat Kullanıcı Yönetim Paneline erişemez.
+              <br />• <strong>Saha Yetkilisi</strong>: Kurulumları, iş emirlerini ve şablonları yönetebilir fakat Kullanıcı Yönetim Paneline erişemez.
             </div>
 
             <button

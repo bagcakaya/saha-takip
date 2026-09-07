@@ -89,7 +89,7 @@ export const PwaInstallPrompt: React.FC = () => {
       setNotificationState('granted');
       NotificationService.sendNotification(
         '🔔 Bildirimler Aktif Edildi',
-        'Yöneticinizin size ileteceği tüm notlar telefonunuza anında bildirim olarak düşecektir.'
+        'Yöneticinizin size ileteceği tüm iş emirleri telefonunuza anında bildirim olarak düşecektir.'
       );
     } else {
       if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -126,7 +126,7 @@ export const PwaInstallPrompt: React.FC = () => {
               <p className="text-[11px] text-slate-300 line-clamp-1">
                 {!isInstalled
                   ? 'Uygulama olarak kullanıp bildirimleri almak için ekleyin.'
-                  : 'Görev notlarını kilit ekranında almak için bildirimleri açın.'}
+                  : 'İş emirlerini kilit ekranında almak için bildirimleri açın.'}
               </p>
             </div>
           </div>

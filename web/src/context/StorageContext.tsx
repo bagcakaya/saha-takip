@@ -237,7 +237,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           seenNotesChanged = true;
 
           const sender = n.createdByName || 'Yönetici';
-          const title = `📩 ${sender} Size Yeni Bir Not İletti!`;
+          const title = `📋 ${sender} Size Yeni Bir İş Emri İletti!`;
           NotificationService.sendNotification(title, n.content);
           setActiveToast({ title, body: n.content });
         }
@@ -262,7 +262,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             seenReminders.add(n.id);
             seenRemindersChanged = true;
 
-            const title = '🔔 Görev & Not Hatırlatıcısı';
+            const title = '⏰ İş Emri Hatırlatıcısı';
             NotificationService.sendNotification(title, n.content);
             setActiveToast({ title, body: n.content });
           }
@@ -577,7 +577,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (targetMode !== 'self') {
       // 1. Immediate arrival alert
       OneSignalService.sendPushNotification({
-        title: `📩 ${newNote.createdByName} Size Yeni Bir Not İletti!`,
+        title: `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`,
         message: newNote.content,
         targetMode,
         targetUserIds,
@@ -587,7 +587,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
       if (reminderActive && reminderDate) {
         OneSignalService.sendPushNotification({
-          title: `🔔 Görev & Not Hatırlatıcısı (${newNote.createdByName})`,
+          title: `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
           message: newNote.content,
           targetMode,
           targetUserIds,
