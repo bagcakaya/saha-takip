@@ -113,8 +113,20 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          {/* Right side: Admin Users Button, User Profile, Logout & Theme Toggle */}
+          {/* Right side: Quick Ana Menü, Admin Users Button, User Profile, Logout & Theme Toggle */}
           <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Mobile / Tablet Quick 'Ana Menü' Button when inside subpages */}
+            {activeTab !== 'home' && (
+              <button
+                onClick={() => setActiveTab('home')}
+                className="flex md:hidden items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs font-black transition-all active:scale-95 shadow-xs shrink-0"
+                title="Ana Menüye Dön"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span className="text-[11px]">Ana Menü</span>
+              </button>
+            )}
+
             {actionButton}
 
             {/* Admin-only User Management Button */}

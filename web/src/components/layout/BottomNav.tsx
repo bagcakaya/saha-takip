@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, ClipboardList, RotateCcw, ListTodo } from 'lucide-react';
+import { Home, Building2, ClipboardList, RotateCcw, ListTodo } from 'lucide-react';
 import { TabType } from './Header';
 
 interface BottomNavProps {
@@ -18,12 +18,25 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-1">
+        {/* Tab 0: Ana Menü */}
+        <button
+          onClick={() => setActiveTab('home')}
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
+            activeTab === 'home'
+              ? 'text-blue-600 dark:text-blue-400 font-black scale-105'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 font-medium'
+          }`}
+        >
+          <Home className={`w-5 h-5 mb-1 ${activeTab === 'home' ? 'stroke-[2.5]' : ''}`} />
+          <span className="text-[10px] sm:text-[11px] tracking-tight">Ana Menü</span>
+        </button>
+
         {/* Tab 1: Kurulumlar */}
         <button
           onClick={() => setActiveTab('installations')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 transition-all ${
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
             activeTab === 'installations'
-              ? 'text-blue-600 dark:text-blue-400 font-bold scale-105'
+              ? 'text-blue-600 dark:text-blue-400 font-black scale-105'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 font-medium'
           }`}
         >

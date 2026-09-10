@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Plus, Building2, X, Filter, User } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
-import { StatsCard } from '../components/installations/StatsCard';
 import { LocationCard } from '../components/installations/LocationCard';
 import { AddLocationModal } from '../components/installations/AddLocationModal';
 import { LocationDetailModal } from '../components/installations/LocationDetailModal';
@@ -31,45 +30,25 @@ export const InstallationsView: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
 
-  // Stats calculation (based on visible locations)
-  const stats = useMemo(() => {
-    let totalTasks = 0;
-    let completedTasks = 0;
-    let notPresentTasks = 0;
-    let fullyCompletedLocations = 0;
-    let inProgressLocations = 0;
+  // Filter counts for pills
+  const counts = useMemo(() => {
+    let completedCount = 0;
+    let inProgressCount = 0;
 
     locations.forEach((loc) => {
-      let locCompleted = 0;
-      let locNotPresent = 0;
-      loc.tasks.forEach((task) => {
-        totalTasks++;
-        if (task.status === 'completed') {
-          completedTasks++;
-          locCompleted++;
-        }
-        if (task.status === 'not_present') {
-          notPresentTasks++;
-          locNotPresent++;
-        }
-      });
-
-      if (loc.tasks.length > 0 && locCompleted + locNotPresent === loc.tasks.length) {
-        fullyCompletedLocations++;
+      const total = loc.tasks.length;
+      const completed = loc.tasks.filter((t) => t.status === 'completed').length;
+      const notPresent = loc.tasks.filter((t) => t.status === 'not_present').length;
+      if (total > 0 && completed + notPresent === total) {
+        completedCount++;
       } else {
-        inProgressLocations++;
+        inProgressCount++;
       }
     });
 
-    const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-    const notPresentRate = totalTasks > 0 ? Math.round((notPresentTasks / totalTasks) * 100) : 0;
-
     return {
-      totalLocations: locations.length,
-      completionRate,
-      notPresentRate,
-      fullyCompletedLocations,
-      inProgressLocations,
+      inProgressCount,
+      completedCount,
       withLocationCount: locations.filter(
         (l) => Boolean(l.address?.trim() || (l.latitude && l.longitude))
       ).length,
@@ -117,19 +96,7 @@ export const InstallationsView: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-24 md:pb-12 animate-in fade-in duration-200">
-      {/* 1. Executive Stats Cards Bar */}
-      <StatsCard
-        totalLocations={stats.totalLocations}
-        completionRate={stats.completionRate}
-        notPresentRate={stats.notPresentRate}
-        activeFilter={activeFilter}
-        onFilterSelect={(f) => {
-          if (f === 'completed') setActiveFilter('completed');
-          else if (f === 'all') setActiveFilter('all');
-        }}
-      />
-
-      {/* 2. Search, Filter Pills & Add Button Toolbar */}
+      {/* Search, Filter Pills & Add Button Toolbar */}
       <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-3.5 sm:p-4 shadow-xs border border-slate-200/80 dark:border-slate-700/80 space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Search Box */}
@@ -210,7 +177,7 @@ export const InstallationsView: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Devam Edenler ({stats.inProgressLocations})
+            Devam Edenler ({counts.inProgressCount})
           </button>
 
           <button
@@ -221,7 +188,7 @@ export const InstallationsView: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Tamamlananlar ({stats.fullyCompletedLocations})
+            Tamamlananlar ({counts.completedCount})
           </button>
 
           <button
@@ -232,7 +199,7 @@ export const InstallationsView: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Konumlu ({stats.withLocationCount})
+            Konumlu ({counts.withLocationCount})
           </button>
         </div>
       </div>

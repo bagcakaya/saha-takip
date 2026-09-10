@@ -5,8 +5,6 @@ import {
   RotateCcw,
   ListTodo,
   ArrowRight,
-  Bell,
-  Clock,
   Sparkles,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
@@ -23,7 +21,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   const isAdmin = user?.role === 'admin';
   const pendingReturns = returnWarrantyItems.filter((i) => i.status === 'pending').length;
-  const activeReminders = notes.filter((n) => n.reminderActive && n.reminderDate).length;
 
   const todayStr = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
@@ -198,100 +195,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
-      </div>
-
-      {/* Quick Summary Strip: Pending Returns & Upcoming Alarms */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-        {/* Pending Return/Warranty Tracking Alert */}
-        <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-700 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-amber-600 dark:text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <RotateCcw className="w-4 h-4" />
-              <span>Takipteki İade & Garantiler ({pendingReturns})</span>
-            </span>
-            <button
-              onClick={() => onNavigate('returns')}
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-            >
-              <span>Tümünü Gör</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {pendingReturns === 0 ? (
-            <p className="text-xs text-slate-400 py-2">Şu anda bekleyen veya süreçte bir ürün bulunmuyor.</p>
-          ) : (
-            <div className="space-y-2">
-              {returnWarrantyItems
-                .filter((i) => i.status === 'pending')
-                .slice(0, 3)
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => onNavigate('returns')}
-                    className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-400 transition-colors"
-                  >
-                    <div className="min-w-0 space-y-0.5">
-                      <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100 block truncate">
-                        {item.companyName}
-                      </span>
-                      <span className="text-[10px] font-semibold text-slate-400 block truncate">
-                        {item.type === 'warranty' ? '🛡️ Garanti' : '🔄 İade'} • {item.createdByName || 'Yetkili'}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0">
-                      Süreçte
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-
-        {/* Active Alarms & Reminders */}
-        <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-700 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-blue-600 dark:text-blue-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <Bell className="w-4 h-4" />
-              <span>İş Emri Alarmları ({activeReminders})</span>
-            </span>
-            <button
-              onClick={() => onNavigate('notes')}
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-            >
-              <span>İş Emirlerine Git</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {activeReminders === 0 ? (
-            <p className="text-xs text-slate-400 py-2">Kurulmuş bekleyen bir alarm bulunmuyor.</p>
-          ) : (
-            <div className="space-y-2">
-              {notes
-                .filter((n) => n.reminderActive && n.reminderDate)
-                .slice(0, 3)
-                .map((note) => {
-                  const d = new Date(note.reminderDate!);
-                  return (
-                    <div
-                      key={note.id}
-                      onClick={() => onNavigate('notes')}
-                      className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-400 transition-colors"
-                    >
-                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
-                        {note.content}
-                      </p>
-                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 shrink-0 font-mono">
-                        <Clock className="w-3 h-3" />
-                        {d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
