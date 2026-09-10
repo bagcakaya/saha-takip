@@ -46,6 +46,9 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<ReturnWarrantyStatus>('pending');
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
+  const [hasCustomReminder, setHasCustomReminder] = useState(false);
+  const [customReminderDateStr, setCustomReminderDateStr] = useState('');
+  const [customReminderTimeStr, setCustomReminderTimeStr] = useState('09:00');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Hidden file inputs
@@ -75,6 +78,20 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       } else {
         setDefaultDateTime();
       }
+
+      if (editingItem.reminderDate) {
+        const rd = new Date(editingItem.reminderDate);
+        if (!isNaN(rd.getTime())) {
+          setCustomReminderDateStr(rd.toISOString().split('T')[0]);
+          const rhh = String(rd.getHours()).padStart(2, '0');
+          const rmm = String(rd.getMinutes()).padStart(2, '0');
+          setCustomReminderTimeStr(`${rhh}:${rmm}`);
+          setHasCustomReminder(true);
+        }
+      } else {
+        setHasCustomReminder(false);
+        initDefaultReminder();
+      }
     } else {
       setType('warranty');
       setCompanyName('');
@@ -85,6 +102,8 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       setNotes('');
       setStatus('pending');
       setDefaultDateTime();
+      initDefaultReminder();
+      setHasCustomReminder(false);
       setNotifyWhatsapp(false);
     }
   }, [editingItem, isOpen]);
@@ -95,6 +114,12 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
     const hh = String(now.getHours()).padStart(2, '0');
     const mm = String(now.getMinutes()).padStart(2, '0');
     setSentTimeStr(`${hh}:${mm}`);
+  };
+
+  const initDefaultReminder = () => {
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    setCustomReminderDateStr(nextWeek.toISOString().split('T')[0]);
+    setCustomReminderTimeStr('09:00');
   };
 
   // Image compressor & reader
@@ -156,13 +181,13 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
     }
   };
 
-  // Calculate 20 days later date preview
-  const getWarranty20DaysPreview = () => {
+  // Calculate 1 week preview date
+  const getOneWeekPreview = () => {
     if (!sentDateStr) return '';
     try {
       const [y, m, d] = sentDateStr.split('-').map(Number);
       const sent = new Date(y, m - 1, d);
-      sent.setDate(sent.getDate() + 20);
+      sent.setDate(sent.getDate() + 7);
       return sent.toLocaleDateString('tr-TR', {
         day: 'numeric',
         month: 'long',
@@ -189,14 +214,18 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
     const [hours, minutes] = sentTimeStr.split(':').map(Number);
     const combinedSentDate = new Date(year, month - 1, day, hours, minutes, 0);
 
-    // Calculate 20 days automatic alarm for Warranty
+    // Calculate reminder: if custom reminder set, use it; otherwise 1 week after sentDate
     let reminderDate: string | undefined = undefined;
-    let reminderActive = false;
+    const reminderActive = true;
 
-    if (type === 'warranty') {
-      const targetAlarmDate = new Date(combinedSentDate.getTime() + 20 * 24 * 60 * 60 * 1000);
-      reminderDate = targetAlarmDate.toISOString();
-      reminderActive = true;
+    if (hasCustomReminder && customReminderDateStr && customReminderTimeStr) {
+      const [ry, rm, rd] = customReminderDateStr.split('-').map(Number);
+      const [rh, rmin] = customReminderTimeStr.split(':').map(Number);
+      reminderDate = new Date(ry, rm - 1, rd, rh, rmin, 0).toISOString();
+    } else {
+      // 1 week (7 days) automatic reminder
+      const targetAutoDate = new Date(combinedSentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      reminderDate = targetAutoDate.toISOString();
     }
 
     try {
@@ -274,22 +303,74 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
           </div>
         </div>
 
-        {/* 20 Days Automatic Warranty Alarm Banner */}
-        {type === 'warranty' && (
-          <div className="p-3.5 rounded-2xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-start gap-2.5 animate-in fade-in duration-200">
-            <Bell className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-              <span className="font-extrabold block">Otomatik 20 Günlük Garanti Alarmı:</span>
-              Garantiye gönderilen ürünün son durumu hakkında bilgi alınması için gönderim tarihinden 20 gün sonrasına{' '}
-              {getWarranty20DaysPreview() && (
-                <strong className="underline decoration-blue-500 underline-offset-2">
-                  ({getWarranty20DaysPreview()})
+        {/* Hatırlatıcı & Bildirim Ayarları */}
+        <div className="p-3.5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/60 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Hatırlatıcı & Bildirim Ayarı
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setHasCustomReminder(!hasCustomReminder)}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
+                hasCustomReminder
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {hasCustomReminder ? '✓ Özel Tarih Belirlendi' : '+ Özel Hatırlatıcı Kur'}
+            </button>
+          </div>
+
+          {hasCustomReminder ? (
+            <div className="space-y-2 pt-1 animate-in fade-in duration-200">
+              <p className="text-[11px] text-blue-900 dark:text-blue-200 font-medium">
+                Belirttiğiniz bu tarih ve saatte tüm kullanıcılara durum sorgulama bildirimi gönderilecektir:
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Hatırlatıcı Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    required={hasCustomReminder}
+                    value={customReminderDateStr}
+                    onChange={(e) => setCustomReminderDateStr(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Hatırlatıcı Saati
+                  </label>
+                  <input
+                    type="time"
+                    required={hasCustomReminder}
+                    value={customReminderTimeStr}
+                    onChange={(e) => setCustomReminderTimeStr(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-xl border border-blue-100 dark:border-blue-900/40">
+              <span className="font-extrabold block mb-0.5">⚡ Otomatik 1 Haftalık Takip Bildirimi:</span>
+              Özel hatırlatıcı seçilmediğinde, gönderim tarihinden 1 hafta sonra{' '}
+              {getOneWeekPreview() && (
+                <strong className="underline decoration-blue-500 underline-offset-2 font-black">
+                  ({getOneWeekPreview()})
                 </strong>
               )}{' '}
-              tüm ekibe otomatik alarm ve kilit ekranı bildirimi kurulacaktır.
+              tüm kullanıcılara otomatik durum sorgulama bildirimi düşecektir. Ürün 1 haftadan önce dönerse kart üzerindeki &ldquo;İşlemi Tamamla&rdquo; butonuna basılarak bildirim otomatik iptal edilir.
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Company Name */}
         <div>

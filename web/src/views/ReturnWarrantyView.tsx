@@ -53,7 +53,6 @@ export const ReturnWarrantyView: React.FC = () => {
     const now = Date.now();
     return returnWarrantyItems.filter(
       (i) =>
-        i.type === 'warranty' &&
         i.status === 'pending' &&
         i.reminderDate &&
         new Date(i.reminderDate).getTime() <= now
@@ -78,7 +77,6 @@ export const ReturnWarrantyView: React.FC = () => {
       if (activeFilter === 'due') {
         const now = Date.now();
         return (
-          item.type === 'warranty' &&
           item.status === 'pending' &&
           item.reminderDate &&
           new Date(item.reminderDate).getTime() <= now
@@ -203,7 +201,7 @@ export const ReturnWarrantyView: React.FC = () => {
               }`}
             >
               <Clock className="w-3.5 h-3.5" />
-              <span>20 Günü Dolanlar ({dueCount})</span>
+              <span>Takip Süresi Dolanlar ({dueCount})</span>
             </button>
           )}
         </div>
@@ -221,7 +219,7 @@ export const ReturnWarrantyView: React.FC = () => {
             {searchQuery
               ? 'Aramayla eşleşen iade / garanti kaydı bulunamadı'
               : activeFilter === 'due'
-              ? '20 günlük süresi dolan garanti kaydı bulunmuyor'
+              ? 'Takip süresi dolan bir kayıt bulunmuyor'
               : 'Henüz iade veya garanti kaydı eklenmedi'}
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed mb-5">

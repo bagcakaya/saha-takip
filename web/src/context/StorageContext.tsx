@@ -307,7 +307,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [allNotes, user]);
 
-  // Check 20-day warranty reminders for all users
+  // Check return & warranty reminders for all users (1-week auto or custom reminder)
   useEffect(() => {
     if (!user || returnWarrantyItems.length === 0) return;
 
@@ -317,7 +317,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     returnWarrantyItems.forEach((item) => {
       if (
-        item.type === 'warranty' &&
         item.reminderActive &&
         item.reminderDate &&
         item.status !== 'completed'
@@ -327,8 +326,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           seenWarrantyReminders.add(item.id);
           seenWarrantyChanged = true;
 
-          const title = `🛡️ Garanti Süresi Takibi: ${item.companyName}`;
-          const body = `${item.companyName} firmasına gönderilen garanti ürününün 20 günlük süresi doldu. Lütfen son durumunu sorgulayın.`;
+          const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+          const title = `🛡️ ${typeLabel} Durum Takibi: ${item.companyName}`;
+          const body = `${item.companyName} firmasına gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
           NotificationService.sendNotification(title, body);
           setActiveToast({ title, body });
         }

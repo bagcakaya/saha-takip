@@ -9,6 +9,7 @@ import {
   User as UserIcon,
   Crown,
   MapPin,
+  Home,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -82,6 +83,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
           {/* Navigation Links */}
           <nav className="space-y-1.5">
+            {/* 0. Ana Menü (Dashboard Hub) */}
+            <button
+              onClick={() => setActiveTab('home')}
+              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                activeTab === 'home'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Home className="w-4 h-4" />
+                <span>Ana Menü</span>
+              </div>
+            </button>
+
             {/* 1. Kurulumlar */}
             <button
               onClick={() => setActiveTab('installations')}

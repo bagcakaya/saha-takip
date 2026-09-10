@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw } from 'lucide-react';
+import { Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 
-export type TabType = 'installations' | 'notes' | 'returns' | 'template';
+export type TabType = 'home' | 'installations' | 'notes' | 'returns' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -30,12 +30,16 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <header className="lg:hidden sticky top-0 z-30 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-3 transition-colors shadow-xs">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          {/* Brand Logo, Title and Subtitle */}
-          <div className="flex items-center gap-3 min-w-0">
+          {/* Brand Logo, Title and Subtitle - Clickable to return to Home Hub */}
+          <div
+            onClick={() => setActiveTab('home')}
+            className="flex items-center gap-3 min-w-0 cursor-pointer group"
+            title="Ana Menüye Dön"
+          >
             <img
               src="/icon.png"
               alt="Saha Takip Logo"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain shadow-xs border border-slate-200/80 dark:border-slate-700 bg-white shrink-0"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain shadow-xs border border-slate-200/80 dark:border-slate-700 bg-white shrink-0 group-hover:scale-105 transition-transform"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
@@ -44,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[10px] sm:text-[11px] font-extrabold tracking-widest uppercase text-blue-600 dark:text-blue-400 block truncate">
                 {subtitle}
               </span>
-              <h1 className="text-lg sm:text-2xl font-black text-slate-900 dark:text-slate-50 tracking-tight truncate leading-tight">
+              <h1 className="text-lg sm:text-2xl font-black text-slate-900 dark:text-slate-50 tracking-tight truncate leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                 {title}
               </h1>
             </div>
@@ -52,6 +56,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Desktop Navigation Tabs */}
           <div className="hidden md:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
+            <button
+              onClick={() => setActiveTab('home')}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'home'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <Home className="w-4 h-4" />
+              <span>Ana Menü</span>
+            </button>
             <button
               onClick={() => setActiveTab('installations')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${

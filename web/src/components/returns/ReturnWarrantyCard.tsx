@@ -51,15 +51,15 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
       })
     : '';
 
-  // Calculate 20-day warranty countdown
-  const getWarrantyCountdown = () => {
-    if (!isWarranty || !item.reminderDate) return null;
+  // Calculate reminder countdown for both Warranty and Return
+  const getReminderCountdown = () => {
+    if (!item.reminderDate) return null;
 
     if (isCompleted) {
       return {
         type: 'completed',
-        text: 'İşlem Tamamlandı',
-        badgeClass: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+        text: '✅ Ürün Döndü / İşlem Tamamlandı',
+        badgeClass: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 font-bold',
       };
     }
 
@@ -67,28 +67,33 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
     const now = Date.now();
     const diffDays = Math.ceil((reminderTime - now) / (1000 * 60 * 60 * 24));
 
+    const reminderDateFormatted = new Date(item.reminderDate).toLocaleDateString('tr-TR', {
+      day: 'numeric',
+      month: 'short',
+    });
+
     if (diffDays > 0) {
       return {
         type: 'upcoming',
-        text: `20 Gün Süresi: Kalan ${diffDays} Gün`,
-        badgeClass: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+        text: `📅 Durum Takibi: Kalan ${diffDays} Gün (${reminderDateFormatted})`,
+        badgeClass: 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-medium',
       };
     } else if (diffDays === 0) {
       return {
         type: 'due',
-        text: '⚠️ 20 Gün Bugün Doldu! (Durumu Sorgulayın)',
-        badgeClass: 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 animate-pulse font-extrabold',
+        text: '⚠️ Takip Günü Bugün Doldu! (Son Durumu Sorgulayın)',
+        badgeClass: 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 animate-pulse font-black',
       };
     } else {
       return {
         type: 'overdue',
-        text: `🚨 20 Gün Aşıldı (${Math.abs(diffDays)} Gün Geçti)`,
-        badgeClass: 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800 font-extrabold',
+        text: `🚨 Takip Süresi Aşıldı (${Math.abs(diffDays)} Gün Geçti)`,
+        badgeClass: 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800 font-black',
       };
     }
   };
 
-  const warrantyCountdown = getWarrantyCountdown();
+  const reminderCountdown = getReminderCountdown();
 
   return (
     <>
@@ -223,13 +228,13 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
           </div>
         </div>
 
-        {/* 20 Days Warranty Countdown Badge */}
-        {warrantyCountdown && (
+        {/* Reminder Countdown Badge */}
+        {reminderCountdown && (
           <div
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs border ${warrantyCountdown.badgeClass}`}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs border ${reminderCountdown.badgeClass}`}
           >
             <Clock className="w-4 h-4 shrink-0" />
-            <span>{warrantyCountdown.text}</span>
+            <span>{reminderCountdown.text}</span>
           </div>
         )}
 
@@ -339,6 +344,34 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
             {item.notes}
           </p>
         )}
+
+        {/* Prominent Action Button: Ürün Döndü / İşlemi Tamamla */}
+        <div className="pt-1">
+          {!isCompleted ? (
+            <button
+              type="button"
+              onClick={onToggleStatus}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.99] cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>✅ Ürün Döndü / İşlemi Tamamla</span>
+            </button>
+          ) : (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60">
+              <span className="flex items-center gap-1.5 text-xs font-black text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Ürün Döndü (İşlem Tamamlandı)</span>
+              </span>
+              <button
+                type="button"
+                onClick={onToggleStatus}
+                className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer"
+              >
+                Geri Al
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Lightbox for Fullscreen Photo View */}

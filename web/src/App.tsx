@@ -10,6 +10,7 @@ import { InstallationsView } from './views/InstallationsView';
 import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
 import { TemplateView } from './views/TemplateView';
+import { HomeDashboardView } from './views/HomeDashboardView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
@@ -18,7 +19,7 @@ import { ToastNotification } from './components/common/ToastNotification';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('installations');
+  const [activeTab, setActiveTab] = useState<TabType>('home');
   const {
     notes,
     returnWarrantyItems,
@@ -49,6 +50,11 @@ const MainApp: React.FC = () => {
 
   const getHeaderInfo = () => {
     switch (activeTab) {
+      case 'home':
+        return {
+          subtitle: 'Saha Takip Portalı',
+          title: 'Ana Menü',
+        };
       case 'installations':
         return {
           subtitle: 'Saha Takip Raporu',
@@ -96,6 +102,7 @@ const MainApp: React.FC = () => {
 
         {/* Main Content */}
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6">
+          {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'notes' && <NotesView />}
           {activeTab === 'returns' && <ReturnWarrantyView />}
