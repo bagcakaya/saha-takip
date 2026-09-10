@@ -1,11 +1,12 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 
 const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
 const NOTES_KEY = '@gorev_tamamlama_general_notes';
+const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -261,11 +262,139 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves return & warranty tracking items (Supabase cloud + local cache)
+   */
+  async getReturnWarrantyItems(): Promise<ReturnWarrantyItem[]> {
+    const localData = (await loadItem<ReturnWarrantyItem[]>(RETURN_WARRANTY_KEY)) || [];
+
+    // 1. Try fetching from Supabase native table
+    try {
+      const { data, error } = await supabase
+        .from('return_warranty')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        const cloudItems: ReturnWarrantyItem[] = data.map((row) => ({
+          id: row.id,
+          type: (row.type as ReturnWarrantyType) || 'warranty',
+          companyName: row.company_name,
+          sentDate: row.sent_date,
+          serialNumber: row.serial_number || undefined,
+          trackingCode: row.tracking_code || undefined,
+          serialNumberPhoto: row.serial_number_photo || undefined,
+          trackingCodePhoto: row.tracking_code_photo || undefined,
+          notes: row.notes || undefined,
+          status: row.status || 'pending',
+          reminderDate: row.reminder_date || undefined,
+          reminderActive: Boolean(row.reminder_active),
+          notified: Boolean(row.notified),
+          createdAt: Number(row.created_at) || Date.now(),
+          createdBy: row.created_by || undefined,
+          createdByName: row.created_by_name || undefined,
+        }));
+
+        await saveItem(RETURN_WARRANTY_KEY, cloudItems);
+        return cloudItems;
+      }
+    } catch (e) {
+      console.warn('Supabase return_warranty fetch error:', e);
+    }
+
+    // 2. Fallback cloud sync slot (standard_tasks id: 2) in case return_warranty table is not created yet
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 2)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: ReturnWarrantyItem[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          await saveItem(RETURN_WARRANTY_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves return & warranty items to local cache and syncs with Supabase
+   */
+  async saveReturnWarrantyItems(items: ReturnWarrantyItem[]): Promise<void> {
+    await saveItem(RETURN_WARRANTY_KEY, items);
+
+    // 1. Try sync to native return_warranty table in Supabase
+    try {
+      const rows = items.map((item) => ({
+        id: item.id,
+        type: item.type,
+        company_name: item.companyName,
+        sent_date: item.sentDate,
+        serial_number: item.serialNumber || null,
+        tracking_code: item.trackingCode || null,
+        serial_number_photo: item.serialNumberPhoto || null,
+        tracking_code_photo: item.trackingCodePhoto || null,
+        notes: item.notes || null,
+        status: item.status,
+        reminder_date: item.reminderDate || null,
+        reminder_active: item.reminderActive,
+        notified: item.notified || false,
+        created_at: item.createdAt,
+        created_by: item.createdBy || null,
+        created_by_name: item.createdByName || null,
+      }));
+
+      if (rows.length > 0) {
+        const { error: upsertErr } = await supabase.from('return_warranty').upsert(rows);
+        if (!upsertErr) {
+          // Delete removed items
+          const currentIds = items.map((i) => i.id);
+          const { data: cloudData } = await supabase.from('return_warranty').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('return_warranty').delete().in('id', idsToDelete);
+            }
+          }
+        }
+      } else {
+        await supabase.from('return_warranty').delete().neq('id', '___');
+      }
+    } catch (err) {
+      console.warn('Native return_warranty table sync skipped:', err);
+    }
+
+    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 2) so all phones sync immediately
+    try {
+      const rawJson = JSON.stringify(items);
+      // Chunk string into pieces of 8000 chars for text[] array
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 2, tasks: chunks });
+    } catch (fallbackErr) {
+      console.warn('Fallback return_warranty sync mirror error:', fallbackErr);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
     const notes = await this.getNotes();
-    const backup: BackupData = { locations, standardTasks, notes };
+    const returnWarrantyItems = await this.getReturnWarrantyItems();
+    const backup: BackupData = { locations, standardTasks, notes, returnWarrantyItems };
     return JSON.stringify(backup, null, 2);
   },
 
@@ -278,6 +407,9 @@ export const StorageService = {
     }
     if (backupData.notes && Array.isArray(backupData.notes)) {
       await this.saveNotes(backupData.notes);
+    }
+    if (backupData.returnWarrantyItems && Array.isArray(backupData.returnWarrantyItems)) {
+      await this.saveReturnWarrantyItems(backupData.returnWarrantyItems);
     }
   },
 };

@@ -38,8 +38,31 @@ export interface GeneralNote {
   notified?: boolean;
 }
 
+export type ReturnWarrantyType = 'warranty' | 'return';
+export type ReturnWarrantyStatus = 'pending' | 'completed';
+
+export interface ReturnWarrantyItem {
+  id: string;
+  type: ReturnWarrantyType;
+  companyName: string;
+  sentDate: string; // ISO string: YYYY-MM-DDTHH:mm
+  serialNumber?: string;
+  trackingCode?: string;
+  serialNumberPhoto?: string; // base64 / data URL
+  trackingCodePhoto?: string; // base64 / data URL
+  notes?: string;
+  status: ReturnWarrantyStatus;
+  reminderDate?: string; // ISO string for 20-day warranty check
+  reminderActive: boolean;
+  notified?: boolean;
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface BackupData {
   locations: LocationItem[];
   standardTasks: string[];
   notes?: GeneralNote[];
+  returnWarrantyItems?: ReturnWarrantyItem[];
 }

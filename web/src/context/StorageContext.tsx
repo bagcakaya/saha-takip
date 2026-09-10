@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -13,6 +13,7 @@ interface StorageContextType {
   standardTasks: string[];
   notes: GeneralNote[];
   allNotes: GeneralNote[];
+  returnWarrantyItems: ReturnWarrantyItem[];
   isLoading: boolean;
   activeToast: { title: string; body: string } | null;
   dismissToast: () => void;
@@ -52,6 +53,11 @@ interface StorageContextType {
     targetUserNames?: string[]
   ) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
+  addReturnWarrantyItem: (
+    item: Omit<ReturnWarrantyItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
+  ) => Promise<void>;
+  updateReturnWarrantyItem: (id: string, updates: Partial<ReturnWarrantyItem>) => Promise<void>;
+  deleteReturnWarrantyItem: (id: string) => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
 }
 
@@ -64,6 +70,7 @@ const generateId = () => {
 const SEEN_NOTES_KEY = (userId: string) => `@seen_notes_${userId}`;
 const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
 const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
+const SEEN_WARRANTY_REMINDERS_KEY = (userId: string) => `@seen_warranty_reminders_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -89,6 +96,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
+  const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{ title: string; body: string } | null>(null);
 
@@ -96,10 +104,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts] = await Promise.all([
+        const [locs, tasks, nts, returns] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
+          StorageService.getReturnWarrantyItems(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -109,6 +118,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllLocations(migratedLocs);
         setStandardTasks(tasks);
         setAllNotes(nts);
+        setReturnWarrantyItems(returns);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -117,7 +127,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     initData();
 
-    // Realtime listeners for locations, notes & standard_tasks
+    // Realtime listeners for locations, notes, standard_tasks & return_warranty
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -140,8 +150,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const tasks = await StorageService.getStandardTasks();
+          const [tasks, returns] = await Promise.all([
+            StorageService.getStandardTasks(),
+            StorageService.getReturnWarrantyItems(),
+          ]);
           setStandardTasks(tasks);
+          setReturnWarrantyItems(returns);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'return_warranty' },
+        async () => {
+          const returns = await StorageService.getReturnWarrantyItems();
+          setReturnWarrantyItems(returns);
         }
       )
       .subscribe();
@@ -149,9 +171,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
-        const [locs, nts] = await Promise.all([
+        const [locs, nts, returns] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getNotes(),
+          StorageService.getReturnWarrantyItems(),
         ]);
         setAllLocations((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(locs)) {
@@ -162,6 +185,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllNotes((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(nts)) {
             return nts;
+          }
+          return prev;
+        });
+        setReturnWarrantyItems((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(returns)) {
+            return returns;
           }
           return prev;
         });
@@ -277,6 +306,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_REMINDERS_KEY(user.id), seenReminders);
     }
   }, [allNotes, user]);
+
+  // Check 20-day warranty reminders for all users
+  useEffect(() => {
+    if (!user || returnWarrantyItems.length === 0) return;
+
+    const seenWarrantyReminders = getStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id));
+    let seenWarrantyChanged = false;
+    const now = Date.now();
+
+    returnWarrantyItems.forEach((item) => {
+      if (
+        item.type === 'warranty' &&
+        item.reminderActive &&
+        item.reminderDate &&
+        item.status !== 'completed'
+      ) {
+        const reminderTime = new Date(item.reminderDate).getTime();
+        if (reminderTime <= now && !seenWarrantyReminders.has(item.id)) {
+          seenWarrantyReminders.add(item.id);
+          seenWarrantyChanged = true;
+
+          const title = `🛡️ Garanti Süresi Takibi: ${item.companyName}`;
+          const body = `${item.companyName} firmasına gönderilen garanti ürününün 20 günlük süresi doldu. Lütfen son durumunu sorgulayın.`;
+          NotificationService.sendNotification(title, body);
+          setActiveToast({ title, body });
+        }
+      }
+    });
+
+    if (seenWarrantyChanged) {
+      saveStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id), seenWarrantyReminders);
+    }
+  }, [returnWarrantyItems, user]);
 
   // Check incoming locations from staff members (Admin notification)
   useEffect(() => {
@@ -642,6 +704,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveNotes(newNotes);
   };
 
+  // Add return / warranty item
+  const addReturnWarrantyItem = async (
+    itemData: Omit<ReturnWarrantyItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
+  ) => {
+    const newItem: ReturnWarrantyItem = {
+      ...itemData,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name || user?.username || 'Yetkili',
+    };
+
+    // If warranty, schedule hardware push alert via OneSignal at 20 days exact timestamp
+    if (newItem.type === 'warranty' && newItem.reminderActive && newItem.reminderDate) {
+      OneSignalService.sendPushNotification({
+        title: `🛡️ Garanti Takibi (20 Gün): ${newItem.companyName}`,
+        message: `${newItem.companyName} firmasına gönderilen garanti ürününün 20 günü doldu. Lütfen son durumunu sorgulayın.`,
+        targetMode: 'all',
+        url: 'https://saha-takip-beige.vercel.app',
+        sendAfter: new Date(newItem.reminderDate).toISOString(),
+      });
+    }
+
+    const updated = [newItem, ...returnWarrantyItems];
+    setReturnWarrantyItems(updated);
+    await StorageService.saveReturnWarrantyItems(updated);
+  };
+
+  // Update return / warranty item
+  const updateReturnWarrantyItem = async (id: string, updates: Partial<ReturnWarrantyItem>) => {
+    const updated = returnWarrantyItems.map((item) =>
+      item.id === id ? { ...item, ...updates } : item
+    );
+    setReturnWarrantyItems(updated);
+    await StorageService.saveReturnWarrantyItems(updated);
+  };
+
+  // Delete return / warranty item
+  const deleteReturnWarrantyItem = async (id: string) => {
+    const updated = returnWarrantyItems.filter((item) => item.id !== id);
+    setReturnWarrantyItems(updated);
+    await StorageService.saveReturnWarrantyItems(updated);
+  };
+
   // Import backup data (merges / replaces)
   const importBackupData = async (backupData: BackupData) => {
     if (backupData.locations && Array.isArray(backupData.locations)) {
@@ -653,6 +759,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (backupData.notes && Array.isArray(backupData.notes)) {
       await saveNotes(backupData.notes);
     }
+    if (backupData.returnWarrantyItems && Array.isArray(backupData.returnWarrantyItems)) {
+      setReturnWarrantyItems(backupData.returnWarrantyItems);
+      await StorageService.saveReturnWarrantyItems(backupData.returnWarrantyItems);
+    }
   };
 
   return (
@@ -663,6 +773,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         standardTasks,
         notes: visibleNotes,
         allNotes,
+        returnWarrantyItems,
         isLoading,
         activeToast,
         dismissToast,
@@ -680,6 +791,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addNote,
         updateNote,
         deleteNote,
+        addReturnWarrantyItem,
+        updateReturnWarrantyItem,
+        deleteReturnWarrantyItem,
         importBackupData,
       }}
     >

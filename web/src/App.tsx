@@ -8,6 +8,7 @@ import { Header, TabType } from './components/layout/Header';
 import { BottomNav } from './components/layout/BottomNav';
 import { InstallationsView } from './views/InstallationsView';
 import { NotesView } from './views/NotesView';
+import { ReturnWarrantyView } from './views/ReturnWarrantyView';
 import { TemplateView } from './views/TemplateView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
@@ -20,6 +21,7 @@ const MainApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('installations');
   const {
     notes,
+    returnWarrantyItems,
     activeToast,
     dismissToast,
     deleteLocation,
@@ -57,6 +59,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Görev & Takip',
           title: 'İş Emirleri & Hatırlatıcılar',
         };
+      case 'returns':
+        return {
+          subtitle: 'Ürün & Kargo Takibi',
+          title: 'İade & Garanti Yönetimi',
+        };
       case 'template':
         return {
           subtitle: 'Şablon Yönetimi',
@@ -91,6 +98,7 @@ const MainApp: React.FC = () => {
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6">
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'notes' && <NotesView />}
+          {activeTab === 'returns' && <ReturnWarrantyView />}
           {activeTab === 'template' && <TemplateView />}
         </main>
 
@@ -99,6 +107,7 @@ const MainApp: React.FC = () => {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           notesCount={notes.length}
+          returnsCount={returnWarrantyItems.filter((i) => i.status === 'pending').length}
         />
       </div>
 

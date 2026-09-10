@@ -91,4 +91,50 @@ export const WhatsappService = {
       window.open(url, '_blank');
     }
   },
+
+  /**
+   * Opens WhatsApp with pre-filled return / warranty dispatch details
+   */
+  shareReturnWarranty(params: {
+    type: 'warranty' | 'return';
+    companyName: string;
+    sentDate: string;
+    serialNumber?: string;
+    trackingCode?: string;
+    notes?: string;
+    staffName: string;
+    targetPhone?: string;
+  }): void {
+    const { type, companyName, sentDate, serialNumber, trackingCode, notes, staffName, targetPhone } = params;
+
+    const isWarranty = type === 'warranty';
+    const typeTitle = isWarranty ? '🛡️ *GARANTİ GÖNDERİM BİLDİRİMİ*' : '🔄 *İADE GÖNDERİM BİLDİRİMİ*';
+
+    const d = new Date(sentDate);
+    const dateFormatted = !isNaN(d.getTime())
+      ? d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : sentDate;
+
+    const message = [
+      typeTitle,
+      '━━━━━━━━━━━━━━━━━━━',
+      `🏢 *Firma:* ${companyName}`,
+      `📅 *Gönderim Tarihi:* ${dateFormatted}`,
+      serialNumber ? `🔢 *Seri No:* ${serialNumber}` : '',
+      trackingCode ? `📦 *Kargo Takip Kodu:* ${trackingCode}` : '',
+      notes ? `📝 *Açıklama:* ${notes}` : '',
+      isWarranty ? '⏰ *Garanti Takip:* 20 gün sonra durum sorgulanacaktır.' : '',
+      `👤 *İşlemi Yapan:* ${staffName}`,
+      '━━━━━━━━━━━━━━━━━━━',
+      '🔗 *Saha Takip Paneli:*',
+      'https://saha-takip-beige.vercel.app',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const url = this.getUrl(message, targetPhone);
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank');
+    }
+  },
 };

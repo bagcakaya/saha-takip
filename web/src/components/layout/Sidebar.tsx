@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Building2,
   ClipboardList,
+  RotateCcw,
   ListTodo,
   Users,
   LogOut,
@@ -24,7 +25,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const { user, logout } = useAuth();
-  const { locations, notes } = useStorage();
+  const { locations, notes, returnWarrantyItems } = useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
@@ -131,7 +132,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               )}
             </button>
 
-            {/* 3. Şablon Yönetimi */}
+            {/* 3. İade / Garanti Takibi */}
+            <button
+              onClick={() => setActiveTab('returns')}
+              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                activeTab === 'returns'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <RotateCcw className="w-4 h-4" />
+                <span>İade / Garanti Takibi</span>
+              </div>
+              {returnWarrantyItems.length > 0 && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'returns'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {returnWarrantyItems.length}
+                </span>
+              )}
+            </button>
+
+            {/* 4. Şablon Yönetimi */}
             <button
               onClick={() => setActiveTab('template')}
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck } from 'lucide-react';
+import { Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 
-export type TabType = 'installations' | 'notes' | 'template';
+export type TabType = 'installations' | 'notes' | 'returns' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -73,6 +73,17 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <ClipboardList className="w-4 h-4" />
               <span>İş Emirleri</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('returns')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'returns'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>İade / Garanti</span>
             </button>
             <button
               onClick={() => setActiveTab('template')}
