@@ -95,7 +95,7 @@ export const InstallationsView: React.FC = () => {
   }, [locations, selectedLocationId]);
 
   return (
-    <div className="space-y-5 pb-24 md:pb-12 animate-in fade-in duration-200">
+    <div className="space-y-5 pb-10 animate-in fade-in duration-200">
       {/* Search, Filter Pills & Add Button Toolbar */}
       <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-3.5 sm:p-4 shadow-xs border border-slate-200/80 dark:border-slate-700/80 space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">

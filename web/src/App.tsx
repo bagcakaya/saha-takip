@@ -5,7 +5,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { RightSummaryPanel } from './components/layout/RightSummaryPanel';
 import { Header, TabType } from './components/layout/Header';
-import { BottomNav } from './components/layout/BottomNav';
 import { InstallationsView } from './views/InstallationsView';
 import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
@@ -21,8 +20,6 @@ const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const {
-    notes,
-    returnWarrantyItems,
     activeToast,
     dismissToast,
     deleteLocation,
@@ -108,14 +105,6 @@ const MainApp: React.FC = () => {
           {activeTab === 'returns' && <ReturnWarrantyView />}
           {activeTab === 'template' && <TemplateView />}
         </main>
-
-        {/* Mobile Bottom Navigation Bar (< md screens) */}
-        <BottomNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          notesCount={notes.length}
-          returnsCount={returnWarrantyItems.filter((i) => i.status === 'pending').length}
-        />
       </div>
 
       {/* 3. Right Live Summary & Map Panel (Desktop xl/2xl) */}

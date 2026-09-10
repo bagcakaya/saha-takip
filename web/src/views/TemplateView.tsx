@@ -18,7 +18,7 @@ export const TemplateView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 pb-24 md:pb-12 animate-in fade-in duration-200">
+    <div className="space-y-5 pb-10 animate-in fade-in duration-200">
       {/* Top Header Controls */}
       <div className="flex items-center justify-between bg-white dark:bg-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200/80 dark:border-slate-700/80">
         <div>

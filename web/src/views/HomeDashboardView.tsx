@@ -30,7 +30,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   });
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-24 md:pb-12 animate-in fade-in duration-300">
+    <div className="max-w-5xl mx-auto space-y-6 sm:space-y-8 pb-10 animate-in fade-in duration-300">
       {/* Top Welcome Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-slate-800">
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
