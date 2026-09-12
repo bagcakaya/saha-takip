@@ -275,7 +275,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         {/* 5. Şablon - Emerald / Teal Gradient Square Card */}
         <button
           onClick={() => onNavigate('template')}
-          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-emerald-600 via-teal-700 to-cyan-800 text-white border border-emerald-400/30 col-span-2 sm:col-span-1"
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-emerald-600 via-teal-700 to-cyan-800 text-white border border-emerald-400/30"
         >
           {/* Top Row */}
           <div className="flex items-start justify-between">
