@@ -159,7 +159,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
             placeholder="Örn: Merkez Ofis, X Restoran, Y Plaza"
-            autoFocus
+            autoFocus={typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches}
             className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium transition-all"
           />
         </div>
@@ -240,7 +240,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           <textarea
             value={workDone}
             onChange={(e) => setWorkDone(e.target.value)}
-            rows={4}
+            rows={3}
             placeholder="Serviste yapılan işlemleri, değişen parçaları ve detayları buraya yazın..."
             className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium transition-all resize-none"
           />
@@ -263,7 +263,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3 pt-2">
+        <div className="flex items-center gap-3 pt-2 pb-3">
           <button
             type="button"
             onClick={onClose}
