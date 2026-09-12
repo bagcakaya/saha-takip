@@ -119,7 +119,7 @@ export const OneSignalService = {
   async sendPushNotification(params: {
     title: string;
     message: string;
-    targetMode?: 'all' | 'custom' | 'self';
+    targetMode?: 'all' | 'custom' | 'self' | 'admin';
     targetUserIds?: string[];
     url?: string;
     sendAfter?: string;
@@ -166,6 +166,8 @@ export const OneSignalService = {
 
       if (targetMode === 'all') {
         payload.included_segments = ['Total Subscriptions'];
+      } else if (targetMode === 'admin') {
+        payload.filters = [{ field: 'tag', key: 'role', relation: '=', value: 'admin' }];
       } else {
         // Dual routing: guarantees delivery across all OneSignal API and SDK versions
         payload.include_aliases = { external_id: cleanIds };

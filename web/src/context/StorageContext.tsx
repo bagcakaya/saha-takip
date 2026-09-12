@@ -6,6 +6,7 @@ import { NotificationService } from '../services/notificationService';
 import { useAuth } from './AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
+import { UserService } from '../services/userService';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -268,6 +269,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return false;
     });
   }, [allNotes, user]);
+
+  // Filter services based on role:
+  // Admin -> Sees ALL services from all staff members
+  // Staff (Saha Yetkilisi) -> ONLY sees services created by himself
+  const visibleServices = useMemo(() => {
+    if (!user) return [];
+    if (user.role === 'admin') {
+      return allServices;
+    }
+    // Staff role: strictly only own creations
+    return allServices.filter(
+      (srv) => srv.createdBy === user.id || (srv.createdByName && srv.createdByName === user.name)
+    );
+  }, [allServices, user]);
 
   // Check incoming direct notes & timed reminders per user device
   useEffect(() => {
@@ -904,22 +919,48 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If added by Field Staff, send hardware push notification directly to all Admins!
     if (user?.role !== 'admin') {
-      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
-      if (adminIds.length > 0) {
-        const staffName = user?.name || user?.username || 'Saha Personeli';
-        OneSignalService.sendPushNotification({
-          title: '🔧 Yeni Servis Kaydı!',
-          message: `${staffName}, "${newService.companyName}" için servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          url: 'https://saha-takip-beige.vercel.app',
-        });
+      let adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+      if (adminIds.length === 0) {
+        try {
+          const cloudUsers = await UserService.fetchUsersFromCloud();
+          adminIds = cloudUsers.filter((u) => u.role === 'admin').map((u) => u.id);
+        } catch {
+          // ignore
+        }
       }
+      if (adminIds.length === 0) {
+        adminIds = ['admin-1'];
+      }
+
+      const staffName = user?.name || user?.username || 'Saha Personeli';
+      const locText = newService.location ? ` (${newService.location})` : '';
+
+      // 1. Direct hardware push to all Admin User IDs
+      await OneSignalService.sendPushNotification({
+        title: '🔧 Yeni Servis Kaydı!',
+        message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
+        targetMode: 'custom',
+        targetUserIds: adminIds,
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+
+      // 2. Broadcast to any admin device by role tag
+      await OneSignalService.sendPushNotification({
+        title: '🔧 Yeni Servis Kaydı!',
+        message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
+        targetMode: 'admin',
+        url: 'https://saha-takip-beige.vercel.app',
+      });
     }
   };
 
-  // Update service record
+  // Update service record (guarded: admin or creator only)
   const updateService = async (id: string, updates: Partial<ServiceItem>) => {
+    const target = allServices.find((s) => s.id === id);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      alert('Bu servis kaydını düzenleme yetkiniz bulunmuyor.');
+      return;
+    }
     const updated = allServices.map((item) =>
       item.id === id ? { ...item, ...updates } : item
     );
@@ -969,7 +1010,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notes: visibleNotes,
         allNotes,
         returnWarrantyItems,
-        services: allServices,
+        services: visibleServices,
         allServices,
         isLoading,
         activeToast,
