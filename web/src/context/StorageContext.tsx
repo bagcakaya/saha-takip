@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -14,6 +14,8 @@ interface StorageContextType {
   notes: GeneralNote[];
   allNotes: GeneralNote[];
   returnWarrantyItems: ReturnWarrantyItem[];
+  services: ServiceItem[];
+  allServices: ServiceItem[];
   isLoading: boolean;
   activeToast: { title: string; body: string } | null;
   dismissToast: () => void;
@@ -58,6 +60,11 @@ interface StorageContextType {
   ) => Promise<void>;
   updateReturnWarrantyItem: (id: string, updates: Partial<ReturnWarrantyItem>) => Promise<void>;
   deleteReturnWarrantyItem: (id: string) => Promise<void>;
+  addService: (
+    service: Omit<ServiceItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
+  ) => Promise<void>;
+  updateService: (id: string, updates: Partial<ServiceItem>) => Promise<void>;
+  deleteService: (id: string) => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
 }
 
@@ -72,6 +79,7 @@ const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
 const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
 const SEEN_WARRANTY_REMINDERS_KEY = (userId: string) => `@seen_warranty_reminders_${userId}`;
 const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string) => `@seen_completed_locations_${userId}`;
+const SEEN_SERVICES_KEY = (userId: string) => `@seen_services_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -98,6 +106,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
+  const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{ title: string; body: string } | null>(null);
 
@@ -105,11 +114,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
+          StorageService.getServices(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -120,6 +130,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setStandardTasks(tasks);
         setAllNotes(nts);
         setReturnWarrantyItems(returns);
+        setAllServices(srvs);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -128,7 +139,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     initData();
 
-    // Realtime listeners for locations, notes, standard_tasks & return_warranty
+    // Realtime listeners for locations, notes, standard_tasks, return_warranty & services
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -151,12 +162,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns] = await Promise.all([
+          const [tasks, returns, srvs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
+            StorageService.getServices(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
+          setAllServices(srvs);
         }
       )
       .on(
@@ -167,15 +180,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setReturnWarrantyItems(returns);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'services' },
+        async () => {
+          const srvs = await StorageService.getServices();
+          setAllServices(srvs);
+        }
+      )
       .subscribe();
 
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
-        const [locs, nts, returns] = await Promise.all([
+        const [locs, nts, returns, srvs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
+          StorageService.getServices(),
         ]);
         setAllLocations((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(locs)) {
@@ -192,6 +214,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setReturnWarrantyItems((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(returns)) {
             return returns;
+          }
+          return prev;
+        });
+        setAllServices((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(srvs)) {
+            return srvs;
           }
           return prev;
         });
@@ -406,6 +434,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id), seenDone);
     }
   }, [allLocations, user]);
+
+  // Check incoming services from staff members (Admin notification)
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || allServices.length === 0) return;
+
+    const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id));
+    let seenChanged = false;
+
+    allServices.forEach((srv) => {
+      if (srv.createdBy && srv.createdBy !== user.id) {
+        if (!seenServices.has(srv.id)) {
+          seenServices.add(srv.id);
+          seenChanged = true;
+
+          const staffName = srv.createdByName || 'Saha Personeli';
+          const title = '🔧 Yeni Servis Kaydı!';
+          const body = `${staffName}, "${srv.companyName}" için servis kaydı ekledi.`;
+
+          NotificationService.sendNotification(title, body);
+          setActiveToast({ title, body });
+        }
+      } else if (srv.createdBy === user.id) {
+        if (!seenServices.has(srv.id)) {
+          seenServices.add(srv.id);
+          seenChanged = true;
+        }
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(SEEN_SERVICES_KEY(user.id), seenServices);
+    }
+  }, [allServices, user]);
 
   const dismissToast = () => {
     setActiveToast(null);
@@ -818,6 +879,66 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveReturnWarrantyItems(updated);
   };
 
+  // Add service record
+  const addService = async (
+    serviceData: Omit<ServiceItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
+  ) => {
+    const newService: ServiceItem = {
+      ...serviceData,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name || user?.username || 'Saha Yetkilisi',
+    };
+
+    // Mark as seen on creator's device immediately
+    if (user?.id) {
+      const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id));
+      seenServices.add(newService.id);
+      saveStoredSet(SEEN_SERVICES_KEY(user.id), seenServices);
+    }
+
+    const updated = [newService, ...allServices];
+    setAllServices(updated);
+    await StorageService.saveServices(updated);
+
+    // If added by Field Staff, send hardware push notification directly to all Admins!
+    if (user?.role !== 'admin') {
+      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+      if (adminIds.length > 0) {
+        const staffName = user?.name || user?.username || 'Saha Personeli';
+        OneSignalService.sendPushNotification({
+          title: '🔧 Yeni Servis Kaydı!',
+          message: `${staffName}, "${newService.companyName}" için servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app',
+        });
+      }
+    }
+  };
+
+  // Update service record
+  const updateService = async (id: string, updates: Partial<ServiceItem>) => {
+    const updated = allServices.map((item) =>
+      item.id === id ? { ...item, ...updates } : item
+    );
+    setAllServices(updated);
+    await StorageService.saveServices(updated);
+  };
+
+  // Delete service record
+  const deleteService = async (id: string) => {
+    const target = allServices.find((s) => s.id === id);
+    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+      alert('Bu servis kaydını silme yetkiniz bulunmuyor.');
+      return;
+    }
+    const updated = allServices.filter((s) => s.id !== id);
+    setAllServices(updated);
+    await StorageService.saveServices(updated);
+  };
+
   // Import backup data (merges / replaces)
   const importBackupData = async (backupData: BackupData) => {
     if (backupData.locations && Array.isArray(backupData.locations)) {
@@ -833,6 +954,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setReturnWarrantyItems(backupData.returnWarrantyItems);
       await StorageService.saveReturnWarrantyItems(backupData.returnWarrantyItems);
     }
+    if (backupData.services && Array.isArray(backupData.services)) {
+      setAllServices(backupData.services);
+      await StorageService.saveServices(backupData.services);
+    }
   };
 
   return (
@@ -844,6 +969,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notes: visibleNotes,
         allNotes,
         returnWarrantyItems,
+        services: allServices,
+        allServices,
         isLoading,
         activeToast,
         dismissToast,
@@ -864,6 +991,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addReturnWarrantyItem,
         updateReturnWarrantyItem,
         deleteReturnWarrantyItem,
+        addService,
+        updateService,
+        deleteService,
         importBackupData,
       }}
     >

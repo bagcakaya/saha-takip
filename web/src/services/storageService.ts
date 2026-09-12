@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 
@@ -7,6 +7,7 @@ const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
 const NOTES_KEY = '@gorev_tamamlama_general_notes';
 const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
+const SERVICES_KEY = '@gorev_tamamlama_services';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -389,12 +390,122 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves services (Supabase cloud + local cache + standard_tasks id:3 fallback)
+   */
+  async getServices(): Promise<ServiceItem[]> {
+    const localData = (await loadItem<ServiceItem[]>(SERVICES_KEY)) || [];
+
+    // 1. Try fetching from native services table in Supabase
+    try {
+      const { data, error } = await supabase
+        .from('services')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        const cloudServices: ServiceItem[] = data.map((row) => ({
+          id: row.id,
+          companyName: row.company_name,
+          location: row.location || undefined,
+          workDone: row.work_done,
+          date: row.date || undefined,
+          createdAt: Number(row.created_at) || Date.now(),
+          createdBy: row.created_by || undefined,
+          createdByName: row.created_by_name || undefined,
+        }));
+
+        await saveItem(SERVICES_KEY, cloudServices);
+        return cloudServices;
+      }
+    } catch (e) {
+      console.warn('Supabase services fetch error:', e);
+    }
+
+    // 2. Fallback cloud sync slot (standard_tasks id: 3) in case services table is not created yet
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 3)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: ServiceItem[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          await saveItem(SERVICES_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves services to local cache and syncs with Supabase
+   */
+  async saveServices(items: ServiceItem[]): Promise<void> {
+    await saveItem(SERVICES_KEY, items);
+
+    // 1. Try sync to native services table in Supabase
+    try {
+      const rows = items.map((item) => ({
+        id: item.id,
+        company_name: item.companyName,
+        location: item.location || null,
+        work_done: item.workDone,
+        date: item.date || null,
+        created_at: item.createdAt,
+        created_by: item.createdBy || null,
+        created_by_name: item.createdByName || null,
+      }));
+
+      if (rows.length > 0) {
+        const { error: upsertErr } = await supabase.from('services').upsert(rows);
+        if (!upsertErr) {
+          const currentIds = items.map((i) => i.id);
+          const { data: cloudData } = await supabase.from('services').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('services').delete().in('id', idsToDelete);
+            }
+          }
+        }
+      } else {
+        await supabase.from('services').delete().neq('id', '___');
+      }
+    } catch (err) {
+      console.warn('Native services table sync skipped:', err);
+    }
+
+    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 3) so all phones sync immediately
+    try {
+      const rawJson = JSON.stringify(items);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 3, tasks: chunks });
+    } catch (fallbackErr) {
+      console.warn('Fallback services sync mirror error:', fallbackErr);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
     const notes = await this.getNotes();
     const returnWarrantyItems = await this.getReturnWarrantyItems();
-    const backup: BackupData = { locations, standardTasks, notes, returnWarrantyItems };
+    const services = await this.getServices();
+    const backup: BackupData = { locations, standardTasks, notes, returnWarrantyItems, services };
     return JSON.stringify(backup, null, 2);
   },
 
@@ -410,6 +521,9 @@ export const StorageService = {
     }
     if (backupData.returnWarrantyItems && Array.isArray(backupData.returnWarrantyItems)) {
       await this.saveReturnWarrantyItems(backupData.returnWarrantyItems);
+    }
+    if (backupData.services && Array.isArray(backupData.services)) {
+      await this.saveServices(backupData.services);
     }
   },
 };

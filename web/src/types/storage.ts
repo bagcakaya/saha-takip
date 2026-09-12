@@ -60,9 +60,21 @@ export interface ReturnWarrantyItem {
   createdByName?: string;
 }
 
+export interface ServiceItem {
+  id: string;
+  companyName: string; // Firma / Müşteri Adı
+  location?: string;   // Lokasyon / Adres
+  workDone: string;    // Yapılan İş / Servis Notu
+  date?: string;       // Tarih / Saat (ISO string veya formatlanmış tarih)
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface BackupData {
   locations: LocationItem[];
   standardTasks: string[];
   notes?: GeneralNote[];
   returnWarrantyItems?: ReturnWarrantyItem[];
+  services?: ServiceItem[];
 }

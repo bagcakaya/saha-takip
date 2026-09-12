@@ -6,6 +6,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { RightSummaryPanel } from './components/layout/RightSummaryPanel';
 import { Header, TabType } from './components/layout/Header';
 import { InstallationsView } from './views/InstallationsView';
+import { ServicesView } from './views/ServicesView';
 import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
 import { TemplateView } from './views/TemplateView';
@@ -57,6 +58,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Saha Takip Raporu',
           title: 'Kurulumlar',
         };
+      case 'services':
+        return {
+          subtitle: 'Teknik Servis & Müdahale',
+          title: 'Servis Kayıtları',
+        };
       case 'notes':
         return {
           subtitle: 'Görev & Takip',
@@ -101,6 +107,7 @@ const MainApp: React.FC = () => {
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6">
           {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
           {activeTab === 'installations' && <InstallationsView />}
+          {activeTab === 'services' && <ServicesView />}
           {activeTab === 'notes' && <NotesView />}
           {activeTab === 'returns' && <ReturnWarrantyView />}
           {activeTab === 'template' && <TemplateView />}

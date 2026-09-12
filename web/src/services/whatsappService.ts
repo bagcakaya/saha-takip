@@ -137,4 +137,43 @@ export const WhatsappService = {
       window.open(url, '_blank');
     }
   },
+
+  /**
+   * Opens WhatsApp with pre-filled service record announcement
+   */
+  shareService(params: {
+    companyName: string;
+    location?: string;
+    workDone: string;
+    date?: string;
+    staffName: string;
+    targetPhone?: string;
+  }): void {
+    const { companyName, location, workDone, date, staffName, targetPhone } = params;
+
+    const d = date ? new Date(date) : new Date();
+    const dateFormatted = !isNaN(d.getTime())
+      ? d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : date || '';
+
+    const message = [
+      '🔧 *TEKNİK SERVİS BİLDİRİMİ*',
+      '━━━━━━━━━━━━━━━━━━━',
+      `🏢 *Firma / Müşteri:* ${companyName}`,
+      location ? `📍 *Lokasyon:* ${location}` : '',
+      `📝 *Yapılan İş / Not:* ${workDone}`,
+      dateFormatted ? `📅 *Tarih:* ${dateFormatted}` : '',
+      `👤 *Saha Personeli:* ${staffName}`,
+      '━━━━━━━━━━━━━━━━━━━',
+      '🔗 *Saha Takip Paneli:*',
+      'https://saha-takip-beige.vercel.app',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const url = this.getUrl(message, targetPhone);
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank');
+    }
+  },
 };

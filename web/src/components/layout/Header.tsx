@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home, Bell } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home, Bell, Wrench } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationService } from '../../services/notificationService';
 
-export type TabType = 'home' | 'installations' | 'notes' | 'returns' | 'template';
+export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'returns' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -130,6 +130,17 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Building2 className="w-4 h-4" />
               <span>Kurulumlar</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('services')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'services'
+                  ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              <span>Servisler</span>
             </button>
             <button
               onClick={() => setActiveTab('notes')}
