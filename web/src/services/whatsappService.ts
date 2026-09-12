@@ -144,23 +144,31 @@ export const WhatsappService = {
   shareService(params: {
     companyName: string;
     location?: string;
+    latitude?: number;
+    longitude?: number;
     workDone: string;
     date?: string;
     staffName: string;
     targetPhone?: string;
   }): void {
-    const { companyName, location, workDone, date, staffName, targetPhone } = params;
+    const { companyName, location, latitude, longitude, workDone, date, staffName, targetPhone } = params;
 
     const d = date ? new Date(date) : new Date();
     const dateFormatted = !isNaN(d.getTime())
       ? d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : date || '';
 
+    const mapUrl =
+      latitude && longitude
+        ? `https://www.google.com/maps?q=${latitude},${longitude}`
+        : '';
+
     const message = [
       '🔧 *TEKNİK SERVİS BİLDİRİMİ*',
       '━━━━━━━━━━━━━━━━━━━',
       `🏢 *Firma / Müşteri:* ${companyName}`,
       location ? `📍 *Lokasyon:* ${location}` : '',
+      mapUrl ? `🗺️ *Harita Konumu:* ${mapUrl}` : '',
       `📝 *Yapılan İş / Not:* ${workDone}`,
       dateFormatted ? `📅 *Tarih:* ${dateFormatted}` : '',
       `👤 *Saha Personeli:* ${staffName}`,

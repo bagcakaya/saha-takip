@@ -47,6 +47,8 @@ export const ServicesView: React.FC = () => {
   const handleSaveService = async (data: {
     companyName: string;
     location?: string;
+    latitude?: number;
+    longitude?: number;
     workDone: string;
     date?: string;
   }) => {

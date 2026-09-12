@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import {
   Building2,
   MapPin,
@@ -13,6 +13,7 @@ import {
 import { ServiceItem } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
 import { WhatsappService } from '../../services/whatsappService';
+import { LocationService } from '../../services/locationService';
 
 interface ServiceCardProps {
   service: ServiceItem;
@@ -50,6 +51,8 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     WhatsappService.shareService({
       companyName: service.companyName,
       location: service.location,
+      latitude: service.latitude,
+      longitude: service.longitude,
       workDone: service.workDone,
       date: service.date,
       staffName: service.createdByName || 'Saha Personeli',
@@ -71,10 +74,20 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           </div>
 
           {service.location && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium pl-10 truncate">
-              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span className="truncate">{service.location}</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => LocationService.openInGoogleMaps(service.location, service.latitude, service.longitude)}
+              className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 font-medium pl-10 truncate text-left cursor-pointer transition-colors group/loc"
+              title="Haritada Göster"
+            >
+              <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0 group-hover/loc:scale-110 transition-transform" />
+              <span className="truncate group-hover/loc:underline underline-offset-2">{service.location}</span>
+              {service.latitude && service.longitude && (
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-md shrink-0">
+                  GPS
+                </span>
+              )}
+            </button>
           )}
         </div>
 

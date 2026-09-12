@@ -64,6 +64,8 @@ export interface ServiceItem {
   id: string;
   companyName: string; // Firma / Müşteri Adı
   location?: string;   // Lokasyon / Adres
+  latitude?: number;   // Coğrafi Enlem
+  longitude?: number;  // Coğrafi Boylam
   workDone: string;    // Yapılan İş / Servis Notu
   date?: string;       // Tarih / Saat (ISO string veya formatlanmış tarih)
   createdAt: number;
