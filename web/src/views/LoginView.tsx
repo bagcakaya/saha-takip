@@ -82,7 +82,10 @@ export const LoginView: React.FC = () => {
       />
 
       {/* Top Right Floating "İletişim" Button */}
-      <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
+      <div
+        className="absolute right-4 sm:right-6 z-20"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+      >
         <button
           type="button"
           onClick={() => setIsContactOpen(true)}

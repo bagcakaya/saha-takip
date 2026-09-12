@@ -72,7 +72,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="lg:hidden sticky top-0 z-30 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-3 transition-colors shadow-xs">
+      <header
+        className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 transition-colors shadow-xs"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+          paddingBottom: '12px',
+        }}
+      >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           {/* Left side: In 'home', show Logo + Title. In subpages, show prominent [ ← Ana Menü ] button + Page Title */}
           <div className="flex items-center gap-2.5 min-w-0">
@@ -211,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={handleNotificationClick}
-              className={`p-2 rounded-xl transition-all relative cursor-pointer ${
+              className={`p-2.5 rounded-xl transition-all relative cursor-pointer ${
                 permission === 'granted'
                   ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
                   : 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 animate-pulse'
@@ -239,7 +245,7 @@ export const Header: React.FC<HeaderProps> = ({
                     logout();
                   }
                 }}
-                className="p-2 rounded-xl text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                className="p-2.5 rounded-xl text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
                 title="Çıkış Yap"
                 aria-label="Çıkış Yap"
               >

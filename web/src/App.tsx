@@ -104,7 +104,12 @@ const MainApp: React.FC = () => {
         />
 
         {/* Main Content */}
-        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6">
+        <main
+          className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6"
+          style={{
+            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)',
+          }}
+        >
           {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'services' && <ServicesView />}

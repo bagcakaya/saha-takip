@@ -45,7 +45,11 @@
   background: rgba(148, 163, 184, 0.7);
 }
 
-/* Safe area padding helper for modern mobile devices (iPhone notch/home bar) */
+/* Safe area padding helpers for modern mobile devices (iPhone notch/Dynamic Island/home bar) */
+.pt-safe {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+}
+
 .pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
 }
