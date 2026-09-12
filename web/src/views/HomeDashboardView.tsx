@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Building2,
   ClipboardList,
@@ -6,10 +6,13 @@ import {
   ListTodo,
   ArrowRight,
   Sparkles,
+  Bell,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
+import { OneSignalService } from '../services/oneSignalService';
+import { NotificationService } from '../services/notificationService';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -18,6 +21,47 @@ interface HomeDashboardViewProps {
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { locations, notes, returnWarrantyItems, standardTasks } = useStorage();
+
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
+  const handleRequestNotifications = async () => {
+    if (typeof window === 'undefined') return;
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(userAgent);
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+
+    if (isIos && !isStandalone) {
+      alert(
+        "📱 iPhone (iOS) Kilit Ekranı Bildirimi İçin:\n\n" +
+        "1. Safari alt menüsündeki 'Paylaş' simgesine (kare ve yukarı ok) dokunun.\n" +
+        "2. Menüyü kaydırıp 'Ana Ekrana Ekle' seçeneğine basın.\n" +
+        "3. Ana ekrandan uygulamayı açtığınızda bildirim iznine 'İzin Ver' deyin.\n\n" +
+        "Apple kuralları gereği Safari sekmesinde kilit ekranı bildirimi desteklenmemektedir."
+      );
+      return;
+    }
+
+    try {
+      await NotificationService.requestPermission();
+      const granted = await OneSignalService.requestPermission();
+      if ('Notification' in window) {
+        setPermission(Notification.permission);
+      }
+      if (granted || Notification.permission === 'granted') {
+        alert('🔔 Bildirimler başarıyla açıldı! Artık telefonunuz kilitliyken de anlık iş emirleri ve güncellemeleri alacaksınız.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const isAdmin = user?.role === 'admin';
   const pendingReturns = returnWarrantyItems.filter((i) => i.status === 'pending').length;
@@ -65,6 +109,33 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <div className="absolute -right-10 -bottom-10 w-64 h-64 rounded-full bg-blue-600/20 blur-3xl pointer-events-none" />
         <div className="absolute right-1/3 -top-10 w-48 h-48 rounded-full bg-indigo-500/15 blur-2xl pointer-events-none" />
       </div>
+
+      {/* Push Notification Status Alert (Shown if notifications are not enabled) */}
+      {permission !== 'granted' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-xs">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs sm:text-sm font-black text-amber-900 dark:text-amber-300">
+                Kilit Ekranı Bildirimleri Kapalı
+              </h4>
+              <p className="text-[11px] sm:text-xs text-amber-800/90 dark:text-amber-400/90 leading-snug">
+                Telefonunuz kilitliyken veya uygulama kapalıyken iş emirlerini anında alabilmek için bildirimleri aktif edin.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleRequestNotifications}
+            className="px-4 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-black shrink-0 shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+          >
+            <Bell className="w-4 h-4" />
+            <span>Bildirimleri Aç</span>
+          </button>
+        </div>
+      )}
 
       {/* Section Title */}
       <div className="flex items-center justify-between px-1">

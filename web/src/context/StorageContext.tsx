@@ -71,6 +71,7 @@ const SEEN_NOTES_KEY = (userId: string) => `@seen_notes_${userId}`;
 const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
 const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
 const SEEN_WARRANTY_REMINDERS_KEY = (userId: string) => `@seen_warranty_reminders_${userId}`;
+const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string) => `@seen_completed_locations_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -374,6 +375,38 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [allLocations, user]);
 
+  // Check completed locations from staff members (Admin notification)
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || allLocations.length === 0) return;
+
+    const seenDone = getStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id));
+    let seenChanged = false;
+
+    allLocations.forEach((loc) => {
+      const isComplete =
+        loc.tasks.length > 0 &&
+        loc.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
+
+      if (isComplete) {
+        if (!seenDone.has(loc.id)) {
+          seenDone.add(loc.id);
+          seenChanged = true;
+
+          const staffName = loc.createdByName || 'Saha Personeli';
+          const title = '✅ Kurulum Tamamlandı!';
+          const body = `${staffName}, "${loc.name}" kurulumundaki tüm görevleri tamamladı.`;
+
+          NotificationService.sendNotification(title, body);
+          setActiveToast({ title, body });
+        }
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id), seenDone);
+    }
+  }, [allLocations, user]);
+
   const dismissToast = () => {
     setActiveToast(null);
   };
@@ -455,6 +488,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
       return;
     }
+
+    const wasAlreadyComplete = Boolean(
+      target &&
+        target.tasks.length > 0 &&
+        target.tasks.every((t) => t.status === 'completed' || t.status === 'not_present')
+    );
+
     const newLocations = allLocations.map((loc) => {
       if (loc.id === locationId) {
         return {
@@ -470,6 +510,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return loc;
     });
     await saveLocations(newLocations);
+
+    const updatedTarget = newLocations.find((loc) => loc.id === locationId);
+    const isNowComplete = Boolean(
+      updatedTarget &&
+        updatedTarget.tasks.length > 0 &&
+        updatedTarget.tasks.every((t) => t.status === 'completed' || t.status === 'not_present')
+    );
+
+    // If just transitioned to complete, send hardware push notification directly to all Admins!
+    if (!wasAlreadyComplete && isNowComplete && updatedTarget) {
+      const staffName = user?.name || user?.username || 'Saha Personeli';
+      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+
+      if (adminIds.length > 0) {
+        OneSignalService.sendPushNotification({
+          title: '✅ Kurulum Tamamlandı!',
+          message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app',
+        });
+      }
+
+      if (user?.role === 'admin') {
+        setActiveToast({
+          title: '✅ Kurulum Tamamlandı!',
+          body: `"${updatedTarget.name}" kurulumundaki tüm görevler tamamlandı.`,
+        });
+      }
+    }
   };
 
   // Add custom task to specific location (guarded: admin or creator only)

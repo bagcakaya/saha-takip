@@ -10,6 +10,7 @@ import {
   Crown,
   MapPin,
   Home,
+  Bell,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -18,6 +19,8 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData } from '../../types/auth';
+import { OneSignalService } from '../../services/oneSignalService';
+import { NotificationService } from '../../services/notificationService';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -50,6 +53,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       isMounted = false;
     };
   }, []);
+
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
+  const handleNotificationClick = async () => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      await NotificationService.requestPermission();
+      const granted = await OneSignalService.requestPermission();
+      if ('Notification' in window) {
+        setPermission(Notification.permission);
+      }
+      if (granted || Notification.permission === 'granted') {
+        alert('🔔 Bildirimler aktif edildi! Artık telefon/tarayıcı kapalıyken de bildirimler iletilecektir.');
+      } else {
+        alert('⚠️ Bildirim izni verilmedi veya tarayıcı ayarlarınızdan engellendi.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
 
@@ -247,7 +276,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 </div>
               </div>
 
-              <ThemeToggle />
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleNotificationClick}
+                  className={`p-2 rounded-xl transition-all relative cursor-pointer ${
+                    permission === 'granted'
+                      ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                      : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-pulse'
+                  }`}
+                  title={
+                    permission === 'granted'
+                      ? 'Kilit Ekranı Bildirimleri Aktif'
+                      : 'Bildirimler Kapalı - Tıklayıp Açın'
+                  }
+                  aria-label="Bildirim Durumu"
+                >
+                  <Bell className="w-4 h-4" />
+                  {permission !== 'granted' && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
+                  )}
+                </button>
+                <ThemeToggle />
+              </div>
             </div>
           )}
 

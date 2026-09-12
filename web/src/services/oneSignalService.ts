@@ -56,6 +56,12 @@ export const OneSignalService = {
         if (OneSignal.User && OneSignal.User.addTags) {
           await OneSignal.User.addTags({ name, role, userId });
         }
+        // If permission is already granted in browser, ensure push subscription is opted-in & active
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          if (OneSignal.User?.PushSubscription?.optIn) {
+            await OneSignal.User.PushSubscription.optIn();
+          }
+        }
       } catch (e) {
         console.warn('OneSignal login error:', e);
       }
@@ -90,7 +96,13 @@ export const OneSignalService = {
         try {
           if (OneSignal.Notifications && OneSignal.Notifications.requestPermission) {
             await OneSignal.Notifications.requestPermission();
-            resolve(OneSignal.Notifications.permission);
+            if (OneSignal.User?.PushSubscription?.optIn) {
+              await OneSignal.User.PushSubscription.optIn();
+            }
+            const isGranted =
+              OneSignal.Notifications.permission === true ||
+              (typeof Notification !== 'undefined' && Notification.permission === 'granted');
+            resolve(isGranted);
           } else {
             resolve(false);
           }
@@ -138,6 +150,10 @@ export const OneSignalService = {
         headings: { en: title, tr: title },
         contents: { en: message, tr: message },
         url: url || 'https://saha-takip-beige.vercel.app',
+        web_url: url || 'https://saha-takip-beige.vercel.app',
+        chrome_web_icon: 'https://saha-takip-beige.vercel.app/icon.png',
+        chrome_web_badge: 'https://saha-takip-beige.vercel.app/icon.png',
+        icon: 'https://saha-takip-beige.vercel.app/icon.png',
         priority: 10,
         android_visibility: 1,
         android_sound: 'default',

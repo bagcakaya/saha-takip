@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
+import { OneSignalService } from '../../services/oneSignalService';
+import { NotificationService } from '../../services/notificationService';
 
 export type TabType = 'home' | 'installations' | 'notes' | 'returns' | 'template';
 
@@ -23,6 +25,48 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { user, logout } = useAuth();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
+  const handleNotificationClick = async () => {
+    if (typeof window === 'undefined') return;
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(userAgent);
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+
+    if (isIos && !isStandalone) {
+      alert(
+        "📱 iPhone (iOS) Kilit Ekranı Bildirimi İçin:\n\n" +
+        "1. Safari alt çubuğundaki 'Paylaş' simgesine (kare ve yukarı ok) dokunun.\n" +
+        "2. Menüyü kaydırıp 'Ana Ekrana Ekle' seçeneğine basın.\n" +
+        "3. Ana ekrana eklenen uygulamayı açtığınızda gelen bildirim uyarısına 'İzin Ver' deyin.\n\n" +
+        "Apple kuralları gereği Safari sekmesinde kilit ekranı bildirimi desteklenmemektedir."
+      );
+      return;
+    }
+
+    try {
+      await NotificationService.requestPermission();
+      const granted = await OneSignalService.requestPermission();
+      if ('Notification' in window) {
+        setPermission(Notification.permission);
+      }
+      if (granted || Notification.permission === 'granted') {
+        alert('🔔 Bildirimler aktif edildi! Artık telefon kilitliyken de iş emirleri ve güncellemeler anında iletilecektir.');
+      } else {
+        alert('⚠️ Bildirim izni verilmedi veya tarayıcı ayarlarınızdan engellendi. Lütfen tarayıcı/telefon ayarlarından izin verin.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const isAdmin = user?.role === 'admin';
 
@@ -151,6 +195,28 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="truncate max-w-[100px]">{user.name}</span>
               </div>
             )}
+
+            {/* Notification Bell Status */}
+            <button
+              type="button"
+              onClick={handleNotificationClick}
+              className={`p-2 rounded-xl transition-all relative cursor-pointer ${
+                permission === 'granted'
+                  ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                  : 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 animate-pulse'
+              }`}
+              title={
+                permission === 'granted'
+                  ? 'Kilit Ekranı Bildirimleri Aktif'
+                  : 'Bildirimler Kapalı - Tıklayıp Açın'
+              }
+              aria-label="Bildirim Durumu"
+            >
+              <Bell className="w-4 h-4" />
+              {permission !== 'granted' && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
+              )}
+            </button>
 
             <ThemeToggle />
 
