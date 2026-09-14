@@ -623,7 +623,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
       if (adminIds.length > 0) {
         const staffName = user?.name || user?.username || 'Saha Personeli';
-        OneSignalService.sendPushNotification({
+        await OneSignalService.sendPushNotification({
           title: '📍 Yeni Kurulum Eklendi!',
           message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
           targetMode: 'custom',
@@ -687,7 +687,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
 
       if (adminIds.length > 0) {
-        OneSignalService.sendPushNotification({
+        await OneSignalService.sendPushNotification({
           title: '✅ Kurulum Tamamlandı!',
           message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
           targetMode: 'custom',
@@ -871,7 +871,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Send hardware push notification directly to locked phones via OneSignal
     if (targetMode !== 'self') {
       // 1. Immediate arrival alert
-      OneSignalService.sendPushNotification({
+      await OneSignalService.sendPushNotification({
         title: `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`,
         message: newNote.content,
         targetMode,
@@ -881,7 +881,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
       if (reminderActive && reminderDate) {
-        OneSignalService.sendPushNotification({
+        await OneSignalService.sendPushNotification({
           title: `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
           message: newNote.content,
           targetMode,
@@ -1150,7 +1150,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If warranty, schedule hardware push alert via OneSignal at 20 days exact timestamp
     if (newItem.type === 'warranty' && newItem.reminderActive && newItem.reminderDate) {
-      OneSignalService.sendPushNotification({
+      await OneSignalService.sendPushNotification({
         title: `🛡️ Garanti Takibi (20 Gün): ${newItem.companyName}`,
         message: `${newItem.companyName} firmasına gönderilen garanti ürününün 20 günü doldu. Lütfen son durumunu sorgulayın.`,
         targetMode: 'all',

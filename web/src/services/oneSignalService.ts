@@ -46,7 +46,7 @@ export const OneSignalService = {
         appId: ONESIGNAL_CONFIG.APP_ID,
         allowLocalhostAsSecureOrigin: ONESIGNAL_CONFIG.ALLOW_LOCAL_HOST,
         serviceWorkerParam: { scope: '/' },
-        serviceWorkerPath: '/OneSignalSDKWorker.js',
+        serviceWorkerPath: 'OneSignalSDKWorker.js',
       });
 
       // Keep push subscription persistently synced and active across token refreshes
@@ -297,19 +297,17 @@ export const OneSignalService = {
       return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
     }
 
+    const targetUrl = url || 'https://saha-takip-beige.vercel.app';
     const basePayload: Record<string, any> = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
-      url: url || 'https://saha-takip-beige.vercel.app',
-      web_url: url || 'https://saha-takip-beige.vercel.app',
+      web_url: targetUrl,
       chrome_web_icon: 'https://saha-takip-beige.vercel.app/icon.png',
       chrome_web_badge: 'https://saha-takip-beige.vercel.app/icon.png',
       icon: 'https://saha-takip-beige.vercel.app/icon.png',
       priority: 10,
-      android_visibility: 1,
-      android_sound: 'default',
-      ios_sound: 'default',
+      ttl: 259200,
     };
 
     if (sendAfter) {
@@ -379,9 +377,29 @@ export const OneSignalService = {
   },
 
   /**
-   * Internal helper to post to OneSignal REST API
+   * Internal helper to post to OneSignal REST API (with serverless proxy fallback)
    */
   async _postNotification(payload: Record<string, any>): Promise<any> {
+    // 1. Try serverless API proxy first (bypasses browser CORS & prevents unmount cancellation)
+    try {
+      const proxyRes = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (proxyRes.ok) {
+        const data = await proxyRes.json();
+        if (data && data.errors && data.errors.length > 0) {
+          console.error('OneSignal API error from proxy:', data.errors);
+          throw new Error(data.errors.join(', '));
+        }
+        return data;
+      }
+    } catch (proxyErr) {
+      console.warn('Proxy /api/send-notification unavailable or failed, falling back to direct REST:', proxyErr);
+    }
+
+    // 2. Direct OneSignal REST API fallback
     try {
       const response = await fetch('https://onesignal.com/api/v1/notifications', {
         method: 'POST',
@@ -392,6 +410,10 @@ export const OneSignalService = {
         body: JSON.stringify(payload),
       });
       const result = await response.json();
+      if (result && result.errors && result.errors.length > 0) {
+        console.error('OneSignal API returned error:', result.errors);
+        throw new Error(Array.isArray(result.errors) ? result.errors.join(', ') : JSON.stringify(result.errors));
+      }
       return result;
     } catch (e) {
       console.error('OneSignal REST API fetch failed:', e);
