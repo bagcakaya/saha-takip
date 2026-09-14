@@ -145,7 +145,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">
-              Bildirim Durumu & Canlı Kontrol
+              Bildirim Ayarları
             </h3>
             <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
               Kilit ekranı bildirimlerinin kalıcı ve kesintisiz çalışmasını sağlar

@@ -8,13 +8,14 @@ import {
   Sparkles,
   Bell,
   Wrench,
+  Settings,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
-import { NotificationStatusCard } from '../components/common/NotificationStatusCard';
+import { NotificationStatusModal } from '../components/common/NotificationStatusModal';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -23,6 +24,7 @@ interface HomeDashboardViewProps {
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { locations, notes, returnWarrantyItems, standardTasks, services } = useStorage();
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -151,11 +153,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             Hızlı Erişim Modülleri
           </h3>
         </div>
-        <span className="text-xs font-semibold text-slate-400">5 Ana Bölüm</span>
+        <span className="text-xs font-semibold text-slate-400">6 Ana Bölüm</span>
       </div>
 
-      {/* The 5 Colorful Square Boxes */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 sm:gap-5">
+      {/* The 6 Colorful Square Boxes */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-5">
         {/* 1. Kurulumlar - Blue Gradient Square Card */}
         <button
           onClick={() => onNavigate('installations')}
@@ -301,12 +303,42 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
+
+        {/* 6. Bildirim Ayarları - Indigo / Slate Gradient Square Card */}
+        <button
+          onClick={() => setIsNotificationSettingsOpen(true)}
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-indigo-600 via-slate-800 to-slate-900 text-white border border-indigo-400/30 cursor-pointer"
+        >
+          {/* Top Row */}
+          <div className="flex items-start justify-between">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+              <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs">
+              Canlı Durum
+            </span>
+          </div>
+
+          {/* Bottom Content */}
+          <div className="space-y-1 z-10">
+            <h4 className="text-sm sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+              <span>Bildirim Ayarları</span>
+              <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+            </h4>
+            <p className="text-[10px] sm:text-xs text-indigo-100/90 font-medium line-clamp-2 leading-relaxed">
+              Kilit ekranı izni, test gönderimi ve cihaz kontrolü
+            </p>
+          </div>
+
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
+        </button>
       </div>
 
-      {/* Notification Diagnostic & Live Status Card (Görsel-1) */}
-      <div className="pt-2">
-        <NotificationStatusCard isEmbedded />
-      </div>
+      {/* Notification Settings Modal */}
+      <NotificationStatusModal
+        isOpen={isNotificationSettingsOpen}
+        onClose={() => setIsNotificationSettingsOpen(false)}
+      />
     </div>
   );
 };
