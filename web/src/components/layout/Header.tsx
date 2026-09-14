@@ -4,7 +4,7 @@ import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, Shi
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { OneSignalService } from '../../services/oneSignalService';
-import { NotificationService } from '../../services/notificationService';
+import { NotificationStatusModal } from '../common/NotificationStatusModal';
 
 export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'returns' | 'template';
 
@@ -25,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { user, logout } = useAuth();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       return Notification.permission;
@@ -44,28 +45,25 @@ export const Header: React.FC<HeaderProps> = ({
     if (isIos && !isStandalone) {
       alert(
         "📱 iPhone (iOS) Kilit Ekranı Bildirimi İçin:\n\n" +
-        "1. Safari alt çubuğundaki 'Paylaş' simgesine (kare ve yukarı ok) dokunun.\n" +
+        "1. Safari alt çubuğundaki 'Paylaş' simgesine dokunun.\n" +
         "2. Menüyü kaydırıp 'Ana Ekrana Ekle' seçeneğine basın.\n" +
-        "3. Ana ekrana eklenen uygulamayı açtığınızda gelen bildirim uyarısına 'İzin Ver' deyin.\n\n" +
-        "Apple kuralları gereği Safari sekmesinde kilit ekranı bildirimi desteklenmemektedir."
+        "3. Ana ekrana eklenen uygulamayı açtığınızda gelen bildirime 'İzin Ver' deyin."
       );
       return;
     }
 
     try {
-      await NotificationService.requestPermission();
-      const granted = await OneSignalService.requestPermission();
+      await OneSignalService.requestPermission(
+        user ? { id: user.id, name: user.name, role: user.role } : undefined
+      );
       if ('Notification' in window) {
         setPermission(Notification.permission);
-      }
-      if (granted || Notification.permission === 'granted') {
-        alert('🔔 Bildirimler aktif edildi! Artık telefon kilitliyken de iş emirleri ve güncellemeler anında iletilecektir.');
-      } else {
-        alert('⚠️ Bildirim izni verilmedi veya tarayıcı ayarlarınızdan engellendi. Lütfen tarayıcı/telefon ayarlarından izin verin.');
       }
     } catch (e) {
       console.error(e);
     }
+
+    setIsStatusModalOpen(true);
   };
 
   const isAdmin = user?.role === 'admin';
@@ -263,6 +261,12 @@ export const Header: React.FC<HeaderProps> = ({
           onClose={() => setIsUserModalOpen(false)}
         />
       )}
+
+      {/* Notification Status & Diagnostic Modal */}
+      <NotificationStatusModal
+        isOpen={isStatusModalOpen}
+        onClose={() => setIsStatusModalOpen(false)}
+      />
     </>
   );
 };

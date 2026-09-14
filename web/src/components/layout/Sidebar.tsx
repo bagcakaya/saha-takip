@@ -21,7 +21,7 @@ import { UserManagementModal } from '../auth/UserManagementModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
-import { NotificationService } from '../../services/notificationService';
+import { NotificationStatusModal } from '../common/NotificationStatusModal';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const { user, logout } = useAuth();
   const { locations, notes, returnWarrantyItems, services } = useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
 
@@ -66,19 +67,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     if (typeof window === 'undefined') return;
 
     try {
-      await NotificationService.requestPermission();
-      const granted = await OneSignalService.requestPermission();
+      await OneSignalService.requestPermission(
+        user ? { id: user.id, name: user.name, role: user.role } : undefined
+      );
       if ('Notification' in window) {
         setPermission(Notification.permission);
-      }
-      if (granted || Notification.permission === 'granted') {
-        alert('🔔 Bildirimler aktif edildi! Artık telefon/tarayıcı kapalıyken de bildirimler iletilecektir.');
-      } else {
-        alert('⚠️ Bildirim izni verilmedi veya tarayıcı ayarlarınızdan engellendi.');
       }
     } catch (e) {
       console.error(e);
     }
+
+    setIsStatusModalOpen(true);
   };
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
@@ -351,6 +350,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           onClose={() => setIsUserModalOpen(false)}
         />
       )}
+
+      {/* Notification Status & Diagnostic Modal */}
+      <NotificationStatusModal
+        isOpen={isStatusModalOpen}
+        onClose={() => setIsStatusModalOpen(false)}
+      />
     </>
   );
 };

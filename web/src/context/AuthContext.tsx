@@ -44,6 +44,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Keep OneSignal device registration alive on app resume / tab switch
+  useEffect(() => {
+    if (!user) return;
+
+    const handleResume = () => {
+      if (document.visibilityState === 'visible') {
+        OneSignalService.loginUser(user.id, user.name, user.role);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleResume);
+    window.addEventListener('focus', handleResume);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleResume);
+      window.removeEventListener('focus', handleResume);
+    };
+  }, [user]);
+
   // Initial cloud fetch & realtime subscription
   useEffect(() => {
     UserService.fetchUsersFromCloud().then((cloudUsers) => {
