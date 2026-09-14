@@ -21,7 +21,7 @@ import { UserManagementModal } from '../auth/UserManagementModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
-import { NotificationStatusModal } from '../common/NotificationStatusModal';
+import { NotificationListModal } from '../common/NotificationListModal';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -30,9 +30,10 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const { user, logout } = useAuth();
-  const { locations, notes, returnWarrantyItems, services } = useStorage();
+  const { locations, notes, returnWarrantyItems, services, allNotes, allServices, allLocations } =
+    useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
 
@@ -63,11 +64,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     return 'default';
   });
 
-  const handleNotificationClick = async () => {
+  const [lastReadTime, setLastReadTime] = useState<number>(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
+      if (val) return Number(val);
+    }
+    return Date.now() - 24 * 60 * 60 * 1000;
+  });
+
+  const markAllAsRead = () => {
+    const now = Date.now();
+    setLastReadTime(now);
+    if (user?.id) {
+      try {
+        localStorage.setItem(`@saha_takip_last_read_time_${user.id}`, String(now));
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleNotificationClick = () => {
     if (typeof window === 'undefined') return;
 
-    // Open status modal immediately
-    setIsStatusModalOpen(true);
+    // 1. Mark all notifications as read immediately so the badge count clears!
+    markAllAsRead();
+
+    // 2. Open notification list modal
+    setIsNotificationListOpen(true);
 
     // Sync in background non-blocking
     if (user) {
@@ -82,29 +106,82 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
   const badgeCount = React.useMemo(() => {
     if (!user) return 0;
+    let count = 0;
+
     if (user.role === 'admin') {
-      const pendingApprovalCount = notes.filter((n) => n.status === 'pending_approval').length;
-      const reminders = notes.filter((n) => n.reminderActive && n.reminderDate).length;
-      return pendingApprovalCount + reminders;
+      // 1. Pending approval notes newer than lastReadTime
+      count += allNotes.filter(
+        (n) => n.status === 'pending_approval' && (n.completedAt || n.createdAt) > lastReadTime
+      ).length;
+
+      // 2. Notes created by others newer than lastReadTime
+      count += allNotes.filter(
+        (n) => n.createdBy !== user.id && n.status !== 'pending_approval' && n.createdAt > lastReadTime
+      ).length;
+
+      // 3. New services from staff
+      count += allServices.filter(
+        (s) => s.createdBy !== user.id && s.createdAt > lastReadTime
+      ).length;
+
+      // 4. New locations from staff
+      count += allLocations.filter(
+        (l) => l.createdBy !== user.id && l.createdAt > lastReadTime
+      ).length;
+
+      // 5. Active reminders due
+      count += allNotes.filter((n) => {
+        if (!n.reminderActive || !n.reminderDate) return false;
+        const remTime = new Date(n.reminderDate).getTime();
+        return remTime <= Date.now() && remTime > lastReadTime;
+      }).length;
     } else {
-      const myPendingOrders = notes.filter(
+      // Staff
+      // 1. Targeted notes newer than lastReadTime
+      count += allNotes.filter(
         (n) =>
-          (!n.status || n.status === 'pending') &&
+          n.createdBy !== user.id &&
+          n.createdAt > lastReadTime &&
           (n.targetMode === 'all' ||
+            n.targetUserId === 'all' ||
             (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
             n.targetUserId === user.id)
       ).length;
-      const myReminders = notes.filter(
+
+      // 2. Approved notes
+      count += allNotes.filter(
         (n) =>
-          n.reminderActive &&
-          n.reminderDate &&
-          (n.createdBy === user.id ||
-            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+          n.status === 'approved' &&
+          (n.approvedAt || n.createdAt) > lastReadTime &&
+          (n.completedBy === user.id ||
+            (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
             n.targetUserId === user.id)
       ).length;
-      return myPendingOrders + myReminders;
+
+      // 3. Rejected notes
+      count += allNotes.filter(
+        (n) =>
+          n.status === 'rejected' &&
+          (n.rejectedAt || n.createdAt) > lastReadTime &&
+          (n.completedBy === user.id ||
+            (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+
+      // 4. Active reminders due
+      count += allNotes.filter((n) => {
+        if (!n.reminderActive || !n.reminderDate) return false;
+        const remTime = new Date(n.reminderDate).getTime();
+        const isTargeted =
+          n.createdBy === user.id ||
+          (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+          n.targetUserId === user.id;
+        return isTargeted && remTime <= Date.now() && remTime > lastReadTime;
+      }).length;
     }
-  }, [notes, user]);
+
+    return count;
+  }, [allNotes, allServices, allLocations, user, lastReadTime]);
 
   return (
     <>
@@ -381,10 +458,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         />
       )}
 
-      {/* Notification Status & Diagnostic Modal */}
-      <NotificationStatusModal
-        isOpen={isStatusModalOpen}
-        onClose={() => setIsStatusModalOpen(false)}
+      {/* Realtime Notification Drawer / List Modal */}
+      <NotificationListModal
+        isOpen={isNotificationListOpen}
+        onClose={() => setIsNotificationListOpen(false)}
+        lastReadTime={lastReadTime}
+        onMarkAllAsRead={markAllAsRead}
+        onNavigate={(tab, filter) => {
+          setActiveTab(tab);
+          if (filter) {
+            window.dispatchEvent(
+              new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+            );
+          }
+        }}
       />
     </>
   );

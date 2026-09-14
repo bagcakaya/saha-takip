@@ -33,7 +33,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const [reminderActive, setReminderActive] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
-  const [targetMode, setTargetMode] = useState<NoteTargetMode>('self');
+  const [targetMode, setTargetMode] = useState<NoteTargetMode>(isAdmin ? 'all' : 'self');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,7 +80,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     } else {
       setContent('');
       setReminderActive(false);
-      setTargetMode('self');
+      setTargetMode(isAdmin ? 'all' : 'self');
       setSelectedUserIds([]);
       setDefaultDateTime();
     }
