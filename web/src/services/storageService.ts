@@ -182,67 +182,113 @@ export const StorageService = {
   async getNotes(): Promise<GeneralNote[]> {
     const localData = (await loadItem<GeneralNote[]>(NOTES_KEY)) || [];
 
-    // Try fetching from Supabase
+    // 1. Fetch fallback cloud sync slot (standard_tasks id: 4) where workflow fields are mirrored
+    let fallbackNotes: GeneralNote[] = [];
+    try {
+      const { data: stData, error: stError } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 4)
+        .single();
+
+      if (!stError && stData?.tasks && Array.isArray(stData.tasks) && stData.tasks.length > 0) {
+        const rawJson = stData.tasks.join('');
+        const parsed: GeneralNote[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          fallbackNotes = parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Try fetching from Supabase native notes table
     try {
       const { data, error } = await supabase
         .from('notes')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!error && data) {
-        const cloudNotes: GeneralNote[] = data.map((row) => ({
-          id: row.id,
-          content: row.content,
-          createdAt: Number(row.created_at) || Date.now(),
-          createdBy: row.created_by || undefined,
-          createdByName: row.created_by_name || undefined,
-          targetMode: row.target_mode || 'self',
-          targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
-          targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
-          targetUserId: row.target_user_id || undefined,
-          targetUserName: row.target_user_name || undefined,
-          reminderActive: Boolean(row.reminder_active),
-          reminderDate: row.reminder_date || undefined,
-          notified: Boolean(row.notified),
-          status: (row.status as any) || 'pending',
-          completedAt: row.completed_at ? Number(row.completed_at) : undefined,
-          completedBy: row.completed_by || undefined,
-          completedByName: row.completed_by_name || undefined,
-          completionNote: row.completion_note || undefined,
-          approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
-          approvedBy: row.approved_by || undefined,
-          approvedByName: row.approved_by_name || undefined,
-          rejectedAt: row.rejected_at ? Number(row.rejected_at) : undefined,
-          rejectedBy: row.rejected_by || undefined,
-          rejectedByName: row.rejected_by_name || undefined,
-          rejectionReason: row.rejection_reason || undefined,
-        }));
+      if (!error && data && data.length > 0) {
+        // Check if native notes table actually has the status column migrated
+        const hasNativeStatus = 'status' in data[0] && data[0].status !== undefined;
 
-        await saveItem(NOTES_KEY, cloudNotes);
-        return cloudNotes;
+        if (hasNativeStatus) {
+          const cloudNotes: GeneralNote[] = data.map((row) => ({
+            id: row.id,
+            content: row.content,
+            createdAt: Number(row.created_at) || Date.now(),
+            createdBy: row.created_by || undefined,
+            createdByName: row.created_by_name || undefined,
+            targetMode: row.target_mode || 'self',
+            targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
+            targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
+            targetUserId: row.target_user_id || undefined,
+            targetUserName: row.target_user_name || undefined,
+            reminderActive: Boolean(row.reminder_active),
+            reminderDate: row.reminder_date || undefined,
+            notified: Boolean(row.notified),
+            status: (row.status as any) || 'pending',
+            completedAt: row.completed_at ? Number(row.completed_at) : undefined,
+            completedBy: row.completed_by || undefined,
+            completedByName: row.completed_by_name || undefined,
+            completionNote: row.completion_note || undefined,
+            approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
+            approvedBy: row.approved_by || undefined,
+            approvedByName: row.approved_by_name || undefined,
+            rejectedAt: row.rejected_at ? Number(row.rejected_at) : undefined,
+            rejectedBy: row.rejected_by || undefined,
+            rejectedByName: row.rejected_by_name || undefined,
+            rejectionReason: row.rejection_reason || undefined,
+          }));
+
+          await saveItem(NOTES_KEY, cloudNotes);
+          return cloudNotes;
+        } else {
+          // Native table columns not yet migrated! Merge with fallback mirror (which has status & completion notes)
+          const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
+          const mergedNotes: GeneralNote[] = data.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              content: row.content,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              targetMode: row.target_mode || 'self',
+              targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
+              targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
+              targetUserId: row.target_user_id || undefined,
+              targetUserName: row.target_user_name || undefined,
+              reminderActive: Boolean(row.reminder_active),
+              reminderDate: row.reminder_date || undefined,
+              notified: Boolean(row.notified),
+              status: fb?.status || 'pending',
+              completedAt: fb?.completedAt,
+              completedBy: fb?.completedBy,
+              completedByName: fb?.completedByName,
+              completionNote: fb?.completionNote,
+              approvedAt: fb?.approvedAt,
+              approvedBy: fb?.approvedBy,
+              approvedByName: fb?.approvedByName,
+              rejectedAt: fb?.rejectedAt,
+              rejectedBy: fb?.rejectedBy,
+              rejectedByName: fb?.rejectedByName,
+              rejectionReason: fb?.rejectionReason,
+            };
+          });
+
+          await saveItem(NOTES_KEY, mergedNotes);
+          return mergedNotes;
+        }
       }
     } catch (e) {
       console.warn('Supabase notes fetch error:', e);
     }
 
-    // 2. Fallback cloud sync slot (standard_tasks id: 4) in case notes table columns are pending migration
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 4)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: GeneralNote[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          await saveItem(NOTES_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
+    if (fallbackNotes.length > 0) {
+      await saveItem(NOTES_KEY, fallbackNotes);
+      return fallbackNotes;
     }
 
     return localData;

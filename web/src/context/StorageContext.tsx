@@ -168,14 +168,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs] = await Promise.all([
+          const [tasks, returns, srvs, nts] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
+            StorageService.getNotes(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
           setAllServices(srvs);
+          setAllNotes(nts);
         }
       )
       .on(
