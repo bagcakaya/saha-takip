@@ -9,6 +9,7 @@ import {
   Bell,
   Wrench,
   Settings,
+  UserCheck,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { useStorage } from '../context/StorageContext';
@@ -23,7 +24,7 @@ interface HomeDashboardViewProps {
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
-  const { locations, notes, returnWarrantyItems, standardTasks, services } = useStorage();
+  const { locations, notes, returnWarrantyItems, standardTasks, services, attendanceRecords } = useStorage();
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
@@ -69,6 +70,10 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   const isAdmin = user?.role === 'admin';
   const pendingReturns = returnWarrantyItems.filter((i) => i.status === 'pending').length;
+  const todayKey = new Date().toISOString().split('T')[0];
+  const activeStaffCount = attendanceRecords.filter(
+    (r) => r.date === todayKey && r.status === 'checked_in'
+  ).length;
 
   const todayStr = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
@@ -153,11 +158,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             Hızlı Erişim Modülleri
           </h3>
         </div>
-        <span className="text-xs font-semibold text-slate-400">6 Ana Bölüm</span>
+        <span className="text-xs font-semibold text-slate-400">7 Ana Bölüm</span>
       </div>
 
-      {/* The 6 Colorful Square Boxes */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-5">
+      {/* The 7 Colorful Square Boxes */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 sm:gap-5">
         {/* 1. Kurulumlar - Blue Gradient Square Card */}
         <button
           onClick={() => onNavigate('installations')}
@@ -246,7 +251,43 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
 
-        {/* 4. İade / Garanti - Red Gradient Square Card */}
+        {/* 4. Personel Takibi - Emerald / Teal Gradient Square Card */}
+        <button
+          onClick={() => onNavigate('staff_tracking')}
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-900 text-white border border-emerald-400/30"
+        >
+          {/* Top Row */}
+          <div className="flex items-start justify-between">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+              <UserCheck className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs flex items-center gap-1">
+              {activeStaffCount > 0 ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
+                  {activeStaffCount} Mesaide
+                </>
+              ) : (
+                'Takip'
+              )}
+            </span>
+          </div>
+
+          {/* Bottom Content */}
+          <div className="space-y-1 z-10">
+            <h4 className="text-sm sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+              <span>Personel Takibi</span>
+              <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+            </h4>
+            <p className="text-[10px] sm:text-xs text-emerald-100/90 font-medium line-clamp-2 leading-relaxed">
+              10 metre lokasyon doğrulamalı işe giriş ve çıkış denetimi
+            </p>
+          </div>
+
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
+        </button>
+
+        {/* 5. İade / Garanti - Red Gradient Square Card */}
         <button
           onClick={() => onNavigate('returns')}
           className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-red-600 via-rose-700 to-rose-950 text-white border border-red-400/30"

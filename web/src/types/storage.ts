@@ -87,10 +87,46 @@ export interface ServiceItem {
   createdByName?: string;
 }
 
+export interface WorkplaceLocation {
+  address: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number; // default: 10 meters
+  updatedAt: number;
+  updatedBy?: string;
+  updatedByName?: string;
+}
+
+export type AttendanceStatus = 'checked_in' | 'completed';
+
+export interface AttendanceRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole?: string;
+  date: string; // 'YYYY-MM-DD'
+  checkInTime: number; // timestamp
+  checkInLat?: number;
+  checkInLon?: number;
+  checkInAddress?: string;
+  checkInDistance?: number; // distance in meters from workplace
+  checkOutTime?: number; // timestamp
+  checkOutLat?: number;
+  checkOutLon?: number;
+  checkOutAddress?: string;
+  checkOutDistance?: number; // distance in meters from workplace
+  status: AttendanceStatus;
+  workDurationMinutes?: number;
+  notes?: string;
+}
+
 export interface BackupData {
   locations: LocationItem[];
   standardTasks: string[];
   notes?: GeneralNote[];
   returnWarrantyItems?: ReturnWarrantyItem[];
   services?: ServiceItem[];
+  workplaceLocation?: WorkplaceLocation;
+  attendanceRecords?: AttendanceRecord[];
 }
+

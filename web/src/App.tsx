@@ -11,6 +11,7 @@ import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
 import { TemplateView } from './views/TemplateView';
 import { HomeDashboardView } from './views/HomeDashboardView';
+import { StaffTrackingView } from './views/StaffTrackingView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
@@ -93,6 +94,7 @@ const MainApp: React.FC = () => {
         'installations',
         'services',
         'notes',
+        'staff_tracking',
         'returns',
         'template',
       ];
@@ -154,6 +156,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Görev & Takip',
           title: 'İş Emirleri & Hatırlatıcılar',
         };
+      case 'staff_tracking':
+        return {
+          subtitle: 'Giriş & Çıkış Takibi',
+          title: 'Personel Takibi',
+        };
       case 'returns':
         return {
           subtitle: 'Ürün & Kargo Takibi',
@@ -200,6 +207,7 @@ const MainApp: React.FC = () => {
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'services' && <ServicesView />}
           {activeTab === 'notes' && <NotesView />}
+          {activeTab === 'staff_tracking' && <StaffTrackingView />}
           {activeTab === 'returns' && <ReturnWarrantyView />}
           {activeTab === 'template' && <TemplateView />}
         </main>

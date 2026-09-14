@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -8,6 +8,7 @@ import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
 import { UserService } from '../services/userService';
 import { TabType } from '../components/layout/Header';
+import { LocationService } from '../services/locationService';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -18,6 +19,8 @@ interface StorageContextType {
   returnWarrantyItems: ReturnWarrantyItem[];
   services: ServiceItem[];
   allServices: ServiceItem[];
+  workplaceLocation: WorkplaceLocation | null;
+  attendanceRecords: AttendanceRecord[];
   isLoading: boolean;
   activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
@@ -70,6 +73,17 @@ interface StorageContextType {
   ) => Promise<void>;
   updateService: (id: string, updates: Partial<ServiceItem>) => Promise<void>;
   deleteService: (id: string) => Promise<void>;
+  updateWorkplaceLocation: (
+    address: string,
+    latitude: number,
+    longitude: number,
+    radiusMeters?: number
+  ) => Promise<void>;
+  checkInStaff: () => Promise<{ success: boolean; message: string; distance?: number }>;
+  checkOutStaff: () => Promise<{ success: boolean; message: string; distance?: number }>;
+  deleteAttendanceRecord: (id: string) => Promise<void>;
+  updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => Promise<void>;
+  refreshAttendance: () => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
 }
 
@@ -114,6 +128,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
+  const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{
     title: string;
@@ -126,12 +142,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getServices(),
+          StorageService.getWorkplaceLocation(),
+          StorageService.getAttendanceRecords(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -143,6 +161,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllNotes(nts);
         setReturnWarrantyItems(returns);
         setAllServices(srvs);
+        if (wpLoc) setWorkplaceLocation(wpLoc);
+        setAttendanceRecords(attRecs);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -174,16 +194,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs, nts] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, attRecs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
             StorageService.getNotes(),
+            StorageService.getWorkplaceLocation(),
+            StorageService.getAttendanceRecords(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
           setAllServices(srvs);
           setAllNotes(nts);
+          if (wpLoc) setWorkplaceLocation(wpLoc);
+          setAttendanceRecords(attRecs);
         }
       )
       .on(
@@ -207,11 +231,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
-        const [locs, nts, returns, srvs] = await Promise.all([
+        const [locs, nts, returns, srvs, wpLoc, attRecs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getServices(),
+          StorageService.getWorkplaceLocation(),
+          StorageService.getAttendanceRecords(),
         ]);
         setAllLocations((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(locs)) {
@@ -234,6 +260,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllServices((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(srvs)) {
             return srvs;
+          }
+          return prev;
+        });
+        if (wpLoc) {
+          setWorkplaceLocation((prev) => {
+            if (JSON.stringify(prev) !== JSON.stringify(wpLoc)) {
+              return wpLoc;
+            }
+            return prev;
+          });
+        }
+        setAttendanceRecords((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(attRecs)) {
+            return attRecs;
           }
           return prev;
         });
@@ -1292,6 +1332,233 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAllServices(backupData.services);
       await StorageService.saveServices(backupData.services);
     }
+    if (backupData.workplaceLocation) {
+      setWorkplaceLocation(backupData.workplaceLocation);
+      await StorageService.saveWorkplaceLocation(backupData.workplaceLocation);
+    }
+    if (backupData.attendanceRecords && Array.isArray(backupData.attendanceRecords)) {
+      setAttendanceRecords(backupData.attendanceRecords);
+      await StorageService.saveAttendanceRecords(backupData.attendanceRecords);
+    }
+  };
+
+  // Update workplace location (Admin only)
+  const updateWorkplaceLocation = async (
+    address: string,
+    latitude: number,
+    longitude: number,
+    radiusMeters = 10
+  ) => {
+    const loc: WorkplaceLocation = {
+      address: address.trim(),
+      latitude,
+      longitude,
+      radiusMeters,
+      updatedAt: Date.now(),
+      updatedBy: user?.id,
+      updatedByName: user?.name,
+    };
+    setWorkplaceLocation(loc);
+    await StorageService.saveWorkplaceLocation(loc);
+  };
+
+  // Staff check-in (Must be within 10 meters of workplace)
+  const checkInStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
+    if (!user) {
+      return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+    if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
+      return {
+        success: false,
+        message: 'İş yeri konumu henüz yönetici tarafından belirlenmemiş. Lütfen yöneticiniz ile iletişime geçin.',
+      };
+    }
+
+    let userPos;
+    try {
+      userPos = await LocationService.getCurrentPosition();
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `GPS konumu alınamadı: ${err?.message || 'Lütfen cihazınızın konum servisini açın.'}`,
+      };
+    }
+
+    const distance = LocationService.calculateDistance(
+      userPos.latitude,
+      userPos.longitude,
+      workplaceLocation.latitude,
+      workplaceLocation.longitude
+    );
+
+    const allowedRadius = workplaceLocation.radiusMeters || 10;
+
+    // Rule: Must be within 10 meters (<= 10m)
+    if (distance > allowedRadius) {
+      return {
+        success: false,
+        distance,
+        message: `İş yerine olan mesafeniz: ${LocationService.formatDistance(distance)}. İşe giriş yapabilmek için iş yerinin ${allowedRadius} metre çapı içerisinde olmalısınız.`,
+      };
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const existingIndex = attendanceRecords.findIndex(
+      (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
+    );
+
+    if (existingIndex !== -1) {
+      return {
+        success: false,
+        distance,
+        message: 'Bugün için zaten aktif bir işe giriş kaydınız bulunmaktadır.',
+      };
+    }
+
+    const newRecord: AttendanceRecord = {
+      id: generateId(),
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      date: todayStr,
+      checkInTime: Date.now(),
+      checkInLat: userPos.latitude,
+      checkInLon: userPos.longitude,
+      checkInAddress: userPos.address,
+      checkInDistance: distance,
+      status: 'checked_in',
+    };
+
+    const updated = [newRecord, ...attendanceRecords];
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+
+    // Push notification to admins
+    OneSignalService.sendPushNotification({
+      title: '🟢 Personel İşe Giriş Yaptı',
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch(() => {});
+
+    return {
+      success: true,
+      distance,
+      message: `İşe girişiniz başarıyla onaylandı! (İş yerine mesafe: ${LocationService.formatDistance(distance)})`,
+    };
+  };
+
+  // Staff check-out (Must be outside 10 meters of workplace)
+  const checkOutStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
+    if (!user) {
+      return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+    if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
+      return {
+        success: false,
+        message: 'İş yeri konumu henüz belirlenmemiş.',
+      };
+    }
+
+    // Find user's active check-in record
+    const recordIndex = attendanceRecords.findIndex(
+      (r) => r.userId === user.id && r.status === 'checked_in'
+    );
+
+    if (recordIndex === -1) {
+      return {
+        success: false,
+        message: 'Aktif bir işe giriş kaydınız bulunmuyor. Önce işe giriş yapmalısınız.',
+      };
+    }
+
+    const record = attendanceRecords[recordIndex];
+
+    let userPos;
+    try {
+      userPos = await LocationService.getCurrentPosition();
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `GPS konumu alınamadı: ${err?.message || 'Lütfen cihazınızın konum servisini açın.'}`,
+      };
+    }
+
+    const distance = LocationService.calculateDistance(
+      userPos.latitude,
+      userPos.longitude,
+      workplaceLocation.latitude,
+      workplaceLocation.longitude
+    );
+
+    const allowedRadius = workplaceLocation.radiusMeters || 10;
+
+    // Rule: Must be outside 10 meters (> 10m)
+    if (distance <= allowedRadius) {
+      return {
+        success: false,
+        distance,
+        message: `Hala iş yerinin 10 metre çapı içerisindesiniz (${LocationService.formatDistance(distance)}). İşten çıkış yapabilmek için iş yerinin dışına çıkmış olmalısınız.`,
+      };
+    }
+
+    const checkOutTime = Date.now();
+    const durationMinutes = Math.max(1, Math.round((checkOutTime - record.checkInTime) / 60000));
+    const hours = Math.floor(durationMinutes / 60);
+    const mins = durationMinutes % 60;
+    const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
+
+    const updatedRecord: AttendanceRecord = {
+      ...record,
+      checkOutTime,
+      checkOutLat: userPos.latitude,
+      checkOutLon: userPos.longitude,
+      checkOutAddress: userPos.address,
+      checkOutDistance: distance,
+      status: 'completed',
+      workDurationMinutes: durationMinutes,
+    };
+
+    const updatedRecords = [...attendanceRecords];
+    updatedRecords[recordIndex] = updatedRecord;
+
+    setAttendanceRecords(updatedRecords);
+    await StorageService.saveAttendanceRecords(updatedRecords);
+
+    // Push notification to admins
+    OneSignalService.sendPushNotification({
+      title: '🔴 Personel İşten Çıkış Yaptı',
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla çıkış yaptı. (Toplam Mesai: ${durationText})`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch(() => {});
+
+    return {
+      success: true,
+      distance,
+      message: `İşten çıkışınız onaylandı! Toplam mesai süreniz: ${durationText}.`,
+    };
+  };
+
+  const deleteAttendanceRecord = async (id: string) => {
+    const updated = attendanceRecords.filter((r) => r.id !== id);
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+  };
+
+  const updateAttendanceRecord = async (id: string, updates: Partial<AttendanceRecord>) => {
+    const updated = attendanceRecords.map((r) => (r.id === id ? { ...r, ...updates } : r));
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+  };
+
+  const refreshAttendance = async () => {
+    const [loc, recs] = await Promise.all([
+      StorageService.getWorkplaceLocation(),
+      StorageService.getAttendanceRecords(),
+    ]);
+    if (loc) setWorkplaceLocation(loc);
+    setAttendanceRecords(recs);
   };
 
   return (
@@ -1305,6 +1572,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         returnWarrantyItems,
         services: visibleServices,
         allServices,
+        workplaceLocation,
+        attendanceRecords,
         isLoading,
         activeToast,
         dismissToast,
@@ -1331,6 +1600,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addService,
         updateService,
         deleteService,
+        updateWorkplaceLocation,
+        checkInStaff,
+        checkOutStaff,
+        deleteAttendanceRecord,
+        updateAttendanceRecord,
+        refreshAttendance,
         importBackupData,
       }}
     >

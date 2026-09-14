@@ -12,6 +12,7 @@ import {
   Home,
   Bell,
   Wrench,
+  UserCheck,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -30,8 +31,16 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const { user, logout } = useAuth();
-  const { locations, notes, returnWarrantyItems, services, allNotes, allServices, allLocations } =
-    useStorage();
+  const {
+    locations,
+    notes,
+    returnWarrantyItems,
+    services,
+    allNotes,
+    allServices,
+    allLocations,
+    attendanceRecords,
+  } = useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
@@ -103,6 +112,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   };
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
+  const todayStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+  const activeStaffCount = React.useMemo(() => {
+    return attendanceRecords.filter((r) => r.date === todayStr && r.status === 'checked_in').length;
+  }, [attendanceRecords, todayStr]);
 
   const badgeCount = React.useMemo(() => {
     if (!user) return 0;
@@ -302,7 +315,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               )}
             </button>
 
-            {/* 3. İade / Garanti Takibi */}
+            {/* 4. Personel Takibi */}
+            <button
+              onClick={() => setActiveTab('staff_tracking')}
+              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                activeTab === 'staff_tracking'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <UserCheck className="w-4 h-4" />
+                <span>Personel Takibi</span>
+              </div>
+              {activeStaffCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                    activeTab === 'staff_tracking'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {activeStaffCount} Aktif
+                </span>
+              ) : null}
+            </button>
+
+            {/* 5. İade / Garanti Takibi */}
             <button
               onClick={() => setActiveTab('returns')}
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${

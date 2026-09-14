@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 
@@ -8,6 +8,8 @@ const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
 const NOTES_KEY = '@gorev_tamamlama_general_notes';
 const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
 const SERVICES_KEY = '@gorev_tamamlama_services';
+const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
+const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -626,13 +628,119 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves admin-configured workplace location (Supabase cloud + local cache)
+   */
+  async getWorkplaceLocation(): Promise<WorkplaceLocation | null> {
+    const localData = await loadItem<WorkplaceLocation>(WORKPLACE_LOCATION_KEY);
+
+    // Try cloud slot standard_tasks id: 5
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 5)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: WorkplaceLocation = JSON.parse(rawJson);
+        if (parsed && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
+          await saveItem(WORKPLACE_LOCATION_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves workplace location to local cache and syncs with Supabase slot 5
+   */
+  async saveWorkplaceLocation(location: WorkplaceLocation): Promise<void> {
+    await saveItem(WORKPLACE_LOCATION_KEY, location);
+
+    try {
+      const rawJson = JSON.stringify(location);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 5, tasks: chunks });
+    } catch (err) {
+      console.warn('Cloud save workplace location error:', err);
+    }
+  },
+
+  /**
+   * Retrieves attendance records (Supabase cloud + local cache)
+   */
+  async getAttendanceRecords(): Promise<AttendanceRecord[]> {
+    const localData = (await loadItem<AttendanceRecord[]>(ATTENDANCE_RECORDS_KEY)) || [];
+
+    // Try cloud slot standard_tasks id: 6
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 6)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: AttendanceRecord[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          await saveItem(ATTENDANCE_RECORDS_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves attendance records to local cache and syncs with Supabase slot 6
+   */
+  async saveAttendanceRecords(records: AttendanceRecord[]): Promise<void> {
+    await saveItem(ATTENDANCE_RECORDS_KEY, records);
+
+    try {
+      const rawJson = JSON.stringify(records);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 6, tasks: chunks });
+    } catch (err) {
+      console.warn('Cloud save attendance records error:', err);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
     const notes = await this.getNotes();
     const returnWarrantyItems = await this.getReturnWarrantyItems();
     const services = await this.getServices();
-    const backup: BackupData = { locations, standardTasks, notes, returnWarrantyItems, services };
+    const workplaceLocation = (await this.getWorkplaceLocation()) || undefined;
+    const attendanceRecords = await this.getAttendanceRecords();
+    const backup: BackupData = {
+      locations,
+      standardTasks,
+      notes,
+      returnWarrantyItems,
+      services,
+      workplaceLocation,
+      attendanceRecords,
+    };
     return JSON.stringify(backup, null, 2);
   },
 
@@ -651,6 +759,12 @@ export const StorageService = {
     }
     if (backupData.services && Array.isArray(backupData.services)) {
       await this.saveServices(backupData.services);
+    }
+    if (backupData.workplaceLocation) {
+      await this.saveWorkplaceLocation(backupData.workplaceLocation);
+    }
+    if (backupData.attendanceRecords && Array.isArray(backupData.attendanceRecords)) {
+      await this.saveAttendanceRecords(backupData.attendanceRecords);
     }
   },
 };
