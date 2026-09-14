@@ -20,7 +20,35 @@ import { ToastNotification } from './components/common/ToastNotification';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const validTabs: TabType[] = [
+    'home',
+    'installations',
+    'services',
+    'notes',
+    'staff_tracking',
+    'returns',
+    'template',
+  ];
+
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab') as TabType;
+        if (tabParam && validTabs.includes(tabParam)) {
+          return tabParam;
+        }
+        const pendingTab = sessionStorage.getItem('@saha_takip_pending_tab') as TabType;
+        if (pendingTab && validTabs.includes(pendingTab)) {
+          sessionStorage.removeItem('@saha_takip_pending_tab');
+          return pendingTab;
+        }
+      } catch (err) {
+        console.warn('Initial tab parse error:', err);
+      }
+    }
+    return 'home';
+  });
   const {
     activeToast,
     dismissToast,
@@ -43,20 +71,25 @@ const MainApp: React.FC = () => {
       if (typeof window === 'undefined') return;
       try {
         const search = window.location.search;
-        if (!search) return;
+        let tabParam: string | null = null;
+        let filterParam: string | null = null;
 
-        const params = new URLSearchParams(search);
-        const tabParam = params.get('tab');
-        const filterParam = params.get('filter');
+        if (search) {
+          const params = new URLSearchParams(search);
+          tabParam = params.get('tab');
+          filterParam = params.get('filter');
+        }
 
-        const validTabs: TabType[] = [
-          'home',
-          'installations',
-          'services',
-          'notes',
-          'returns',
-          'template',
-        ];
+        // Fallback to sessionStorage if not in URL
+        if (!tabParam) {
+          tabParam = sessionStorage.getItem('@saha_takip_pending_tab');
+          if (tabParam) sessionStorage.removeItem('@saha_takip_pending_tab');
+        }
+        if (!filterParam) {
+          filterParam = sessionStorage.getItem('@saha_takip_pending_filter');
+          if (filterParam) sessionStorage.removeItem('@saha_takip_pending_filter');
+        }
+
         if (tabParam && validTabs.includes(tabParam as TabType)) {
           setActiveTab(tabParam as TabType);
         }
@@ -74,7 +107,7 @@ const MainApp: React.FC = () => {
           );
         }
 
-        if (tabParam || filterParam) {
+        if (search && (tabParam || filterParam)) {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
       } catch (err) {
@@ -89,15 +122,6 @@ const MainApp: React.FC = () => {
     // In-app navigation event handler (e.g. from OneSignal SDK foreground click)
     const handleNavigate = (e: any) => {
       const { tab, filter } = e.detail || {};
-      const validTabs: TabType[] = [
-        'home',
-        'installations',
-        'services',
-        'notes',
-        'staff_tracking',
-        'returns',
-        'template',
-      ];
       if (tab && validTabs.includes(tab as TabType)) {
         setActiveTab(tab as TabType);
       }
@@ -115,12 +139,38 @@ const MainApp: React.FC = () => {
       }
     };
 
+    // Service worker postMessage navigation handler
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'saha:navigate') {
+        const { tab, filter } = event.data;
+        if (tab && validTabs.includes(tab as TabType)) {
+          setActiveTab(tab as TabType);
+        }
+        if (filter) {
+          if (user?.id) {
+            try {
+              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
+            } catch {}
+          }
+          window.dispatchEvent(
+            new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+          );
+        }
+      }
+    };
+
     window.addEventListener('saha:navigate' as any, handleNavigate);
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
 
     return () => {
       window.removeEventListener('popstate', handleDeepLink);
       window.removeEventListener('focus', handleDeepLink);
       window.removeEventListener('saha:navigate' as any, handleNavigate);
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
     };
   }, [user]);
 

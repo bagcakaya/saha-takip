@@ -53,19 +53,40 @@ export const OneSignalService = {
       if (OneSignal.Notifications && OneSignal.Notifications.addEventListener) {
         OneSignal.Notifications.addEventListener('click', (event: any) => {
           try {
+            console.log('OneSignal notification click event received:', event);
+            const notification = event?.notification;
+            const additionalData = notification?.additionalData || event?.result?.additionalData || {};
             const launchUrl =
-              event?.notification?.launchURL ||
+              notification?.launchURL ||
+              notification?.launchUrl ||
               event?.result?.url ||
-              event?.notification?.additionalData?.url;
-            if (launchUrl) {
-              const parsed = new URL(launchUrl, window.location.origin);
-              const tab = parsed.searchParams.get('tab');
-              const filter = parsed.searchParams.get('filter');
-              if (tab) {
-                window.dispatchEvent(
-                  new CustomEvent('saha:navigate', { detail: { tab, filter } })
-                );
+              additionalData?.url ||
+              additionalData?.launchURL;
+
+            let tab = additionalData?.tab;
+            let filter = additionalData?.filter;
+
+            if (!tab && launchUrl) {
+              try {
+                const parsed = new URL(launchUrl, window.location.origin);
+                tab = parsed.searchParams.get('tab');
+                filter = parsed.searchParams.get('filter');
+              } catch {
+                // ignore
               }
+            }
+
+            if (!tab) {
+              tab = 'notes';
+            }
+
+            window.dispatchEvent(
+              new CustomEvent('saha:navigate', { detail: { tab, filter } })
+            );
+
+            sessionStorage.setItem('@saha_takip_pending_tab', tab);
+            if (filter) {
+              sessionStorage.setItem('@saha_takip_pending_filter', filter);
             }
           } catch (e) {
             console.warn('OneSignal notification click error:', e);
@@ -321,12 +342,30 @@ export const OneSignalService = {
       return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
     }
 
-    const targetUrl = url || 'https://saha-takip-beige.vercel.app';
+    const targetUrl = url || 'https://saha-takip-beige.vercel.app/?tab=notes';
+    let targetTab = 'notes';
+    let targetFilter = '';
+    try {
+      const parsed = new URL(targetUrl, 'https://saha-takip-beige.vercel.app');
+      targetTab = parsed.searchParams.get('tab') || 'notes';
+      targetFilter = parsed.searchParams.get('filter') || '';
+    } catch {
+      // ignore
+    }
+
     const basePayload: Record<string, any> = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
+      url: targetUrl,
       web_url: targetUrl,
+      app_url: targetUrl,
+      data: {
+        url: targetUrl,
+        launchURL: targetUrl,
+        tab: targetTab,
+        filter: targetFilter,
+      },
       chrome_web_icon: 'https://saha-takip-beige.vercel.app/icon.png',
       chrome_web_badge: 'https://saha-takip-beige.vercel.app/icon.png',
       icon: 'https://saha-takip-beige.vercel.app/icon.png',

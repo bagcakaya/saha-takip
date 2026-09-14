@@ -1,6 +1,6 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v3';
+const CACHE_NAME = 'saha-takip-pwa-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -59,5 +59,62 @@ self.addEventListener('fetch', (event) => {
           }
         });
       })
+  );
+});
+
+// Notification Click Event (Direct Deep-Linking to Tab / Filter)
+self.addEventListener('notificationclick', (event) => {
+  const notification = event.notification;
+  notification.close();
+
+  const data = notification.data || {};
+  const additionalData = data.additionalData || data.custom?.a || {};
+  const targetUrl =
+    notification.launchURL ||
+    notification.launchUrl ||
+    data.url ||
+    data.launchURL ||
+    data.custom?.u ||
+    additionalData.url ||
+    additionalData.launchURL ||
+    '/';
+
+  let tab = data.tab || additionalData.tab;
+  let filter = data.filter || additionalData.filter;
+
+  if (!tab && targetUrl && targetUrl !== '/') {
+    try {
+      const parsed = new URL(targetUrl, self.location.origin);
+      tab = parsed.searchParams.get('tab');
+      filter = parsed.searchParams.get('filter');
+    } catch (e) {}
+  }
+
+  if (!tab) {
+    tab = 'notes';
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url && 'focus' in client) {
+          client.postMessage({
+            type: 'saha:navigate',
+            tab,
+            filter: filter || '',
+            url: targetUrl,
+          });
+          if ('navigate' in client && targetUrl && targetUrl !== '/') {
+            try {
+              client.navigate(targetUrl);
+            } catch (e) {}
+          }
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
   );
 });

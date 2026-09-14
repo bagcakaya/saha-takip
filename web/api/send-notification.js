@@ -30,10 +30,28 @@ export default async function handler(req, res) {
 
     payload.app_id = ONESIGNAL_APP_ID;
 
-    // Safety: ensure no url vs web_url collision
-    if (payload.web_url && payload.url) {
-      delete payload.url;
+    const targetUrl = payload.url || payload.web_url || 'https://saha-takip-beige.vercel.app';
+    payload.url = targetUrl;
+    payload.web_url = targetUrl;
+    payload.app_url = targetUrl;
+
+    let targetTab = 'notes';
+    let targetFilter = '';
+    try {
+      const parsed = new URL(targetUrl, 'https://saha-takip-beige.vercel.app');
+      targetTab = parsed.searchParams.get('tab') || 'notes';
+      targetFilter = parsed.searchParams.get('filter') || '';
+    } catch (e) {
+      // ignore
     }
+
+    payload.data = {
+      ...(payload.data || {}),
+      url: targetUrl,
+      launchURL: targetUrl,
+      tab: payload.data?.tab || targetTab,
+      filter: payload.data?.filter || targetFilter,
+    };
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
