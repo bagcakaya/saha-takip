@@ -18,7 +18,7 @@ import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const {
     activeToast,
@@ -35,6 +35,92 @@ const MainApp: React.FC = () => {
   // Selected location for right summary panel preview / detail modal
   const [previewLocation, setPreviewLocation] = useState<LocationItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Deep-linking URL handler (for push notifications opened from lock screen / notification drawer)
+  React.useEffect(() => {
+    const handleDeepLink = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const search = window.location.search;
+        if (!search) return;
+
+        const params = new URLSearchParams(search);
+        const tabParam = params.get('tab');
+        const filterParam = params.get('filter');
+
+        const validTabs: TabType[] = [
+          'home',
+          'installations',
+          'services',
+          'notes',
+          'returns',
+          'template',
+        ];
+        if (tabParam && validTabs.includes(tabParam as TabType)) {
+          setActiveTab(tabParam as TabType);
+        }
+
+        if (filterParam) {
+          if (user?.id) {
+            try {
+              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filterParam);
+            } catch {
+              // ignore
+            }
+          }
+          window.dispatchEvent(
+            new CustomEvent('saha:set-notes-filter', { detail: { filter: filterParam } })
+          );
+        }
+
+        if (tabParam || filterParam) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } catch (err) {
+        console.warn('Deep link parse error:', err);
+      }
+    };
+
+    handleDeepLink();
+    window.addEventListener('popstate', handleDeepLink);
+    window.addEventListener('focus', handleDeepLink);
+
+    // In-app navigation event handler (e.g. from OneSignal SDK foreground click)
+    const handleNavigate = (e: any) => {
+      const { tab, filter } = e.detail || {};
+      const validTabs: TabType[] = [
+        'home',
+        'installations',
+        'services',
+        'notes',
+        'returns',
+        'template',
+      ];
+      if (tab && validTabs.includes(tab as TabType)) {
+        setActiveTab(tab as TabType);
+      }
+      if (filter) {
+        if (user?.id) {
+          try {
+            localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
+          } catch {
+            // ignore
+          }
+        }
+        window.dispatchEvent(
+          new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+        );
+      }
+    };
+
+    window.addEventListener('saha:navigate' as any, handleNavigate);
+
+    return () => {
+      window.removeEventListener('popstate', handleDeepLink);
+      window.removeEventListener('focus', handleDeepLink);
+      window.removeEventListener('saha:navigate' as any, handleNavigate);
+    };
+  }, [user]);
 
   // If user is not authenticated, show Login Screen
   if (!isAuthenticated) {
@@ -182,7 +268,28 @@ const MainApp: React.FC = () => {
         toast={activeToast}
         onClose={dismissToast}
         onClick={() => {
-          setActiveTab('notes');
+          if (activeToast?.tab) {
+            setActiveTab(activeToast.tab);
+          } else {
+            setActiveTab('notes');
+          }
+          if (activeToast?.filter) {
+            if (user?.id) {
+              try {
+                localStorage.setItem(
+                  `@saha_takip_notes_active_filter_${user.id}`,
+                  activeToast.filter
+                );
+              } catch {
+                // ignore
+              }
+            }
+            window.dispatchEvent(
+              new CustomEvent('saha:set-notes-filter', {
+                detail: { filter: activeToast.filter },
+              })
+            );
+          }
           dismissToast();
         }}
       />

@@ -7,6 +7,7 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
 import { UserService } from '../services/userService';
+import { TabType } from '../components/layout/Header';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -18,7 +19,7 @@ interface StorageContextType {
   services: ServiceItem[];
   allServices: ServiceItem[];
   isLoading: boolean;
-  activeToast: { title: string; body: string } | null;
+  activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
   addLocation: (name: string) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
@@ -114,7 +115,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeToast, setActiveToast] = useState<{ title: string; body: string } | null>(null);
+  const [activeToast, setActiveToast] = useState<{
+    title: string;
+    body: string;
+    tab?: TabType;
+    filter?: string;
+  } | null>(null);
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
@@ -319,7 +325,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const sender = n.createdByName || 'Yönetici';
           const title = `📋 ${sender} Size Yeni Bir İş Emri İletti!`;
           NotificationService.sendNotification(title, n.content);
-          setActiveToast({ title, body: n.content });
+          setActiveToast({ title, body: n.content, tab: 'notes', filter: 'pending' });
         }
       } else if (n.createdBy === user.id) {
         // Mark creator's own note as already seen so creator never gets arrival alert
@@ -344,7 +350,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             const title = '⏰ İş Emri Hatırlatıcısı';
             NotificationService.sendNotification(title, n.content);
-            setActiveToast({ title, body: n.content });
+            setActiveToast({ title, body: n.content, tab: 'notes', filter: 'reminders' });
           }
         }
       }
@@ -381,7 +387,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const title = `🛡️ ${typeLabel} Durum Takibi: ${item.companyName}`;
           const body = `${item.companyName} firmasına gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
           NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body });
+          setActiveToast({ title, body, tab: 'returns' });
         }
       }
     });
@@ -410,7 +416,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const body = `${staffName}, "${loc.name}" için yeni bir kurulum kaydı oluşturdu.`;
 
           NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body });
+          setActiveToast({ title, body, tab: 'installations' });
         }
       } else if (loc.createdBy === user.id) {
         if (!seenLocs.has(loc.id)) {
@@ -447,7 +453,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const body = `${staffName}, "${loc.name}" kurulumundaki tüm görevleri tamamladı.`;
 
           NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body });
+          setActiveToast({ title, body, tab: 'installations' });
         }
       }
     });
@@ -475,7 +481,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const body = `${staffName}, "${srv.companyName}" için servis kaydı ekledi.`;
 
           NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body });
+          setActiveToast({ title, body, tab: 'services' });
         }
       } else if (srv.createdBy === user.id) {
         if (!seenServices.has(srv.id)) {
@@ -510,7 +516,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const title = '📋 İş Emri Onay Bekliyor!';
             const body = `${staff}, "${n.content.slice(0, 50)}" iş emrini tamamladı.${n.completionNote ? ` Not: ${n.completionNote}` : ''}`;
             NotificationService.sendNotification(title, body);
-            setActiveToast({ title, body });
+            setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
           }
         }
       });
@@ -543,7 +549,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const title = '✅ İş Emriniz Onaylandı!';
               const body = `${admin}, "${n.content.slice(0, 50)}" iş emrinizi başarıyla onayladı.`;
               NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body });
+              setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
             }
           }
 
@@ -558,7 +564,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const title = '❌ İş Emriniz Reddedildi!';
               const body = `${admin}, "${n.content.slice(0, 50)}" iş emrini reddetti. Gerekçe: ${n.rejectionReason || 'Eksikler var'}`;
               NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body });
+              setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
             }
           }
         }
@@ -628,7 +634,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
-          url: 'https://saha-takip-beige.vercel.app',
+          url: 'https://saha-takip-beige.vercel.app/?tab=installations',
         });
       }
     }
@@ -692,7 +698,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
-          url: 'https://saha-takip-beige.vercel.app',
+          url: 'https://saha-takip-beige.vercel.app/?tab=installations',
         });
       }
 
@@ -700,6 +706,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setActiveToast({
           title: '✅ Kurulum Tamamlandı!',
           body: `"${updatedTarget.name}" kurulumundaki tüm görevler tamamlandı.`,
+          tab: 'installations',
         });
       }
     }
@@ -876,7 +883,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: newNote.content,
         targetMode,
         targetUserIds,
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
       });
 
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
@@ -886,7 +893,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: newNote.content,
           targetMode,
           targetUserIds,
-          url: 'https://saha-takip-beige.vercel.app',
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
           sendAfter: new Date(reminderDate).toISOString(),
         });
       }
@@ -998,7 +1005,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
       targetMode: 'custom',
       targetUserIds: adminIds,
-      url: 'https://saha-takip-beige.vercel.app',
+      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
     });
 
     // 2. Broadcast to admin role devices
@@ -1006,7 +1013,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
       message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
       targetMode: 'admin',
-      url: 'https://saha-takip-beige.vercel.app',
+      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
     });
   };
 
@@ -1067,7 +1074,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
       });
     }
   };
@@ -1131,7 +1138,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
       });
     }
   };
@@ -1154,7 +1161,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: `🛡️ Garanti Takibi (20 Gün): ${newItem.companyName}`,
         message: `${newItem.companyName} firmasına gönderilen garanti ürününün 20 günü doldu. Lütfen son durumunu sorgulayın.`,
         targetMode: 'all',
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=returns',
         sendAfter: new Date(newItem.reminderDate).toISOString(),
       });
     }
@@ -1227,7 +1234,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
         targetMode: 'custom',
         targetUserIds: adminIds,
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=services',
       });
 
       // 2. Broadcast to any admin device by role tag
@@ -1235,7 +1242,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: '🔧 Yeni Servis Kaydı!',
         message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
         targetMode: 'admin',
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=services',
       });
     }
   };

@@ -80,6 +80,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
 
+  const badgeCount = React.useMemo(() => {
+    if (!user) return 0;
+    if (user.role === 'admin') {
+      const pendingApprovalCount = notes.filter((n) => n.status === 'pending_approval').length;
+      const reminders = notes.filter((n) => n.reminderActive && n.reminderDate).length;
+      return pendingApprovalCount + reminders;
+    } else {
+      const myPendingOrders = notes.filter(
+        (n) =>
+          (!n.status || n.status === 'pending') &&
+          (n.targetMode === 'all' ||
+            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+      const myReminders = notes.filter(
+        (n) =>
+          n.reminderActive &&
+          n.reminderDate &&
+          (n.createdBy === user.id ||
+            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+      return myPendingOrders + myReminders;
+    }
+  }, [notes, user]);
+
   return (
     <>
       <aside className="hidden lg:flex flex-col justify-between w-64 xl:w-72 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 p-5 h-screen sticky top-0 shrink-0 select-none transition-colors z-20">
@@ -308,16 +334,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                       : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-pulse'
                   }`}
                   title={
-                    permission === 'granted'
+                    badgeCount > 0
+                      ? `${badgeCount} bekleyen iş / bildirim`
+                      : permission === 'granted'
                       ? 'Kilit Ekranı Bildirimleri Aktif'
                       : 'Bildirimler Kapalı - Tıklayıp Açın'
                   }
                   aria-label="Bildirim Durumu"
                 >
                   <Bell className="w-4 h-4" />
-                  {permission !== 'granted' && (
+                  {badgeCount > 0 ? (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-in zoom-in">
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  ) : permission !== 'granted' ? (
                     <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
-                  )}
+                  ) : null}
                 </button>
                 <ThemeToggle />
               </div>

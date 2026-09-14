@@ -2,7 +2,7 @@ import React from 'react';
 import { Bell, X } from 'lucide-react';
 
 interface ToastNotificationProps {
-  toast: { title: string; body: string } | null;
+  toast: { title: string; body: string; tab?: string; filter?: string } | null;
   onClose: () => void;
   onClick?: () => void;
 }

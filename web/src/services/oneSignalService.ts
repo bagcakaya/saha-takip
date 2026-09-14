@@ -49,6 +49,30 @@ export const OneSignalService = {
         serviceWorkerPath: 'OneSignalSDKWorker.js',
       });
 
+      // Listen for notification click events for deep linking
+      if (OneSignal.Notifications && OneSignal.Notifications.addEventListener) {
+        OneSignal.Notifications.addEventListener('click', (event: any) => {
+          try {
+            const launchUrl =
+              event?.notification?.launchURL ||
+              event?.result?.url ||
+              event?.notification?.additionalData?.url;
+            if (launchUrl) {
+              const parsed = new URL(launchUrl, window.location.origin);
+              const tab = parsed.searchParams.get('tab');
+              const filter = parsed.searchParams.get('filter');
+              if (tab) {
+                window.dispatchEvent(
+                  new CustomEvent('saha:navigate', { detail: { tab, filter } })
+                );
+              }
+            }
+          } catch (e) {
+            console.warn('OneSignal notification click error:', e);
+          }
+        });
+      }
+
       // Keep push subscription persistently synced and active across token refreshes
       if (OneSignal.User && OneSignal.User.pushSubscription) {
         OneSignal.User.pushSubscription.addEventListener('change', async (event: any) => {

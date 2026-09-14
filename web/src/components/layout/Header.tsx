@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
+import { useStorage } from '../../context/StorageContext';
 
 export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'returns' | 'template';
 
@@ -65,6 +66,33 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const isAdmin = user?.role === 'admin';
+  const { notes } = useStorage();
+
+  const badgeCount = React.useMemo(() => {
+    if (!user) return 0;
+    if (user.role === 'admin') {
+      const pendingApprovalCount = notes.filter((n) => n.status === 'pending_approval').length;
+      const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
+      return pendingApprovalCount + remindersCount;
+    } else {
+      const myPendingOrders = notes.filter(
+        (n) =>
+          (!n.status || n.status === 'pending') &&
+          (n.targetMode === 'all' ||
+            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+      const myReminders = notes.filter(
+        (n) =>
+          n.reminderActive &&
+          n.reminderDate &&
+          (n.createdBy === user.id ||
+            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+      return myPendingOrders + myReminders;
+    }
+  }, [notes, user]);
 
   return (
     <>
@@ -219,16 +247,22 @@ export const Header: React.FC<HeaderProps> = ({
                   : 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 animate-pulse'
               }`}
               title={
-                permission === 'granted'
+                badgeCount > 0
+                  ? `${badgeCount} bekleyen iş / bildirim`
+                  : permission === 'granted'
                   ? 'Kilit Ekranı Bildirimleri Aktif'
                   : 'Bildirimler Kapalı - Tıklayıp Açın'
               }
               aria-label="Bildirim Durumu"
             >
               <Bell className="w-4 h-4" />
-              {permission !== 'granted' && (
+              {badgeCount > 0 ? (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-in zoom-in">
+                  {badgeCount > 99 ? '99+' : badgeCount}
+                </span>
+              ) : permission !== 'granted' ? (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
-              )}
+              ) : null}
             </button>
 
             <ThemeToggle />

@@ -23,9 +23,57 @@ export const NotesView: React.FC = () => {
   const isAdmin = currentUser?.role === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<
-    'all' | 'pending' | 'approved' | 'rejected' | 'reminders' | 'direct'
-  >('all');
+
+  type NoteFilterType = 'all' | 'pending' | 'approved' | 'rejected' | 'reminders' | 'direct';
+  const filterStorageKey = `@saha_takip_notes_active_filter_${currentUser?.id || 'default'}`;
+
+  const [activeFilter, setActiveFilterState] = useState<NoteFilterType>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(
+          `@saha_takip_notes_active_filter_${currentUser?.id || 'default'}`
+        );
+        if (
+          saved &&
+          ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(saved)
+        ) {
+          return saved as NoteFilterType;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return 'all';
+  });
+
+  const setActiveFilter = (filter: NoteFilterType) => {
+    setActiveFilterState(filter);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(filterStorageKey, filter);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Listen for global deep link filter change events
+  React.useEffect(() => {
+    const handleFilterChange = (e: any) => {
+      const newFilter = e?.detail?.filter;
+      if (
+        newFilter &&
+        ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(newFilter)
+      ) {
+        setActiveFilter(newFilter as NoteFilterType);
+      }
+    };
+    window.addEventListener('saha:set-notes-filter' as any, handleFilterChange);
+    return () => {
+      window.removeEventListener('saha:set-notes-filter' as any, handleFilterChange);
+    };
+  }, [filterStorageKey]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<GeneralNote | null>(null);
 

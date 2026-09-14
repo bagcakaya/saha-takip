@@ -14,6 +14,7 @@ import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
+import { NotificationStatusCard } from '../components/common/NotificationStatusCard';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -300,6 +301,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
+      </div>
+
+      {/* Notification Diagnostic & Live Status Card (Görsel-1) */}
+      <div className="pt-2">
+        <NotificationStatusCard isEmbedded />
       </div>
     </div>
   );
