@@ -66,18 +66,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const handleNotificationClick = async () => {
     if (typeof window === 'undefined') return;
 
-    try {
-      await OneSignalService.requestPermission(
-        user ? { id: user.id, name: user.name, role: user.role } : undefined
-      );
-      if ('Notification' in window) {
-        setPermission(Notification.permission);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
+    // Open status modal immediately
     setIsStatusModalOpen(true);
+
+    // Sync in background non-blocking
+    if (user) {
+      OneSignalService.loginUser(user.id, user.name, user.role);
+    }
+    if ('Notification' in window) {
+      setPermission(Notification.permission);
+    }
   };
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;

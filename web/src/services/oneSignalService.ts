@@ -117,45 +117,53 @@ export const OneSignalService = {
    * Retrieves current push subscription details for diagnostics
    */
   async getSubscriptionDetails(): Promise<SubscriptionDetails> {
-    if (typeof window === 'undefined') {
-      return {
-        isSupported: false,
-        permission: 'unsupported',
-        isSubscribed: false,
-        subscriptionId: null,
-        userId: null,
-      };
-    }
+    const fallback: SubscriptionDetails = {
+      isSupported: typeof Notification !== 'undefined' && 'serviceWorker' in navigator,
+      permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
+      isSubscribed: false,
+      subscriptionId: null,
+      userId: null,
+    };
+
+    if (typeof window === 'undefined') return fallback;
 
     return new Promise((resolve) => {
-      window.OneSignalDeferred = window.OneSignalDeferred || [];
-      window.OneSignalDeferred.push(async (OneSignal: any) => {
+      // Safety timeout: Never hang more than 2.5 seconds
+      const timer = setTimeout(() => {
+        resolve(fallback);
+      }, 2500);
+
+      const inspect = (OneSignal: any) => {
+        clearTimeout(timer);
         try {
           const isSupported =
             typeof Notification !== 'undefined' && 'serviceWorker' in navigator;
           const permission =
             typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
-          const subId = OneSignal.User?.pushSubscription?.id || null;
-          const optedIn = OneSignal.User?.pushSubscription?.optedIn ?? false;
-          const isSubscribed = permission === 'granted' && optedIn;
+          const subId = OneSignal?.User?.pushSubscription?.id || null;
+          const optedIn = OneSignal?.User?.pushSubscription?.optedIn ?? false;
+          const isSubscribed = permission === 'granted' && (optedIn || !!subId);
 
           resolve({
             isSupported,
             permission,
             isSubscribed,
             subscriptionId: subId,
-            userId: OneSignal.User?.externalId || null,
+            userId: OneSignal?.User?.externalId || null,
           });
         } catch {
-          resolve({
-            isSupported: false,
-            permission: 'denied',
-            isSubscribed: false,
-            subscriptionId: null,
-            userId: null,
-          });
+          resolve(fallback);
         }
-      });
+      };
+
+      if (window.OneSignal?.User) {
+        inspect(window.OneSignal);
+      } else {
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        window.OneSignalDeferred.push((OneSignal: any) => {
+          inspect(OneSignal);
+        });
+      }
     });
   },
 
@@ -165,41 +173,81 @@ export const OneSignalService = {
   async requestPermission(user?: { id: string; name: string; role: string }): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
+    // 1. Native browser permission check first (avoids SDK hanging on already-granted)
+    let hasGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+
+    if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+      try {
+        const result = await Notification.requestPermission();
+        hasGranted = result === 'granted';
+      } catch (err) {
+        console.warn('Native requestPermission error:', err);
+      }
+    }
+
+    // 2. Firmly ensure SDK push opt-in and user credentials without hanging
     return new Promise((resolve) => {
-      window.OneSignalDeferred = window.OneSignalDeferred || [];
-      window.OneSignalDeferred.push(async (OneSignal: any) => {
+      const timer = setTimeout(() => {
+        resolve(hasGranted);
+      }, 3000);
+
+      const sync = async (OneSignal: any) => {
+        clearTimeout(timer);
         try {
-          if (OneSignal.Notifications && OneSignal.Notifications.requestPermission) {
-            await OneSignal.Notifications.requestPermission();
+          // If browser permission is not yet granted, try OneSignal requestPermission if available
+          if (!hasGranted && OneSignal?.Notifications?.requestPermission) {
+            try {
+              await OneSignal.Notifications.requestPermission();
+            } catch {
+              // ignore
+            }
           }
 
           // Force opt-in to wake up push subscription
-          if (OneSignal.User?.pushSubscription?.optIn) {
-            await OneSignal.User.pushSubscription.optIn();
+          if (OneSignal?.User?.pushSubscription?.optIn) {
+            try {
+              await OneSignal.User.pushSubscription.optIn();
+            } catch {
+              // ignore
+            }
           }
 
           // If user info is available, firmly re-login and re-tag
-          if (user) {
-            await OneSignal.login(user.id);
-            if (OneSignal.User && OneSignal.User.addTags) {
-              await OneSignal.User.addTags({
-                name: user.name,
-                role: user.role,
-                userId: user.id,
-              });
+          if (user && OneSignal?.login) {
+            try {
+              await OneSignal.login(user.id);
+              if (OneSignal?.User?.addTags) {
+                await OneSignal.User.addTags({
+                  name: user.name,
+                  role: user.role,
+                  userId: user.id,
+                });
+              }
+            } catch {
+              // ignore
             }
           }
 
           const isGranted =
-            OneSignal.Notifications?.permission === true ||
+            hasGranted ||
+            OneSignal?.Notifications?.permission === true ||
             (typeof Notification !== 'undefined' && Notification.permission === 'granted');
 
           resolve(isGranted);
         } catch (e) {
-          console.warn('OneSignal requestPermission hatası:', e);
-          resolve(false);
+          console.warn('OneSignal requestPermission sync hatası:', e);
+          resolve(hasGranted);
         }
-      });
+      };
+
+      if (window.OneSignal?.User) {
+        sync(window.OneSignal);
+      } else {
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        window.OneSignalDeferred.push((OneSignal: any) => {
+          sync(OneSignal);
+        });
+      }
     });
   },
 
@@ -211,10 +259,19 @@ export const OneSignalService = {
     message: string;
     targetMode?: 'all' | 'custom' | 'self' | 'admin';
     targetUserIds?: string[];
+    targetSubscriptionIds?: string[];
     url?: string;
     sendAfter?: string;
-  }): Promise<void> {
-    const { title, message, targetMode = 'all', targetUserIds = [], url, sendAfter } = params;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    const {
+      title,
+      message,
+      targetMode = 'all',
+      targetUserIds = [],
+      targetSubscriptionIds = [],
+      url,
+      sendAfter,
+    } = params;
 
     // If API Key or App ID is not configured, skip
     if (
@@ -223,16 +280,22 @@ export const OneSignalService = {
       !ONESIGNAL_CONFIG.REST_API_KEY ||
       ONESIGNAL_CONFIG.REST_API_KEY === 'YOUR_ONESIGNAL_REST_API_KEY'
     ) {
-      return;
+      return { success: false, error: 'OneSignal yapılandırması eksik.' };
     }
 
-    if (targetMode === 'self') return;
+    if (targetMode === 'self') return { success: true };
 
     const cleanIds = Array.isArray(targetUserIds)
       ? targetUserIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
-    if (targetMode === 'custom' && cleanIds.length === 0) return;
+    const cleanSubIds = Array.isArray(targetSubscriptionIds)
+      ? targetSubscriptionIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+
+    if (targetMode === 'custom' && cleanIds.length === 0 && cleanSubIds.length === 0) {
+      return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
+    }
 
     const basePayload: Record<string, any> = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
@@ -254,45 +317,64 @@ export const OneSignalService = {
     }
 
     try {
+      // 1. Direct Hardware Subscription Targeting (if subscription ID is known)
+      if (cleanSubIds.length > 0) {
+        const subPayload = {
+          ...basePayload,
+          include_player_ids: cleanSubIds,
+        };
+        const subRes = await this._postNotification(subPayload);
+        console.log('OneSignal direct subscription push result:', subRes);
+        return { success: true, data: subRes };
+      }
+
+      // 2. All subscribers
       if (targetMode === 'all') {
         const payload = { ...basePayload, included_segments: ['Total Subscriptions'] };
-        await this._postNotification(payload);
-      } else if (targetMode === 'admin') {
-        // Tag-based routing for admin role
+        const res = await this._postNotification(payload);
+        return { success: true, data: res };
+      }
+
+      // 3. Admin role targeting
+      if (targetMode === 'admin') {
         const payload = {
           ...basePayload,
           filters: [{ field: 'tag', key: 'role', relation: '=', value: 'admin' }],
         };
-        await this._postNotification(payload);
-      } else {
-        // Dual Routing for Target Users:
-        // 1. Standard OneSignal v16 Alias Routing (external_id)
-        const aliasPayload = {
-          ...basePayload,
-          include_aliases: { external_id: cleanIds },
-          target_channel: 'push',
-        };
-        await this._postNotification(aliasPayload);
-
-        // 2. Tag-based Fallback Routing (guarantees delivery even if user alias is reconnecting)
-        if (cleanIds.length === 1) {
-          const tagPayload = {
-            ...basePayload,
-            filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
-          };
-          await this._postNotification(tagPayload);
-        } else if (cleanIds.length > 1) {
-          const filterArr: any[] = [];
-          cleanIds.forEach((id, idx) => {
-            if (idx > 0) filterArr.push({ operator: 'OR' });
-            filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
-          });
-          const tagPayload = { ...basePayload, filters: filterArr };
-          await this._postNotification(tagPayload);
-        }
+        const res = await this._postNotification(payload);
+        return { success: true, data: res };
       }
-    } catch (err) {
+
+      // 4. Custom users: Dual Routing (external_id alias + tag fallback)
+      const aliasPayload = {
+        ...basePayload,
+        include_aliases: { external_id: cleanIds },
+        target_channel: 'push',
+      };
+      const aliasRes = await this._postNotification(aliasPayload);
+      console.log('OneSignal alias push result:', aliasRes);
+
+      // Tag fallback
+      if (cleanIds.length === 1) {
+        const tagPayload = {
+          ...basePayload,
+          filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
+        };
+        await this._postNotification(tagPayload);
+      } else if (cleanIds.length > 1) {
+        const filterArr: any[] = [];
+        cleanIds.forEach((id, idx) => {
+          if (idx > 0) filterArr.push({ operator: 'OR' });
+          filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
+        });
+        const tagPayload = { ...basePayload, filters: filterArr };
+        await this._postNotification(tagPayload);
+      }
+
+      return { success: true, data: aliasRes };
+    } catch (err: any) {
       console.warn('OneSignal push gönderim hatası:', err);
+      return { success: false, error: err?.message || 'Bildirim iletilemedi.' };
     }
   },
 
@@ -300,15 +382,20 @@ export const OneSignalService = {
    * Internal helper to post to OneSignal REST API
    */
   async _postNotification(payload: Record<string, any>): Promise<any> {
-    const response = await fetch('https://onesignal.com/api/v1/notifications', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    const result = await response.json();
-    return result;
+    try {
+      const response = await fetch('https://onesignal.com/api/v1/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      return result;
+    } catch (e) {
+      console.error('OneSignal REST API fetch failed:', e);
+      throw e;
+    }
   },
 };

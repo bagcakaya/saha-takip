@@ -69,28 +69,65 @@ export const NotificationStatusModal: React.FC<NotificationStatusModalProps> = (
     setIsSendingTest(true);
     setTestSentMessage(null);
     try {
-      // Firmly ensure login & opt-in before test
-      await OneSignalService.requestPermission({
-        id: user.id,
-        name: user.name,
-        role: user.role,
-      });
+      // 1. Ensure permission if not already granted
+      if (details?.permission !== 'granted') {
+        const granted = await OneSignalService.requestPermission({
+          id: user.id,
+          name: user.name,
+          role: user.role,
+        });
+        if (!granted) {
+          setTestSentMessage('⚠️ Lütfen önce tarayıcı bildirim iznini onaylayın.');
+          setIsSendingTest(false);
+          await loadStatus();
+          return;
+        }
+      }
 
-      await OneSignalService.sendPushNotification({
+      // 2. Trigger instant local service worker notification for immediate foreground feedback
+      if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && reg.showNotification) {
+            reg.showNotification('🔔 Saha Takip Test Bildirimi', {
+              body: `${user.name}, bildirim sisteminiz telefonunuzda başarıyla aktif!`,
+              icon: '/icon.png',
+              badge: '/icon.png',
+              vibrate: [200, 100, 200],
+              tag: 'saha-takip-test',
+            } as NotificationOptions);
+          }
+        } catch (e) {
+          console.warn('Local service worker test notification notice:', e);
+        }
+      }
+
+      // 3. Send remote hardware push notification via OneSignal REST API directly to this phone
+      const targetSubIds = details?.subscriptionId ? [details.subscriptionId] : undefined;
+
+      const res = await OneSignalService.sendPushNotification({
         title: '🔔 Saha Takip Test Bildirimi',
-        message: `${user.name}, bildirim sisteminiz aktif! Telefonunuz kilitliyken de bildirimleri almaya devam edeceksiniz.`,
+        message: `${user.name}, bildirim sisteminiz aktif! Telefonunuz kilitliyken de donanım bildirimleri almaya devam edeceksiniz.`,
         targetMode: 'custom',
         targetUserIds: [user.id],
+        targetSubscriptionIds: targetSubIds,
         url: 'https://saha-takip-beige.vercel.app',
       });
 
-      setTestSentMessage(
-        '✅ Test bildirimi telefonunuza gönderildi! Ekranınızı kilitleyip veya üst bildirim çubuğunu çekerek kontrol edebilirsiniz.'
-      );
+      console.log('Test push notification response:', res);
+
+      if (res && res.success) {
+        setTestSentMessage(
+          '✅ Test bildirimi telefonunuza gönderildi! Üst bildirim çubuğunu çekerek veya ekranı kilitleyerek görebilirsiniz.'
+        );
+      } else {
+        setTestSentMessage(`⚠️ Bildirim uyarısı: ${res?.error || 'Gönderim sırasında hata oluştu'}`);
+      }
+
       await loadStatus();
-    } catch (err) {
-      setTestSentMessage('❌ Test bildirimi gönderilirken bir sorun oluştu.');
+    } catch (err: any) {
       console.error(err);
+      setTestSentMessage(`❌ Test bildirimi gönderilirken bir sorun oluştu: ${err?.message || ''}`);
     } finally {
       setIsSendingTest(false);
     }
@@ -199,11 +236,17 @@ export const NotificationStatusModal: React.FC<NotificationStatusModalProps> = (
 
               <button
                 onClick={handleSendTestPush}
-                disabled={isSendingTest || !isPermissionGranted}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50 shrink-0"
+                disabled={isSendingTest}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50 shrink-0 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>{isSendingTest ? 'Gönderiliyor...' : 'Test Gönder'}</span>
+                <span>
+                  {isSendingTest
+                    ? 'Gönderiliyor...'
+                    : !isPermissionGranted
+                    ? 'İzin Ver & Test Gönder'
+                    : 'Test Gönder'}
+                </span>
               </button>
             </div>
 

@@ -52,18 +52,16 @@ export const Header: React.FC<HeaderProps> = ({
       return;
     }
 
-    try {
-      await OneSignalService.requestPermission(
-        user ? { id: user.id, name: user.name, role: user.role } : undefined
-      );
-      if ('Notification' in window) {
-        setPermission(Notification.permission);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
+    // Open status modal immediately
     setIsStatusModalOpen(true);
+
+    // Sync in background non-blocking
+    if (user) {
+      OneSignalService.loginUser(user.id, user.name, user.role);
+    }
+    if ('Notification' in window) {
+      setPermission(Notification.permission);
+    }
   };
 
   const isAdmin = user?.role === 'admin';
