@@ -172,7 +172,8 @@ export const NotesView: React.FC = () => {
     reminderDate?: string,
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => {
     if (editingNote) {
       await updateNote(
@@ -182,7 +183,8 @@ export const NotesView: React.FC = () => {
         reminderDate,
         targetMode,
         targetUserIds,
-        targetUserNames
+        targetUserNames,
+        photos
       );
     } else {
       await addNote(
@@ -191,7 +193,8 @@ export const NotesView: React.FC = () => {
         reminderDate,
         targetMode,
         targetUserIds,
-        targetUserNames
+        targetUserNames,
+        photos
       );
     }
   };

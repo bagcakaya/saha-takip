@@ -10,6 +10,7 @@ import {
   Wrench,
   Settings,
   UserCheck,
+  Megaphone,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { useStorage } from '../context/StorageContext';
@@ -24,7 +25,7 @@ interface HomeDashboardViewProps {
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
-  const { locations, notes, returnWarrantyItems, standardTasks, services, attendanceRecords } = useStorage();
+  const { locations, notes, returnWarrantyItems, standardTasks, services, attendanceRecords, adminReminders } = useStorage();
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
@@ -73,6 +74,9 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const todayKey = new Date().toISOString().split('T')[0];
   const activeStaffCount = attendanceRecords.filter(
     (r) => r.date === todayKey && r.status === 'checked_in'
+  ).length;
+  const unreadRemindersCount = adminReminders.filter(
+    (r) => !r.readBy || !r.readBy.includes(user?.id || '')
   ).length;
 
   const todayStr = new Date().toLocaleDateString('tr-TR', {
@@ -158,11 +162,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             Hızlı Erişim Modülleri
           </h3>
         </div>
-        <span className="text-xs font-semibold text-slate-400">7 Ana Bölüm</span>
+        <span className="text-xs font-semibold text-slate-400">8 Ana Bölüm</span>
       </div>
 
-      {/* The 7 Colorful Square Boxes */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 sm:gap-5">
+      {/* The 8 Colorful Square Boxes */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-5">
         {/* 1. Kurulumlar - Blue Gradient Square Card */}
         <button
           onClick={() => onNavigate('installations')}
@@ -287,7 +291,43 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
 
-        {/* 5. İade / Garanti - Red Gradient Square Card */}
+        {/* 5. Hatırlatmalar - Indigo / Purple Gradient Square Card */}
+        <button
+          onClick={() => onNavigate('reminders')}
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-indigo-600 via-purple-700 to-indigo-900 text-white border border-indigo-400/30"
+        >
+          {/* Top Row */}
+          <div className="flex items-start justify-between">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+              <Megaphone className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs flex items-center gap-1">
+              {!isAdmin && unreadRemindersCount > 0 ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-ping" />
+                  {unreadRemindersCount} Yeni
+                </>
+              ) : (
+                `${adminReminders.length} Talimat`
+              )}
+            </span>
+          </div>
+
+          {/* Bottom Content */}
+          <div className="space-y-1 z-10">
+            <h4 className="text-sm sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+              <span>Hatırlatmalar</span>
+              <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+            </h4>
+            <p className="text-[10px] sm:text-xs text-indigo-100/90 font-medium line-clamp-2 leading-relaxed">
+              Yönetici çalışma talimatları, kurallar ve prosedürler
+            </p>
+          </div>
+
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
+        </button>
+
+        {/* 6. İade / Garanti - Red Gradient Square Card */}
         <button
           onClick={() => onNavigate('returns')}
           className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-red-600 via-rose-700 to-rose-950 text-white border border-red-400/30"

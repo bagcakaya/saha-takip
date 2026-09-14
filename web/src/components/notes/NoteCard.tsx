@@ -22,6 +22,7 @@ import { useStorage } from '../../context/StorageContext';
 import { WhatsappService } from '../../services/whatsappService';
 import { CompleteNoteModal } from './CompleteNoteModal';
 import { RejectNoteModal } from './RejectNoteModal';
+import { ImageLightboxModal } from '../common/ImageLightboxModal';
 
 interface NoteCardProps {
   note: GeneralNote;
@@ -38,6 +39,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
 
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
   // Only the creator or an Admin can edit or delete a note
   const canModify = isAdmin || isCreatedByMe;
@@ -249,6 +251,31 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         {note.content}
       </p>
 
+      {/* Attached Job Order Photos */}
+      {note.photos && note.photos.length > 0 && (
+        <div className="space-y-1.5 pt-1">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+            İş Emri Fotoğrafları ({note.photos.length})
+          </span>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+            {note.photos.map((photo, pIdx) => (
+              <button
+                key={pIdx}
+                type="button"
+                onClick={() => setLightboxPhoto(photo)}
+                className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/img cursor-pointer hover:opacity-90 transition-all shadow-xs"
+              >
+                <img
+                  src={photo}
+                  alt={`İş Emri Fotoğrafı ${pIdx + 1}`}
+                  className="w-full h-full object-cover group-hover/img:scale-105 transition-transform"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Reminder Badge */}
       {note.reminderActive && note.reminderDate && (
         <div
@@ -271,8 +298,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
       )}
 
       {/* Personnel Completion Details Box */}
-      {(note.completedByName || note.completionNote) && (
-        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-xs">
+      {(note.completedByName || note.completionNote || (note.completionPhotos && note.completionPhotos.length > 0)) && (
+        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-2 text-xs">
           <div className="flex items-center justify-between gap-2 text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
               <User className="w-3.5 h-3.5 text-blue-500" />
@@ -293,6 +320,30 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
             <div className="text-slate-700 dark:text-slate-300 font-medium whitespace-pre-wrap bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
               <span className="font-bold text-slate-900 dark:text-slate-100">Personel Açıklaması: </span>
               {note.completionNote}
+            </div>
+          )}
+          {/* Completion Proof Photos */}
+          {note.completionPhotos && note.completionPhotos.length > 0 && (
+            <div className="space-y-1 pt-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                Tamamlama / Kanıt Fotoğrafları ({note.completionPhotos.length})
+              </span>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {note.completionPhotos.map((photo, cIdx) => (
+                  <button
+                    key={cIdx}
+                    type="button"
+                    onClick={() => setLightboxPhoto(photo)}
+                    className="relative aspect-square rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
+                  >
+                    <img
+                      src={photo}
+                      alt={`Tamamlama Kanıtı ${cIdx + 1}`}
+                      className="w-full h-full object-cover group-hover/cimg:scale-105 transition-transform"
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -433,8 +484,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         isOpen={isCompleteModalOpen}
         note={note}
         onClose={() => setIsCompleteModalOpen(false)}
-        onConfirm={async (completionNote) => {
-          await completeNote(note.id, completionNote);
+        onConfirm={async (completionNote, completionPhotos) => {
+          await completeNote(note.id, completionNote, completionPhotos);
         }}
       />
 
@@ -446,6 +497,14 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         onConfirm={async (reason) => {
           await rejectNote(note.id, reason);
         }}
+      />
+
+      {/* Lightbox Modal for Fullscreen Photo View */}
+      <ImageLightboxModal
+        isOpen={Boolean(lightboxPhoto)}
+        imageUrl={lightboxPhoto}
+        title="İş Emri Fotoğrafı"
+        onClose={() => setLightboxPhoto(null)}
       />
     </div>
   );

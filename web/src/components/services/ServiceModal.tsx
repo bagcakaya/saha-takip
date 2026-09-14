@@ -8,12 +8,16 @@ import {
   Compass,
   Loader2,
   CheckCircle2,
+  Camera,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import { WhatsappService } from '../../services/whatsappService';
 import { LocationService } from '../../services/locationService';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
 import { ServiceItem } from '../../types/storage';
+import { compressImage } from '../../utils/imageUtils';
 
 interface ServiceModalProps {
   isOpen: boolean;
@@ -25,6 +29,7 @@ interface ServiceModalProps {
     longitude?: number;
     workDone: string;
     date?: string;
+    photos?: string[];
   }) => Promise<void>;
   editingService?: ServiceItem | null;
 }
@@ -43,6 +48,8 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   const [longitude, setLongitude] = useState<number | undefined>(undefined);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [workDone, setWorkDone] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,6 +60,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setLatitude(editingService.latitude);
       setLongitude(editingService.longitude);
       setWorkDone(editingService.workDone || '');
+      setPhotos(editingService.photos || []);
       setNotifyWhatsapp(false);
     } else {
       setCompanyName('');
@@ -60,11 +68,12 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setLatitude(undefined);
       setLongitude(undefined);
       setWorkDone('');
+      setPhotos([]);
       setNotifyWhatsapp(true);
     }
   }, [editingService, isOpen]);
 
-  // GPS Location handler (Görsel-2'deki Pusula butonu gibi)
+  // GPS Location handler
   const handleGetLocation = async () => {
     try {
       setIsFetchingLocation(true);
@@ -79,14 +88,13 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     }
   };
 
-  // Google Maps handler (Görsel-2'deki Harita butonu gibi)
+  // Google Maps handler
   const handleOpenMap = () => {
     LocationService.openInGoogleMaps(location, latitude, longitude);
   };
 
   const handleLocationInputChange = (val: string) => {
     setLocation(val);
-    // Kurulum lokasyonlarından eşleşme varsa koordinatlarını otomatik bağla
     const matched = locations.find((l) => l.address === val || l.name === val);
     if (matched && matched.latitude && matched.longitude) {
       setLatitude(matched.latitude);
@@ -94,48 +102,73 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingPhoto(true);
+    try {
+      const newPhotos: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const compressed = await compressImage(files[i]);
+        newPhotos.push(compressed);
+      }
+      setPhotos((prev) => [...prev, ...newPhotos]);
+    } catch (err: any) {
+      alert(err?.message || 'Fotoğraf işlenirken hata oluştu.');
+    } finally {
+      setIsProcessingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cName = companyName.trim();
     const wDone = workDone.trim();
-    const loc = location.trim();
 
     if (!cName) {
       alert('Lütfen firma / müşteri adını girin.');
       return;
     }
     if (!wDone) {
-      alert('Lütfen yapılan iş / servis notunu yazın.');
+      alert('Lütfen yapılan iş / servis notunu girin.');
       return;
     }
 
     try {
       setIsSubmitting(true);
-      const now = new Date();
-      const dateStr = now.toISOString();
 
       await onSave({
         companyName: cName,
-        location: loc || undefined,
+        location: location.trim() || undefined,
         latitude,
         longitude,
         workDone: wDone,
-        date: editingService?.date || dateStr,
+        date: editingService?.date || new Date().toISOString(),
+        photos,
       });
 
+      // Optional WhatsApp Share
       if (notifyWhatsapp && !editingService) {
         WhatsappService.shareService({
           companyName: cName,
-          location: loc,
+          location: location.trim() || undefined,
           latitude,
           longitude,
           workDone: wDone,
-          date: dateStr,
-          staffName: user?.name || user?.username || 'Saha Yetkilisi',
+          staffName: user?.name || user?.username || 'Saha Personeli',
         });
       }
 
       onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Servis kaydı kaydedilirken bir hata oluştu.');
     } finally {
       setIsSubmitting(false);
     }
@@ -145,7 +178,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={editingService ? 'Servis Kaydını Düzenle' : 'Yeni Servis Kaydı'}
+      title={editingService ? 'Servis Kaydını Düzenle' : 'Yeni Servis Ekle'}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Firma / Müşteri Adı */}
@@ -164,7 +197,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           />
         </div>
 
-        {/* Lokasyon / Adres (Görsel-2 Stili: GPS + Harita + Coğrafi Konum Rozeti) */}
+        {/* Lokasyon / Adres */}
         <div>
           <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
             <MapPin className="w-3.5 h-3.5 text-orange-500" />
@@ -180,7 +213,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
               className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs sm:text-sm font-medium transition-all"
             />
 
-            {/* GPS Butonu (Görsel-2'deki Pusula Butonu) */}
+            {/* GPS Butonu */}
             <button
               type="button"
               onClick={handleGetLocation}
@@ -196,7 +229,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
               )}
             </button>
 
-            {/* Haritada Göster Butonu (Görsel-2'deki Pin Butonu) */}
+            {/* Haritada Göster Butonu */}
             <button
               type="button"
               onClick={handleOpenMap}
@@ -209,7 +242,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
             </button>
           </div>
 
-          {/* Kurulum Lokasyonlarından Hızlı Seçim Listesi */}
           {locations && locations.length > 0 && (
             <datalist id="service-installation-locations">
               {locations.map((loc) => (
@@ -220,7 +252,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
             </datalist>
           )}
 
-          {/* Coğrafi Konum İşaretlendi Rozeti (Görsel-2 ile birebir aynı) */}
           {latitude && longitude && (
             <div className="flex items-center gap-1.5 mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -246,46 +277,104 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           />
         </div>
 
-        {/* WhatsApp ile Bildir (Görsel-2 Stili) */}
+        {/* Fotoğraf Ekleme Bölümü */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Servis Fotoğrafları ({photos.length})
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800 text-xs font-bold cursor-pointer hover:bg-orange-100 transition-colors">
+                <Camera className="w-3.5 h-3.5" />
+                <span>Kamera</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                  disabled={isProcessingPhoto}
+                />
+              </label>
+              <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-200 transition-colors">
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Galeri</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                  disabled={isProcessingPhoto}
+                />
+              </label>
+            </div>
+          </div>
+
+          {isProcessingPhoto && (
+            <div className="flex items-center justify-center p-2 text-xs text-orange-600 dark:text-orange-400 gap-2 bg-orange-50/50 dark:bg-orange-950/20 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Fotoğraf işleniyor...</span>
+            </div>
+          )}
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 pt-1">
+              {photos.map((photo, idx) => (
+                <div
+                  key={idx}
+                  className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800"
+                >
+                  <img
+                    src={photo}
+                    alt={`Servis Fotoğrafı ${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePhoto(idx)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition-colors cursor-pointer"
+                    title="Sil"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* WhatsApp ile Bildir */}
         {!editingService && (
-          <label className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer transition-colors hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40">
+          <label className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/60 text-emerald-950 dark:text-emerald-200 cursor-pointer select-none transition-colors">
             <input
               type="checkbox"
               checked={notifyWhatsapp}
               onChange={(e) => setNotifyWhatsapp(e.target.checked)}
-              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 dark:focus:ring-offset-slate-900"
             />
-            <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-              Eklendiğinde WhatsApp ile Bildir
-            </span>
+            <div className="flex items-center gap-1.5 text-xs font-semibold">
+              <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Kaydettikten sonra WhatsApp ile paylaşım ekranını aç</span>
+            </div>
           </label>
         )}
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3 pt-2 pb-3">
+        {/* Alt Butonlar */}
+        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-semibold transition-colors"
+            className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
           >
             İptal
           </button>
           <button
             type="submit"
-            disabled={!companyName.trim() || !workDone.trim() || isSubmitting}
-            className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            disabled={isSubmitting || !companyName.trim() || !workDone.trim()}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
-            {isSubmitting ? (
-              'Kaydediliyor...'
-            ) : editingService ? (
-              'Güncelle'
-            ) : (
-              <>
-                {notifyWhatsapp && <MessageCircle className="w-4 h-4" />}
-                <span>Kaydet {notifyWhatsapp ? '& Gönder' : ''}</span>
-              </>
-            )}
+            {isSubmitting ? 'Kaydediliyor...' : editingService ? 'Güncelle' : 'Kaydet'}
           </button>
         </div>
       </form>

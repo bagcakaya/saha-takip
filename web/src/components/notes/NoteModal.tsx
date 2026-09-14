@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { GeneralNote, NoteTargetMode } from '../../types/storage';
-import { Bell, Calendar, Clock, Users, Check, MessageCircle } from 'lucide-react';
+import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2 } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
+import { compressImage } from '../../utils/imageUtils';
 
 interface NoteModalProps {
   isOpen: boolean;
@@ -16,7 +17,8 @@ interface NoteModalProps {
     reminderDate?: string,
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => Promise<void>;
 }
 
@@ -35,6 +37,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const [timeStr, setTimeStr] = useState('');
   const [targetMode, setTargetMode] = useState<NoteTargetMode>(isAdmin ? 'all' : 'self');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,6 +49,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     if (editingNote) {
       setContent(editingNote.content);
       setReminderActive(editingNote.reminderActive);
+      setPhotos(editingNote.photos || []);
 
       const mode =
         editingNote.targetMode ||
@@ -82,9 +87,34 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       setReminderActive(false);
       setTargetMode(isAdmin ? 'all' : 'self');
       setSelectedUserIds([]);
+      setPhotos([]);
       setDefaultDateTime();
     }
   }, [editingNote, isOpen]);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingPhoto(true);
+    try {
+      const newPhotos: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const compressed = await compressImage(files[i]);
+        newPhotos.push(compressed);
+      }
+      setPhotos((prev) => [...prev, ...newPhotos]);
+    } catch (err: any) {
+      alert(err?.message || 'Fotoğraf yüklenirken hata oluştu.');
+    } finally {
+      setIsProcessingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   const setDefaultDateTime = () => {
     const future = new Date(Date.now() + 10 * 60 * 1000);
@@ -155,7 +185,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         reminderIso,
         targetMode,
         targetMode === 'custom' ? selectedUserIds : [],
-        targetMode === 'custom' ? targetUserNames : []
+        targetMode === 'custom' ? targetUserNames : [],
+        photos
       );
 
       if (notifyWhatsapp && targetMode !== 'self') {
@@ -328,6 +359,73 @@ export const NoteModal: React.FC<NoteModalProps> = ({
             autoFocus
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium resize-none"
           />
+        </div>
+
+        {/* Photo Upload Section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Fotoğraf Ekle ({photos.length})
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold cursor-pointer hover:bg-blue-100 transition-colors">
+                <Camera className="w-3.5 h-3.5" />
+                <span>Kamera</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                  disabled={isProcessingPhoto}
+                />
+              </label>
+              <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-200 transition-colors">
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Galeri</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                  disabled={isProcessingPhoto}
+                />
+              </label>
+            </div>
+          </div>
+
+          {isProcessingPhoto && (
+            <div className="flex items-center justify-center p-2 text-xs text-blue-600 dark:text-blue-400 gap-2 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Fotoğraf optimize ediliyor...</span>
+            </div>
+          )}
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 pt-1">
+              {photos.map((photo, idx) => (
+                <div
+                  key={idx}
+                  className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800"
+                >
+                  <img
+                    src={photo}
+                    alt={`Fotoğraf ${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePhoto(idx)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition-colors cursor-pointer"
+                    title="Sil"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Reminder Toggle */}

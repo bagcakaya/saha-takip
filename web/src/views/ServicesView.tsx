@@ -51,6 +51,7 @@ export const ServicesView: React.FC = () => {
     longitude?: number;
     workDone: string;
     date?: string;
+    photos?: string[];
   }) => {
     if (editingService) {
       await updateService(editingService.id, data);

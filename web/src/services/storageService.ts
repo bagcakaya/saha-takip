@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 
@@ -10,6 +10,7 @@ const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
 const SERVICES_KEY = '@gorev_tamamlama_services';
 const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
 const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
+const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -724,6 +725,54 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves admin reminders / directives (Supabase cloud + local cache)
+   */
+  async getAdminReminders(): Promise<AdminReminder[]> {
+    const localData = (await loadItem<AdminReminder[]>(ADMIN_REMINDERS_KEY)) || [];
+
+    // Fallback cloud sync slot (standard_tasks id: 7)
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 7)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: AdminReminder[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          await saveItem(ADMIN_REMINDERS_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Cloud fetch admin reminders error:', e);
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves admin reminders to local cache and syncs with Supabase slot 7
+   */
+  async saveAdminReminders(reminders: AdminReminder[]): Promise<void> {
+    await saveItem(ADMIN_REMINDERS_KEY, reminders);
+
+    try {
+      const rawJson = JSON.stringify(reminders);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 7, tasks: chunks });
+    } catch (err) {
+      console.warn('Cloud save admin reminders error:', err);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -732,6 +781,7 @@ export const StorageService = {
     const services = await this.getServices();
     const workplaceLocation = (await this.getWorkplaceLocation()) || undefined;
     const attendanceRecords = await this.getAttendanceRecords();
+    const adminReminders = await this.getAdminReminders();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -740,6 +790,7 @@ export const StorageService = {
       services,
       workplaceLocation,
       attendanceRecords,
+      adminReminders,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -765,6 +816,9 @@ export const StorageService = {
     }
     if (backupData.attendanceRecords && Array.isArray(backupData.attendanceRecords)) {
       await this.saveAttendanceRecords(backupData.attendanceRecords);
+    }
+    if (backupData.adminReminders && Array.isArray(backupData.adminReminders)) {
+      await this.saveAdminReminders(backupData.adminReminders);
     }
   },
 };

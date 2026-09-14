@@ -13,6 +13,7 @@ import {
   Bell,
   Wrench,
   UserCheck,
+  Megaphone,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -40,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     allServices,
     allLocations,
     attendanceRecords,
+    adminReminders,
   } = useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
@@ -191,10 +193,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           n.targetUserId === user.id;
         return isTargeted && remTime <= Date.now() && remTime > lastReadTime;
       }).length;
+
+      // 5. New admin reminders / directives
+      count += adminReminders.filter((r) => r.createdAt > lastReadTime && !r.readBy?.includes(user.id)).length;
     }
 
     return count;
-  }, [allNotes, allServices, allLocations, user, lastReadTime]);
+  }, [allNotes, allServices, allLocations, adminReminders, user, lastReadTime]);
+
+  const unreadRemindersCount = React.useMemo(() => {
+    if (!user?.id || isAdmin) return 0;
+    return adminReminders.filter((r) => !r.readBy?.includes(user.id)).length;
+  }, [adminReminders, user, isAdmin]);
 
   return (
     <>
@@ -342,7 +352,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               ) : null}
             </button>
 
-            {/* 5. İade / Garanti Takibi */}
+            {/* 5. Hatırlatmalar (Yönetici Talimatları) */}
+            <button
+              onClick={() => setActiveTab('reminders')}
+              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                activeTab === 'reminders'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Megaphone className="w-4 h-4" />
+                <span>Hatırlatmalar</span>
+              </div>
+              {unreadRemindersCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'reminders'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 animate-pulse'
+                  }`}
+                >
+                  {unreadRemindersCount} Yeni
+                </span>
+              ) : (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'reminders'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {adminReminders.length}
+                </span>
+              )}
+            </button>
+
+            {/* 6. İade / Garanti Takibi */}
             <button
               onClick={() => setActiveTab('returns')}
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${

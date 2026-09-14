@@ -37,6 +37,8 @@ export interface GeneralNote {
   reminderActive: boolean;
   reminderDate?: string; // ISO String
   notified?: boolean;
+  photos?: string[]; // İş emri oluştururken eklenen fotoğraflar
+  completionPhotos?: string[]; // İşi tamamlarken personelin eklediği fotoğraflar
   // Approval and Completion workflow
   status?: NoteStatus;
   completedAt?: number;
@@ -50,6 +52,22 @@ export interface GeneralNote {
   rejectedBy?: string;
   rejectedByName?: string;
   rejectionReason?: string; // Yöneticinin reddederken girdiği gerekçe
+}
+
+export type AdminReminderCategory = 'general' | 'procedure' | 'rule' | 'urgent';
+
+export interface AdminReminder {
+  id: string;
+  title: string;
+  content: string;
+  category?: AdminReminderCategory;
+  isPinned?: boolean;
+  photos?: string[];
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+  updatedAt?: number;
+  readBy?: string[]; // Array of user IDs who acknowledged/read this reminder
 }
 
 export type ReturnWarrantyType = 'warranty' | 'return';
@@ -82,6 +100,7 @@ export interface ServiceItem {
   longitude?: number;  // Coğrafi Boylam
   workDone: string;    // Yapılan İş / Servis Notu
   date?: string;       // Tarih / Saat (ISO string veya formatlanmış tarih)
+  photos?: string[];   // Servis fotoğrafları (base64 / data URLs)
   createdAt: number;
   createdBy?: string;
   createdByName?: string;
@@ -128,5 +147,6 @@ export interface BackupData {
   services?: ServiceItem[];
   workplaceLocation?: WorkplaceLocation;
   attendanceRecords?: AttendanceRecord[];
+  adminReminders?: AdminReminder[];
 }
 

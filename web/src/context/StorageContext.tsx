@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -21,6 +21,7 @@ interface StorageContextType {
   allServices: ServiceItem[];
   workplaceLocation: WorkplaceLocation | null;
   attendanceRecords: AttendanceRecord[];
+  adminReminders: AdminReminder[];
   isLoading: boolean;
   activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
@@ -48,7 +49,8 @@ interface StorageContextType {
     reminderDate?: string,
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => Promise<void>;
   updateNote: (
     id: string,
@@ -57,12 +59,24 @@ interface StorageContextType {
     reminderDate?: string,
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
-  completeNote: (id: string, completionNote?: string) => Promise<void>;
+  completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<void>;
   approveNote: (id: string) => Promise<void>;
   rejectNote: (id: string, reason?: string) => Promise<void>;
+  addAdminReminder: (data: {
+    title: string;
+    content: string;
+    category?: AdminReminderCategory;
+    isPinned?: boolean;
+    photos?: string[];
+    sendPush?: boolean;
+  }) => Promise<void>;
+  updateAdminReminder: (id: string, updates: Partial<AdminReminder>) => Promise<void>;
+  deleteAdminReminder: (id: string) => Promise<void>;
+  markReminderAsRead: (id: string) => Promise<void>;
   addReturnWarrantyItem: (
     item: Omit<ReturnWarrantyItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
   ) => Promise<void>;
@@ -130,6 +144,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [adminReminders, setAdminReminders] = useState<AdminReminder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{
     title: string;
@@ -142,7 +157,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -150,6 +165,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getServices(),
           StorageService.getWorkplaceLocation(),
           StorageService.getAttendanceRecords(),
+          StorageService.getAdminReminders(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -163,6 +179,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllServices(srvs);
         if (wpLoc) setWorkplaceLocation(wpLoc);
         setAttendanceRecords(attRecs);
+        setAdminReminders(reminders);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -194,13 +211,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs, nts, wpLoc, attRecs] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
             StorageService.getNotes(),
             StorageService.getWorkplaceLocation(),
             StorageService.getAttendanceRecords(),
+            StorageService.getAdminReminders(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
@@ -208,6 +226,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setAllNotes(nts);
           if (wpLoc) setWorkplaceLocation(wpLoc);
           setAttendanceRecords(attRecs);
+          setAdminReminders(reminders);
         }
       )
       .on(
@@ -881,19 +900,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
   };
 
-  // Add general note with single/multi target user sharing
+  // Add general note with single/multi target user sharing and photo support
   const addNote = async (
     content: string,
     reminderActive: boolean,
     reminderDate?: string,
     targetMode: NoteTargetMode = 'self',
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => {
     if (!content.trim()) return;
     const newNote: GeneralNote = {
       id: generateId(),
       content: content.trim(),
+      photos: photos || [],
       createdAt: Date.now(),
       createdBy: user?.id,
       createdByName: user?.name || user?.username || 'Yetkili',
@@ -943,7 +964,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveNotes(newNotes);
   };
 
-  // Update general note with single/multi target user sharing
+  // Update general note with single/multi target user sharing and photo support
   const updateNote = async (
     id: string,
     content: string,
@@ -951,7 +972,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     reminderDate?: string,
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
-    targetUserNames?: string[]
+    targetUserNames?: string[],
+    photos?: string[]
   ) => {
     if (!content.trim()) return;
     const newNotes = allNotes.map((n) => {
@@ -970,6 +992,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetUserNames: nextNames,
           targetUserId: nextMode === 'all' ? 'all' : nextMode === 'self' ? 'self' : nextIds[0] || 'self',
           targetUserName: nextMode === 'all' ? 'Tüm Personeller' : nextMode === 'self' ? 'Sadece Kendim' : nextNames.join(', ') || 'Özel',
+          photos: photos !== undefined ? photos : n.photos || [],
           notified: false,
         };
       }
@@ -985,7 +1008,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Mark note as completed by Staff (submits to Admin for approval)
-  const completeNote = async (id: string, completionNote?: string) => {
+  const completeNote = async (id: string, completionNote?: string, completionPhotos?: string[]) => {
     const targetNote = allNotes.find((n) => n.id === id);
     if (!targetNote) return;
 
@@ -1002,6 +1025,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           completedBy: user?.id,
           completedByName: staffName,
           completionNote: trimmedNote,
+          completionPhotos: completionPhotos !== undefined ? completionPhotos : n.completionPhotos || [],
           // Reset previous rejection if resubmitted
           rejectedAt: undefined,
           rejectedBy: undefined,
@@ -1181,6 +1205,74 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
       });
     }
+  };
+
+  // Admin Reminder / Directive Management
+  const addAdminReminder = async (data: {
+    title: string;
+    content: string;
+    category?: AdminReminderCategory;
+    isPinned?: boolean;
+    photos?: string[];
+    sendPush?: boolean;
+  }) => {
+    if (!data.title.trim() || !data.content.trim()) return;
+
+    const newReminder: AdminReminder = {
+      id: generateId(),
+      title: data.title.trim(),
+      content: data.content.trim(),
+      category: data.category || 'general',
+      isPinned: data.isPinned || false,
+      photos: data.photos || [],
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name || user?.username || 'Yönetici',
+      readBy: user?.id ? [user.id] : [],
+    };
+
+    const updated = [newReminder, ...adminReminders];
+    setAdminReminders(updated);
+    await StorageService.saveAdminReminders(updated);
+
+    if (data.sendPush !== false) {
+      // Send push notification to all personnel
+      OneSignalService.sendPushNotification({
+        title: `📢 Yönetici Hatırlatması: ${newReminder.title}`,
+        message: newReminder.content.slice(0, 100),
+        targetMode: 'all',
+        url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
+      }).catch(() => {});
+    }
+  };
+
+  const updateAdminReminder = async (id: string, updates: Partial<AdminReminder>) => {
+    const updated = adminReminders.map((r) =>
+      r.id === id ? { ...r, ...updates, updatedAt: Date.now() } : r
+    );
+    setAdminReminders(updated);
+    await StorageService.saveAdminReminders(updated);
+  };
+
+  const deleteAdminReminder = async (id: string) => {
+    const updated = adminReminders.filter((r) => r.id !== id);
+    setAdminReminders(updated);
+    await StorageService.saveAdminReminders(updated);
+  };
+
+  const markReminderAsRead = async (id: string) => {
+    if (!user?.id) return;
+    const updated = adminReminders.map((r) => {
+      if (r.id === id) {
+        const currentRead = r.readBy || [];
+        if (!currentRead.includes(user.id)) {
+          return { ...r, readBy: [...currentRead, user.id] };
+        }
+      }
+      return r;
+    });
+    setAdminReminders(updated);
+    await StorageService.saveAdminReminders(updated);
   };
 
   // Add return / warranty item
@@ -1574,6 +1666,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         allServices,
         workplaceLocation,
         attendanceRecords,
+        adminReminders,
         isLoading,
         activeToast,
         dismissToast,
@@ -1594,6 +1687,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         completeNote,
         approveNote,
         rejectNote,
+        addAdminReminder,
+        updateAdminReminder,
+        deleteAdminReminder,
+        markReminderAsRead,
         addReturnWarrantyItem,
         updateReturnWarrantyItem,
         deleteReturnWarrantyItem,

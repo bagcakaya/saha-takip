@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle2, FileText, Send } from 'lucide-react';
+import { X, CheckCircle2, FileText, Send, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
+import { compressImage } from '../../utils/imageUtils';
 
 interface CompleteNoteModalProps {
   isOpen: boolean;
   note: GeneralNote | null;
   onClose: () => void;
-  onConfirm: (completionNote: string) => Promise<void>;
+  onConfirm: (completionNote: string, completionPhotos?: string[]) => Promise<void>;
 }
 
 export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
@@ -16,22 +17,49 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
   onConfirm,
 }) => {
   const [completionNote, setCompletionNote] = useState('');
+  const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setCompletionNote(note?.completionNote || '');
+      setCompletionPhotos(note?.completionPhotos || []);
       setIsSubmitting(false);
     }
   }, [isOpen, note]);
 
   if (!isOpen || !note) return null;
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingPhoto(true);
+    try {
+      const newPhotos: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const compressed = await compressImage(files[i]);
+        newPhotos.push(compressed);
+      }
+      setCompletionPhotos((prev) => [...prev, ...newPhotos]);
+    } catch (err: any) {
+      alert(err?.message || 'Fotoğraf yüklenirken hata oluştu.');
+    } finally {
+      setIsProcessingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setCompletionPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await onConfirm(completionNote.trim());
+      await onConfirm(completionNote.trim(), completionPhotos);
       onClose();
     } catch (err) {
       console.error(err);
@@ -54,7 +82,7 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
                 {note.status === 'rejected' ? 'Eksikleri Gider / Tekrar Tamamla' : 'İş Emrini Tamamla'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Tamamlama notunuz yöneticiye bildirim olarak iletilecektir.
+                Tamamlama notunuz ve fotoğraflarınız yöneticiye onaya iletilecektir.
               </p>
             </div>
           </div>
@@ -96,13 +124,77 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
               value={completionNote}
               onChange={(e) => setCompletionNote(e.target.value)}
               placeholder="Örn: Cihaz bağlantıları yapıldı, kontroller sağlandı ve çalışır vaziyette teslim edildi..."
-              rows={4}
+              rows={3}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
               autoFocus
             />
-            <p className="text-[11px] text-slate-400">
-              Bu açıklama yöneticinin onay ekranında ve iş emri kartında görüntülenecektir.
-            </p>
+          </div>
+
+          {/* Completion Proof Photos */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Tamamlama / Kanıt Fotoğrafları ({completionPhotos.length})
+              </label>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold cursor-pointer hover:bg-emerald-100 transition-colors">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Kamera</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                    disabled={isProcessingPhoto}
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-200 transition-colors">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>Galeri</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                    disabled={isProcessingPhoto}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {isProcessingPhoto && (
+              <div className="flex items-center justify-center p-2 text-xs text-emerald-600 dark:text-emerald-400 gap-2 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-xl">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Fotoğraf işleniyor...</span>
+              </div>
+            )}
+
+            {completionPhotos.length > 0 && (
+              <div className="grid grid-cols-4 gap-2 pt-1">
+                {completionPhotos.map((photo, idx) => (
+                  <div
+                    key={idx}
+                    className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800"
+                  >
+                    <img
+                      src={photo}
+                      alt={`Kanıt ${idx + 1}`}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(idx)}
+                      className="absolute top-1 right-1 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition-colors cursor-pointer"
+                      title="Sil"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Actions */}
