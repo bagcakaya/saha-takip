@@ -21,6 +21,7 @@ export interface LocationItem {
 }
 
 export type NoteTargetMode = 'self' | 'all' | 'custom';
+export type NoteStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected';
 
 export interface GeneralNote {
   id: string;
@@ -36,6 +37,19 @@ export interface GeneralNote {
   reminderActive: boolean;
   reminderDate?: string; // ISO String
   notified?: boolean;
+  // Approval and Completion workflow
+  status?: NoteStatus;
+  completedAt?: number;
+  completedBy?: string;
+  completedByName?: string;
+  completionNote?: string; // Personelin işi tamamlarken girdiği açıklama
+  approvedAt?: number;
+  approvedBy?: string;
+  approvedByName?: string;
+  rejectedAt?: number;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectionReason?: string; // Yöneticinin reddederken girdiği gerekçe
 }
 
 export type ReturnWarrantyType = 'warranty' | 'return';

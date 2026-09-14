@@ -204,6 +204,18 @@ export const StorageService = {
           reminderActive: Boolean(row.reminder_active),
           reminderDate: row.reminder_date || undefined,
           notified: Boolean(row.notified),
+          status: (row.status as any) || 'pending',
+          completedAt: row.completed_at ? Number(row.completed_at) : undefined,
+          completedBy: row.completed_by || undefined,
+          completedByName: row.completed_by_name || undefined,
+          completionNote: row.completion_note || undefined,
+          approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
+          approvedBy: row.approved_by || undefined,
+          approvedByName: row.approved_by_name || undefined,
+          rejectedAt: row.rejected_at ? Number(row.rejected_at) : undefined,
+          rejectedBy: row.rejected_by || undefined,
+          rejectedByName: row.rejected_by_name || undefined,
+          rejectionReason: row.rejection_reason || undefined,
         }));
 
         await saveItem(NOTES_KEY, cloudNotes);
@@ -211,6 +223,26 @@ export const StorageService = {
       }
     } catch (e) {
       console.warn('Supabase notes fetch error:', e);
+    }
+
+    // 2. Fallback cloud sync slot (standard_tasks id: 4) in case notes table columns are pending migration
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 4)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: GeneralNote[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          await saveItem(NOTES_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
     }
 
     return localData;
@@ -222,8 +254,9 @@ export const StorageService = {
   async saveNotes(notes: GeneralNote[]): Promise<void> {
     await saveItem(NOTES_KEY, notes);
 
+    // 1. Try sync to native notes table in Supabase
     try {
-      const rows = notes.map((n) => ({
+      const fullRows = notes.map((n) => ({
         id: n.id,
         content: n.content,
         created_at: n.createdAt,
@@ -237,29 +270,73 @@ export const StorageService = {
         reminder_active: n.reminderActive,
         reminder_date: n.reminderDate || null,
         notified: n.notified || false,
+        status: n.status || 'pending',
+        completed_at: n.completedAt || null,
+        completed_by: n.completedBy || null,
+        completed_by_name: n.completedByName || null,
+        completion_note: n.completionNote || null,
+        approved_at: n.approvedAt || null,
+        approved_by: n.approvedBy || null,
+        approved_by_name: n.approvedByName || null,
+        rejected_at: n.rejectedAt || null,
+        rejected_by: n.rejectedBy || null,
+        rejected_by_name: n.rejectedByName || null,
+        rejection_reason: n.rejectionReason || null,
       }));
 
-      if (rows.length > 0) {
-        await supabase.from('notes').upsert(rows);
-      }
-
-      // Delete removed notes
-      const currentIds = notes.map((n) => n.id);
-      if (currentIds.length > 0) {
-        const { data: cloudData } = await supabase.from('notes').select('id');
-        if (cloudData) {
-          const idsToDelete = cloudData
-            .map((c) => c.id)
-            .filter((id) => !currentIds.includes(id));
-          if (idsToDelete.length > 0) {
-            await supabase.from('notes').delete().in('id', idsToDelete);
-          }
+      if (fullRows.length > 0) {
+        const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
+        if (upsertErr) {
+          // If columns don't exist yet in Supabase notes table, fallback to standard columns
+          const basicRows = notes.map((n) => ({
+            id: n.id,
+            content: n.content,
+            created_at: n.createdAt,
+            created_by: n.createdBy || null,
+            created_by_name: n.createdByName || null,
+            target_mode: n.targetMode || 'self',
+            target_user_ids: n.targetUserIds || [],
+            target_user_names: n.targetUserNames || [],
+            target_user_id: n.targetUserId || null,
+            target_user_name: n.targetUserName || null,
+            reminder_active: n.reminderActive,
+            reminder_date: n.reminderDate || null,
+            notified: n.notified || false,
+          }));
+          await supabase.from('notes').upsert(basicRows);
         }
-      } else {
-        await supabase.from('notes').delete().neq('id', '___');
+
+        // Delete removed notes
+        const currentIds = notes.map((n) => n.id);
+        if (currentIds.length > 0) {
+          const { data: cloudData } = await supabase.from('notes').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('notes').delete().in('id', idsToDelete);
+            }
+          }
+        } else {
+          await supabase.from('notes').delete().neq('id', '___');
+        }
       }
     } catch (err) {
       console.warn('Supabase save notes error:', err);
+    }
+
+    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 4) so all phones sync immediately
+    try {
+      const rawJson = JSON.stringify(notes);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 4, tasks: chunks });
+    } catch (fallbackErr) {
+      console.warn('Fallback notes sync mirror error:', fallbackErr);
     }
   },
 

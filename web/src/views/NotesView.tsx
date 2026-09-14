@@ -1,5 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, ClipboardList, Search, X, Bell, Mail, Users } from 'lucide-react';
+import {
+  Plus,
+  ClipboardList,
+  Search,
+  X,
+  Bell,
+  Mail,
+  Users,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { NoteCard } from '../components/notes/NoteCard';
 import { NoteModal } from '../components/notes/NoteModal';
@@ -12,12 +23,28 @@ export const NotesView: React.FC = () => {
   const isAdmin = currentUser?.role === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'reminders' | 'direct'>('all');
+  const [activeFilter, setActiveFilter] = useState<
+    'all' | 'pending' | 'approved' | 'rejected' | 'reminders' | 'direct'
+  >('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<GeneralNote | null>(null);
 
   const sortedNotes = useMemo(() => {
     return [...notes].sort((a, b) => b.createdAt - a.createdAt);
+  }, [notes]);
+
+  const pendingNotesCount = useMemo(() => {
+    return notes.filter(
+      (n) => !n.status || n.status === 'pending' || n.status === 'pending_approval'
+    ).length;
+  }, [notes]);
+
+  const approvedNotesCount = useMemo(() => {
+    return notes.filter((n) => n.status === 'approved').length;
+  }, [notes]);
+
+  const rejectedNotesCount = useMemo(() => {
+    return notes.filter((n) => n.status === 'rejected').length;
   }, [notes]);
 
   const remindersCount = useMemo(() => {
@@ -51,6 +78,15 @@ export const NotesView: React.FC = () => {
 
       if (!matchesSearch) return false;
 
+      if (activeFilter === 'pending') {
+        return !n.status || n.status === 'pending' || n.status === 'pending_approval';
+      }
+      if (activeFilter === 'approved') {
+        return n.status === 'approved';
+      }
+      if (activeFilter === 'rejected') {
+        return n.status === 'rejected';
+      }
       if (activeFilter === 'reminders') {
         return Boolean(n.reminderActive && n.reminderDate);
       }
@@ -147,7 +183,7 @@ export const NotesView: React.FC = () => {
           </button>
         </div>
 
-        {/* Filter Pills */}
+        {/* Filter Pills with Approval/Pending/Rejected categories */}
         <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveFilter('all')}
@@ -161,10 +197,46 @@ export const NotesView: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveFilter('pending')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'pending'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Bekleyenler ({pendingNotesCount})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveFilter('approved')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'approved'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Onaylananlar ({approvedNotesCount})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveFilter('rejected')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'rejected'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/40'
+            }`}
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>Reddedilenler ({rejectedNotesCount})</span>
+          </button>
+
+          <button
             onClick={() => setActiveFilter('reminders')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeFilter === 'reminders'
-                ? 'bg-amber-500 text-white shadow-xs'
+                ? 'bg-indigo-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
@@ -177,12 +249,16 @@ export const NotesView: React.FC = () => {
               onClick={() => setActiveFilter('direct')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
                 activeFilter === 'direct'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               {isAdmin ? <Users className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
-              <span>{isAdmin ? `Personele Atanan İş Emirleri (${directNotesCount})` : `Bana Atanan İş Emirleri (${directNotesCount})`}</span>
+              <span>
+                {isAdmin
+                  ? `Personele Atanan İş Emirleri (${directNotesCount})`
+                  : `Bana Atanan İş Emirleri (${directNotesCount})`}
+              </span>
             </button>
           )}
         </div>
@@ -199,6 +275,12 @@ export const NotesView: React.FC = () => {
           <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 mb-1.5">
             {searchQuery
               ? 'Aramayla eşleşen iş emri bulunamadı'
+              : activeFilter === 'pending'
+              ? 'Bekleyen iş emri bulunmuyor'
+              : activeFilter === 'approved'
+              ? 'Henüz onaylanan iş emri bulunmuyor'
+              : activeFilter === 'rejected'
+              ? 'Reddedilen iş emri bulunmuyor'
               : activeFilter === 'reminders'
               ? 'Henüz kurulmuş bir hatırlatıcı yok'
               : activeFilter === 'direct'
@@ -208,6 +290,12 @@ export const NotesView: React.FC = () => {
           <p className="text-xs text-slate-400 leading-relaxed mb-5">
             {searchQuery
               ? 'Lütfen arama teriminizi kontrol edin.'
+              : activeFilter === 'pending'
+              ? 'Tüm iş emirleri tamamlanmış veya onaylanmış durumdadır.'
+              : activeFilter === 'approved'
+              ? 'Personel tarafından tamamlanan ve yönetici tarafından onaylanan işler burada listelenir.'
+              : activeFilter === 'rejected'
+              ? 'Yönetici tarafından eksik görülerek reddedilen iş emirleri burada listelenir.'
               : 'Kendiniz için iş emri oluşturabilir veya personele iş emri atayabilirsiniz.'}
           </p>
           <button
@@ -240,7 +328,9 @@ export const NotesView: React.FC = () => {
               }}
               onDelete={() => {
                 if (!isAdmin && note.createdBy !== currentUser?.id) {
-                  alert('Bu iş emri yönetici tarafından eklenmiştir. Yalnızca oluşturan yetkili silebilir.');
+                  alert(
+                    'Bu iş emri yönetici tarafından eklenmiştir. Yalnızca oluşturan yetkili silebilir.'
+                  );
                   return;
                 }
                 if (window.confirm('Bu iş emrini silmek istediğinize emin misiniz?')) {

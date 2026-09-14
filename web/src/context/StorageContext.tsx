@@ -56,6 +56,9 @@ interface StorageContextType {
     targetUserNames?: string[]
   ) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
+  completeNote: (id: string, completionNote?: string) => Promise<void>;
+  approveNote: (id: string) => Promise<void>;
+  rejectNote: (id: string, reason?: string) => Promise<void>;
   addReturnWarrantyItem: (
     item: Omit<ReturnWarrantyItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
   ) => Promise<void>;
@@ -81,6 +84,8 @@ const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
 const SEEN_WARRANTY_REMINDERS_KEY = (userId: string) => `@seen_warranty_reminders_${userId}`;
 const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string) => `@seen_completed_locations_${userId}`;
 const SEEN_SERVICES_KEY = (userId: string) => `@seen_services_${userId}`;
+const SEEN_COMPLETED_NOTES_KEY = (userId: string) => `@seen_completed_notes_${userId}`;
+const SEEN_APPROVAL_NOTES_KEY = (userId: string) => `@seen_approval_notes_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -483,6 +488,86 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [allServices, user]);
 
+  // Check incoming note completions (for Admin) & approval/rejection results (for Staff)
+  useEffect(() => {
+    if (!user || allNotes.length === 0) return;
+
+    // 1. For Admin: Alert when a staff member completes a work order (pending_approval)
+    if (user.role === 'admin') {
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id));
+      let seenChanged = false;
+
+      allNotes.forEach((n) => {
+        if (n.status === 'pending_approval' && n.completedAt && n.completedBy !== user.id) {
+          const key = `${n.id}_${n.completedAt}`;
+          if (!seenCompleted.has(key)) {
+            seenCompleted.add(key);
+            seenChanged = true;
+
+            const staff = n.completedByName || 'Saha Personeli';
+            const title = '📋 İş Emri Onay Bekliyor!';
+            const body = `${staff}, "${n.content.slice(0, 50)}" iş emrini tamamladı.${n.completionNote ? ` Not: ${n.completionNote}` : ''}`;
+            NotificationService.sendNotification(title, body);
+            setActiveToast({ title, body });
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id), seenCompleted);
+      }
+    }
+
+    // 2. For Staff: Alert when Admin approves or rejects the staff's work order
+    if (user.role !== 'admin') {
+      const seenApproval = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      let seenChanged = false;
+
+      allNotes.forEach((n) => {
+        const isMyTask =
+          n.completedBy === user.id ||
+          (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+          n.targetUserId === user.id;
+
+        if (isMyTask) {
+          // Check Approved
+          if (n.status === 'approved' && n.approvedAt) {
+            const key = `${n.id}_approved_${n.approvedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = n.approvedByName || 'Yönetici';
+              const title = '✅ İş Emriniz Onaylandı!';
+              const body = `${admin}, "${n.content.slice(0, 50)}" iş emrinizi başarıyla onayladı.`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body });
+            }
+          }
+
+          // Check Rejected
+          if (n.status === 'rejected' && n.rejectedAt) {
+            const key = `${n.id}_rejected_${n.rejectedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = n.rejectedByName || 'Yönetici';
+              const title = '❌ İş Emriniz Reddedildi!';
+              const body = `${admin}, "${n.content.slice(0, 50)}" iş emrini reddetti. Gerekçe: ${n.rejectionReason || 'Eksikler var'}`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body });
+            }
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApproval);
+      }
+    }
+  }, [allNotes, user]);
+
   const dismissToast = () => {
     setActiveToast(null);
   };
@@ -850,6 +935,205 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveNotes(newNotes);
   };
 
+  // Mark note as completed by Staff (submits to Admin for approval)
+  const completeNote = async (id: string, completionNote?: string) => {
+    const targetNote = allNotes.find((n) => n.id === id);
+    if (!targetNote) return;
+
+    const completedAt = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Personeli';
+    const trimmedNote = completionNote?.trim() || undefined;
+
+    const newNotes = allNotes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status: 'pending_approval' as const,
+          completedAt,
+          completedBy: user?.id,
+          completedByName: staffName,
+          completionNote: trimmedNote,
+          // Reset previous rejection if resubmitted
+          rejectedAt: undefined,
+          rejectedBy: undefined,
+          rejectedByName: undefined,
+          rejectionReason: undefined,
+        };
+      }
+      return n;
+    });
+
+    // Mark as seen on staff device immediately
+    if (user?.id) {
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id));
+      seenCompleted.add(`${id}_${completedAt}`);
+      saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id), seenCompleted);
+    }
+
+    await saveNotes(newNotes);
+
+    // Send instant hardware push notification to Admin(s)
+    let adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+    if (adminIds.length === 0) {
+      try {
+        const cloudUsers = await UserService.fetchUsersFromCloud();
+        adminIds = cloudUsers.filter((u) => u.role === 'admin').map((u) => u.id);
+      } catch {
+        // ignore
+      }
+    }
+    if (adminIds.length === 0) {
+      adminIds = ['admin-1'];
+    }
+
+    const noteSnippet =
+      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+    const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+
+    // 1. Direct hardware push to admin user IDs
+    await OneSignalService.sendPushNotification({
+      title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
+      targetMode: 'custom',
+      targetUserIds: adminIds,
+      url: 'https://saha-takip-beige.vercel.app',
+    });
+
+    // 2. Broadcast to admin role devices
+    await OneSignalService.sendPushNotification({
+      title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app',
+    });
+  };
+
+  // Admin approves completed work order
+  const approveNote = async (id: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler iş emirlerini onaylayabilir.');
+      return;
+    }
+
+    const targetNote = allNotes.find((n) => n.id === id);
+    if (!targetNote) return;
+
+    const approvedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const newNotes = allNotes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status: 'approved' as const,
+          approvedAt,
+          approvedBy: user?.id,
+          approvedByName: adminName,
+        };
+      }
+      return n;
+    });
+
+    // Mark as seen on admin device immediately
+    if (user?.id) {
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      seenApprovals.add(`${id}_approved_${approvedAt}`);
+      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApprovals);
+    }
+
+    await saveNotes(newNotes);
+
+    // Notify Staff who completed it or was targeted
+    const targetRecipientIds = Array.from(
+      new Set(
+        [
+          targetNote.completedBy,
+          ...(targetNote.targetUserIds || []),
+          targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
+            ? targetNote.targetUserId
+            : undefined,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    const noteSnippet =
+      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '✅ İş Emri Onaylandı!',
+        message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+    }
+  };
+
+  // Admin rejects completed work order with reason
+  const rejectNote = async (id: string, reason?: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler iş emirlerini reddedebilir.');
+      return;
+    }
+
+    const targetNote = allNotes.find((n) => n.id === id);
+    if (!targetNote) return;
+
+    const rejectedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+    const trimmedReason = reason?.trim() || 'Yönetici tarafından eksik görüldü';
+
+    const newNotes = allNotes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status: 'rejected' as const,
+          rejectedAt,
+          rejectedBy: user?.id,
+          rejectedByName: adminName,
+          rejectionReason: trimmedReason,
+        };
+      }
+      return n;
+    });
+
+    // Mark as seen on admin device immediately
+    if (user?.id) {
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      seenApprovals.add(`${id}_rejected_${rejectedAt}`);
+      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApprovals);
+    }
+
+    await saveNotes(newNotes);
+
+    // Notify Staff who completed it or was targeted
+    const targetRecipientIds = Array.from(
+      new Set(
+        [
+          targetNote.completedBy,
+          ...(targetNote.targetUserIds || []),
+          targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
+            ? targetNote.targetUserId
+            : undefined,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    const noteSnippet =
+      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '❌ İş Emri Reddedildi!',
+        message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+    }
+  };
+
   // Add return / warranty item
   const addReturnWarrantyItem = async (
     itemData: Omit<ReturnWarrantyItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
@@ -1029,6 +1313,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addNote,
         updateNote,
         deleteNote,
+        completeNote,
+        approveNote,
+        rejectNote,
         addReturnWarrantyItem,
         updateReturnWarrantyItem,
         deleteReturnWarrantyItem,
