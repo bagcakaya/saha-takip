@@ -50,7 +50,8 @@ interface StorageContextType {
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => Promise<void>;
   updateNote: (
     id: string,
@@ -60,7 +61,8 @@ interface StorageContextType {
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<void>;
@@ -921,11 +923,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     targetMode: NoteTargetMode = 'self',
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => {
     if (!content.trim()) return;
     const newNote: GeneralNote = {
       id: generateId(),
+      cariName: cariName?.trim() || undefined,
       content: content.trim(),
       photos: photos || [],
       createdAt: Date.now(),
@@ -951,10 +955,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Send hardware push notification directly to locked phones via OneSignal
     if (targetMode !== 'self') {
+      const notifTitle = newNote.cariName
+        ? `📋 ${newNote.cariName} - İş Emri (${newNote.createdByName})`
+        : `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`;
+
+      const notifMsg = newNote.cariName
+        ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
+        : newNote.content;
+
       // 1. Immediate arrival alert
       await OneSignalService.sendPushNotification({
-        title: `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`,
-        message: newNote.content,
+        title: notifTitle,
+        message: notifMsg,
         targetMode,
         targetUserIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
@@ -963,8 +975,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
       if (reminderActive && reminderDate) {
         await OneSignalService.sendPushNotification({
-          title: `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
-          message: newNote.content,
+          title: newNote.cariName ? `⏰ [${newNote.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
+          message: notifMsg,
           targetMode,
           targetUserIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
@@ -986,7 +998,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => {
     if (!content.trim()) return;
     const newNotes = allNotes.map((n) => {
@@ -997,6 +1010,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         return {
           ...n,
+          cariName: cariName !== undefined ? (cariName.trim() || undefined) : n.cariName,
           content: content.trim(),
           reminderActive,
           reminderDate: reminderActive ? reminderDate : undefined,

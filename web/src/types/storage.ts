@@ -25,6 +25,7 @@ export type NoteStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected
 
 export interface GeneralNote {
   id: string;
+  cariName?: string; // İlgili Cari Adı (Excel / POLATLAR2025)
   content: string;
   createdAt: number;
   createdBy?: string; // User ID who created this note

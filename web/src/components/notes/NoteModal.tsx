@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { GeneralNote, NoteTargetMode } from '../../types/storage';
-import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2, Building2, Search } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../utils/imageUtils';
+import { CariListModal } from '../common/CariListModal';
 
 interface NoteModalProps {
   isOpen: boolean;
@@ -18,7 +19,8 @@ interface NoteModalProps {
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => Promise<void>;
 }
 
@@ -32,6 +34,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const isAdmin = currentUser?.role === 'admin';
 
   const [content, setContent] = useState('');
+  const [cariName, setCariName] = useState('');
+  const [isCariModalOpen, setIsCariModalOpen] = useState(false);
   const [reminderActive, setReminderActive] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
@@ -48,6 +52,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   useEffect(() => {
     if (editingNote) {
       setContent(editingNote.content);
+      setCariName(editingNote.cariName || '');
       setReminderActive(editingNote.reminderActive);
       setPhotos(editingNote.photos || []);
 
@@ -84,6 +89,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       }
     } else {
       setContent('');
+      setCariName('');
       setReminderActive(false);
       setTargetMode(isAdmin ? 'all' : 'self');
       setSelectedUserIds([]);
@@ -186,12 +192,14 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         targetMode,
         targetMode === 'custom' ? selectedUserIds : [],
         targetMode === 'custom' ? targetUserNames : [],
-        photos
+        photos,
+        cariName.trim() || undefined
       );
 
       if (notifyWhatsapp && targetMode !== 'self') {
+        const cariPrefix = cariName.trim() ? `🏢 CARİ: ${cariName.trim()}\n\n` : '';
         WhatsappService.shareNote({
-          content: content.trim(),
+          content: `${cariPrefix}${content.trim()}`,
           senderName: currentUser?.name || currentUser?.username || 'Yetkili',
           targetUserName: targetMode === 'all' ? 'Tüm Personeller' : targetUserNames.join(', '),
         });
@@ -204,147 +212,213 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={editingNote ? 'İş Emrini Düzenle' : 'Yeni İş Emri & Hatırlatıcı'}
-    >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Target User / Visibility Selector for Admin */}
-        {isAdmin && (
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-3">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5 text-blue-500" />
-              <span>İş Emri Kiminle Paylaşılsın?</span>
-            </label>
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title={editingNote ? 'İş Emrini Düzenle' : 'Yeni İş Emri & Hatırlatıcı'}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Target User / Visibility Selector for Admin */}
+          {isAdmin && (
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-3">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-blue-500" />
+                <span>İş Emri Kiminle Paylaşılsın?</span>
+              </label>
 
-            {/* Target Mode Segment Buttons */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800">
-              <button
-                type="button"
-                onClick={() => setTargetMode('self')}
-                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
-                  targetMode === 'self'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                🔒 Sadece Kendim
-              </button>
+              {/* Target Mode Segment Buttons */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('self')}
+                  className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                    targetMode === 'self'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  🔒 Sadece Kendim
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setTargetMode('all')}
-                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
-                  targetMode === 'all'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                📢 Tüm Personel
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('all')}
+                  className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                    targetMode === 'all'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  📢 Tüm Personel
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setTargetMode('custom')}
-                className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
-                  targetMode === 'custom'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                👥 Kişi(leri) Seç
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('custom')}
+                  className={`py-2 px-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all text-center truncate ${
+                    targetMode === 'custom'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  👥 Kişi(leri) Seç
+                </button>
+              </div>
 
-            {/* Multi-User Selection List */}
-            {targetMode === 'custom' && (
-              <div className="pt-2 space-y-2 border-t border-slate-200/80 dark:border-slate-800 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">
-                    Paylaşılacak Kişileri Seçin ({selectedUserIds.length}/{otherUsers.length}):
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSelectAllUsers}
-                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Tümünü Seç
-                    </button>
-                    <span className="text-slate-300 dark:text-slate-700">•</span>
-                    <button
-                      type="button"
-                      onClick={handleClearUsers}
-                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                    >
-                      Temizle
-                    </button>
+              {/* Multi-User Selection List */}
+              {targetMode === 'custom' && (
+                <div className="pt-2 space-y-2 border-t border-slate-200/80 dark:border-slate-800 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      Paylaşılacak Kişileri Seçin ({selectedUserIds.length}/{otherUsers.length}):
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllUsers}
+                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Tümünü Seç
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                      <button
+                        type="button"
+                        onClick={handleClearUsers}
+                        className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      >
+                        Temizle
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* User Checkbox List */}
+                  <div className="max-h-44 overflow-y-auto space-y-1.5 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 scrollbar-thin">
+                    {otherUsers.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400">
+                        Henüz sistemde başka kayıtlı kullanıcı bulunmuyor.
+                      </div>
+                    ) : (
+                      otherUsers.map((u) => {
+                        const isSelected = selectedUserIds.includes(u.id);
+                        return (
+                          <div
+                            key={u.id}
+                            onClick={() => handleToggleUser(u.id)}
+                            className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all border ${
+                              isSelected
+                                ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800'
+                                : 'bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 border-transparent'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
+                                  isSelected
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                              </div>
+
+                              <div className="min-w-0">
+                                <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                  {u.name}
+                                </span>
+                                <span className="text-[10px] font-medium text-slate-400 block truncate">
+                                  @{u.username}
+                                </span>
+                              </div>
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-extrabold shrink-0">
+                              {u.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
+              )}
 
-                {/* User Checkbox List */}
-                <div className="max-h-44 overflow-y-auto space-y-1.5 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 scrollbar-thin">
-                  {otherUsers.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-slate-400">
-                      Henüz sistemde başka kayıtlı kullanıcı bulunmuyor.
-                    </div>
-                  ) : (
-                    otherUsers.map((u) => {
-                      const isSelected = selectedUserIds.includes(u.id);
-                      return (
-                        <div
-                          key={u.id}
-                          onClick={() => handleToggleUser(u.id)}
-                          className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all border ${
-                            isSelected
-                              ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800'
-                              : 'bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 border-transparent'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div
-                              className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
-                                isSelected
-                                  ? 'bg-blue-600 border-blue-600 text-white'
-                                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                              }`}
-                            >
-                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                            </div>
+              <span className="text-[11px] text-slate-400 block">
+                {targetMode === 'self'
+                  ? 'Bu iş emrini sadece siz görebilirsiniz.'
+                  : targetMode === 'all'
+                  ? 'Bu iş emri tüm saha ekibine ve yöneticilere açık duyuru olacaktır.'
+                  : selectedUserIds.length > 0
+                  ? `Bu iş emri yalnızca seçtiğiniz ${selectedUserIds.length} personele özel olarak iletilecektir.`
+                  : 'Lütfen listeden en az bir kullanıcı seçin.'}
+              </span>
+            </div>
+          )}
 
-                            <div className="min-w-0">
-                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                {u.name}
-                              </span>
-                              <span className="text-[10px] font-medium text-slate-400 block truncate">
-                                @{u.username}
-                              </span>
-                            </div>
-                          </div>
+        {/* Cari Selection (Optional) */}
+        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-blue-500" />
+              <span>İlgili Cari / Müşteri (İsteğe Bağlı)</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsCariModalOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors cursor-pointer shadow-xs"
+            >
+              <Search className="w-3 h-3" />
+              <span>Cari Listesinde Ara</span>
+            </button>
+          </div>
 
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-extrabold shrink-0">
-                            {u.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
+          {cariName ? (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <div className="min-w-0">
+                  <span className="text-[10px] font-bold text-blue-500 block uppercase tracking-wider">
+                    Seçilen Cari
+                  </span>
+                  <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white truncate block">
+                    {cariName}
+                  </span>
                 </div>
               </div>
-            )}
-
-            <span className="text-[11px] text-slate-400 block">
-              {targetMode === 'self'
-                ? 'Bu iş emrini sadece siz görebilirsiniz.'
-                : targetMode === 'all'
-                ? 'Bu iş emri tüm saha ekibine ve yöneticilere açık duyuru olacaktır.'
-                : selectedUserIds.length > 0
-                ? `Bu iş emri yalnızca seçtiğiniz ${selectedUserIds.length} personele özel olarak iletilecektir.`
-                : 'Lütfen listeden en az bir kullanıcı seçin.'}
-            </span>
-          </div>
-        )}
+              <div className="flex items-center gap-1 shrink-0 ml-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCariModalOpen(true)}
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Değiştir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCariName('')}
+                  className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 hover:text-red-600 transition-colors"
+                  title="Cariyi Kaldır"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <input
+                type="text"
+                list="cari-names-list"
+                value={cariName}
+                onChange={(e) => setCariName(e.target.value)}
+                placeholder="Cari adı yazın veya 'Cari Listesinde Ara' butonuna basın..."
+                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium"
+              />
+              <span className="block text-[11px] text-slate-400 mt-1">
+                💡 İsteğe bağlıdır. Cari seçilmezse boş geçilir.
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Textarea */}
         <div>
@@ -527,5 +601,15 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         </div>
       </form>
     </Modal>
+
+    <CariListModal
+      isOpen={isCariModalOpen}
+      onClose={() => setIsCariModalOpen(false)}
+      onSelectCari={(selected) => {
+        setCariName(selected);
+        setIsCariModalOpen(false);
+      }}
+    />
+  </>
   );
 };

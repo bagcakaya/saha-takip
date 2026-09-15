@@ -120,6 +120,7 @@ export const NotesView: React.FC = () => {
       const allTargetNames = (n.targetUserNames || []).join(' ');
       const matchesSearch =
         n.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (n.cariName && n.cariName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         allTargetNames.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (n.targetUserName && n.targetUserName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (n.createdByName && n.createdByName.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -173,7 +174,8 @@ export const NotesView: React.FC = () => {
     targetMode?: NoteTargetMode,
     targetUserIds?: string[],
     targetUserNames?: string[],
-    photos?: string[]
+    photos?: string[],
+    cariName?: string
   ) => {
     if (editingNote) {
       await updateNote(
@@ -184,7 +186,8 @@ export const NotesView: React.FC = () => {
         targetMode,
         targetUserIds,
         targetUserNames,
-        photos
+        photos,
+        cariName
       );
     } else {
       await addNote(
@@ -194,7 +197,8 @@ export const NotesView: React.FC = () => {
         targetMode,
         targetUserIds,
         targetUserNames,
-        photos
+        photos,
+        cariName
       );
     }
   };

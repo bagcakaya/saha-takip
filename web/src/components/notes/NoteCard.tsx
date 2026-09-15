@@ -15,6 +15,7 @@ import {
   Check,
   X,
   RotateCcw,
+  Building2,
 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -115,6 +116,21 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
           : 'bg-white dark:bg-slate-800'
       } ${cardBorderClass()}`}
     >
+      {/* Cari Banner at the very top */}
+      {note.cariName && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xs">
+          <Building2 className="w-4 h-4 text-blue-200 shrink-0" />
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md">
+              Cari
+            </span>
+            <span className="text-xs sm:text-sm font-black truncate">
+              {note.cariName}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header & Badges */}
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1.5 flex-1">
