@@ -1,7 +1,9 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, CariData } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
+import * as XLSX from 'xlsx';
+import defaultCarilerData from '../data/cariler.json';
 
 const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
@@ -11,6 +13,7 @@ const SERVICES_KEY = '@gorev_tamamlama_services';
 const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
 const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
+const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -773,6 +776,113 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves Cari list data (cached locally, static json fallback, or fresh fetch)
+   */
+  async getCarilerData(): Promise<CariData> {
+    const fallback: CariData = {
+      updatedAt: (defaultCarilerData as any).updatedAt || new Date().toISOString(),
+      database: (defaultCarilerData as any).database || 'POLATLAR2025',
+      total: (defaultCarilerData as any).total || ((defaultCarilerData as any).cariler || []).length,
+      cariler: (defaultCarilerData as any).cariler || [],
+    };
+
+    try {
+      const cached = await loadItem<CariData>(CARILER_DATA_KEY);
+      if (cached?.cariler && cached.cariler.length > 0) {
+        if (!fallback.updatedAt || new Date(cached.updatedAt) >= new Date(fallback.updatedAt)) {
+          return cached;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Non-blocking background fetch check from public /cariler.json
+    if (typeof window !== 'undefined') {
+      fetch(`/cariler.json?t=${Date.now()}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((fresh) => {
+          if (fresh?.cariler && Array.isArray(fresh.cariler) && fresh.cariler.length > 0) {
+            saveItem(CARILER_DATA_KEY, fresh);
+          }
+        })
+        .catch(() => {});
+    }
+
+    return fallback;
+  },
+
+  /**
+   * Saves updated Cari data to local cache
+   */
+  async saveCarilerData(data: CariData): Promise<void> {
+    await saveItem(CARILER_DATA_KEY, data);
+  },
+
+  /**
+   * Parses an uploaded Excel (.xlsx) file and extracts Cari names
+   */
+  async importCarilerFromExcel(file: File): Promise<CariData> {
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    const rows = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1 });
+    let cariColIndex = 0;
+    let startRow = 0;
+
+    if (rows.length > 0) {
+      const headerRow = rows[0] as any[];
+      if (Array.isArray(headerRow)) {
+        const foundIdx = headerRow.findIndex(
+          (val) => typeof val === 'string' && /cari|firma|müsteri|müşteri/i.test(val)
+        );
+        if (foundIdx !== -1) {
+          cariColIndex = foundIdx;
+          startRow = 1;
+        } else if (typeof headerRow[0] === 'string' && /ad|isim/i.test(headerRow[0])) {
+          startRow = 1;
+        }
+      }
+    }
+
+    const set = new Set<string>();
+    for (let i = startRow; i < rows.length; i++) {
+      const row = rows[i] as any[];
+      if (Array.isArray(row) && row[cariColIndex] !== undefined && row[cariColIndex] !== null) {
+        const val = String(row[cariColIndex]).trim();
+        if (val.length > 0 && !/^(cari|cari adı|sıra no|no)$/i.test(val)) {
+          set.add(val);
+        }
+      }
+    }
+
+    const sortedCariler = Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+    const result: CariData = {
+      updatedAt: new Date().toISOString(),
+      database: 'Excel Yüklemesi',
+      total: sortedCariler.length,
+      cariler: sortedCariler,
+    };
+
+    await saveItem(CARILER_DATA_KEY, result);
+    return result;
+  },
+
+  /**
+   * Exports the list of Cariler to an Excel (.xlsx) file download
+   */
+  exportCarilerToExcel(cariler: string[], fileName = 'Cariler.xlsx'): void {
+    const data = [['Cari Adı'], ...cariler.map((c) => [c])];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 45 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cariler');
+    XLSX.writeFile(wb, fileName);
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -782,6 +892,7 @@ export const StorageService = {
     const workplaceLocation = (await this.getWorkplaceLocation()) || undefined;
     const attendanceRecords = await this.getAttendanceRecords();
     const adminReminders = await this.getAdminReminders();
+    const cariData = await this.getCarilerData();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -791,6 +902,7 @@ export const StorageService = {
       workplaceLocation,
       attendanceRecords,
       adminReminders,
+      cariler: cariData.cariler,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -819,6 +931,14 @@ export const StorageService = {
     }
     if (backupData.adminReminders && Array.isArray(backupData.adminReminders)) {
       await this.saveAdminReminders(backupData.adminReminders);
+    }
+    if (backupData.cariler && Array.isArray(backupData.cariler)) {
+      await this.saveCarilerData({
+        updatedAt: new Date().toISOString(),
+        database: 'Yedekten Geri Yükleme',
+        total: backupData.cariler.length,
+        cariler: backupData.cariler,
+      });
     }
   },
 };

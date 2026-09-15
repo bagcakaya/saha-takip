@@ -24,6 +24,7 @@ import { WeatherService } from '../../services/weatherService';
 import { WeatherData } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
+import { CariListModal } from '../common/CariListModal';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -42,7 +43,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     allLocations,
     attendanceRecords,
     adminReminders,
+    cariler,
   } = useStorage();
+  const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
@@ -429,6 +432,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </div>
             </button>
 
+            {/* 5. Cari Listesi (POLATLAR2025 / Excel) */}
+            <button
+              type="button"
+              onClick={() => setIsCariListOpen(true)}
+              className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-150 cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <Building2 className="w-4 h-4 text-blue-500" />
+                <span>Cari Listesi</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60">
+                {cariler.length}
+              </span>
+            </button>
+
             {/* 4. Kullanıcı Yönetimi (Admin Only) */}
             {isAdmin && (
               <button
@@ -558,6 +576,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             );
           }
         }}
+      />
+
+      {/* Cari Listesi Modal */}
+      <CariListModal
+        isOpen={isCariListOpen}
+        onClose={() => setIsCariListOpen(false)}
       />
     </>
   );

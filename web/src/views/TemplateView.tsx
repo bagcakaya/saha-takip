@@ -2,6 +2,7 @@ import React from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { BackupSection } from '../components/templates/BackupSection';
+import { CariSection } from '../components/templates/CariSection';
 import { TemplateTaskList } from '../components/templates/TemplateTaskList';
 
 export const TemplateView: React.FC = () => {
@@ -44,9 +45,10 @@ export const TemplateView: React.FC = () => {
 
       {/* Desktop 2-Column Responsive Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column: Backup & Data Portability */}
+        {/* Left Column: Backup & Data Portability & Cari Database */}
         <div className="lg:col-span-5 space-y-5">
           <BackupSection />
+          <CariSection />
         </div>
 
         {/* Right Column: Standard Tasks List & Addition */}

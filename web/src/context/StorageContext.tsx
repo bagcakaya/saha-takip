@@ -99,6 +99,12 @@ interface StorageContextType {
   updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => Promise<void>;
   refreshAttendance: () => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
+  cariler: string[];
+  carilerUpdatedAt: string | null;
+  carilerTotal: number;
+  importCarilerFromExcelFile: (file: File) => Promise<number>;
+  exportCarilerToExcelFile: () => void;
+  refreshCariler: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -145,6 +151,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [adminReminders, setAdminReminders] = useState<AdminReminder[]>([]);
+  const [cariler, setCariler] = useState<string[]>([]);
+  const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
+  const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [activeToast, setActiveToast] = useState<{
     title: string;
@@ -157,7 +166,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -166,6 +175,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getWorkplaceLocation(),
           StorageService.getAttendanceRecords(),
           StorageService.getAdminReminders(),
+          StorageService.getCarilerData(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -180,6 +190,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (wpLoc) setWorkplaceLocation(wpLoc);
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
+        setCariler(cariData.cariler);
+        setCarilerUpdatedAt(cariData.updatedAt);
+        setCarilerTotal(cariData.total);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -1653,6 +1666,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAttendanceRecords(recs);
   };
 
+  const importCarilerFromExcelFile = async (file: File): Promise<number> => {
+    const res = await StorageService.importCarilerFromExcel(file);
+    setCariler(res.cariler);
+    setCarilerUpdatedAt(res.updatedAt);
+    setCarilerTotal(res.total);
+    return res.total;
+  };
+
+  const exportCarilerToExcelFile = () => {
+    StorageService.exportCarilerToExcel(cariler);
+  };
+
+  const refreshCariler = async () => {
+    const res = await StorageService.getCarilerData();
+    setCariler(res.cariler);
+    setCarilerUpdatedAt(res.updatedAt);
+    setCarilerTotal(res.total);
+  };
+
   return (
     <StorageContext.Provider
       value={{
@@ -1667,6 +1699,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         workplaceLocation,
         attendanceRecords,
         adminReminders,
+        cariler,
+        carilerUpdatedAt,
+        carilerTotal,
+        importCarilerFromExcelFile,
+        exportCarilerToExcelFile,
+        refreshCariler,
         isLoading,
         activeToast,
         dismissToast,

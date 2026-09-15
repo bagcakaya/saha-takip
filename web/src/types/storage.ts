@@ -148,5 +148,13 @@ export interface BackupData {
   workplaceLocation?: WorkplaceLocation;
   attendanceRecords?: AttendanceRecord[];
   adminReminders?: AdminReminder[];
+  cariler?: string[];
+}
+
+export interface CariData {
+  updatedAt: string;
+  database?: string;
+  total: number;
+  cariler: string[];
 }
 

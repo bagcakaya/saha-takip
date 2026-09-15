@@ -61,6 +61,7 @@ const MainApp: React.FC = () => {
     updateLocationDetails,
     addPhotoToLocation,
     deletePhotoFromLocation,
+    cariler,
   } = useStorage();
 
   // Selected location for right summary panel preview / detail modal
@@ -359,6 +360,13 @@ const MainApp: React.FC = () => {
           dismissToast();
         }}
       />
+
+      {/* Global Datalist for Cari Autocomplete across all forms */}
+      <datalist id="cari-names-list">
+        {cariler.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </div>
   );
 };
