@@ -30,8 +30,8 @@ export default async function handler(req, res) {
 
     payload.app_id = ONESIGNAL_APP_ID;
 
-    const targetUrl = payload.url || payload.web_url || 'https://saha-takip-beige.vercel.app';
-    payload.url = targetUrl;
+    const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
+    delete payload.url;
     payload.web_url = targetUrl;
     payload.app_url = targetUrl;
 
@@ -63,6 +63,11 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
+    if (data && data.id) {
+      delete data.errors;
+      res.status(200).json(data);
+      return;
+    }
     res.status(response.status).json(data);
   } catch (error) {
     console.error('OneSignal serverless proxy error:', error);

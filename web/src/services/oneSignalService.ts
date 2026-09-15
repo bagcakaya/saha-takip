@@ -357,7 +357,6 @@ export const OneSignalService = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
-      url: targetUrl,
       web_url: targetUrl,
       app_url: targetUrl,
       data: {
@@ -452,9 +451,17 @@ export const OneSignalService = {
       });
       if (proxyRes.ok) {
         const data = await proxyRes.json();
-        if (data && data.errors && data.errors.length > 0) {
+        if (data?.id) {
+          return data;
+        }
+        if (data && data.errors && (Array.isArray(data.errors) ? data.errors.length > 0 : Object.keys(data.errors).length > 0)) {
+          const errMsg = Array.isArray(data.errors)
+            ? data.errors.join(', ')
+            : typeof data.errors === 'object'
+            ? Object.values(data.errors).flat().join(', ')
+            : String(data.errors);
           console.error('OneSignal API error from proxy:', data.errors);
-          throw new Error(data.errors.join(', '));
+          throw new Error(errMsg);
         }
         return data;
       }
@@ -473,9 +480,17 @@ export const OneSignalService = {
         body: JSON.stringify(payload),
       });
       const result = await response.json();
-      if (result && result.errors && result.errors.length > 0) {
+      if (result?.id) {
+        return result;
+      }
+      if (result && result.errors && (Array.isArray(result.errors) ? result.errors.length > 0 : Object.keys(result.errors).length > 0)) {
+        const errMsg = Array.isArray(result.errors)
+          ? result.errors.join(', ')
+          : typeof result.errors === 'object'
+          ? Object.values(result.errors).flat().join(', ')
+          : String(result.errors);
         console.error('OneSignal API returned error:', result.errors);
-        throw new Error(Array.isArray(result.errors) ? result.errors.join(', ') : JSON.stringify(result.errors));
+        throw new Error(errMsg);
       }
       return result;
     } catch (e) {
