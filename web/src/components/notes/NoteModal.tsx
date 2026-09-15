@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { GeneralNote, NoteTargetMode } from '../../types/storage';
-import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2, Building2, Search } from 'lucide-react';
+import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2, Building2 } from 'lucide-react';
 import { NotificationService } from '../../services/notificationService';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../utils/imageUtils';
-import { CariListModal } from '../common/CariListModal';
+import { CariSelect } from '../common/CariSelect';
 
 interface NoteModalProps {
   isOpen: boolean;
@@ -35,7 +35,6 @@ export const NoteModal: React.FC<NoteModalProps> = ({
 
   const [content, setContent] = useState('');
   const [cariName, setCariName] = useState('');
-  const [isCariModalOpen, setIsCariModalOpen] = useState(false);
   const [reminderActive, setReminderActive] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
@@ -212,12 +211,11 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   };
 
   return (
-    <>
-      <Modal
-        isOpen={isOpen}
-        onClose={onClose}
-        title={editingNote ? 'İş Emrini Düzenle' : 'Yeni İş Emri & Hatırlatıcı'}
-      >
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={editingNote ? 'İş Emrini Düzenle' : 'Yeni İş Emri & Hatırlatıcı'}
+    >
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Target User / Visibility Selector for Admin */}
           {isAdmin && (
@@ -355,69 +353,22 @@ export const NoteModal: React.FC<NoteModalProps> = ({
             </div>
           )}
 
-        {/* Cari Selection (Optional) */}
+        {/* Cari Selection (Optional) with Integrated Search in Dropdown */}
         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-blue-500" />
-              <span>İlgili Cari / Müşteri (İsteğe Bağlı)</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => setIsCariModalOpen(true)}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors cursor-pointer shadow-xs"
-            >
-              <Search className="w-3 h-3" />
-              <span>Cari Listesinde Ara</span>
-            </button>
-          </div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Building2 className="w-3.5 h-3.5 text-blue-500" />
+            <span>İlgili Cari / Müşteri (İsteğe Bağlı)</span>
+          </label>
 
-          {cariName ? (
-            <div className="flex items-center justify-between p-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
-              <div className="flex items-center gap-2 min-w-0">
-                <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <div className="min-w-0">
-                  <span className="text-[10px] font-bold text-blue-500 block uppercase tracking-wider">
-                    Seçilen Cari
-                  </span>
-                  <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white truncate block">
-                    {cariName}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 shrink-0 ml-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCariModalOpen(true)}
-                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Değiştir
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCariName('')}
-                  className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 hover:text-red-600 transition-colors"
-                  title="Cariyi Kaldır"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <input
-                type="text"
-                list="cari-names-list"
-                value={cariName}
-                onChange={(e) => setCariName(e.target.value)}
-                placeholder="Cari adı yazın veya 'Cari Listesinde Ara' butonuna basın..."
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium"
-              />
-              <span className="block text-[11px] text-slate-400 mt-1">
-                💡 İsteğe bağlıdır. Cari seçilmezse boş geçilir.
-              </span>
-            </div>
-          )}
+          <CariSelect
+            value={cariName}
+            onChange={(val) => setCariName(val)}
+            placeholder="Açılan listeden cari seçin veya arayın..."
+          />
+
+          <span className="block text-[11px] text-slate-400">
+            💡 İsteğe bağlıdır. Cari seçilmezse boş geçilir; seçilirse personele en üstte gösterilir.
+          </span>
         </div>
 
         {/* Textarea */}
@@ -601,15 +552,5 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         </div>
       </form>
     </Modal>
-
-    <CariListModal
-      isOpen={isCariModalOpen}
-      onClose={() => setIsCariModalOpen(false)}
-      onSelectCari={(selected) => {
-        setCariName(selected);
-        setIsCariModalOpen(false);
-      }}
-    />
-  </>
   );
 };
