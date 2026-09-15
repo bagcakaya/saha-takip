@@ -117,7 +117,11 @@ export interface WorkplaceLocation {
   updatedByName?: string;
 }
 
-export type AttendanceStatus = 'checked_in' | 'completed';
+export type AttendanceStatus =
+  | 'checked_in'
+  | 'completed'
+  | 'pending_checkin_approval'
+  | 'pending_checkout_approval';
 
 export interface AttendanceRecord {
   id: string;
@@ -130,13 +134,24 @@ export interface AttendanceRecord {
   checkInLon?: number;
   checkInAddress?: string;
   checkInDistance?: number; // distance in meters from workplace
+  checkInOutside?: boolean;
+  checkInApprovalStatus?: 'pending' | 'approved' | 'rejected';
+  checkInApprovedBy?: string;
+  checkInApprovedAt?: number;
+  
   checkOutTime?: number; // timestamp
   checkOutLat?: number;
   checkOutLon?: number;
   checkOutAddress?: string;
   checkOutDistance?: number; // distance in meters from workplace
+  checkOutOutside?: boolean;
+  checkOutApprovalStatus?: 'pending' | 'approved' | 'rejected';
+  checkOutApprovedBy?: string;
+  checkOutApprovedAt?: number;
+
   status: AttendanceStatus;
   workDurationMinutes?: number;
+  approvalNote?: string;
   notes?: string;
 }
 

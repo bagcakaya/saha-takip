@@ -9,7 +9,7 @@ echo.
 echo SQL Server'dan (POLATLAR2025) Cari listesi cekiliyor...
 echo.
 
-cd /d "%~dp0"
+cd /d "C:\Users\Mert\Desktop\Görev Tamamlama"
 
 where python >nul 2>nul
 if %errorlevel% equ 0 (
@@ -24,7 +24,7 @@ if %errorlevel% neq 0 (
 ) else (
     echo.
     echo [BASARILI] Excel dosyaniz web klasorunde guncellendi:
-    echo            web\Cariler.xlsx
+    echo            C:\Users\Mert\Desktop\Görev Tamamlama\web\Cariler.xlsx
     echo            Uygulamaya yeni Cari isimleri yuklendi.
 )
 

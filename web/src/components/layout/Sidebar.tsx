@@ -122,6 +122,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     return attendanceRecords.filter((r) => r.date === todayStr && r.status === 'checked_in').length;
   }, [attendanceRecords, todayStr]);
 
+  const pendingStaffApprovalCount = React.useMemo(() => {
+    if (user?.role !== 'admin') return 0;
+    return attendanceRecords.filter(
+      (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
+    ).length;
+  }, [attendanceRecords, user]);
+
   const badgeCount = React.useMemo(() => {
     if (!user) return 0;
     let count = 0;
@@ -341,18 +348,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 <UserCheck className="w-4 h-4" />
                 <span>Personel Takibi</span>
               </div>
-              {activeStaffCount > 0 ? (
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                    activeTab === 'staff_tracking'
-                      ? 'bg-white/20 text-white'
-                      : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {activeStaffCount} Aktif
-                </span>
-              ) : null}
+              <div className="flex items-center gap-1.5">
+                {pendingStaffApprovalCount > 0 && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                      activeTab === 'staff_tracking'
+                        ? 'bg-amber-300 text-amber-950 font-black'
+                        : 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse'
+                    }`}
+                    title={`${pendingStaffApprovalCount} onay bekleyen talep`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                    {pendingStaffApprovalCount} Onay
+                  </span>
+                )}
+                {activeStaffCount > 0 && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                      activeTab === 'staff_tracking'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    {activeStaffCount} Aktif
+                  </span>
+                )}
+              </div>
             </button>
 
             {/* 5. Hatırlatmalar (Yönetici Talimatları) */}

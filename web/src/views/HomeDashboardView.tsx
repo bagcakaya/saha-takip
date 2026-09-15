@@ -75,6 +75,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const activeStaffCount = attendanceRecords.filter(
     (r) => r.date === todayKey && r.status === 'checked_in'
   ).length;
+  const pendingStaffApprovalCount = isAdmin
+    ? attendanceRecords.filter(
+        (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
+      ).length
+    : 0;
   const unreadRemindersCount = adminReminders.filter(
     (r) => !r.readBy || !r.readBy.includes(user?.id || '')
   ).length;
@@ -265,16 +270,24 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
               <UserCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs flex items-center gap-1">
-              {activeStaffCount > 0 ? (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
-                  {activeStaffCount} Mesaide
-                </>
-              ) : (
-                'Takip'
+            <div className="flex items-center gap-1.5">
+              {pendingStaffApprovalCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-amber-400 text-amber-950 border border-amber-300 shadow-md flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-ping" />
+                  {pendingStaffApprovalCount} Onay
+                </span>
               )}
-            </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs flex items-center gap-1">
+                {activeStaffCount > 0 ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
+                    {activeStaffCount} Mesaide
+                  </>
+                ) : (
+                  'Takip'
+                )}
+              </span>
+            </div>
           </div>
 
           {/* Bottom Content */}
@@ -284,7 +297,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
             </h4>
             <p className="text-[10px] sm:text-xs text-emerald-100/90 font-medium line-clamp-2 leading-relaxed">
-              20 metre lokasyon doğrulamalı işe giriş ve çıkış denetimi
+              Lokasyon doğrulamalı ve yönetici onaylı işe giriş-çıkış denetimi
             </p>
           </div>
 

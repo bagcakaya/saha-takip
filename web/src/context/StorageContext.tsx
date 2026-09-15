@@ -95,8 +95,40 @@ interface StorageContextType {
     longitude: number,
     radiusMeters?: number
   ) => Promise<void>;
-  checkInStaff: () => Promise<{ success: boolean; message: string; distance?: number }>;
-  checkOutStaff: () => Promise<{ success: boolean; message: string; distance?: number }>;
+  checkInStaff: (options?: {
+    allowOutside?: boolean;
+    note?: string;
+  }) => Promise<{
+    success: boolean;
+    message: string;
+    distance?: number;
+    requiresConfirmation?: boolean;
+    confirmationType?: 'checkin' | 'checkout';
+    address?: string;
+    isPendingApproval?: boolean;
+  }>;
+  checkOutStaff: (options?: {
+    allowOutside?: boolean;
+    note?: string;
+  }) => Promise<{
+    success: boolean;
+    message: string;
+    distance?: number;
+    requiresConfirmation?: boolean;
+    confirmationType?: 'checkin' | 'checkout';
+    address?: string;
+    isPendingApproval?: boolean;
+  }>;
+  approveAttendance: (
+    recordId: string,
+    actionType: 'checkin' | 'checkout'
+  ) => Promise<{ success: boolean; message: string }>;
+  rejectAttendance: (
+    recordId: string,
+    actionType: 'checkin' | 'checkout',
+    reason?: string
+  ) => Promise<{ success: boolean; message: string }>;
+  cancelAttendanceRequest: (recordId: string) => Promise<{ success: boolean; message: string }>;
   deleteAttendanceRecord: (id: string) => Promise<void>;
   updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => Promise<void>;
   refreshAttendance: () => Promise<void>;
@@ -1487,8 +1519,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveWorkplaceLocation(loc);
   };
 
-  // Staff check-in (Must be within 20 meters of workplace)
-  const checkInStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
+  // Staff check-in (Within 20 meters of workplace = direct; Outside = requires manager confirmation & approval)
+  const checkInStaff = async (options?: {
+    allowOutside?: boolean;
+    note?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    distance?: number;
+    requiresConfirmation?: boolean;
+    confirmationType?: 'checkin' | 'checkout';
+    address?: string;
+    isPendingApproval?: boolean;
+  }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
     }
@@ -1520,21 +1563,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ? workplaceLocation.radiusMeters
       : 20;
 
-    // Rule: Must be within 20 meters (<= 20m)
-    if (distance > allowedRadius) {
-      return {
-        success: false,
-        distance,
-        message: `İş yerine olan mesafeniz: ${LocationService.formatDistance(distance)}. İşe giriş yapabilmek için iş yerinin ${allowedRadius} metre çapı içerisinde olmalısınız.`,
-      };
-    }
-
     const todayStr = new Date().toISOString().split('T')[0];
-    const existingIndex = attendanceRecords.findIndex(
-      (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
+    const existingRecord = attendanceRecords.find(
+      (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
     );
 
-    if (existingIndex !== -1) {
+    if (existingRecord) {
+      if (existingRecord.status === 'pending_checkin_approval') {
+        return {
+          success: false,
+          distance,
+          message: 'Bugün için zaten yönetici onayı bekleyen bir işe giriş talebiniz bulunmaktadır.',
+        };
+      }
       return {
         success: false,
         distance,
@@ -1542,6 +1583,59 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
+    // Check if outside allowed radius
+    if (distance > allowedRadius) {
+      // If user hasn't explicitly confirmed to send for approval yet
+      if (!options?.allowOutside) {
+        return {
+          success: false,
+          requiresConfirmation: true,
+          confirmationType: 'checkin',
+          distance,
+          address: userPos.address,
+          message: 'Konum dışında giriş yapıyorsunuz. Yönetici onayına gönderilsin mi?',
+        };
+      }
+
+      // User confirmed -> Create pending approval record
+      const newRecord: AttendanceRecord = {
+        id: generateId(),
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        date: todayStr,
+        checkInTime: Date.now(),
+        checkInLat: userPos.latitude,
+        checkInLon: userPos.longitude,
+        checkInAddress: userPos.address,
+        checkInDistance: distance,
+        checkInOutside: true,
+        checkInApprovalStatus: 'pending',
+        approvalNote: options.note,
+        status: 'pending_checkin_approval',
+      };
+
+      const updated = [newRecord, ...attendanceRecords];
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+
+      // CRITICAL: Push notification to admins
+      OneSignalService.sendPushNotification({
+        title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
+        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        targetMode: 'admin',
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+
+      return {
+        success: true,
+        isPendingApproval: true,
+        distance,
+        message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+      };
+    }
+
+    // Inside allowed radius (Normal on-site check-in)
     const newRecord: AttendanceRecord = {
       id: generateId(),
       userId: user.id,
@@ -1553,6 +1647,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       checkInLon: userPos.longitude,
       checkInAddress: userPos.address,
       checkInDistance: distance,
+      checkInOutside: false,
+      checkInApprovalStatus: 'approved',
       status: 'checked_in',
     };
 
@@ -1575,8 +1671,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
-  // Staff check-out (Must be outside 20 meters of workplace)
-  const checkOutStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
+  // Staff check-out (Within 20 meters = direct; Outside = requires manager confirmation & approval)
+  const checkOutStaff = async (options?: {
+    allowOutside?: boolean;
+    note?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    distance?: number;
+    requiresConfirmation?: boolean;
+    confirmationType?: 'checkin' | 'checkout';
+    address?: string;
+    isPendingApproval?: boolean;
+  }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
     }
@@ -1587,12 +1694,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
-    // Find user's active check-in record
+    // Find user's active check-in or pending checkout record
     const recordIndex = attendanceRecords.findIndex(
-      (r) => r.userId === user.id && r.status === 'checked_in'
+      (r) => r.userId === user.id && (r.status === 'checked_in' || r.status === 'pending_checkout_approval')
     );
 
     if (recordIndex === -1) {
+      const hasPendingCheckin = attendanceRecords.some(
+        (r) => r.userId === user.id && r.status === 'pending_checkin_approval'
+      );
+      if (hasPendingCheckin) {
+        return {
+          success: false,
+          message: 'İşe giriş onay talebiniz henüz yönetici tarafından onaylanmamış.',
+        };
+      }
       return {
         success: false,
         message: 'Aktif bir işe giriş kaydınız bulunmuyor. Önce işe giriş yapmalısınız.',
@@ -1600,6 +1716,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const record = attendanceRecords[recordIndex];
+
+    if (record.status === 'pending_checkout_approval') {
+      return {
+        success: false,
+        message: 'İşten çıkışınız için zaten yönetici onayı bekleniyor.',
+      };
+    }
 
     let userPos;
     try {
@@ -1622,21 +1745,62 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ? workplaceLocation.radiusMeters
       : 20;
 
-    // Rule: Must be outside 20 meters (> 20m)
-    if (distance <= allowedRadius) {
-      return {
-        success: false,
-        distance,
-        message: `Hala iş yerinin ${allowedRadius} metre çapı içerisindesiniz (${LocationService.formatDistance(distance)}). İşten çıkış yapabilmek için iş yerinin ${allowedRadius} metre dışına çıkmış olmalısınız.`,
-      };
-    }
-
     const checkOutTime = Date.now();
     const durationMinutes = Math.max(1, Math.round((checkOutTime - record.checkInTime) / 60000));
     const hours = Math.floor(durationMinutes / 60);
     const mins = durationMinutes % 60;
     const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
 
+    // If outside 20m, require confirmation & approval
+    if (distance > allowedRadius) {
+      if (!options?.allowOutside) {
+        return {
+          success: false,
+          requiresConfirmation: true,
+          confirmationType: 'checkout',
+          distance,
+          address: userPos.address,
+          message: 'Konum dışında çıkış yapıyorsunuz. Yönetici onayına gönderilsin mi?',
+        };
+      }
+
+      // User confirmed -> Create pending checkout approval record
+      const updatedRecord: AttendanceRecord = {
+        ...record,
+        checkOutTime,
+        checkOutLat: userPos.latitude,
+        checkOutLon: userPos.longitude,
+        checkOutAddress: userPos.address,
+        checkOutDistance: distance,
+        checkOutOutside: true,
+        checkOutApprovalStatus: 'pending',
+        approvalNote: options.note || record.approvalNote,
+        status: 'pending_checkout_approval',
+        workDurationMinutes: durationMinutes,
+      };
+
+      const updatedRecords = [...attendanceRecords];
+      updatedRecords[recordIndex] = updatedRecord;
+      setAttendanceRecords(updatedRecords);
+      await StorageService.saveAttendanceRecords(updatedRecords);
+
+      // CRITICAL: Push notification to admins
+      OneSignalService.sendPushNotification({
+        title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
+        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        targetMode: 'admin',
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+
+      return {
+        success: true,
+        isPendingApproval: true,
+        distance,
+        message: 'Konum dışı çıkış onay talebiniz yöneticiye iletildi.',
+      };
+    }
+
+    // Inside allowed radius (Normal on-site check-out)
     const updatedRecord: AttendanceRecord = {
       ...record,
       checkOutTime,
@@ -1644,6 +1808,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       checkOutLon: userPos.longitude,
       checkOutAddress: userPos.address,
       checkOutDistance: distance,
+      checkOutOutside: false,
+      checkOutApprovalStatus: 'approved',
       status: 'completed',
       workDurationMinutes: durationMinutes,
     };
@@ -1667,6 +1833,163 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       distance,
       message: `İşten çıkışınız onaylandı! Toplam mesai süreniz: ${durationText}.`,
     };
+  };
+
+  const approveAttendance = async (
+    recordId: string,
+    actionType: 'checkin' | 'checkout'
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user || user.role !== 'admin') {
+      return { success: false, message: 'Bu işlemi yapmaya sadece yöneticiler yetkilidir.' };
+    }
+    const idx = attendanceRecords.findIndex((r) => r.id === recordId);
+    if (idx === -1) {
+      return { success: false, message: 'İlgili katılım kaydı bulunamadı.' };
+    }
+    const record = attendanceRecords[idx];
+    let updatedRecord: AttendanceRecord;
+
+    if (actionType === 'checkin') {
+      updatedRecord = {
+        ...record,
+        status: 'checked_in',
+        checkInApprovalStatus: 'approved',
+        checkInApprovedBy: user.name,
+        checkInApprovedAt: Date.now(),
+      };
+
+      OneSignalService.sendPushNotification({
+        title: '✅ İşe Girişiniz Onaylandı',
+        message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onayladı. İyi çalışmalar!`,
+        targetMode: 'custom',
+        targetUserIds: [record.userId],
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+    } else {
+      const now = Date.now();
+      const checkoutTime = record.checkOutTime || now;
+      const durationMinutes = Math.max(1, Math.round((checkoutTime - record.checkInTime) / 60000));
+      const hours = Math.floor(durationMinutes / 60);
+      const mins = durationMinutes % 60;
+      const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
+
+      updatedRecord = {
+        ...record,
+        status: 'completed',
+        checkOutTime: checkoutTime,
+        checkOutApprovalStatus: 'approved',
+        checkOutApprovedBy: user.name,
+        checkOutApprovedAt: now,
+        workDurationMinutes: durationMinutes,
+      };
+
+      OneSignalService.sendPushNotification({
+        title: '✅ İşten Çıkışınız Onaylandı',
+        message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onayladı. (Toplam Mesai: ${durationText})`,
+        targetMode: 'custom',
+        targetUserIds: [record.userId],
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+    }
+
+    const updated = [...attendanceRecords];
+    updated[idx] = updatedRecord;
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+    return { success: true, message: 'Talep başarıyla onaylandı.' };
+  };
+
+  const rejectAttendance = async (
+    recordId: string,
+    actionType: 'checkin' | 'checkout',
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user || user.role !== 'admin') {
+      return { success: false, message: 'Bu işlemi yapmaya sadece yöneticiler yetkilidir.' };
+    }
+    const idx = attendanceRecords.findIndex((r) => r.id === recordId);
+    if (idx === -1) {
+      return { success: false, message: 'İlgili katılım kaydı bulunamadı.' };
+    }
+    const record = attendanceRecords[idx];
+
+    if (actionType === 'checkin') {
+      const updated = attendanceRecords.filter((r) => r.id !== recordId);
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+
+      OneSignalService.sendPushNotification({
+        title: '❌ İşe Giriş Talebiniz Reddedildi',
+        message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
+        targetMode: 'custom',
+        targetUserIds: [record.userId],
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+    } else {
+      const updatedRecord: AttendanceRecord = {
+        ...record,
+        status: 'checked_in',
+        checkOutTime: undefined,
+        checkOutLat: undefined,
+        checkOutLon: undefined,
+        checkOutAddress: undefined,
+        checkOutDistance: undefined,
+        checkOutOutside: undefined,
+        checkOutApprovalStatus: 'rejected',
+        workDurationMinutes: undefined,
+      };
+      const updated = [...attendanceRecords];
+      updated[idx] = updatedRecord;
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+
+      OneSignalService.sendPushNotification({
+        title: '❌ İşten Çıkış Talebiniz Reddedildi',
+        message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
+        targetMode: 'custom',
+        targetUserIds: [record.userId],
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch(() => {});
+    }
+
+    return { success: true, message: 'Talep reddedildi.' };
+  };
+
+  const cancelAttendanceRequest = async (
+    recordId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user) return { success: false, message: 'Kullanıcı bulunamadı.' };
+    const idx = attendanceRecords.findIndex((r) => r.id === recordId && r.userId === user.id);
+    if (idx === -1) {
+      return { success: false, message: 'Talebiniz bulunamadı.' };
+    }
+    const record = attendanceRecords[idx];
+
+    if (record.status === 'pending_checkin_approval') {
+      const updated = attendanceRecords.filter((r) => r.id !== recordId);
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+      return { success: true, message: 'Giriş onay talebiniz iptal edildi.' };
+    } else if (record.status === 'pending_checkout_approval') {
+      const updatedRecord: AttendanceRecord = {
+        ...record,
+        status: 'checked_in',
+        checkOutTime: undefined,
+        checkOutLat: undefined,
+        checkOutLon: undefined,
+        checkOutAddress: undefined,
+        checkOutDistance: undefined,
+        checkOutOutside: undefined,
+        checkOutApprovalStatus: undefined,
+        workDurationMinutes: undefined,
+      };
+      const updated = [...attendanceRecords];
+      updated[idx] = updatedRecord;
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+      return { success: true, message: 'Çıkış onay talebiniz iptal edildi.' };
+    }
+    return { success: false, message: 'İptal edilecek bekleyen talep bulunamadı.' };
   };
 
   const deleteAttendanceRecord = async (id: string) => {
@@ -1762,6 +2085,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateWorkplaceLocation,
         checkInStaff,
         checkOutStaff,
+        approveAttendance,
+        rejectAttendance,
+        cancelAttendanceRequest,
         deleteAttendanceRecord,
         updateAttendanceRecord,
         refreshAttendance,

@@ -13,6 +13,10 @@ import {
   Shield,
   History,
   Trash2,
+  AlertTriangle,
+  Send,
+  X,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useStorage } from '../context/StorageContext';
@@ -26,6 +30,9 @@ export const StaffTrackingView: React.FC = () => {
     updateWorkplaceLocation,
     checkInStaff,
     checkOutStaff,
+    approveAttendance,
+    rejectAttendance,
+    cancelAttendanceRequest,
     deleteAttendanceRecord,
     refreshAttendance,
   } = useStorage();
@@ -137,22 +144,50 @@ export const StaffTrackingView: React.FC = () => {
     }
   }, [workplaceLocation]);
 
-  // --- 3. Check-in / Check-out Actions ---
+  // --- 3. Check-in / Check-out Actions & Approval Flow ---
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error';
     text: string;
     distance?: number;
   } | null>(null);
 
-  const handleCheckIn = async () => {
+  // Confirmation modal state for out-of-location checkin/checkout
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'checkin' | 'checkout';
+    distance?: number;
+    address?: string;
+    note: string;
+  }>({
+    isOpen: false,
+    type: 'checkin',
+    note: '',
+  });
+
+  const handleCheckIn = async (allowOutside = false, customNote?: string) => {
     try {
       setIsProcessingAction(true);
       setActionFeedback(null);
-      const res = await checkInStaff();
+      const res = await checkInStaff({ allowOutside, note: customNote });
+
+      if (res.requiresConfirmation) {
+        setConfirmModal({
+          isOpen: true,
+          type: 'checkin',
+          distance: res.distance,
+          address: res.address,
+          note: '',
+        });
+        if (res.distance !== undefined) setCurrentDistance(res.distance);
+        return;
+      }
+
       if (res.success) {
         setActionFeedback({ type: 'success', text: res.message, distance: res.distance });
         if (res.distance !== undefined) setCurrentDistance(res.distance);
+        setConfirmModal((prev) => ({ ...prev, isOpen: false, note: '' }));
       } else {
         setActionFeedback({ type: 'error', text: res.message, distance: res.distance });
         if (res.distance !== undefined) setCurrentDistance(res.distance);
@@ -164,14 +199,28 @@ export const StaffTrackingView: React.FC = () => {
     }
   };
 
-  const handleCheckOut = async () => {
+  const handleCheckOut = async (allowOutside = false, customNote?: string) => {
     try {
       setIsProcessingAction(true);
       setActionFeedback(null);
-      const res = await checkOutStaff();
+      const res = await checkOutStaff({ allowOutside, note: customNote });
+
+      if (res.requiresConfirmation) {
+        setConfirmModal({
+          isOpen: true,
+          type: 'checkout',
+          distance: res.distance,
+          address: res.address,
+          note: '',
+        });
+        if (res.distance !== undefined) setCurrentDistance(res.distance);
+        return;
+      }
+
       if (res.success) {
         setActionFeedback({ type: 'success', text: res.message, distance: res.distance });
         if (res.distance !== undefined) setCurrentDistance(res.distance);
+        setConfirmModal((prev) => ({ ...prev, isOpen: false, note: '' }));
       } else {
         setActionFeedback({ type: 'error', text: res.message, distance: res.distance });
         if (res.distance !== undefined) setCurrentDistance(res.distance);
@@ -183,7 +232,62 @@ export const StaffTrackingView: React.FC = () => {
     }
   };
 
-  // --- 4. Today's Status for Current User ---
+  const handleConfirmSubmit = async () => {
+    if (confirmModal.type === 'checkin') {
+      await handleCheckIn(true, confirmModal.note);
+    } else {
+      await handleCheckOut(true, confirmModal.note);
+    }
+  };
+
+  const handleApprove = async (recordId: string, type: 'checkin' | 'checkout') => {
+    try {
+      setProcessingApprovalId(recordId);
+      const res = await approveAttendance(recordId, type);
+      if (res.success) {
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Onaylama sırasında hata oluştu.');
+    } finally {
+      setProcessingApprovalId(null);
+    }
+  };
+
+  const handleReject = async (recordId: string, type: 'checkin' | 'checkout') => {
+    const reason = window.prompt('Reddetme gerekçesi (İsteğe bağlı):');
+    if (reason === null) return; // User pressed Cancel
+    try {
+      setProcessingApprovalId(recordId);
+      const res = await rejectAttendance(recordId, type, reason);
+      if (res.success) {
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Reddetme sırasında hata oluştu.');
+    } finally {
+      setProcessingApprovalId(null);
+    }
+  };
+
+  const handleCancelMyRequest = async (recordId: string) => {
+    if (!window.confirm('Bekleyen onay talebinizi iptal etmek istediğinizden emin misiniz?')) return;
+    try {
+      setIsProcessingAction(true);
+      const res = await cancelAttendanceRequest(recordId);
+      setActionFeedback({ type: res.success ? 'success' : 'error', text: res.message });
+    } catch (e: any) {
+      setActionFeedback({ type: 'error', text: e?.message || 'İptal edilemedi.' });
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  // --- 4. Today's Status for Current User & Pending Approvals ---
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   // Most recent attendance record for current user today
@@ -196,6 +300,15 @@ export const StaffTrackingView: React.FC = () => {
 
   const isCheckedIn = currentUserTodayRecord?.status === 'checked_in';
   const isCompletedToday = currentUserTodayRecord?.status === 'completed';
+  const isPendingCheckIn = currentUserTodayRecord?.status === 'pending_checkin_approval';
+  const isPendingCheckOut = currentUserTodayRecord?.status === 'pending_checkout_approval';
+
+  // Admin: All pending approval requests
+  const pendingRequests = useMemo(() => {
+    return attendanceRecords.filter(
+      (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
+    );
+  }, [attendanceRecords]);
 
   // --- 5. Date Filter for Table (Admin & Staff) ---
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -273,6 +386,128 @@ export const StaffTrackingView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ --- */}
+      {isAdmin && pendingRequests.length > 0 && (
+        <div className="bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-orange-500/15 dark:from-amber-950/50 dark:via-slate-900 dark:to-orange-950/50 rounded-3xl p-5 sm:p-6 border-2 border-amber-400 dark:border-amber-600 shadow-xl shadow-amber-500/10 space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-amber-200 dark:border-amber-800/80 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3.5 w-3.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500"></span>
+              </span>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>Yönetici Onayı Bekleyen Personel Talepleri</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white shadow-sm">
+                    {pendingRequests.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-amber-800/90 dark:text-amber-300/90 font-medium">
+                  Personellerin konum dışından (iş yeri dışından) gönderdiği giriş/çıkış talepleri onayınızı bekliyor.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {pendingRequests.map((req) => {
+              const isCheckInReq = req.status === 'pending_checkin_approval';
+              const reqDistance = isCheckInReq ? req.checkInDistance : req.checkOutDistance;
+              const reqAddress = isCheckInReq ? req.checkInAddress : req.checkOutAddress;
+              const reqTime = isCheckInReq ? req.checkInTime : (req.checkOutTime || Date.now());
+              const reqLat = isCheckInReq ? req.checkInLat : req.checkOutLat;
+              const reqLon = isCheckInReq ? req.checkInLon : req.checkOutLon;
+
+              return (
+                <div
+                  key={req.id}
+                  className="p-4 rounded-2xl bg-white dark:bg-slate-800/95 border border-amber-200 dark:border-amber-800 shadow-md flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-black text-slate-900 dark:text-slate-100 text-sm sm:text-base">
+                          {req.userName}
+                        </span>
+                        {req.userRole && (
+                          <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                            {req.userRole}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={"px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider uppercase border " + (
+                          isCheckInReq
+                            ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                            : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800"
+                        )}
+                      >
+                        {isCheckInReq ? '🟢 Giriş Talebi' : '🔴 Çıkış Talebi'}
+                      </span>
+                    </div>
+
+                    {/* Mesafe ve Konum Bilgisi */}
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>İş Yerinden {reqDistance !== undefined ? LocationService.formatDistance(reqDistance) : 'Bilinmiyor'} Uzakta</span>
+                      </div>
+                      {reqAddress && (
+                        <div className="flex items-start gap-1.5 text-slate-600 dark:text-slate-400 text-[11px]">
+                          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
+                          <span className="line-clamp-2">{reqAddress}</span>
+                        </div>
+                      )}
+                      {req.approvalNote && (
+                        <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-[11px] text-amber-900 dark:text-amber-200">
+                          <strong>Personel Notu:</strong> "{req.approvalNote}"
+                        </div>
+                      )}
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
+                        Talep Saati: {new Date(reqTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} ({req.date})
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Onay / Ret Butonları */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                    {reqLat && reqLon && (
+                      <button
+                        type="button"
+                        onClick={() => LocationService.openInGoogleMaps(reqAddress || '', reqLat, reqLon)}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Haritada İncele"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>Harita</span>
+                      </button>
+                    )}
+                    <div className="flex-1" />
+                    <button
+                      type="button"
+                      disabled={processingApprovalId === req.id}
+                      onClick={() => handleReject(req.id, isCheckInReq ? 'checkin' : 'checkout')}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Reddet
+                    </button>
+                    <button
+                      type="button"
+                      disabled={processingApprovalId === req.id}
+                      onClick={() => handleApprove(req.id, isCheckInReq ? 'checkin' : 'checkout')}
+                      className="px-4 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {processingApprovalId === req.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                      <span>Onayla</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* --- SECTION 1: YÖNETİCİ LOKASYON BELİRLEME (Görsel-1 Tasarımı) --- */}
       {isAdmin && (
@@ -475,7 +710,17 @@ export const StaffTrackingView: React.FC = () => {
 
             {/* Durum Rozeti */}
             <div>
-              {isCheckedIn ? (
+              {isPendingCheckIn ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  Giriş Onayı Bekleniyor
+                </span>
+              ) : isPendingCheckOut ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  Çıkış Onayı Bekleniyor
+                </span>
+              ) : isCheckedIn ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   Mesaidesiniz ({activeDurationText || 'Hesaplanıyor'})
@@ -513,15 +758,62 @@ export const StaffTrackingView: React.FC = () => {
             </div>
           )}
 
+          {/* Personel Bekleyen Onay Banner'ı */}
+          {isPendingCheckIn && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-600 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-black text-xs sm:text-sm">
+                  <Clock className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+                  <span>İşe Girişiniz İçin Yönetici Onayı Bekleniyor</span>
+                </div>
+                {currentUserTodayRecord && (
+                  <button
+                    type="button"
+                    onClick={() => handleCancelMyRequest(currentUserTodayRecord.id)}
+                    className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 underline cursor-pointer"
+                  >
+                    Talebi İptal Et
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed font-medium">
+                Konum dışından yaptığınız işe giriş talebi yöneticilere iletildi. Yönetici onayladığında mesainiz aktifleşecektir.
+              </p>
+            </div>
+          )}
+
+          {isPendingCheckOut && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-600 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-black text-xs sm:text-sm">
+                  <Clock className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+                  <span>İşten Çıkışınız İçin Yönetici Onayı Bekleniyor</span>
+                </div>
+                {currentUserTodayRecord && (
+                  <button
+                    type="button"
+                    onClick={() => handleCancelMyRequest(currentUserTodayRecord.id)}
+                    className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 underline cursor-pointer"
+                  >
+                    Talebi İptal Et
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed font-medium">
+                Konum dışından yaptığınız çıkış talebi yöneticilere iletildi. Yönetici onayladığında mesainiz sonlanacaktır.
+              </p>
+            </div>
+          )}
+
           {/* Büyük Butonlar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Buton 1: İşe Geldim (Yeşil) */}
             <button
               type="button"
-              onClick={handleCheckIn}
-              disabled={isProcessingAction || isCheckedIn}
+              onClick={() => handleCheckIn(false)}
+              disabled={isProcessingAction || isCheckedIn || isPendingCheckIn || isPendingCheckOut}
               className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
-                isCheckedIn
+                isCheckedIn || isPendingCheckIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
                   : 'bg-gradient-to-br from-emerald-500 to-teal-700 hover:from-emerald-600 hover:to-teal-800 text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
               )}
@@ -535,7 +827,7 @@ export const StaffTrackingView: React.FC = () => {
                   )}
                 </div>
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-white/20">
-                  Giriş Yap
+                  {isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
                 </span>
               </div>
               <div>
@@ -543,7 +835,7 @@ export const StaffTrackingView: React.FC = () => {
                   🟢 İşe Geldim
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>{allowedRadius} metre çapı içerisindeyken</strong> basarak mesainizi başlatın.
+                  İş yerinde veya <strong>konum dışındaysanız yönetici onayıyla</strong> mesainizi başlatın.
                 </p>
               </div>
             </button>
@@ -551,10 +843,10 @@ export const StaffTrackingView: React.FC = () => {
             {/* Buton 2: İşten Çıkış Yaptım (Kırmızı) */}
             <button
               type="button"
-              onClick={handleCheckOut}
-              disabled={isProcessingAction || !isCheckedIn}
+              onClick={() => handleCheckOut(false)}
+              disabled={isProcessingAction || !isCheckedIn || isPendingCheckOut}
               className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
-                !isCheckedIn
+                !isCheckedIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
                   : 'bg-gradient-to-br from-rose-500 to-red-700 hover:from-rose-600 hover:to-red-800 text-white shadow-lg shadow-rose-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-pulse'
               )}
@@ -568,7 +860,7 @@ export const StaffTrackingView: React.FC = () => {
                   )}
                 </div>
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-white/20">
-                  Çıkış Yap
+                  {isPendingCheckOut ? 'Onay Bekliyor' : 'Çıkış Yap'}
                 </span>
               </div>
               <div>
@@ -576,7 +868,7 @@ export const StaffTrackingView: React.FC = () => {
                   🔴 İşten Çıkış Yaptım
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>{allowedRadius} metre dışına çıktığınızda</strong> basarak mesaiyi bitirin.
+                  İş yerinde veya <strong>konum dışındaysanız yönetici onayıyla</strong> mesaiyi bitirin.
                 </p>
               </div>
             </button>
@@ -603,7 +895,13 @@ export const StaffTrackingView: React.FC = () => {
                 </span>
                 <span className="font-black text-emerald-600 dark:text-emerald-400">
                   {currentUserTodayRecord.checkInDistance !== undefined
-                    ? `${currentUserTodayRecord.checkInDistance} m (${allowedRadius}m içi)`
+                    ? `${currentUserTodayRecord.checkInDistance} m ${
+                        currentUserTodayRecord.checkInOutside
+                          ? currentUserTodayRecord.checkInApprovalStatus === 'pending'
+                            ? '(Onay Bekliyor)'
+                            : '(Yönetici Onaylı)'
+                          : `(${allowedRadius}m içi)`
+                      }`
                     : `${allowedRadius}m içi`}
                 </span>
               </div>
@@ -617,7 +915,7 @@ export const StaffTrackingView: React.FC = () => {
                     ? new Date(currentUserTodayRecord.checkOutTime).toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
                         minute: '2-digit',
-                      })
+                      }) + (currentUserTodayRecord.status === 'pending_checkout_approval' ? ' (Onay Bekliyor)' : '')
                     : 'Devam ediyor'}
                 </span>
               </div>
@@ -760,7 +1058,17 @@ export const StaffTrackingView: React.FC = () => {
 
                       {/* Durum */}
                       <td className="py-3 px-3">
-                        {record.status === 'checked_in' ? (
+                        {record.status === 'pending_checkin_approval' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Giriş Onayı Bekliyor
+                          </span>
+                        ) : record.status === 'pending_checkout_approval' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Çıkış Onayı Bekliyor
+                          </span>
+                        ) : record.status === 'checked_in' ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                             Mesaide
@@ -782,11 +1090,22 @@ export const StaffTrackingView: React.FC = () => {
 
                       {/* Giriş Mesafesi */}
                       <td className="py-3 px-3">
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                          {record.checkInDistance !== undefined
-                            ? `${record.checkInDistance} m`
-                            : `≤ ${allowedRadius} m`}
-                        </span>
+                        {record.checkInDistance !== undefined ? (
+                          <div className="flex flex-col">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                              {LocationService.formatDistance(record.checkInDistance)}
+                            </span>
+                            {record.checkInOutside && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                {record.checkInApprovalStatus === 'pending'
+                                  ? '⏳ Onay Bekliyor'
+                                  : '✅ Yönetici Onaylı'}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">≤ {allowedRadius} m</span>
+                        )}
                       </td>
 
                       {/* Çıkış Saati */}
@@ -804,9 +1123,18 @@ export const StaffTrackingView: React.FC = () => {
                       {/* Çıkış Mesafesi */}
                       <td className="py-3 px-3">
                         {record.checkOutDistance !== undefined ? (
-                          <span className="text-rose-600 dark:text-rose-400 font-bold">
-                            {record.checkOutDistance} m (&gt;{allowedRadius}m)
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-rose-600 dark:text-rose-400 font-bold">
+                              {LocationService.formatDistance(record.checkOutDistance)}
+                            </span>
+                            {record.checkOutOutside && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                {record.checkOutApprovalStatus === 'pending'
+                                  ? '⏳ Onay Bekliyor'
+                                  : '✅ Yönetici Onaylı'}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-slate-400 italic font-normal">-</span>
                         )}
@@ -819,8 +1147,10 @@ export const StaffTrackingView: React.FC = () => {
                             {Math.floor(record.workDurationMinutes / 60)} sa{' '}
                             {record.workDurationMinutes % 60} dk
                           </span>
-                        ) : record.status === 'checked_in' ? (
+                        ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
                           <span className="text-emerald-600 font-semibold">Devam ediyor</span>
+                        ) : record.status === 'pending_checkin_approval' ? (
+                          <span className="text-amber-600 font-semibold text-xs">Onay Bekliyor</span>
                         ) : (
                           '-'
                         )}
@@ -829,18 +1159,62 @@ export const StaffTrackingView: React.FC = () => {
                       {/* İşlem (Admin Only) */}
                       {isAdmin && (
                         <td className="py-3 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
-                                deleteAttendanceRecord(record.id);
-                              }
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                            title="Kaydı Sil"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {record.status === 'pending_checkin_approval' && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={processingApprovalId === record.id}
+                                  onClick={() => handleApprove(record.id, 'checkin')}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                >
+                                  Onayla
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={processingApprovalId === record.id}
+                                  onClick={() => handleReject(record.id, 'checkin')}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                >
+                                  Reddet
+                                </button>
+                              </>
+                            )}
+
+                            {record.status === 'pending_checkout_approval' && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={processingApprovalId === record.id}
+                                  onClick={() => handleApprove(record.id, 'checkout')}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                >
+                                  Onayla
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={processingApprovalId === record.id}
+                                  onClick={() => handleReject(record.id, 'checkout')}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                >
+                                  Reddet
+                                </button>
+                              </>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
+                                  deleteAttendanceRecord(record.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="Kaydı Sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -851,6 +1225,102 @@ export const StaffTrackingView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-amber-300 dark:border-amber-800 space-y-5">
+            {/* Modal Başlık */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                    {confirmModal.type === 'checkin' ? 'Konum Dışı Giriş' : 'Konum Dışı Çıkış'}
+                  </h3>
+                  <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    İş Yeri Alanı Dışındasınız
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false, note: '' }))}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Kullanıcının İstediği Birebir İkaz Metni */}
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 space-y-2">
+              <p className="text-sm font-black text-amber-900 dark:text-amber-200 leading-snug">
+                {confirmModal.type === 'checkin'
+                  ? 'Konum dışında giriş yapıyorsunuz. Yönetici onayına gönderilsin mi?'
+                  : 'Konum dışında çıkış yapıyorsunuz. Yönetici onayına gönderilsin mi?'}
+              </p>
+              <div className="pt-2 border-t border-amber-200/70 dark:border-amber-900/60 space-y-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <MapPin className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                  <span>
+                    İş yerine olan mesafeniz: {confirmModal.distance !== undefined ? LocationService.formatDistance(confirmModal.distance) : 'Hesaplanıyor...'}
+                  </span>
+                </div>
+                {confirmModal.address && (
+                  <div className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 pl-5">
+                    {confirmModal.address}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* İsteğe Bağlı Açıklama Notu */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
+                <span>Yöneticiye Not / Açıklama (İsteğe bağlı):</span>
+              </label>
+              <textarea
+                value={confirmModal.note}
+                onChange={(e) => setConfirmModal((prev) => ({ ...prev, note: e.target.value }))}
+                placeholder={
+                  confirmModal.type === 'checkin'
+                    ? 'Örn: Doğrudan servise / başka kuruma geçtim...'
+                    : 'Örn: İş yerinden çıktım, çıkış yapmayı unuttuğum için şu an yapıyorum...'
+                }
+                rows={2}
+                className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all resize-none"
+              />
+            </div>
+
+            {/* Butonlar */}
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false, note: '' }))}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={isProcessingAction}
+                onClick={handleConfirmSubmit}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isProcessingAction ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>Yönetici Onayına Gönder</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
