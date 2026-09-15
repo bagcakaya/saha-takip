@@ -31,6 +31,10 @@ export const StaffTrackingView: React.FC = () => {
   } = useStorage();
 
   const isAdmin = user?.role === 'admin';
+  const allowedRadius =
+    workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10
+      ? workplaceLocation.radiusMeters
+      : 20;
 
   // --- 1. Admin Workplace Location State ---
   const [addressText, setAddressText] = useState(workplaceLocation?.address || '');
@@ -432,15 +436,15 @@ export const StaffTrackingView: React.FC = () => {
             {currentDistance !== null && (
               <div
                 className={"p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 " + (
-                  currentDistance <= 10
+                  currentDistance <= allowedRadius
                     ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
                     : "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
                 )}
               >
-                {currentDistance <= 10 ? (
+                {currentDistance <= allowedRadius ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>İş Yerindesiniz (10m Alanı İçindesiniz) ✅</span>
+                    <span>İş Yerindesiniz ({allowedRadius}m Alanı İçindesiniz) ✅</span>
                   </>
                 ) : (
                   <>
@@ -539,7 +543,7 @@ export const StaffTrackingView: React.FC = () => {
                   🟢 İşe Geldim
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>20 metre çapı içerisindeyken</strong> basarak mesainizi başlatın.
+                  İş yerinin <strong>{allowedRadius} metre çapı içerisindeyken</strong> basarak mesainizi başlatın.
                 </p>
               </div>
             </button>
@@ -572,7 +576,7 @@ export const StaffTrackingView: React.FC = () => {
                   🔴 İşten Çıkış Yaptım
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>20 metre dışına çıktığınızda</strong> basarak mesaiyi bitirin.
+                  İş yerinin <strong>{allowedRadius} metre dışına çıktığınızda</strong> basarak mesaiyi bitirin.
                 </p>
               </div>
             </button>
@@ -599,8 +603,8 @@ export const StaffTrackingView: React.FC = () => {
                 </span>
                 <span className="font-black text-emerald-600 dark:text-emerald-400">
                   {currentUserTodayRecord.checkInDistance !== undefined
-                    ? (currentUserTodayRecord.checkInDistance + ' m (10m içi)')
-                    : '10m içi'}
+                    ? `${currentUserTodayRecord.checkInDistance} m (${allowedRadius}m içi)`
+                    : `${allowedRadius}m içi`}
                 </span>
               </div>
 
@@ -780,8 +784,8 @@ export const StaffTrackingView: React.FC = () => {
                       <td className="py-3 px-3">
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                           {record.checkInDistance !== undefined
-                            ? (record.checkInDistance + ' m')
-                            : '≤ 10 m'}
+                            ? `${record.checkInDistance} m`
+                            : `≤ ${allowedRadius} m`}
                         </span>
                       </td>
 
@@ -801,7 +805,7 @@ export const StaffTrackingView: React.FC = () => {
                       <td className="py-3 px-3">
                         {record.checkOutDistance !== undefined ? (
                           <span className="text-rose-600 dark:text-rose-400 font-bold">
-                            {record.checkOutDistance} m (&gt;10m)
+                            {record.checkOutDistance} m (&gt;{allowedRadius}m)
                           </span>
                         ) : (
                           <span className="text-slate-400 italic font-normal">-</span>
