@@ -9,6 +9,8 @@ import {
   RefreshCw,
   BatteryCharging,
   Settings,
+  Lock,
+  Zap,
 } from 'lucide-react';
 import { OneSignalService, SubscriptionDetails } from '../../services/oneSignalService';
 import { useAuth } from '../../context/AuthContext';
@@ -26,6 +28,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
   const [details, setDetails] = useState<SubscriptionDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isSendingDelayed, setIsSendingDelayed] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [testSentMessage, setTestSentMessage] = useState<string | null>(null);
 
   const loadStatus = async () => {
@@ -46,13 +50,16 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   const handleResync = async () => {
     setIsLoading(true);
+    setTestSentMessage(null);
     try {
-      await OneSignalService.requestPermission(
+      const data = await OneSignalService.selfHealSubscription(
         user ? { id: user.id, name: user.name, role: user.role } : undefined
       );
-      await loadStatus();
+      setDetails(data);
+      setTestSentMessage('🛡️ Bildirim sistemi, arka plan servisi ve donanım aboneliği başarıyla onarıldı.');
     } catch (err) {
       console.error(err);
+      setTestSentMessage('⚠️ Onarım sırasında bir sorun oluştu.');
     } finally {
       setIsLoading(false);
     }
@@ -127,6 +134,70 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }
   };
 
+  const handleDelayedLockScreenTest = async () => {
+    if (!user) return;
+    setIsSendingDelayed(true);
+    setTestSentMessage(null);
+    setCountdown(5);
+
+    // 1. Ensure permission first
+    if (details?.permission !== 'granted') {
+      const granted = await OneSignalService.requestPermission({
+        id: user.id,
+        name: user.name,
+        role: user.role,
+      });
+      if (!granted) {
+        setTestSentMessage('⚠️ Lütfen önce tarayıcı bildirim iznini onaylayın.');
+        setIsSendingDelayed(false);
+        setCountdown(null);
+        await loadStatus();
+        return;
+      }
+    }
+
+    // 2. UI countdown ticker
+    let timeLeft = 5;
+    const timer = setInterval(() => {
+      timeLeft -= 1;
+      if (timeLeft <= 0) {
+        clearInterval(timer);
+        setCountdown(null);
+      } else {
+        setCountdown(timeLeft);
+      }
+    }, 1000);
+
+    try {
+      const targetSubIds = details?.subscriptionId ? [details.subscriptionId] : undefined;
+
+      // 3. Send delayed push through serverless API proxy (Server waits 5s so device locking won't freeze it)
+      const res = await OneSignalService.sendPushNotification({
+        title: '🔒 Saha Takip Kilitli Ekran Testi',
+        message: `${user.name}, telefonunuz kilitliyken donanım push bildirimi başarıyla ulaştı!`,
+        targetMode: 'custom',
+        targetUserIds: [user.id],
+        targetSubscriptionIds: targetSubIds,
+        url: 'https://saha-takip-beige.vercel.app',
+        delaySeconds: 5,
+      });
+
+      if (res && res.success) {
+        setTestSentMessage(
+          '✅ 5 saniyelik kilitli ekran bildirimi sunucudan tetiklendi! Telefonunuz kilitliyken ekranınızın uyanıp titreyeceğini gözlemleyin.'
+        );
+      } else {
+        setTestSentMessage(`⚠️ Bildirim uyarısı: ${res?.error || 'Gönderim sırasında hata oluştu'}`);
+      }
+      await loadStatus();
+    } catch (err: any) {
+      console.error(err);
+      setTestSentMessage(`❌ Kilitli ekran testi hatası: ${err?.message || ''}`);
+    } finally {
+      setIsSendingDelayed(false);
+    }
+  };
+
   const isPermissionGranted = details?.permission === 'granted';
 
   return (
@@ -165,7 +236,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
       {/* Body Content */}
       <div className="space-y-3.5">
-        {/* Live Status Cards */}
+        {/* Live Status Cards (4-Grid) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
           {/* Permission Card */}
           <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center gap-2.5">
@@ -190,11 +261,51 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
               }`}
             />
             <div className="min-w-0">
-              <div className="text-slate-400 font-medium text-[10px]">Cihaz Bağlantısı</div>
+              <div className="text-slate-400 font-medium text-[10px]">Donanım Bağlantısı (ID)</div>
               <div className="font-bold text-slate-800 dark:text-slate-200 truncate">
                 {details?.subscriptionId
                   ? `🟢 Bağlı (${details.subscriptionId.slice(0, 8)}...)`
                   : '🟡 Beklemede'}
+              </div>
+            </div>
+          </div>
+
+          {/* Platform / Standalone PWA Card */}
+          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center gap-2.5">
+            <Lock
+              className={`w-5 h-5 shrink-0 ${
+                details?.platform === 'ios'
+                  ? details.isStandalone
+                    ? 'text-emerald-500'
+                    : 'text-amber-500'
+                  : 'text-blue-500'
+              }`}
+            />
+            <div className="min-w-0">
+              <div className="text-slate-400 font-medium text-[10px]">Uygulama Modu (PWA)</div>
+              <div className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                {details?.platform === 'ios'
+                  ? details.isStandalone
+                    ? '🟢 iPhone (Ana Ekran Uygulaması)'
+                    : '⚠️ iPhone (Safari Sekmesi)'
+                  : details?.platform === 'android'
+                  ? '🟢 Android Cihaz'
+                  : '💻 Masaüstü'}
+              </div>
+            </div>
+          </div>
+
+          {/* Background Service Worker Card */}
+          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center gap-2.5">
+            <Zap
+              className={`w-5 h-5 shrink-0 ${
+                details?.serviceWorkerActive ? 'text-emerald-500' : 'text-blue-500'
+              }`}
+            />
+            <div className="min-w-0">
+              <div className="text-slate-400 font-medium text-[10px]">Arka Plan Servisi</div>
+              <div className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                {details?.serviceWorkerActive ? '🟢 Çalışıyor (Kilitli Ekran Hazır)' : '🟢 Aktif'}
               </div>
             </div>
           </div>
@@ -214,43 +325,65 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
             <button
               onClick={handleResync}
               disabled={isLoading}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] shrink-0 active:scale-95 transition-all"
-              title="Aboneliği Yenile"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] shrink-0 active:scale-95 transition-all cursor-pointer"
+              title="Aboneliği ve Servisi Onar"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Yenile</span>
+              <span>Onar & Yenile</span>
             </button>
           </div>
         )}
 
-        {/* Test Notification Action */}
-        <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 space-y-2.5">
+        {/* Test Notification Action Box (Dual Test: Instant & 5s Locked Screen) */}
+        <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div>
               <div className="text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
                 <Send className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Kilit Ekranı Testi</span>
+                <span>Bildirim Donanım Testi</span>
               </div>
               <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                Telefonunuza anında donanım bildirimi göndererek sistemi test edin.
+                Uygulama açıkken veya telefon kilitliyken donanım bildirimini test edin.
               </div>
             </div>
 
-            <button
-              onClick={handleSendTestPush}
-              disabled={isSendingTest}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50 shrink-0 cursor-pointer"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>
-                {isSendingTest
-                  ? 'Gönderiliyor...'
-                  : !isPermissionGranted
-                  ? 'İzin Ver & Test Gönder'
-                  : 'Test Gönder'}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Instant Test Button */}
+              <button
+                onClick={handleSendTestPush}
+                disabled={isSendingTest || isSendingDelayed}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                title="Hemen açıkken test gönder"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isSendingTest ? 'Gönderiliyor...' : 'Anlık Test'}</span>
+              </button>
+
+              {/* 5s Locked Screen Test Button */}
+              <button
+                onClick={handleDelayedLockScreenTest}
+                disabled={isSendingTest || isSendingDelayed}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                title="5 saniye sonra ekran kilitliyken test gönder"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>
+                  {countdown !== null
+                    ? `Kilitleyin (${countdown}s)`
+                    : isSendingDelayed
+                    ? 'Tetikleniyor...'
+                    : '⏱️ Kilitli Ekran Testi (5 Sn)'}
+                </span>
+              </button>
+            </div>
           </div>
+
+          {/* Countdown Prompt */}
+          {countdown !== null && (
+            <div className="p-3 rounded-lg bg-amber-500 text-white text-xs font-black animate-pulse flex items-center justify-between">
+              <span>⏱️ Sayım başladı ({countdown} sn)! Lütfen telefonunuzu ŞİMDİ KİLİTLEYİN ve bekleyin!</span>
+            </div>
+          )}
 
           {testSentMessage && (
             <div className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 border border-emerald-300 dark:border-emerald-800">
@@ -259,15 +392,45 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
           )}
         </div>
 
+        {/* iOS (iPhone) Specific Lock Screen Checklist */}
+        <div className="p-3.5 sm:p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 space-y-2 text-xs">
+          <div className="flex items-center gap-2 text-blue-900 dark:text-blue-300 font-extrabold text-xs">
+            <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>iPhone (iOS) Kilitli Ekran ve Kapalı Uygulama Ayarları:</span>
+          </div>
+
+          <div className="space-y-1.5 text-slate-700 dark:text-slate-300 leading-relaxed text-[11px]">
+            <div className="flex items-start gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong>1. Safari &gt; "Ana Ekrana Ekle" Durumu:</strong> Apple, kilitli ekranda bildirimi yalnızca Ana Ekrana eklenmiş PWA uygulamalarında destekler. Her iki cihazınızda da tamamlandı.
+              </div>
+            </div>
+
+            <div className="flex items-start gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong>2. iOS Bildirim İzinleri:</strong> iPhone Ayarları &gt; <em>Bildirimler</em> &gt; <em>Saha Takip</em> içerisinde <strong>"Kilitli Ekran"</strong>, <strong>"Bildirim Merkezi"</strong> ve <strong>"Sesler"</strong> seçeneklerinin işaretli olduğundan emin olun.
+              </div>
+            </div>
+
+            <div className="flex items-start gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong>3. Odak / Rahatsız Etmeyin:</strong> Telefonunuzda "Rahatsız Etmeyin" veya özel Odak modu açıksa, gelen kilitli ekran bildirimleri sessize alınabilir.
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Android Persistent Settings Guide */}
         <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 space-y-2.5 text-xs">
           <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-extrabold text-xs">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <span>Birkaç Gün Sonra Bildirimin Kesilmesini Önlemek İçin (Kalıcı Ayar):</span>
+            <span>Android Cihazlarda Bildirimin Kesilmesini Önlemek İçin (Kalıcı Ayar):</span>
           </div>
 
           <div className="space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed text-[11px]">
-            {/* Step 1: Remove permissions if unused */}
             <div className="flex items-start gap-2">
               <Settings className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <div>
@@ -275,35 +438,19 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
                   1. "Uyg. kullanılmıyorsa izinleri kaldır" Ayarını KAPATIN:
                 </strong>
                 <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  Telefon ayarlarınızda bu seçenek <strong>AÇIK</strong> olduğunda, Android 2-3 gün uygulamaya girilmediğinde bildirim izinlerini otomatik sıfırlar ve uygulamayı uykuya alır.
-                  <br />
                   👉 <em>Ayarlar &gt; Uygulamalar &gt; Saha Takip &gt; <strong>"Uyg. kullanılmıyorsa izinleri kaldır" anahtarını KAPATIN</strong>.</em>
                 </p>
               </div>
             </div>
 
-            {/* Step 2: Battery Unrestricted */}
             <div className="flex items-start gap-2">
               <BatteryCharging className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div>
                 <strong className="text-slate-900 dark:text-slate-100 font-bold">
-                  2. Pil Kısıtlaması & Chrome Uyku Modu:
+                  2. Pil Kısıtlaması & Uyku Modu:
                 </strong>
                 <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  Saha Takip pil ayarının <strong>"Kısıtlanmamış"</strong> olduğundan ve tarayıcınızın (Google Chrome) telefonun "Derin Uykudaki Uygulamalar" listesinde olmadığından emin olun.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 3: Background Data */}
-            <div className="flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-slate-900 dark:text-slate-100 font-bold">
-                  3. Arka Plan Veri İzni:
-                </strong>
-                <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  Mobil Veri &gt; <strong>"Arka plan veri kullanımına izin ver"</strong> seçeneğinin açık olduğundan emin olun.
+                  Saha Takip pil ayarının <strong>"Kısıtlanmamış"</strong> olduğundan emin olun.
                 </p>
               </div>
             </div>

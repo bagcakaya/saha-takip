@@ -53,6 +53,17 @@ export default async function handler(req, res) {
       filter: payload.data?.filter || targetFilter,
     };
 
+    const delaySeconds = Number(payload.delaySeconds) || 0;
+    delete payload.delaySeconds;
+
+    // High priority and sound for iOS APNs & Android FCM
+    payload.priority = 10;
+    payload.ios_sound = 'default';
+
+    if (delaySeconds > 0 && delaySeconds <= 30) {
+      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    }
+
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
       headers: {

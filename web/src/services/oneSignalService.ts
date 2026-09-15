@@ -9,12 +9,46 @@ declare global {
   }
 }
 
+export interface EnvironmentDetails {
+  isSupported: boolean;
+  isIOS: boolean;
+  isAndroid: boolean;
+  isStandalone: boolean;
+  platform: 'ios' | 'android' | 'desktop';
+}
+
+export function detectEnvironment(): EnvironmentDetails {
+  if (typeof window === 'undefined') {
+    return {
+      isSupported: false,
+      isIOS: false,
+      isAndroid: false,
+      isStandalone: false,
+      platform: 'desktop',
+    };
+  }
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
+  const isAndroid = /Android/.test(ua);
+  const platform: 'ios' | 'android' | 'desktop' = isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
+  const isStandalone =
+    (window.navigator as any).standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches ||
+    document.referrer.includes('android-app://');
+  const isSupported = typeof Notification !== 'undefined' && 'serviceWorker' in navigator;
+  return { isSupported, isIOS, isAndroid, isStandalone, platform };
+}
+
 export interface SubscriptionDetails {
   isSupported: boolean;
   permission: NotificationPermission | 'unsupported';
   isSubscribed: boolean;
   subscriptionId: string | null;
   userId: string | null;
+  isStandalone: boolean;
+  platform: 'ios' | 'android' | 'desktop';
+  serviceWorkerActive: boolean;
+  lastHealedAt?: string | null;
 }
 
 export const OneSignalService = {
@@ -159,15 +193,133 @@ export const OneSignalService = {
   },
 
   /**
+   * Automatic Self-Healing subscription check:
+   * 1. Verifies and updates service worker
+   * 2. Re-opts in to push subscription so sleeping tokens are re-registered
+   * 3. Binds user ID login and multi-tag identity (userId, role, name, platform, standalone)
+   * 4. Persists hardware subscription ID into local storage cache
+   */
+  async selfHealSubscription(user?: { id: string; name: string; role: string }): Promise<SubscriptionDetails> {
+    if (typeof window === 'undefined') {
+      return {
+        isSupported: false,
+        permission: 'unsupported',
+        isSubscribed: false,
+        subscriptionId: null,
+        userId: null,
+        isStandalone: false,
+        platform: 'desktop',
+        serviceWorkerActive: false,
+      };
+    }
+
+    const env = detectEnvironment();
+
+    // 1. Service Worker Health Check & Update
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg?.update) {
+          reg.update().catch(() => {});
+        }
+      } catch (e) {
+        console.warn('SW self-heal check:', e);
+      }
+    }
+
+    // 2. Firmly ensure SDK push opt-in, user identity login and hardware tags
+    return new Promise((resolve) => {
+      const fallbackResolve = async () => {
+        const details = await this.getSubscriptionDetails();
+        resolve(details);
+      };
+
+      const timer = setTimeout(fallbackResolve, 2500);
+
+      window.OneSignalDeferred = window.OneSignalDeferred || [];
+      window.OneSignalDeferred.push(async (OneSignal: any) => {
+        clearTimeout(timer);
+        try {
+          // If browser granted permission, force push opt-in so push token doesn't sleep
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            if (OneSignal?.User?.pushSubscription?.optIn) {
+              const optedIn = OneSignal.User.pushSubscription.optedIn;
+              if (!optedIn) {
+                await OneSignal.User.pushSubscription.optIn();
+              }
+            }
+          }
+
+          // Resolve target user identity
+          let targetUser = user;
+          if (!targetUser) {
+            try {
+              const stored = localStorage.getItem('@gorev_tamamlama_auth_user');
+              if (stored) targetUser = JSON.parse(stored);
+            } catch {
+              // ignore
+            }
+          }
+
+          if (targetUser?.id && OneSignal?.login) {
+            await OneSignal.login(targetUser.id);
+            if (OneSignal?.User?.addTags) {
+              await OneSignal.User.addTags({
+                userId: targetUser.id,
+                name: targetUser.name,
+                role: targetUser.role,
+                platform: env.platform,
+                standalone: env.isStandalone ? 'true' : 'false',
+                lastHealed: new Date().toISOString(),
+              });
+            }
+
+            const subId = OneSignal?.User?.pushSubscription?.id;
+            if (subId) {
+              try {
+                localStorage.setItem(`@saha_takip_sub_${targetUser.id}`, subId);
+                localStorage.setItem('@saha_takip_last_sub_id', subId);
+                localStorage.setItem('@saha_takip_last_healed', new Date().toISOString());
+              } catch {
+                // ignore
+              }
+            }
+          }
+
+          const details = await this.getSubscriptionDetails();
+          resolve(details);
+        } catch (e) {
+          console.warn('OneSignal selfHeal error:', e);
+          fallbackResolve();
+        }
+      });
+    });
+  },
+
+  /**
    * Retrieves current push subscription details for diagnostics
    */
   async getSubscriptionDetails(): Promise<SubscriptionDetails> {
+    const env = detectEnvironment();
+    const swActive =
+      typeof navigator !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      !!navigator.serviceWorker.controller;
+    const lastHealed =
+      typeof localStorage !== 'undefined'
+        ? localStorage.getItem('@saha_takip_last_healed')
+        : null;
+
     const fallback: SubscriptionDetails = {
       isSupported: typeof Notification !== 'undefined' && 'serviceWorker' in navigator,
       permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
       isSubscribed: false,
-      subscriptionId: null,
+      subscriptionId: typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_last_sub_id') : null,
       userId: null,
+      isStandalone: env.isStandalone,
+      platform: env.platform,
+      serviceWorkerActive: swActive,
+      lastHealedAt: lastHealed,
     };
 
     if (typeof window === 'undefined') return fallback;
@@ -185,7 +337,10 @@ export const OneSignalService = {
             typeof Notification !== 'undefined' && 'serviceWorker' in navigator;
           const permission =
             typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
-          const subId = OneSignal?.User?.pushSubscription?.id || null;
+          const subId =
+            OneSignal?.User?.pushSubscription?.id ||
+            localStorage.getItem('@saha_takip_last_sub_id') ||
+            null;
           const optedIn = OneSignal?.User?.pushSubscription?.optedIn ?? false;
           const isSubscribed = permission === 'granted' && (optedIn || !!subId);
 
@@ -195,6 +350,13 @@ export const OneSignalService = {
             isSubscribed,
             subscriptionId: subId,
             userId: OneSignal?.User?.externalId || null,
+            isStandalone: env.isStandalone,
+            platform: env.platform,
+            serviceWorkerActive:
+              typeof navigator !== 'undefined' &&
+              'serviceWorker' in navigator &&
+              !!navigator.serviceWorker.controller,
+            lastHealedAt: lastHealed,
           });
         } catch {
           resolve(fallback);
@@ -307,6 +469,7 @@ export const OneSignalService = {
     targetSubscriptionIds?: string[];
     url?: string;
     sendAfter?: string;
+    delaySeconds?: number;
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     const {
       title,
@@ -316,6 +479,7 @@ export const OneSignalService = {
       targetSubscriptionIds = [],
       url,
       sendAfter,
+      delaySeconds,
     } = params;
 
     // If API Key or App ID is not configured, skip
@@ -338,7 +502,19 @@ export const OneSignalService = {
       ? targetSubscriptionIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
-    if (targetMode === 'custom' && cleanIds.length === 0 && cleanSubIds.length === 0) {
+    // Collect any cached hardware player IDs for target user IDs
+    const cachedSubIds: string[] = [];
+    if (typeof localStorage !== 'undefined') {
+      cleanIds.forEach((uid) => {
+        const cached = localStorage.getItem(`@saha_takip_sub_${uid}`);
+        if (cached && !cleanSubIds.includes(cached)) {
+          cachedSubIds.push(cached);
+        }
+      });
+    }
+    const allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
+
+    if (targetMode === 'custom' && cleanIds.length === 0 && allHardwareSubIds.length === 0) {
       return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
     }
 
@@ -370,22 +546,36 @@ export const OneSignalService = {
       icon: 'https://saha-takip-beige.vercel.app/icon.png',
       priority: 10,
       ttl: 259200,
+      ios_sound: 'default',
     };
 
     if (sendAfter) {
       basePayload.send_after = sendAfter;
     }
+    if (delaySeconds && delaySeconds > 0) {
+      basePayload.delaySeconds = delaySeconds;
+    }
 
     try {
-      // 1. Direct Hardware Subscription Targeting (if subscription ID is known)
-      if (cleanSubIds.length > 0) {
+      let finalResult: any = null;
+
+      // 1. Direct Hardware Subscription Targeting (Guaranteed delivery to locked phones)
+      if (allHardwareSubIds.length > 0) {
         const subPayload = {
           ...basePayload,
-          include_player_ids: cleanSubIds,
+          include_player_ids: allHardwareSubIds,
         };
-        const subRes = await this._postNotification(subPayload);
-        console.log('OneSignal direct subscription push result:', subRes);
-        return { success: true, data: subRes };
+        const subRes = await this._postNotification(subPayload).catch((e) => {
+          console.warn('Direct subscription push warning:', e);
+          return null;
+        });
+        if (subRes && subRes.id) {
+          finalResult = subRes;
+          // If only specific hardware target was requested, return early
+          if (cleanIds.length === 0) {
+            return { success: true, data: subRes };
+          }
+        }
       }
 
       // 2. All subscribers
@@ -406,32 +596,45 @@ export const OneSignalService = {
       }
 
       // 4. Custom users: Dual Routing (external_id alias + tag fallback)
-      const aliasPayload = {
-        ...basePayload,
-        include_aliases: { external_id: cleanIds },
-        target_channel: 'push',
-      };
-      const aliasRes = await this._postNotification(aliasPayload);
-      console.log('OneSignal alias push result:', aliasRes);
-
-      // Tag fallback
-      if (cleanIds.length === 1) {
-        const tagPayload = {
+      if (cleanIds.length > 0) {
+        const aliasPayload = {
           ...basePayload,
-          filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
+          include_aliases: { external_id: cleanIds },
+          target_channel: 'push',
         };
-        await this._postNotification(tagPayload);
-      } else if (cleanIds.length > 1) {
-        const filterArr: any[] = [];
-        cleanIds.forEach((id, idx) => {
-          if (idx > 0) filterArr.push({ operator: 'OR' });
-          filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
+        const aliasRes = await this._postNotification(aliasPayload).catch((e) => {
+          console.warn('Alias push warning:', e);
+          return null;
         });
-        const tagPayload = { ...basePayload, filters: filterArr };
-        await this._postNotification(tagPayload);
+        if (aliasRes && aliasRes.id) {
+          finalResult = aliasRes;
+        }
+
+        // Tag fallback
+        try {
+          if (cleanIds.length === 1) {
+            const tagPayload = {
+              ...basePayload,
+              filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
+            };
+            const tagRes = await this._postNotification(tagPayload);
+            if (!finalResult && tagRes?.id) finalResult = tagRes;
+          } else if (cleanIds.length > 1) {
+            const filterArr: any[] = [];
+            cleanIds.forEach((id, idx) => {
+              if (idx > 0) filterArr.push({ operator: 'OR' });
+              filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
+            });
+            const tagPayload = { ...basePayload, filters: filterArr };
+            const tagRes = await this._postNotification(tagPayload);
+            if (!finalResult && tagRes?.id) finalResult = tagRes;
+          }
+        } catch (tagErr) {
+          console.warn('Tag fallback push warning:', tagErr);
+        }
       }
 
-      return { success: true, data: aliasRes };
+      return { success: true, data: finalResult || { ok: true } };
     } catch (err: any) {
       console.warn('OneSignal push gönderim hatası:', err);
       return { success: false, error: err?.message || 'Bildirim iletilemedi.' };

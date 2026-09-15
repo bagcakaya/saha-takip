@@ -41,16 +41,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(Boolean(user));
     if (user) {
       OneSignalService.loginUser(user.id, user.name, user.role);
+      OneSignalService.selfHealSubscription(user).catch(() => {});
     }
   }, [user]);
 
-  // Keep OneSignal device registration alive on app resume / tab switch
+  // Keep OneSignal device registration alive on app resume / tab switch via Self-Healing
   useEffect(() => {
     if (!user) return;
 
     const handleResume = () => {
       if (document.visibilityState === 'visible') {
         OneSignalService.loginUser(user.id, user.name, user.role);
+        OneSignalService.selfHealSubscription(user).catch(() => {});
       }
     };
 
