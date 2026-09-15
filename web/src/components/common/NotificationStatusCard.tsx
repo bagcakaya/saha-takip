@@ -131,7 +131,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   return (
     <div
-      className={`rounded-2xl border bg-white dark:bg-slate-850 shadow-md overflow-hidden ${
+      className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-md overflow-hidden ${
         isEmbedded
           ? 'border-slate-200/90 dark:border-slate-700/80 p-4 sm:p-5'
           : 'border-slate-200 dark:border-slate-700 p-5'
