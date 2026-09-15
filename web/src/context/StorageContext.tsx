@@ -189,7 +189,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllNotes(nts);
         setReturnWarrantyItems(returns);
         setAllServices(srvs);
-        if (wpLoc) setWorkplaceLocation(wpLoc);
+        if (wpLoc) {
+          const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
+          setWorkplaceLocation(finalWp);
+        }
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
         setCariler(cariData.cariler);
@@ -239,7 +242,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setReturnWarrantyItems(returns);
           setAllServices(srvs);
           setAllNotes(nts);
-          if (wpLoc) setWorkplaceLocation(wpLoc);
+          if (wpLoc) {
+            const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
+            setWorkplaceLocation(finalWp);
+          }
           setAttendanceRecords(attRecs);
           setAdminReminders(reminders);
         }
@@ -1466,7 +1472,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     address: string,
     latitude: number,
     longitude: number,
-    radiusMeters = 10
+    radiusMeters = 20
   ) => {
     const loc: WorkplaceLocation = {
       address: address.trim(),
@@ -1481,7 +1487,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveWorkplaceLocation(loc);
   };
 
-  // Staff check-in (Must be within 10 meters of workplace)
+  // Staff check-in (Must be within 20 meters of workplace)
   const checkInStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
@@ -1510,9 +1516,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       workplaceLocation.longitude
     );
 
-    const allowedRadius = workplaceLocation.radiusMeters || 10;
+    const allowedRadius = (workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10)
+      ? workplaceLocation.radiusMeters
+      : 20;
 
-    // Rule: Must be within 10 meters (<= 10m)
+    // Rule: Must be within 20 meters (<= 20m)
     if (distance > allowedRadius) {
       return {
         success: false,
@@ -1567,7 +1575,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
-  // Staff check-out (Must be outside 10 meters of workplace)
+  // Staff check-out (Must be outside 20 meters of workplace)
   const checkOutStaff = async (): Promise<{ success: boolean; message: string; distance?: number }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
@@ -1610,14 +1618,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       workplaceLocation.longitude
     );
 
-    const allowedRadius = workplaceLocation.radiusMeters || 10;
+    const allowedRadius = (workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10)
+      ? workplaceLocation.radiusMeters
+      : 20;
 
-    // Rule: Must be outside 10 meters (> 10m)
+    // Rule: Must be outside 20 meters (> 20m)
     if (distance <= allowedRadius) {
       return {
         success: false,
         distance,
-        message: `Hala iş yerinin 10 metre çapı içerisindesiniz (${LocationService.formatDistance(distance)}). İşten çıkış yapabilmek için iş yerinin dışına çıkmış olmalısınız.`,
+        message: `Hala iş yerinin ${allowedRadius} metre çapı içerisindesiniz (${LocationService.formatDistance(distance)}). İşten çıkış yapabilmek için iş yerinin ${allowedRadius} metre dışına çıkmış olmalısınız.`,
       };
     }
 

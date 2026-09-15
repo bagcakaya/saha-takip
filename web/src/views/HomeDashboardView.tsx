@@ -284,7 +284,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
             </h4>
             <p className="text-[10px] sm:text-xs text-emerald-100/90 font-medium line-clamp-2 leading-relaxed">
-              10 metre lokasyon doğrulamalı işe giriş ve çıkış denetimi
+              20 metre lokasyon doğrulamalı işe giriş ve çıkış denetimi
             </p>
           </div>
 

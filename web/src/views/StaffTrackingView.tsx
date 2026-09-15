@@ -36,7 +36,11 @@ export const StaffTrackingView: React.FC = () => {
   const [addressText, setAddressText] = useState(workplaceLocation?.address || '');
   const [lat, setLat] = useState<number | undefined>(workplaceLocation?.latitude);
   const [lon, setLon] = useState<number | undefined>(workplaceLocation?.longitude);
-  const [radius, setRadius] = useState<number>(workplaceLocation?.radiusMeters || 10);
+  const [radius, setRadius] = useState<number>(
+    workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10
+      ? workplaceLocation.radiusMeters
+      : 20
+  );
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [locationSuccessMsg, setLocationSuccessMsg] = useState('');
@@ -47,7 +51,11 @@ export const StaffTrackingView: React.FC = () => {
       setAddressText(workplaceLocation.address || '');
       setLat(workplaceLocation.latitude);
       setLon(workplaceLocation.longitude);
-      setRadius(workplaceLocation.radiusMeters || 10);
+      setRadius(
+        workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10
+          ? workplaceLocation.radiusMeters
+          : 20
+      );
     }
   }, [workplaceLocation]);
 
@@ -246,7 +254,7 @@ export const StaffTrackingView: React.FC = () => {
             Personel Giriş / Çıkış Takibi
           </h1>
           <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-1">
-            İşe giriş ve çıkışlar, yöneticinin belirlediği 10 metre çap doğrulaması ile anlık denetlenir.
+            İşe giriş ve çıkışlar, yöneticinin belirlediği 20 metre çap doğrulaması ile anlık denetlenir.
           </p>
         </div>
 
@@ -278,7 +286,7 @@ export const StaffTrackingView: React.FC = () => {
                   </span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Personelin 10 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
+                  Personelin 20 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
                 </p>
               </div>
             </div>
@@ -531,7 +539,7 @@ export const StaffTrackingView: React.FC = () => {
                   🟢 İşe Geldim
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>10 metre çapı içerisindeyken</strong> basarak mesainizi başlatın.
+                  İş yerinin <strong>20 metre çapı içerisindeyken</strong> basarak mesainizi başlatın.
                 </p>
               </div>
             </button>
@@ -564,7 +572,7 @@ export const StaffTrackingView: React.FC = () => {
                   🔴 İşten Çıkış Yaptım
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
-                  İş yerinin <strong>10 metre dışına çıktığınızda</strong> basarak mesaiyi bitirin.
+                  İş yerinin <strong>20 metre dışına çıktığınızda</strong> basarak mesaiyi bitirin.
                 </p>
               </div>
             </button>

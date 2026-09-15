@@ -657,6 +657,9 @@ export const StorageService = {
         const rawJson = data.tasks.join('');
         const parsed: WorkplaceLocation = JSON.parse(rawJson);
         if (parsed && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
+          if (!parsed.radiusMeters || parsed.radiusMeters === 10) {
+            parsed.radiusMeters = 20;
+          }
           await saveItem(WORKPLACE_LOCATION_KEY, parsed);
           return parsed;
         }
@@ -665,6 +668,9 @@ export const StorageService = {
       // ignore
     }
 
+    if (localData && (!localData.radiusMeters || localData.radiusMeters === 10)) {
+      localData.radiusMeters = 20;
+    }
     return localData;
   },
 

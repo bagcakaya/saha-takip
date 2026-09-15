@@ -111,7 +111,7 @@ export interface WorkplaceLocation {
   address: string;
   latitude: number;
   longitude: number;
-  radiusMeters: number; // default: 10 meters
+  radiusMeters: number; // default: 20 meters
   updatedAt: number;
   updatedBy?: string;
   updatedByName?: string;
