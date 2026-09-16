@@ -9,6 +9,7 @@ import { OneSignalService } from '../services/oneSignalService';
 import { UserService } from '../services/userService';
 import { TabType } from '../components/layout/Header';
 import { LocationService } from '../services/locationService';
+import { DeviceService } from '../services/deviceService';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -1535,6 +1536,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
     }
+    if (user.role !== 'admin') {
+      const curDevId = DeviceService.getCurrentDeviceId();
+      const devCheck = await DeviceService.verifyDeviceAccess({
+        userId: user.id,
+        role: user.role,
+        currentDeviceId: curDevId,
+        userName: user.name,
+        username: user.username,
+      });
+      if (!devCheck.allowed) {
+        return {
+          success: false,
+          message: devCheck.error || 'Bu cihaz yetkili resmi cihazınız değildir. İşe giriş engellendi.',
+        };
+      }
+    }
     if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
       return {
         success: false,
@@ -1686,6 +1703,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+    if (user.role !== 'admin') {
+      const curDevId = DeviceService.getCurrentDeviceId();
+      const devCheck = await DeviceService.verifyDeviceAccess({
+        userId: user.id,
+        role: user.role,
+        currentDeviceId: curDevId,
+        userName: user.name,
+        username: user.username,
+      });
+      if (!devCheck.allowed) {
+        return {
+          success: false,
+          message: devCheck.error || 'Bu cihaz yetkili resmi cihazınız değildir. İşten çıkış engellendi.',
+        };
+      }
     }
     if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
       return {

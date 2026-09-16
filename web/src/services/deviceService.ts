@@ -269,4 +269,195 @@ export const DeviceService = {
       console.warn('Cihaz silme hatası:', e);
     }
   },
+
+  // ==========================================
+  // USER DEVICE BINDING (ANTI-FRAUD LOCK)
+  // ==========================================
+
+  /**
+   * Fetches all user device bindings from Supabase slot 9 (with local cache mirror)
+   */
+  async getUserDeviceBindings(): Promise<import('../types/storage').UserDeviceBinding[]> {
+    const STORAGE_BINDINGS_KEY = '@saha_takip_user_device_bindings';
+    let localData: import('../types/storage').UserDeviceBinding[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_BINDINGS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) localData = parsed;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 9)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: import('../types/storage').UserDeviceBinding[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          try {
+            localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(parsed));
+          } catch {
+            // ignore
+          }
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Cloud fetch user device bindings error:', e);
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves user device bindings to Supabase slot 9
+   */
+  async saveUserDeviceBindingsToCloud(
+    bindings: import('../types/storage').UserDeviceBinding[]
+  ): Promise<void> {
+    const STORAGE_BINDINGS_KEY = '@saha_takip_user_device_bindings';
+    try {
+      localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(bindings));
+    } catch {
+      // ignore
+    }
+
+    try {
+      const rawJson = JSON.stringify(bindings);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 9, tasks: chunks });
+    } catch (err) {
+      console.warn('Cloud save user device bindings error:', err);
+    }
+  },
+
+  /**
+   * Retrieves binding for a specific user
+   */
+  async getBindingForUser(
+    userId: string,
+    username?: string
+  ): Promise<import('../types/storage').UserDeviceBinding | null> {
+    const bindings = await this.getUserDeviceBindings();
+    const cleanUser = (username || '').trim().toLowerCase();
+    return (
+      bindings.find(
+        (b) => b.userId === userId || (cleanUser && b.username.toLowerCase() === cleanUser)
+      ) || null
+    );
+  },
+
+  /**
+   * Binds a user strictly to a device ID
+   */
+  async bindUserToDevice(params: {
+    userId: string;
+    username: string;
+    userName: string;
+    deviceId: string;
+    deviceName: string;
+    platform: 'ios' | 'android' | 'desktop';
+  }): Promise<import('../types/storage').UserDeviceBinding> {
+    const bindings = await this.getUserDeviceBindings();
+    const newBinding: import('../types/storage').UserDeviceBinding = {
+      userId: params.userId,
+      username: params.username,
+      userName: params.userName,
+      boundDeviceId: params.deviceId,
+      boundDeviceName: params.deviceName,
+      boundPlatform: params.platform,
+      boundAt: new Date().toISOString(),
+      isLocked: true,
+    };
+
+    const idx = bindings.findIndex((b) => b.userId === params.userId);
+    let updated: import('../types/storage').UserDeviceBinding[];
+    if (idx >= 0) {
+      updated = [...bindings];
+      updated[idx] = newBinding;
+    } else {
+      updated = [newBinding, ...bindings];
+    }
+
+    await this.saveUserDeviceBindingsToCloud(updated);
+    return newBinding;
+  },
+
+  /**
+   * Unbinds / resets device lock for a user (Called by Admin)
+   */
+  async unbindUserDevice(userId: string): Promise<void> {
+    const bindings = await this.getUserDeviceBindings();
+    const filtered = bindings.filter((b) => b.userId !== userId);
+    await this.saveUserDeviceBindingsToCloud(filtered);
+  },
+
+  /**
+   * Verifies if current device is authorized for this user.
+   * - Admins are exempt (can login from any device).
+   * - Staff are locked to their boundDeviceId.
+   * - If staff has no binding yet, auto-binds current device on first login.
+   */
+  async verifyDeviceAccess(params: {
+    userId: string;
+    role: string;
+    currentDeviceId: string;
+    userName?: string;
+    username?: string;
+  }): Promise<{
+    allowed: boolean;
+    error?: string;
+    binding?: import('../types/storage').UserDeviceBinding;
+  }> {
+    // 1. Admins have access from any device (laptop, office PC, phone)
+    if (params.role === 'admin') {
+      return { allowed: true };
+    }
+
+    const currentId = params.currentDeviceId || this.getCurrentDeviceId();
+    const currentName = this.getCurrentDeviceName(params.userName);
+    const env = detectEnvironment();
+
+    // 2. Fetch current binding for this user
+    const existingBinding = await this.getBindingForUser(params.userId, params.username);
+
+    // 3. First login or reset lock: automatically bind current device
+    if (!existingBinding || !existingBinding.boundDeviceId) {
+      const createdBinding = await this.bindUserToDevice({
+        userId: params.userId,
+        username: params.username || '',
+        userName: params.userName || '',
+        deviceId: currentId,
+        deviceName: currentName,
+        platform: env.platform,
+      });
+      return { allowed: true, binding: createdBinding };
+    }
+
+    // 4. Check if current device matches bound device
+    if (existingBinding.isLocked && existingBinding.boundDeviceId !== currentId) {
+      const boundDesc = existingBinding.boundDeviceName
+        ? `"${existingBinding.boundDeviceName}" (${existingBinding.boundDeviceId})`
+        : `"${existingBinding.boundDeviceId}"`;
+
+      return {
+        allowed: false,
+        error: `🚫 Giriş Engellendi: Bu kullanıcı hesabı başka bir cihaza [${boundDesc}] kilitlidir. Başka bir personelin telefonundan veya farklı bir cihazdan giriş yapamazsınız. Cihaz değişikliği gerekiyorsa lütfen yöneticinizle iletişime geçin.`,
+        binding: existingBinding,
+      };
+    }
+
+    return { allowed: true, binding: existingBinding };
+  },
 };

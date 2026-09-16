@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { OneSignalService, SubscriptionDetails } from '../../services/oneSignalService';
 import { DeviceService } from '../../services/deviceService';
-import { RegisteredDevice } from '../../types/storage';
+import { RegisteredDevice, UserDeviceBinding } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
 
 interface NotificationStatusCardProps {
@@ -48,6 +48,10 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [testingDeviceId, setTestingDeviceId] = useState<string | null>(null);
 
+  // Anti-fraud device bindings state
+  const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
+  const [isUnbindingId, setIsUnbindingId] = useState<string | null>(null);
+
   const loadStatus = async () => {
     setIsLoading(true);
     try {
@@ -69,14 +73,25 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }
   };
 
+  const loadBindings = async () => {
+    try {
+      const list = await DeviceService.getUserDeviceBindings();
+      setUserBindings(list);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     loadStatus();
     loadDevices();
+    loadBindings();
 
     // Listen to live push subscription changes
     const handleSubChanged = () => {
       loadStatus();
       loadDevices();
+      loadBindings();
     };
 
     window.addEventListener('saha:push-subscription-changed', handleSubChanged);
@@ -94,6 +109,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
       );
       setDetails(data);
       await loadDevices();
+      await loadBindings();
       setTestSentMessage('🛡️ Cihaz ID, arka plan servisi ve donanım bağlantısı başarıyla güncellendi.');
     } catch (err) {
       console.error(err);
@@ -281,6 +297,26 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     if (confirm('Bu cihaz kaydını listeden silmek istediğinize emin misiniz?')) {
       await DeviceService.deleteDevice(devId);
       await loadDevices();
+    }
+  };
+
+  const handleUnbindUser = async (userId: string, staffName: string) => {
+    if (
+      !confirm(
+        `"${staffName}" kullanıcısının cihaz kilidini sıfırlamak istediğinize emin misiniz?\n\nPersonel yeni bir cihazdan giriş yaptığında yeni cihazı otomatik kilitlenecektir.`
+      )
+    ) {
+      return;
+    }
+    setIsUnbindingId(userId);
+    try {
+      await DeviceService.unbindUserDevice(userId);
+      await loadBindings();
+      alert(`✅ "${staffName}" cihaz kilidi başarıyla sıfırlandı. Personel artık yeni telefonundan giriş yapabilir.`);
+    } catch (e: any) {
+      alert(`Kilit sıfırlanırken hata oluştu: ${e?.message || ''}`);
+    } finally {
+      setIsUnbindingId(null);
     }
   };
 
@@ -642,6 +678,104 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
             )}
           </div>
         </div>
+
+        {/* ANTI-FRAUD DEVICE LOCKS MANAGEMENT (Admin Only) */}
+        {user?.role === 'admin' && (
+          <div className="p-3.5 sm:p-4 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/30 dark:bg-rose-950/20 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                <h4 className="text-xs font-black text-rose-950 dark:text-rose-200 uppercase tracking-wider">
+                  Personel Cihaz Kilitleri (Anti-Fraud Güvenliği)
+                </h4>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300">
+                Yetkisiz Giriş Engeli Aktif
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+              Her personel yalnızca kendi kilitli telefonundan sisteme girebilir ve mesai başlatabilir/bitirebilir. Personel telefonunu değiştirdiğinde buradan kilidini sıfırlayabilirsiniz.
+            </p>
+
+            <div className="space-y-2">
+              {userBindings.length === 0 ? (
+                <div className="p-3 rounded-lg border border-dashed border-rose-200 dark:border-rose-900/40 text-center text-xs text-slate-500">
+                  Henüz cihazına kilitlenmiş personel bulunmuyor. Personeller ilk kez giriş yaptıklarında kullandıkları cihazlar otomatik kilitlenecektir.
+                </div>
+              ) : (
+                userBindings.map((binding) => (
+                  <div
+                    key={binding.userId}
+                    className="p-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <strong className="font-black text-slate-900 dark:text-slate-100">
+                            {binding.userName || binding.username}
+                          </strong>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                            @{binding.username}
+                          </span>
+                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 flex items-center gap-1 border border-rose-200 dark:border-rose-800">
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>Kilitli</span>
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                          <span>
+                            Cihaz: <strong className="text-slate-700 dark:text-slate-300">{binding.boundDeviceName}</strong>
+                          </span>
+                          <span>•</span>
+                          <span className="font-mono">{binding.boundDeviceId}</span>
+                          {binding.boundAt && (
+                            <>
+                              <span>•</span>
+                              <span>
+                                Kilit Tarihi:{' '}
+                                {(() => {
+                                  try {
+                                    return new Date(binding.boundAt).toLocaleDateString('tr-TR');
+                                  } catch {
+                                    return '';
+                                  }
+                                })()}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 self-end sm:self-center">
+                      <button
+                        onClick={() =>
+                          handleUnbindUser(binding.userId, binding.userName || binding.username)
+                        }
+                        disabled={isUnbindingId === binding.userId}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/70 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Cihaz kilidini kaldır"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${
+                            isUnbindingId === binding.userId ? 'animate-spin' : ''
+                          }`}
+                        />
+                        <span>
+                          {isUnbindingId === binding.userId ? 'Sıfırlanıyor...' : '🔓 Kilidi Sıfırla'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Test Notification Action Box (Dual Test: Instant & 5s Locked Screen) */}
         <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 space-y-3">

@@ -188,3 +188,14 @@ export interface RegisteredDevice {
   createdAt: string;
 }
 
+export interface UserDeviceBinding {
+  userId: string;
+  username: string;
+  userName: string;
+  boundDeviceId: string;
+  boundDeviceName: string;
+  boundPlatform: 'ios' | 'android' | 'desktop';
+  boundAt: string;
+  isLocked: boolean;
+}
+

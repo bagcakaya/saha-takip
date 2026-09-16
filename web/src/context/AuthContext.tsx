@@ -3,6 +3,7 @@ import { User, UserAccount, UserRole } from '../types/auth';
 import { UserService } from '../services/userService';
 import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
+import { DeviceService } from '../services/deviceService';
 
 interface AuthContextType {
   user: User | null;
@@ -20,15 +21,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AUTH_STORAGE_KEY = '@gorev_tamamlama_auth_user';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<UserAccount[]>(() => UserService.getUsers());
+  const [users, setUsers] = useState<UserAccount[]>([]);
 
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const savedLocal = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (savedLocal) return JSON.parse(savedLocal);
-
-      const savedSession = sessionStorage.getItem(AUTH_STORAGE_KEY);
-      if (savedSession) return JSON.parse(savedSession);
+      const saved = localStorage.getItem(AUTH_STORAGE_KEY) || sessionStorage.getItem(AUTH_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
     } catch (e) {
       console.warn('Oturum bilgisi okunamadı:', e);
     }
@@ -40,6 +40,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setIsAuthenticated(Boolean(user));
     if (user) {
+      // Check device authorization guard on session start
+      if (user.role !== 'admin') {
+        const currentDeviceId = DeviceService.getCurrentDeviceId();
+        DeviceService.verifyDeviceAccess({
+          userId: user.id,
+          role: user.role,
+          currentDeviceId,
+          userName: user.name,
+          username: user.username,
+        }).then((check) => {
+          if (!check.allowed) {
+            alert(check.error || 'Bu cihaz yetkili cihazınız olmadığı için oturum kapatıldı.');
+            logout();
+          }
+        });
+      }
+
       OneSignalService.loginUser(user.id, user.name, user.role);
       OneSignalService.selfHealSubscription(user).catch(() => {});
     }
@@ -51,6 +68,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const handleResume = () => {
       if (document.visibilityState === 'visible') {
+        // Device authorization guard on resume
+        if (user.role !== 'admin') {
+          const currentDeviceId = DeviceService.getCurrentDeviceId();
+          DeviceService.verifyDeviceAccess({
+            userId: user.id,
+            role: user.role,
+            currentDeviceId,
+            userName: user.name,
+            username: user.username,
+          }).then((check) => {
+            if (!check.allowed) {
+              alert(check.error || 'Bu cihaz yetkili cihazınız olmadığı için oturum kapatıldı.');
+              logout();
+            }
+          });
+        }
+
         OneSignalService.loginUser(user.id, user.name, user.role);
         OneSignalService.selfHealSubscription(user).catch(() => {});
       }
@@ -100,8 +134,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!authResult.success || !authResult.user) {
       return { success: false, error: authResult.error || 'Giriş yapılamadı.' };
     }
-
     const authenticatedUser = authResult.user;
+
+    // ANTI-FRAUD DEVICE LOCK VERIFICATION
+    if (authenticatedUser.role !== 'admin') {
+      const currentDeviceId = DeviceService.getCurrentDeviceId();
+      const accessCheck = await DeviceService.verifyDeviceAccess({
+        userId: authenticatedUser.id,
+        role: authenticatedUser.role,
+        currentDeviceId,
+        userName: authenticatedUser.name,
+        username: authenticatedUser.username,
+      });
+
+      if (!accessCheck.allowed) {
+        return {
+          success: false,
+          error: accessCheck.error || 'Bu cihaz yetkili resmi cihazınız değildir. Giriş engellendi.',
+        };
+      }
+    }
+
     setUser(authenticatedUser);
     setIsAuthenticated(true);
     OneSignalService.loginUser(authenticatedUser.id, authenticatedUser.name, authenticatedUser.role);
