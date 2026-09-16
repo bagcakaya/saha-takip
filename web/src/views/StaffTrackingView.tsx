@@ -20,6 +20,7 @@ import {
   CalendarPlus,
   FileText,
   Check,
+  Store,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -30,6 +31,7 @@ export const StaffTrackingView: React.FC = () => {
   const { user } = useAuth();
   const {
     workplaceLocation,
+    branches,
     attendanceRecords,
     updateWorkplaceLocation,
     checkInStaff,
@@ -48,10 +50,56 @@ export const StaffTrackingView: React.FC = () => {
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
-  const allowedRadius =
-    workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10
-      ? workplaceLocation.radiusMeters
-      : 20;
+
+  // User's assigned branch
+  const userAssignedBranch = useMemo(() => {
+    if (!branches || branches.length === 0 || !user) return null;
+    return branches.find(
+      (b) =>
+        (b.assignedUserIds && b.assignedUserIds.includes(user.id)) ||
+        (user.branchId && b.id === user.branchId)
+    );
+  }, [branches, user]);
+
+  // Target location for live distance calculation & geofence UI
+  const targetLocation = useMemo(() => {
+    if (userAssignedBranch) {
+      return {
+        name: userAssignedBranch.name,
+        address: userAssignedBranch.address,
+        latitude: userAssignedBranch.latitude,
+        longitude: userAssignedBranch.longitude,
+        radius: userAssignedBranch.radiusMeters || 20,
+        isBranch: true,
+      };
+    }
+    if (workplaceLocation?.latitude && workplaceLocation?.longitude) {
+      return {
+        name: 'Merkez İş Yeri',
+        address: workplaceLocation.address,
+        latitude: workplaceLocation.latitude,
+        longitude: workplaceLocation.longitude,
+        radius:
+          workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10
+            ? workplaceLocation.radiusMeters
+            : 20,
+        isBranch: false,
+      };
+    }
+    if (branches && branches.length > 0) {
+      return {
+        name: branches[0].name,
+        address: branches[0].address,
+        latitude: branches[0].latitude,
+        longitude: branches[0].longitude,
+        radius: branches[0].radiusMeters || 20,
+        isBranch: true,
+      };
+    }
+    return null;
+  }, [userAssignedBranch, workplaceLocation, branches]);
+
+  const allowedRadius = targetLocation?.radius || 20;
 
   // --- 1. Admin Workplace Location State ---
   const [addressText, setAddressText] = useState(workplaceLocation?.address || '');
@@ -126,8 +174,8 @@ export const StaffTrackingView: React.FC = () => {
   const [distanceError, setDistanceError] = useState('');
 
   const checkLiveDistance = async () => {
-    if (!workplaceLocation?.latitude || !workplaceLocation?.longitude) {
-      setDistanceError('İş yeri lokasyonu henüz belirlenmemiş.');
+    if (!targetLocation?.latitude || !targetLocation?.longitude) {
+      setDistanceError('İş yeri veya şube lokasyonu henüz belirlenmemiş.');
       return;
     }
     try {
@@ -137,8 +185,8 @@ export const StaffTrackingView: React.FC = () => {
       const dist = LocationService.calculateDistance(
         pos.latitude,
         pos.longitude,
-        workplaceLocation.latitude,
-        workplaceLocation.longitude
+        targetLocation.latitude,
+        targetLocation.longitude
       );
       setCurrentDistance(dist);
     } catch (err: any) {
@@ -149,10 +197,10 @@ export const StaffTrackingView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (workplaceLocation?.latitude && workplaceLocation?.longitude) {
+    if (targetLocation?.latitude && targetLocation?.longitude) {
       checkLiveDistance();
     }
-  }, [workplaceLocation]);
+  }, [targetLocation]);
 
   // --- 3. Check-in / Check-out Actions & Approval Flow ---
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -629,9 +677,26 @@ export const StaffTrackingView: React.FC = () => {
 
                     {/* Mesafe ve Konum Bilgisi */}
                     <div className="space-y-1.5 text-xs">
+                      {req.branchName && (
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <Store className="w-3.5 h-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                          {req.isOtherBranch ? (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              ⚠️ Farklı Şube Talebi: <strong>{req.branchName}</strong> (Asıl Şube: {req.assignedBranchName || 'Bilinmiyor'})
+                            </span>
+                          ) : (
+                            <span className="text-teal-800 dark:text-teal-300">
+                              Şube: <strong>{req.branchName}</strong>
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span>İş Yerinden {reqDistance !== undefined ? LocationService.formatDistance(reqDistance) : 'Bilinmiyor'} Uzakta</span>
+                        <span>
+                          {req.branchName ? `${req.branchName} Şubesinden` : 'İş Yerinden'}{' '}
+                          {reqDistance !== undefined ? LocationService.formatDistance(reqDistance) : 'Bilinmiyor'} Uzakta
+                        </span>
                       </div>
                       {reqAddress && (
                         <div className="flex items-start gap-1.5 text-slate-600 dark:text-slate-400 text-[11px]">
@@ -897,13 +962,23 @@ export const StaffTrackingView: React.FC = () => {
 
       {/* --- SECTION 2: CANLI MESAFE KARTI & İŞE GİRİŞ / ÇIKIŞ BUTONLARI --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Sol Kolon: Canlı Geofence ve İş Yeri Bilgisi */}
+        {/* Sol Kolon: Canlı Geofence ve Şube / İş Yeri Bilgisi */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-emerald-500" />
-                <span>İş Yeri Konumu</span>
+                {targetLocation?.isBranch ? (
+                  <Store className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                ) : (
+                  <MapPin className="w-4 h-4 text-emerald-500" />
+                )}
+                <span>
+                  {targetLocation
+                    ? targetLocation.isBranch
+                      ? `Şube: ${targetLocation.name}`
+                      : targetLocation.name
+                    : 'İş Yeri Konumu'}
+                </span>
               </h3>
               <button
                 type="button"
@@ -917,12 +992,23 @@ export const StaffTrackingView: React.FC = () => {
             </div>
 
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                Merkez Adresi
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                  {targetLocation?.isBranch ? 'Şube Lokasyon Adresi' : 'Merkez Adresi'}
+                </p>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                  {allowedRadius} Metre Sınırı
+                </span>
+              </div>
               <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 line-clamp-2">
-                {workplaceLocation?.address || 'Yönetici henüz bir iş yeri konumu kaydetmedi.'}
+                {targetLocation?.address || workplaceLocation?.address || 'Yönetici henüz bir konum belirlemedi.'}
               </p>
+              {userAssignedBranch && (
+                <div className="text-[11px] text-teal-700 dark:text-teal-300 font-semibold pt-1 flex items-center gap-1.5">
+                  <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                  <span>Bağlı Olduğunuz Şube: <strong>{userAssignedBranch.name}</strong></span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -956,12 +1042,16 @@ export const StaffTrackingView: React.FC = () => {
                 {currentDistance <= allowedRadius ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>İş Yerindesiniz ({allowedRadius}m Alanı İçindesiniz) ✅</span>
+                    <span>
+                      {targetLocation?.isBranch ? `${targetLocation.name} Şubesindesiniz` : 'İş Yerindesiniz'} ({allowedRadius}m Alanı İçindesiniz) ✅
+                    </span>
                   </>
                 ) : (
                   <>
                     <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-                    <span>İş Yeri Dışındasınız ({LocationService.formatDistance(currentDistance)})</span>
+                    <span>
+                      {targetLocation?.isBranch ? `${targetLocation.name} Şubesi Dışındasınız` : 'İş Yeri Dışındasınız'} ({LocationService.formatDistance(currentDistance)})
+                    </span>
                   </>
                 )}
               </div>
@@ -1153,7 +1243,21 @@ export const StaffTrackingView: React.FC = () => {
 
           {/* Bugünkü Giriş & Çıkış Detay Kartı */}
           {currentUserTodayRecord && (
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2.5">
+              {currentUserTodayRecord.branchName && (
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-teal-800 dark:text-teal-300">
+                    <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <span>Mesai Şubesi: <strong>{currentUserTodayRecord.branchName}</strong></span>
+                  </div>
+                  {currentUserTodayRecord.isOtherBranch && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300">
+                      ⚠️ Farklı Şube (Asıl: {currentUserTodayRecord.assignedBranchName || 'Bilinmiyor'})
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div>
                 <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
                   GİRİŞ SAATİ
@@ -1207,6 +1311,7 @@ export const StaffTrackingView: React.FC = () => {
                     : activeDurationText || '-'}
                 </span>
               </div>
+            </div>
             </div>
           )}
         </div>
@@ -1368,6 +1473,7 @@ export const StaffTrackingView: React.FC = () => {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider">
                   <th className="py-3 px-3">Personel</th>
+                  <th className="py-3 px-3">Şube</th>
                   <th className="py-3 px-3">Durum</th>
                   <th className="py-3 px-3">Giriş Saati</th>
                   <th className="py-3 px-3">Giriş Mesafesi</th>
@@ -1404,6 +1510,25 @@ export const StaffTrackingView: React.FC = () => {
                             )}
                           </div>
                         </div>
+                      </td>
+
+                      {/* Şube */}
+                      <td className="py-3 px-3">
+                        {record.branchName ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                              <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                              {record.branchName}
+                            </span>
+                            {record.isOtherBranch && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                                (Asıl: {record.assignedBranchName || 'Bilinmiyor'})
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">Merkez</span>
+                        )}
                       </td>
 
                       {/* Durum */}

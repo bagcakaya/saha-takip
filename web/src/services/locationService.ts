@@ -4,6 +4,12 @@ export interface GeolocationResult {
   address?: string;
 }
 
+export interface AddressSearchResult {
+  latitude: number;
+  longitude: number;
+  displayName: string;
+}
+
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
@@ -126,6 +132,34 @@ export const LocationService = {
       return `${Math.round(meters * 10) / 10} metre`;
     }
     return `${(meters / 1000).toFixed(2)} km`;
+  },
+
+  /**
+   * Searches address and returns coordinates using OpenStreetMap Nominatim
+   */
+  async searchAddress(query: string): Promise<AddressSearchResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) return [];
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&limit=5&addressdetails=1`,
+        {
+          headers: {
+            'Accept-Language': 'tr',
+          },
+        }
+      );
+      if (!response.ok) return [];
+      const data = await response.json();
+      if (!Array.isArray(data)) return [];
+      return data.map((item: any) => ({
+        latitude: parseFloat(item.lat),
+        longitude: parseFloat(item.lon),
+        displayName: item.display_name,
+      }));
+    } catch {
+      return [];
+    }
   },
 };
 

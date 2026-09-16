@@ -18,6 +18,8 @@ export interface User {
   companyCode: string; // e.g. 'POLATLAR'
   companyName?: string;
   email?: string;
+  branchId?: string;
+  branchName?: string;
 }
 
 export interface UserAccount {
@@ -30,6 +32,8 @@ export interface UserAccount {
   companyCode: string; // e.g. 'POLATLAR'
   companyName?: string;
   email?: string;
+  branchId?: string;
+  branchName?: string;
 }
 
 export type TimeOfDay = 'day' | 'night' | 'sunset';

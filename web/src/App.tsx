@@ -14,6 +14,7 @@ import { TemplateView } from './views/TemplateView';
 import { HomeDashboardView } from './views/HomeDashboardView';
 import { StaffTrackingView } from './views/StaffTrackingView';
 import { RemindersView } from './views/RemindersView';
+import { BranchesView } from './views/BranchesView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
@@ -24,6 +25,7 @@ const MainApp: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
   const validTabs: TabType[] = [
     'home',
+    'branches',
     'installations',
     'services',
     'notes',
@@ -196,6 +198,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Saha Takip Portalı',
           title: 'Ana Menü',
         };
+      case 'branches':
+        return {
+          subtitle: 'Şube & Personel Yönetimi',
+          title: 'Şubeler',
+        };
       case 'installations':
         return {
           subtitle: 'Saha Takip Raporu',
@@ -269,6 +276,7 @@ const MainApp: React.FC = () => {
           }}
         >
           {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
+          {activeTab === 'branches' && <BranchesView />}
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'services' && <ServicesView />}
           {activeTab === 'notes' && <NotesView />}

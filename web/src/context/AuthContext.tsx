@@ -43,7 +43,7 @@ interface AuthContextType {
     password: string;
     name: string;
     role: UserRole;
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
     id: string,
     updates: { name?: string; role?: UserRole; password?: string }

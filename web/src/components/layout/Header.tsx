@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone, Store } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
@@ -9,7 +9,7 @@ import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { useStorage } from '../../context/StorageContext';
 
-export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'reminders' | 'returns' | 'logs' | 'template';
+export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'reminders' | 'returns' | 'logs' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -117,6 +117,17 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Home className="w-4 h-4" />
               <span>Ana Menü</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('branches')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'branches'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <Store className="w-4 h-4" />
+              <span>Şubeler</span>
             </button>
             <button
               onClick={() => setActiveTab('installations')}

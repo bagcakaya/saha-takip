@@ -12,9 +12,11 @@ import {
   Unlock,
   Smartphone,
   Building2,
+  Store,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
+import { useStorage } from '../../context/StorageContext';
 import { UserRole, isUserAdmin } from '../../types/auth';
 import { DeviceService } from '../../services/deviceService';
 import { UserDeviceBinding } from '../../types/storage';
@@ -38,6 +40,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     deleteUser,
     suggestUsername,
   } = useAuth();
+  const { branches, assignStaffToBranch } = useStorage();
 
   const isPolatlarAdmin =
     isUserAdmin(currentUser) &&
@@ -59,6 +62,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('staff');
+  const [newBranchId, setNewBranchId] = useState<string>('');
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   // States for password edit modal/prompt
@@ -125,11 +129,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     });
 
     if (res.success) {
+      if (newBranchId && res.user?.id) {
+        const targetBranch = branches.find((b) => b.id === newBranchId);
+        const existingIds = targetBranch?.assignedUserIds || [];
+        if (!existingIds.includes(res.user.id)) {
+          await assignStaffToBranch(newBranchId, [...existingIds, res.user.id]);
+        }
+      }
       setFormMsg({ type: 'success', text: `"${newUsername}" kullanıcısı başarıyla eklendi.` });
       setNewUsername('');
       setNewPassword('');
       setNewName('');
       setNewRole('staff');
+      setNewBranchId('');
       setTimeout(() => {
         setActiveSubTab('list');
         setFormMsg(null);
@@ -255,6 +267,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   b.userId === account.id ||
                   (b.username && b.username.toLowerCase() === account.username.toLowerCase())
               );
+              const userBranch = branches.find((b) => b.assignedUserIds?.includes(account.id));
 
               return (
                 <div
@@ -304,6 +317,40 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             <span>Cihaz henüz kilitlenmedi (İlk girişte kilitlenecek)</span>
                           </div>
                         )}
+
+                        {/* Branch Selector */}
+                        <div className="flex items-center gap-1.5 text-[11px] mt-1.5">
+                          <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <select
+                            value={userBranch?.id || ''}
+                            onChange={async (e) => {
+                              const targetBId = e.target.value;
+                              if (!targetBId) {
+                                if (userBranch) {
+                                  const filtered = (userBranch.assignedUserIds || []).filter(
+                                    (uid) => uid !== account.id
+                                  );
+                                  await assignStaffToBranch(userBranch.id, filtered);
+                                }
+                              } else {
+                                const targetB = branches.find((b) => b.id === targetBId);
+                                const existingIds = targetB?.assignedUserIds || [];
+                                if (!existingIds.includes(account.id)) {
+                                  await assignStaffToBranch(targetBId, [...existingIds, account.id]);
+                                }
+                              }
+                            }}
+                            className="text-[11px] font-semibold py-0.5 px-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer max-w-[200px] truncate"
+                            title="Personelin bağlı olduğu şubeyi seçin"
+                          >
+                            <option value="">Şube: Atanmamış (Merkez)</option>
+                            {branches.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                Şube: {b.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
 
@@ -482,6 +529,28 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   <option value="staff">Saha Yetkilisi (Kurulum & Raporlama)</option>
                   <option value="admin">Sistem Yöneticisi (Admin - Tam Yetkili)</option>
                 </select>
+              </div>
+
+              {/* Branch Selection */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  Bağlı Olacağı Şube (Mesai Takibi İçin)
+                </label>
+                <select
+                  value={newBranchId}
+                  onChange={(e) => setNewBranchId(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">🏢 Şube Seçilmedi (Genel / Merkez)</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      🏢 {b.name} {b.address ? `(${b.address})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Personel sadece atandığı şubenin 20 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
+                </p>
               </div>
             </div>
 

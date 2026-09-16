@@ -107,6 +107,20 @@ export interface ServiceItem {
   createdByName?: string;
 }
 
+export interface Branch {
+  id: string;
+  companyCode: string;
+  name: string;               // e.g. "Merkez Şube", "Kadıköy Şubesi", "İkitelli Depo"
+  address: string;            // Açık adres
+  latitude: number;           // Coğrafi Enlem
+  longitude: number;          // Coğrafi Boylam
+  radiusMeters: number;       // Varsayılan: 20 metre
+  phone?: string;             // Şube telefonu (opsiyonel)
+  assignedUserIds: string[];  // Şubeye atanmış personellerin ID listesi
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface WorkplaceLocation {
   address: string;
   latitude: number;
@@ -139,6 +153,12 @@ export interface AttendanceRecord {
   checkInApprovedBy?: string;
   checkInApprovedAt?: number;
   
+  // Multi-branch tracking fields
+  branchId?: string;
+  branchName?: string;
+  assignedBranchName?: string;
+  isOtherBranch?: boolean; // True if checked in at a different branch than assigned
+  
   checkOutTime?: number; // timestamp
   checkOutLat?: number;
   checkOutLon?: number;
@@ -162,6 +182,7 @@ export interface BackupData {
   returnWarrantyItems?: ReturnWarrantyItem[];
   services?: ServiceItem[];
   workplaceLocation?: WorkplaceLocation;
+  branches?: Branch[];
   attendanceRecords?: AttendanceRecord[];
   adminReminders?: AdminReminder[];
   cariler?: string[];

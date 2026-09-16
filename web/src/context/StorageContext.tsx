@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
 import { isUserAdmin } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -22,6 +22,7 @@ interface StorageContextType {
   services: ServiceItem[];
   allServices: ServiceItem[];
   workplaceLocation: WorkplaceLocation | null;
+  branches: Branch[];
   attendanceRecords: AttendanceRecord[];
   adminReminders: AdminReminder[];
   leaveRequests: LeaveRequest[];
@@ -106,6 +107,12 @@ interface StorageContextType {
     longitude: number,
     radiusMeters?: number
   ) => Promise<void>;
+  addBranch: (
+    branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'>
+  ) => Promise<Branch>;
+  updateBranch: (id: string, updates: Partial<Branch>) => Promise<void>;
+  deleteBranch: (id: string) => Promise<void>;
+  assignStaffToBranch: (branchId: string, userIds: string[]) => Promise<void>;
   checkInStaff: (options?: {
     allowOutside?: boolean;
     note?: string;
@@ -207,6 +214,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [adminReminders, setAdminReminders] = useState<AdminReminder[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
@@ -234,13 +242,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData, leaveReqs, secLogs] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getServices(),
           StorageService.getWorkplaceLocation(),
+          StorageService.getBranches(),
           StorageService.getAttendanceRecords(),
           StorageService.getAdminReminders(),
           StorageService.getCarilerData(),
@@ -263,6 +272,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           setWorkplaceLocation(null);
         }
+        setBranches(branchList);
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
         setLeaveRequests(leaveReqs);
@@ -305,12 +315,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders, leaveReqs, secLogs] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
             StorageService.getNotes(),
             StorageService.getWorkplaceLocation(),
+            StorageService.getBranches(),
             StorageService.getAttendanceRecords(),
             StorageService.getAdminReminders(),
             StorageService.getLeaveRequests(),
@@ -326,6 +337,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           } else {
             setWorkplaceLocation(null);
           }
+          setBranches(branchList);
           setAttendanceRecords(attRecs);
           setAdminReminders(reminders);
           setLeaveRequests(leaveReqs);
@@ -357,12 +369,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
       try {
-        const [locs, nts, returns, srvs, wpLoc, attRecs] = await Promise.all([
+        const [locs, nts, returns, srvs, wpLoc, branchList, attRecs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getServices(),
           StorageService.getWorkplaceLocation(),
+          StorageService.getBranches(),
           StorageService.getAttendanceRecords(),
         ]);
         setAllLocations((prev) => {
@@ -397,6 +410,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return prev;
           });
         }
+        setBranches((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(branchList)) {
+            return branchList;
+          }
+          return prev;
+        });
         setAttendanceRecords((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(attRecs)) {
             return attRecs;
@@ -1580,7 +1599,61 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveWorkplaceLocation(loc);
   };
 
-  // Staff check-in (Within 20 meters of workplace = direct; Outside = requires manager confirmation & approval)
+  // Branch CRUD operations
+  const addBranch = async (
+    branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'>
+  ): Promise<Branch> => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const newBranch: Branch = {
+      id: generateId(),
+      companyCode: compCode,
+      name: branchData.name.trim(),
+      address: branchData.address.trim(),
+      latitude: branchData.latitude,
+      longitude: branchData.longitude,
+      radiusMeters: branchData.radiusMeters || 20,
+      phone: branchData.phone?.trim() || undefined,
+      assignedUserIds: branchData.assignedUserIds || [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [newBranch, ...branches];
+    setBranches(updated);
+    await StorageService.saveBranches(updated);
+    return newBranch;
+  };
+
+  const updateBranch = async (id: string, updates: Partial<Branch>) => {
+    const updated = branches.map((b) =>
+      b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+    );
+    setBranches(updated);
+    await StorageService.saveBranches(updated);
+  };
+
+  const deleteBranch = async (id: string) => {
+    const updated = branches.filter((b) => b.id !== id);
+    setBranches(updated);
+    await StorageService.saveBranches(updated);
+  };
+
+  const assignStaffToBranch = async (branchId: string, userIds: string[]) => {
+    const updated = branches.map((b) => {
+      if (b.id === branchId) {
+        return { ...b, assignedUserIds: userIds, updatedAt: Date.now() };
+      } else {
+        return {
+          ...b,
+          assignedUserIds: (b.assignedUserIds || []).filter((uid) => !userIds.includes(uid)),
+          updatedAt: Date.now(),
+        };
+      }
+    });
+    setBranches(updated);
+    await StorageService.saveBranches(updated);
+  };
+
+  // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
     note?: string;
@@ -1612,10 +1685,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
     }
-    if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
+
+    const hasBranches = branches && branches.length > 0;
+    const hasWorkplace = !!(workplaceLocation && workplaceLocation.latitude && workplaceLocation.longitude);
+
+    if (!hasBranches && !hasWorkplace) {
       return {
         success: false,
-        message: 'İş yeri konumu henüz yönetici tarafından belirlenmemiş. Lütfen yöneticiniz ile iletişime geçin.',
+        message: 'İş yeri veya şube konumu henüz yönetici tarafından belirlenmemiş. Lütfen yöneticiniz ile iletişime geçin.',
       };
     }
 
@@ -1629,17 +1706,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
-    const distance = LocationService.calculateDistance(
-      userPos.latitude,
-      userPos.longitude,
-      workplaceLocation.latitude,
-      workplaceLocation.longitude
-    );
-
-    const allowedRadius = (workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10)
-      ? workplaceLocation.radiusMeters
-      : 20;
-
     const todayStr = new Date().toISOString().split('T')[0];
     const existingRecord = attendanceRecords.find(
       (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
@@ -1649,20 +1715,307 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (existingRecord.status === 'pending_checkin_approval') {
         return {
           success: false,
-          distance,
           message: 'Bugün için zaten yönetici onayı bekleyen bir işe giriş talebiniz bulunmaktadır.',
         };
       }
       return {
         success: false,
-        distance,
         message: 'Bugün için zaten aktif bir işe giriş kaydınız bulunmaktadır.',
       };
     }
 
-    // Check if outside allowed radius
+    // --- MULTI-BRANCH LOGIC ---
+    if (hasBranches) {
+      // Find user's assigned branch
+      const assignedBranch = branches.find(
+        (b) => (b.assignedUserIds && b.assignedUserIds.includes(user.id)) || (user.branchId && b.id === user.branchId)
+      );
+
+      if (assignedBranch) {
+        const distToAssigned = LocationService.calculateDistance(
+          userPos.latitude,
+          userPos.longitude,
+          assignedBranch.latitude,
+          assignedBranch.longitude
+        );
+        const allowedRadius = assignedBranch.radiusMeters || 20;
+
+        // 1. If inside assigned branch's 20m radius -> Direct on-site check-in!
+        if (distToAssigned <= allowedRadius) {
+          const newRecord: AttendanceRecord = {
+            id: generateId(),
+            userId: user.id,
+            userName: user.name,
+            userRole: user.role,
+            date: todayStr,
+            checkInTime: Date.now(),
+            checkInLat: userPos.latitude,
+            checkInLon: userPos.longitude,
+            checkInAddress: userPos.address,
+            checkInDistance: distToAssigned,
+            checkInOutside: false,
+            checkInApprovalStatus: 'approved',
+            branchId: assignedBranch.id,
+            branchName: assignedBranch.name,
+            status: 'checked_in',
+          };
+
+          const updated = [newRecord, ...attendanceRecords];
+          setAttendanceRecords(updated);
+          await StorageService.saveAttendanceRecords(updated);
+
+          OneSignalService.sendPushNotification({
+            title: '🟢 Personel İşe Giriş Yaptı',
+            message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${assignedBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(distToAssigned)})`,
+            targetMode: 'admin',
+            url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          }).catch(() => {});
+
+          return {
+            success: true,
+            distance: distToAssigned,
+            message: `${assignedBranch.name} şubesinde işe girişiniz başarıyla onaylandı! (Şubeye mesafe: ${LocationService.formatDistance(distToAssigned)})`,
+          };
+        }
+
+        // 2. Outside assigned branch -> Check if located at another company branch within 20m
+        const otherBranch = branches.find((b) => {
+          if (b.id === assignedBranch.id) return false;
+          const d = LocationService.calculateDistance(
+            userPos.latitude,
+            userPos.longitude,
+            b.latitude,
+            b.longitude
+          );
+          return d <= (b.radiusMeters || 20);
+        });
+
+        if (otherBranch) {
+          // Located at another branch -> Requires Manager Approval!
+          if (!options?.allowOutside) {
+            return {
+              success: false,
+              requiresConfirmation: true,
+              confirmationType: 'checkin',
+              distance: distToAssigned,
+              address: userPos.address,
+              message: `Kendi şubeniz olan "${assignedBranch.name}" yerine "${otherBranch.name}" şubesinde bulunuyorsunuz. Başka bir şubede mesaiye başlamak için Yönetici Onayı gereklidir. Onaya gönderilsin mi?`,
+            };
+          }
+
+          const otherBranchDist = LocationService.calculateDistance(
+            userPos.latitude,
+            userPos.longitude,
+            otherBranch.latitude,
+            otherBranch.longitude
+          );
+
+          const newRecord: AttendanceRecord = {
+            id: generateId(),
+            userId: user.id,
+            userName: user.name,
+            userRole: user.role,
+            date: todayStr,
+            checkInTime: Date.now(),
+            checkInLat: userPos.latitude,
+            checkInLon: userPos.longitude,
+            checkInAddress: userPos.address,
+            checkInDistance: otherBranchDist,
+            checkInOutside: true,
+            checkInApprovalStatus: 'pending',
+            branchId: otherBranch.id,
+            branchName: otherBranch.name,
+            assignedBranchName: assignedBranch.name,
+            isOtherBranch: true,
+            approvalNote: options.note,
+            notes: `Farklı Şube Talebi: Asıl şubesi (${assignedBranch.name}) yerine ${otherBranch.name} şubesinde mesaiye başlamak istiyor.${options.note ? ' Not: ' + options.note : ''}`,
+            status: 'pending_checkin_approval',
+          };
+
+          const updated = [newRecord, ...attendanceRecords];
+          setAttendanceRecords(updated);
+          await StorageService.saveAttendanceRecords(updated);
+
+          OneSignalService.sendPushNotification({
+            title: '⚠️ Farklı Şubede Mesai Onay Talebi',
+            message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başlamak için onay talep etti.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+            targetMode: 'admin',
+            url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          }).catch(() => {});
+
+          return {
+            success: true,
+            isPendingApproval: true,
+            distance: otherBranchDist,
+            message: `Farklı şubede (${otherBranch.name}) mesaiye başlama onay talebiniz yöneticiye iletildi.`,
+          };
+        }
+
+        // 3. Outside all company branches
+        if (!options?.allowOutside) {
+          return {
+            success: false,
+            requiresConfirmation: true,
+            confirmationType: 'checkin',
+            distance: distToAssigned,
+            address: userPos.address,
+            message: `Bağlı olduğunuz "${assignedBranch.name}" şubesinin 20 metre dışında bulunuyorsunuz (${LocationService.formatDistance(distToAssigned)}). Yönetici onayına gönderilsin mi?`,
+          };
+        }
+
+        const newRecord: AttendanceRecord = {
+          id: generateId(),
+          userId: user.id,
+          userName: user.name,
+          userRole: user.role,
+          date: todayStr,
+          checkInTime: Date.now(),
+          checkInLat: userPos.latitude,
+          checkInLon: userPos.longitude,
+          checkInAddress: userPos.address,
+          checkInDistance: distToAssigned,
+          checkInOutside: true,
+          checkInApprovalStatus: 'pending',
+          branchId: assignedBranch.id,
+          branchName: assignedBranch.name,
+          approvalNote: options.note,
+          status: 'pending_checkin_approval',
+        };
+
+        const updated = [newRecord, ...attendanceRecords];
+        setAttendanceRecords(updated);
+        await StorageService.saveAttendanceRecords(updated);
+
+        OneSignalService.sendPushNotification({
+          title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
+          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          targetMode: 'admin',
+          url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        }).catch(() => {});
+
+        return {
+          success: true,
+          isPendingApproval: true,
+          distance: distToAssigned,
+          message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+        };
+      } else {
+        // Staff has no assigned branch yet -> Check if within 20m of any branch
+        const nearBranch = branches.find(
+          (b) => LocationService.calculateDistance(userPos.latitude, userPos.longitude, b.latitude, b.longitude) <= (b.radiusMeters || 20)
+        );
+
+        if (nearBranch) {
+          const nearDist = LocationService.calculateDistance(userPos.latitude, userPos.longitude, nearBranch.latitude, nearBranch.longitude);
+          const newRecord: AttendanceRecord = {
+            id: generateId(),
+            userId: user.id,
+            userName: user.name,
+            userRole: user.role,
+            date: todayStr,
+            checkInTime: Date.now(),
+            checkInLat: userPos.latitude,
+            checkInLon: userPos.longitude,
+            checkInAddress: userPos.address,
+            checkInDistance: nearDist,
+            checkInOutside: false,
+            checkInApprovalStatus: 'approved',
+            branchId: nearBranch.id,
+            branchName: nearBranch.name,
+            status: 'checked_in',
+          };
+
+          const updated = [newRecord, ...attendanceRecords];
+          setAttendanceRecords(updated);
+          await StorageService.saveAttendanceRecords(updated);
+
+          OneSignalService.sendPushNotification({
+            title: '🟢 Personel İşe Giriş Yaptı',
+            message: `${user.name}, ${nearBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(nearDist)})`,
+            targetMode: 'admin',
+            url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          }).catch(() => {});
+
+          return {
+            success: true,
+            distance: nearDist,
+            message: `${nearBranch.name} şubesinde işe girişiniz başarıyla kaydedildi!`,
+          };
+        }
+
+        // Outside all branches without assigned branch
+        let closestBranch = branches[0];
+        let minDist = LocationService.calculateDistance(userPos.latitude, userPos.longitude, closestBranch.latitude, closestBranch.longitude);
+        for (let i = 1; i < branches.length; i++) {
+          const d = LocationService.calculateDistance(userPos.latitude, userPos.longitude, branches[i].latitude, branches[i].longitude);
+          if (d < minDist) {
+            minDist = d;
+            closestBranch = branches[i];
+          }
+        }
+
+        if (!options?.allowOutside) {
+          return {
+            success: false,
+            requiresConfirmation: true,
+            confirmationType: 'checkin',
+            distance: minDist,
+            address: userPos.address,
+            message: `Herhangi bir şubenin 20 metre yakınında bulunmuyorsunuz (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Yönetici onayına gönderilsin mi?`,
+          };
+        }
+
+        const newRecord: AttendanceRecord = {
+          id: generateId(),
+          userId: user.id,
+          userName: user.name,
+          userRole: user.role,
+          date: todayStr,
+          checkInTime: Date.now(),
+          checkInLat: userPos.latitude,
+          checkInLon: userPos.longitude,
+          checkInAddress: userPos.address,
+          checkInDistance: minDist,
+          checkInOutside: true,
+          checkInApprovalStatus: 'pending',
+          branchId: closestBranch.id,
+          branchName: closestBranch.name,
+          approvalNote: options.note,
+          status: 'pending_checkin_approval',
+        };
+
+        const updated = [newRecord, ...attendanceRecords];
+        setAttendanceRecords(updated);
+        await StorageService.saveAttendanceRecords(updated);
+
+        OneSignalService.sendPushNotification({
+          title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
+          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          targetMode: 'admin',
+          url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        }).catch(() => {});
+
+        return {
+          success: true,
+          isPendingApproval: true,
+          distance: minDist,
+          message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+        };
+      }
+    }
+
+    // --- LEGACY SINGLE WORKPLACE FALLBACK ---
+    const distance = LocationService.calculateDistance(
+      userPos.latitude,
+      userPos.longitude,
+      workplaceLocation!.latitude,
+      workplaceLocation!.longitude
+    );
+    const allowedRadius = (workplaceLocation!.radiusMeters && workplaceLocation!.radiusMeters !== 10)
+      ? workplaceLocation!.radiusMeters
+      : 20;
+
     if (distance > allowedRadius) {
-      // If user hasn't explicitly confirmed to send for approval yet
       if (!options?.allowOutside) {
         return {
           success: false,
@@ -1674,7 +2027,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
 
-      // User confirmed -> Create pending approval record
       const newRecord: AttendanceRecord = {
         id: generateId(),
         userId: user.id,
@@ -1696,7 +2048,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAttendanceRecords(updated);
       await StorageService.saveAttendanceRecords(updated);
 
-      // CRITICAL: Push notification to admins
       OneSignalService.sendPushNotification({
         title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
         message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
@@ -1733,7 +2084,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
 
-    // Push notification to admins
     OneSignalService.sendPushNotification({
       title: '🟢 Personel İşe Giriş Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
@@ -1780,12 +2130,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
     }
-    if (!workplaceLocation || !workplaceLocation.latitude || !workplaceLocation.longitude) {
-      return {
-        success: false,
-        message: 'İş yeri konumu henüz belirlenmemiş.',
-      };
-    }
 
     // Find user's active check-in or pending checkout record
     const recordIndex = attendanceRecords.findIndex(
@@ -1827,17 +2171,47 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
+    // Determine target location to measure checkout against:
+    let targetLat = workplaceLocation?.latitude;
+    let targetLon = workplaceLocation?.longitude;
+    let targetRadius = (workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10) ? workplaceLocation.radiusMeters : 20;
+    let targetName = 'İş yeri';
+
+    if (record.branchId && branches.length > 0) {
+      const b = branches.find((item) => item.id === record.branchId);
+      if (b) {
+        targetLat = b.latitude;
+        targetLon = b.longitude;
+        targetRadius = b.radiusMeters || 20;
+        targetName = b.name;
+      }
+    } else if (branches.length > 0) {
+      const assignedBranch = branches.find(
+        (b) => (b.assignedUserIds && b.assignedUserIds.includes(user.id)) || (user.branchId && b.id === user.branchId)
+      );
+      if (assignedBranch) {
+        targetLat = assignedBranch.latitude;
+        targetLon = assignedBranch.longitude;
+        targetRadius = assignedBranch.radiusMeters || 20;
+        targetName = assignedBranch.name;
+      }
+    }
+
+    if (!targetLat || !targetLon) {
+      return {
+        success: false,
+        message: 'İş yeri veya şube konumu belirlenemedi.',
+      };
+    }
+
     const distance = LocationService.calculateDistance(
       userPos.latitude,
       userPos.longitude,
-      workplaceLocation.latitude,
-      workplaceLocation.longitude
+      targetLat,
+      targetLon
     );
 
-    const allowedRadius = (workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10)
-      ? workplaceLocation.radiusMeters
-      : 20;
-
+    const allowedRadius = targetRadius;
     const checkOutTime = Date.now();
     const durationMinutes = Math.max(1, Math.round((checkOutTime - record.checkInTime) / 60000));
     const hours = Math.floor(durationMinutes / 60);
@@ -1853,7 +2227,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           confirmationType: 'checkout',
           distance,
           address: userPos.address,
-          message: 'Konum dışında çıkış yapıyorsunuz. Yönetici onayına gönderilsin mi?',
+          message: `${targetName} şubesinin 20 metre dışında çıkış yapıyorsunuz (${LocationService.formatDistance(distance)}). Yönetici onayına gönderilsin mi?`,
         };
       }
 
@@ -1880,7 +2254,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // CRITICAL: Push notification to admins
       OneSignalService.sendPushNotification({
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
-        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
@@ -1916,7 +2290,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Push notification to admins
     OneSignalService.sendPushNotification({
       title: '🔴 Personel İşten Çıkış Yaptı',
-      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla çıkış yaptı. (Toplam Mesai: ${durationText})`,
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${targetName} şubesinden çıkış yaptı. (Toplam Mesai: ${durationText})`,
       targetMode: 'admin',
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
@@ -2503,6 +2877,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         services: visibleServices,
         allServices,
         workplaceLocation,
+        branches,
         attendanceRecords,
         adminReminders,
         cariler,
@@ -2542,6 +2917,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateService,
         deleteService,
         updateWorkplaceLocation,
+        addBranch,
+        updateBranch,
+        deleteBranch,
+        assignStaffToBranch,
         checkInStaff,
         checkOutStaff,
         approveAttendance,

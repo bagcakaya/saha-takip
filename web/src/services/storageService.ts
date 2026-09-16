@@ -6,6 +6,7 @@ import {
   ReturnWarrantyItem,
   ServiceItem,
   WorkplaceLocation,
+  Branch,
   AttendanceRecord,
   AdminReminder,
   CariData,
@@ -23,6 +24,7 @@ const NOTES_KEY = '@gorev_tamamlama_general_notes';
 const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
 const SERVICES_KEY = '@gorev_tamamlama_services';
 const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
+const BRANCHES_KEY = '@saha_takip_branches';
 const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
@@ -937,6 +939,35 @@ export const StorageService = {
   },
 
   /**
+   * Retrieves branches for current company (cloud standard_tasks slot 14 + IndexedDB cache)
+   */
+  async getBranches(): Promise<Branch[]> {
+    const localKey = this.getStorageKey(BRANCHES_KEY);
+    const slotId = this.getSlotId(14);
+    const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<Branch[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves branches to cloud slot 14 and local cache
+   */
+  async saveBranches(branches: Branch[]): Promise<void> {
+    const localKey = this.getStorageKey(BRANCHES_KEY);
+    await saveItem(localKey, branches);
+    await saveChunkedSlot(this.getSlotId(14), branches);
+  },
+
+  /**
    * Appends a new security log event directly to cloud slot 12 and local cache
    */
   async logSecurityEvent(
@@ -1118,6 +1149,7 @@ export const StorageService = {
     const returnWarrantyItems = await this.getReturnWarrantyItems();
     const services = await this.getServices();
     const workplaceLocation = (await this.getWorkplaceLocation()) || undefined;
+    const branches = await this.getBranches();
     const attendanceRecords = await this.getAttendanceRecords();
     const adminReminders = await this.getAdminReminders();
     const leaveRequests = await this.getLeaveRequests();
@@ -1130,6 +1162,7 @@ export const StorageService = {
       returnWarrantyItems,
       services,
       workplaceLocation,
+      branches,
       attendanceRecords,
       adminReminders,
       leaveRequests,
@@ -1157,6 +1190,9 @@ export const StorageService = {
     }
     if (backupData.workplaceLocation) {
       await this.saveWorkplaceLocation(backupData.workplaceLocation);
+    }
+    if (backupData.branches && Array.isArray(backupData.branches)) {
+      await this.saveBranches(backupData.branches);
     }
     if (backupData.attendanceRecords && Array.isArray(backupData.attendanceRecords)) {
       await this.saveAttendanceRecords(backupData.attendanceRecords);
