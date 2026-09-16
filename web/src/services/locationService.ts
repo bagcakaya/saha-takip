@@ -14,9 +14,11 @@ export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
    */
-  async getCurrentPosition(): Promise<GeolocationResult> {
-    if (!navigator.geolocation) {
-      throw new Error('Tarayıcınız konum servislerini desteklemiyor.');
+  async getCurrentPosition(options?: PositionOptions): Promise<GeolocationResult> {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      const err: any = new Error('Cihazınız veya tarayıcınız konum servislerini desteklemiyor.');
+      err.isLocationDisabled = true;
+      throw err;
     }
 
     return new Promise((resolve, reject) => {
@@ -38,20 +40,24 @@ export const LocationService = {
           });
         },
         (error) => {
-          let msg = 'Konum alınamadı.';
+          let msg = 'Konum servisleri kapalı veya konum bilgisi alınamadı.';
           if (error.code === error.PERMISSION_DENIED) {
-            msg = 'Konum izni verilmedi. Lütfen tarayıcı ayarlarından konum erişimine izin verin.';
+            msg = 'Konum izni verilmedi veya kapalı. İşe giriş ve çıkış yapabilmek için lütfen tarayıcı ve cihaz ayarlarından konum servislerini açın.';
           } else if (error.code === error.POSITION_UNAVAILABLE) {
-            msg = 'Konum bilgisi şu anda kullanılamıyor. GPS veya ağ bağlantınızı kontrol edin.';
+            msg = 'Cihazınızın konum servisleri (GPS) kapalı. İşe giriş ve çıkış yapabilmek için lütfen cihazınızın konum servisini açın.';
           } else if (error.code === error.TIMEOUT) {
-            msg = 'Konum alma isteği zaman aşımına uğradı.';
+            msg = 'Konum bilgisi alınamadı (Zaman aşımı). Lütfen konum servislerinizin açık ve GPS sinyalinin aktif olduğundan emin olun.';
           }
-          reject(new Error(msg));
+          const customError: any = new Error(msg);
+          customError.code = error.code;
+          customError.isLocationDisabled = true;
+          reject(customError);
         },
         {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 60000,
+          maximumAge: 0,
+          ...options,
         }
       );
     });

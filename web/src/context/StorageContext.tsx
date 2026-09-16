@@ -130,6 +130,7 @@ interface StorageContextType {
     confirmationType?: 'checkin' | 'checkout';
     address?: string;
     isPendingApproval?: boolean;
+    isLocationDisabled?: boolean;
   }>;
   checkOutStaff: (options?: {
     allowOutside?: boolean;
@@ -142,6 +143,7 @@ interface StorageContextType {
     confirmationType?: 'checkin' | 'checkout';
     address?: string;
     isPendingApproval?: boolean;
+    isLocationDisabled?: boolean;
   }>;
   approveAttendance: (
     recordId: string,
@@ -2429,6 +2431,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     confirmationType?: 'checkin' | 'checkout';
     address?: string;
     isPendingApproval?: boolean;
+    isLocationDisabled?: boolean;
   }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
@@ -2466,7 +2469,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err: any) {
       return {
         success: false,
-        message: `GPS konumu alınamadı: ${err?.message || 'Lütfen cihazınızın konum servisini açın.'}`,
+        isLocationDisabled: true,
+        message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
       };
     }
 
@@ -2874,6 +2878,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     confirmationType?: 'checkin' | 'checkout';
     address?: string;
     isPendingApproval?: boolean;
+    isLocationDisabled?: boolean;
   }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
@@ -2931,7 +2936,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err: any) {
       return {
         success: false,
-        message: `GPS konumu alınamadı: ${err?.message || 'Lütfen cihazınızın konum servisini açın.'}`,
+        isLocationDisabled: true,
+        message: err?.message || 'İşten çıkış yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
       };
     }
 
