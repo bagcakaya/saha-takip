@@ -38,6 +38,7 @@ import {
   calculateRecordDurationMinutes,
   StaffAttendanceSummary,
 } from '../services/attendanceExportService';
+import { StaffMultiSelect } from '../components/common/StaffMultiSelect';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company } = useAuth();
@@ -470,7 +471,7 @@ export const StaffTrackingView: React.FC = () => {
 
   const [startDate, setStartDate] = useState<string>(defaultStartDate);
   const [endDate, setEndDate] = useState<string>(todayStr);
-  const [selectedStaffId, setSelectedStaffId] = useState<string>('all');
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [activePreset, setActivePreset] = useState<
     'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all' | 'custom'
   >('this_month');
@@ -545,15 +546,15 @@ export const StaffTrackingView: React.FC = () => {
     if (endDate) {
       list = list.filter((r) => r.date <= endDate);
     }
-    if (selectedStaffId && selectedStaffId !== 'all') {
-      list = list.filter((r) => r.userId === selectedStaffId);
+    if (selectedStaffIds.length > 0) {
+      list = list.filter((r) => selectedStaffIds.includes(r.userId));
     }
     // If not admin, only show own records
     if (!isAdmin && user) {
       list = list.filter((r) => r.userId === user.id);
     }
     return list;
-  }, [attendanceRecords, companyUserIds, startDate, endDate, selectedStaffId, isAdmin, user]);
+  }, [attendanceRecords, companyUserIds, startDate, endDate, selectedStaffIds, isAdmin, user]);
 
   // Staff Attendance Summaries (for the selected date range, strictly current company)
   const staffSummaries = useMemo<StaffAttendanceSummary[]>(() => {
@@ -679,9 +680,13 @@ export const StaffTrackingView: React.FC = () => {
     try {
       setIsExportingExcel(true);
       const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const exportSummaries =
+        selectedStaffIds.length > 0
+          ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
+          : staffSummaries;
       exportAttendanceToExcel({
         records: filteredRecords,
-        summaries: staffSummaries,
+        summaries: exportSummaries,
         startDate,
         endDate,
         companyName: compName,
@@ -698,9 +703,13 @@ export const StaffTrackingView: React.FC = () => {
     try {
       setIsExportingPdf(true);
       const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const exportSummaries =
+        selectedStaffIds.length > 0
+          ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
+          : staffSummaries;
       await exportAttendanceToPdf({
         records: filteredRecords,
-        summaries: staffSummaries,
+        summaries: exportSummaries,
         startDate,
         endDate,
         companyName: compName,
@@ -1863,23 +1872,14 @@ export const StaffTrackingView: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Personel Seçici (Admin için) */}
+                {/* Personel Seçici (Admin için - Çoklu Seçim) */}
                 {isAdmin && (
-                  <div className="flex items-center gap-2">
-                    <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <select
-                      value={selectedStaffId}
-                      onChange={(e) => setSelectedStaffId(e.target.value)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="all">👥 Tüm Personeller ({staffOptions.length})</option>
-                      {staffOptions.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <StaffMultiSelect
+                    options={staffOptions}
+                    selectedIds={selectedStaffIds}
+                    onChange={setSelectedStaffIds}
+                    placeholder="Tüm Personeller"
+                  />
                 )}
               </div>
 
@@ -1911,12 +1911,12 @@ export const StaffTrackingView: React.FC = () => {
                   />
                 </div>
 
-                {(startDate || endDate || selectedStaffId !== 'all') && (
+                {(startDate || endDate || selectedStaffIds.length > 0) && (
                   <button
                     type="button"
                     onClick={() => {
                       applyPreset('this_month');
-                      setSelectedStaffId('all');
+                      setSelectedStaffIds([]);
                     }}
                     className="text-xs text-rose-500 hover:text-rose-600 font-semibold underline ml-auto cursor-pointer"
                   >
@@ -1924,6 +1924,42 @@ export const StaffTrackingView: React.FC = () => {
                   </button>
                 )}
               </div>
+
+              {/* Seçili Personel Rozetleri (Chips) */}
+              {selectedStaffIds.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    Seçili ({selectedStaffIds.length}):
+                  </span>
+                  {selectedStaffIds.map((id) => {
+                    const staff = staffOptions.find((s) => s.id === id);
+                    if (!staff) return null;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 shadow-2xs"
+                      >
+                        <span>{staff.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStaffIds((prev) => prev.filter((item) => item !== id))}
+                          className="w-3.5 h-3.5 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800 flex items-center justify-center cursor-pointer text-emerald-700 dark:text-emerald-300 transition-colors"
+                          title="Kaldır"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStaffIds([])}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline font-semibold ml-1 cursor-pointer"
+                  >
+                    Tümünü Temizle
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 2. Mesai İstatistik Kartları */}
@@ -1985,34 +2021,50 @@ export const StaffTrackingView: React.FC = () => {
                     <Users className="w-3.5 h-3.5 text-emerald-600" />
                     Personel Mesai Özeti
                   </span>
-                  {selectedStaffId !== 'all' && (
+                  {selectedStaffIds.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setSelectedStaffId('all')}
+                      onClick={() => setSelectedStaffIds([])}
                       className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
                     >
-                      Tüm Personelleri Göster
+                      Tüm Personelleri Göster ({selectedStaffIds.length} seçili)
                     </button>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {staffSummaries.map((s) => {
-                    const isSelected = selectedStaffId === s.userId;
+                    const isSelected = selectedStaffIds.includes(s.userId);
                     return (
                       <div
                         key={s.userId}
-                        onClick={() => setSelectedStaffId(isSelected ? 'all' : s.userId)}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedStaffIds((prev) => prev.filter((id) => id !== s.userId));
+                          } else {
+                            setSelectedStaffIds((prev) => [...prev, s.userId]);
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer select-none ${
                           isSelected
-                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/20'
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
                             : 'bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
-                              {s.userName.charAt(0).toUpperCase()}
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs transition-colors ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              }`}
+                            >
+                              {isSelected ? (
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              ) : (
+                                s.userName.charAt(0).toUpperCase()
+                              )}
                             </div>
                             <div>
                               <div className="font-black text-xs text-slate-800 dark:text-slate-200 leading-tight">
@@ -2023,11 +2075,18 @@ export const StaffTrackingView: React.FC = () => {
                               </div>
                             </div>
                           </div>
-                          {s.activeSessions > 0 && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 animate-pulse">
-                              Mesaide
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {isSelected && (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-2xs">
+                                Seçili
+                              </span>
+                            )}
+                            {s.activeSessions > 0 && (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 animate-pulse">
+                                Mesaide
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-3 gap-1 text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800">
