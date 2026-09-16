@@ -118,17 +118,19 @@ export const Header: React.FC<HeaderProps> = ({
               <Home className="w-4 h-4" />
               <span>Ana Menü</span>
             </button>
-            <button
-              onClick={() => setActiveTab('branches')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'branches'
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-              }`}
-            >
-              <Store className="w-4 h-4" />
-              <span>Şubeler</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('branches')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  activeTab === 'branches'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <Store className="w-4 h-4" />
+                <span>Şubeler</span>
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('installations')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${

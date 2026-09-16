@@ -20,9 +20,11 @@ import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
+import { isUserAdmin } from './types/auth';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
+  const isAdmin = isUserAdmin(user);
   const validTabs: TabType[] = [
     'home',
     'branches',
@@ -71,6 +73,13 @@ const MainApp: React.FC = () => {
   // Selected location for right summary panel preview / detail modal
   const [previewLocation, setPreviewLocation] = useState<LocationItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Guard against non-admin accessing branches tab
+  React.useEffect(() => {
+    if (user && !isAdmin && activeTab === 'branches') {
+      setActiveTab('home');
+    }
+  }, [user, isAdmin, activeTab]);
 
   // Deep-linking URL handler (for push notifications opened from lock screen / notification drawer)
   React.useEffect(() => {
@@ -276,7 +285,12 @@ const MainApp: React.FC = () => {
           }}
         >
           {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
-          {activeTab === 'branches' && <BranchesView />}
+          {activeTab === 'branches' &&
+            (isAdmin ? (
+              <BranchesView />
+            ) : (
+              <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+            ))}
           {activeTab === 'installations' && <InstallationsView />}
           {activeTab === 'services' && <ServicesView />}
           {activeTab === 'notes' && <NotesView />}

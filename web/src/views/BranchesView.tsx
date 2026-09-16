@@ -102,6 +102,24 @@ export const BranchesView: React.FC = () => {
     }
   };
 
+  if (!isAdmin) {
+    return (
+      <div className="py-20 text-center space-y-4 max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-3xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto shadow-sm">
+          <Building2 className="w-8 h-8" />
+        </div>
+        <div className="space-y-1.5">
+          <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">
+            Yetkisiz Erişim
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+            Şubeler ve şube mesai alanı yönetimi yalnızca şirket yöneticilerine açıktır.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-300">
       {/* 1. Header Banner & Top Stats */}

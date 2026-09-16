@@ -168,29 +168,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </div>
             </button>
 
-            {/* 0.5. Şubeler */}
-            <button
-              onClick={() => setActiveTab('branches')}
-              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
-                activeTab === 'branches'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <Store className="w-4 h-4" />
-                <span>Şubeler</span>
-              </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+            {/* 0.5. Şubeler (Yalnızca Yönetici) */}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('branches')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
                   activeTab === 'branches'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
                 }`}
               >
-                {branches.length}
-              </span>
-            </button>
+                <div className="flex items-center gap-3">
+                  <Store className="w-4 h-4" />
+                  <span>Şubeler</span>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'branches'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {branches.length}
+                </span>
+              </button>
+            )}
 
             {/* 1. Kurulumlar */}
             <button
