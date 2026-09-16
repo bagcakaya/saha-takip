@@ -230,7 +230,7 @@ export const PdfService = {
         </head>
         <body>
           <div class="header">
-            <h1 class="title">Saha Takip Raporu</h1>
+            <h1 class="title">Saha Takip Sistemi</h1>
             <div class="subtitle">Sistem Teslim ve Görev Tamamlama Tutanağı</div>
           </div>
 
@@ -290,7 +290,7 @@ export const PdfService = {
           }
 
           <div class="footer">
-            Bu belge Saha Takip Raporu web uygulaması ile otomatik olarak üretilmiştir.
+            Bu belge Saha Takip Sistemi web uygulaması ile otomatik olarak üretilmiştir.
           </div>
         </body>
       </html>

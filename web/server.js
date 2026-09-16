@@ -57,7 +57,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   const url = `http://localhost:${PORT}`;
   console.log('====================================================');
-  console.log(`  Saha Takip Raporu Web Sitesi Hazir!`);
+  console.log(`  Saha Takip Sistemi Web Sitesi Hazir!`);
   console.log(`  Tarayicida acilacak adres: ${url}`);
   console.log('====================================================');
 

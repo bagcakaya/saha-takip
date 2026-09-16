@@ -181,7 +181,9 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             Hızlı Erişim Modülleri
           </h3>
         </div>
-        <span className="text-xs font-semibold text-slate-400">9 Ana Bölüm</span>
+        <span className="text-xs font-semibold text-slate-400">
+          {isAdmin ? '10 Ana Bölüm' : '9 Ana Bölüm'}
+        </span>
       </div>
 
       {/* The Colorful Square Boxes - Şubeler EN BAŞTA */}

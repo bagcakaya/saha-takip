@@ -205,7 +205,7 @@ const MainApp: React.FC = () => {
         };
       case 'installations':
         return {
-          subtitle: 'Saha Takip Raporu',
+          subtitle: 'Saha Takip Sistemi',
           title: 'Kurulumlar',
         };
       case 'services':

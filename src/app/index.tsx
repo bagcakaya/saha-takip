@@ -409,7 +409,7 @@ export default function HomeScreen() {
       {/* Header Section */}
       <View style={styles.header}>
         <View>
-          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>Saha Takip Raporu</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>Saha Takip Sistemi</Text>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Kurulumlar</Text>
         </View>
         <TouchableOpacity

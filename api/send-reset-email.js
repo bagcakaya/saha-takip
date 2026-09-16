@@ -47,7 +47,7 @@ export default async function handler(req, res) {
                 <tr>
                   <td style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 32px 24px; text-align: center;">
                     <div style="font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;">
-                      Saha Takip Raporu
+                      Saha Takip Sistemi
                     </div>
                     <div style="font-size: 12px; color: #94a3b8; margin-top: 4px; font-weight: 500;">
                       Yönetici Güvenlik & Doğrulama Hizmeti
