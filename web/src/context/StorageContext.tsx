@@ -178,14 +178,17 @@ const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 };
 
-const SEEN_NOTES_KEY = (userId: string) => `@seen_notes_${userId}`;
-const SEEN_REMINDERS_KEY = (userId: string) => `@seen_reminders_${userId}`;
-const SEEN_LOCATIONS_KEY = (userId: string) => `@seen_locations_${userId}`;
-const SEEN_WARRANTY_REMINDERS_KEY = (userId: string) => `@seen_warranty_reminders_${userId}`;
-const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string) => `@seen_completed_locations_${userId}`;
-const SEEN_SERVICES_KEY = (userId: string) => `@seen_services_${userId}`;
-const SEEN_COMPLETED_NOTES_KEY = (userId: string) => `@seen_completed_notes_${userId}`;
-const SEEN_APPROVAL_NOTES_KEY = (userId: string) => `@seen_approval_notes_${userId}`;
+const sanitizeCompCode = (compCode?: string) => (compCode || 'POLATLAR').trim().toUpperCase();
+
+const SEEN_NOTES_KEY = (userId: string, compCode?: string) => `@seen_notes_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_REMINDERS_KEY = (userId: string, compCode?: string) => `@seen_reminders_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_LOCATIONS_KEY = (userId: string, compCode?: string) => `@seen_locations_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_WARRANTY_REMINDERS_KEY = (userId: string, compCode?: string) => `@seen_warranty_reminders_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string, compCode?: string) => `@seen_completed_locations_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_services_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_COMPLETED_NOTES_KEY = (userId: string, compCode?: string) => `@seen_completed_notes_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_APPROVAL_NOTES_KEY = (userId: string, compCode?: string) => `@seen_approval_notes_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
   try {
@@ -223,6 +226,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
   const [activeToast, setActiveToast] = useState<{
     title: string;
     body: string;
@@ -234,11 +238,51 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
-    const compCode = user?.companyCode || 'POLATLAR';
+    if (!user) {
+      setAllLocations([]);
+      setStandardTasks([]);
+      setAllNotes([]);
+      setReturnWarrantyItems([]);
+      setAllServices([]);
+      setWorkplaceLocation(null);
+      setBranches([]);
+      setAttendanceRecords([]);
+      setAdminReminders([]);
+      setLeaveRequests([]);
+      setSecurityLogs([]);
+      setCariler([]);
+      setCarilerUpdatedAt(null);
+      setCarilerTotal(0);
+      setIsLoading(false);
+      setDataCompanyCode('');
+      return;
+    }
+
+    const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
     const compId = company?.id || (compCode === 'POLATLAR' ? 1 : undefined);
+
+    // Immediately clear state from any previous company / session and indicate loading
+    setAllLocations([]);
+    setStandardTasks([]);
+    setAllNotes([]);
+    setReturnWarrantyItems([]);
+    setAllServices([]);
+    setWorkplaceLocation(null);
+    setBranches([]);
+    setAttendanceRecords([]);
+    setAdminReminders([]);
+    setLeaveRequests([]);
+    setSecurityLogs([]);
+    setCariler([]);
+    setCarilerUpdatedAt(null);
+    setCarilerTotal(0);
+    setIsLoading(true);
+    setDataCompanyCode('');
+
     StorageService.setCompany(compCode, compId);
 
-    const isPolatlar = compCode.toUpperCase() === 'POLATLAR';
+    let isMounted = true;
+    const isPolatlar = compCode === 'POLATLAR';
 
     const initData = async () => {
       try {
@@ -256,11 +300,88 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getLeaveRequests(),
           StorageService.getSecurityLogs(),
         ]);
+        if (!isMounted) return;
+
         const migratedLocs = locs.map((l) => ({
           ...l,
           createdBy: l.createdBy || 'admin-root',
           createdByName: l.createdByName || 'Sistem Yöneticisi',
         }));
+
+        // First-time device seeding: Seed existing historical records so they don't blast notifications on first login
+        const initKey = SEEN_INITIALIZED_KEY(user.id, compCode);
+        if (localStorage.getItem(initKey) === null) {
+          const now = Date.now();
+
+          // 1. Locations
+          const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode));
+          migratedLocs.forEach((l) => seenLocs.add(l.id));
+          saveStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode), seenLocs);
+
+          // 2. Completed Locations
+          const seenCompletedLocs = getStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode));
+          migratedLocs.forEach((l) => {
+            const isComplete =
+              l.tasks.length > 0 &&
+              l.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
+            if (isComplete) seenCompletedLocs.add(l.id);
+          });
+          saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode), seenCompletedLocs);
+
+          // 3. Services
+          const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id, compCode));
+          srvs.forEach((s) => seenServices.add(s.id));
+          saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
+
+          // 4. Notes
+          const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id, compCode));
+          nts.forEach((n) => seenNotes.add(n.id));
+          saveStoredSet(SEEN_NOTES_KEY(user.id, compCode), seenNotes);
+
+          // 5. Timed Reminders
+          const seenReminders = getStoredSet(SEEN_REMINDERS_KEY(user.id, compCode));
+          nts.forEach((n) => {
+            if (n.reminderActive && n.reminderDate) {
+              const reminderTime = new Date(n.reminderDate).getTime();
+              if (reminderTime <= now) seenReminders.add(n.id);
+            }
+          });
+          saveStoredSet(SEEN_REMINDERS_KEY(user.id, compCode), seenReminders);
+
+          // 6. Warranty Reminders
+          const seenWarranty = getStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode));
+          returns.forEach((r) => {
+            if (r.reminderActive && r.reminderDate) {
+              const reminderTime = new Date(r.reminderDate).getTime();
+              if (reminderTime <= now) seenWarranty.add(r.id);
+            }
+          });
+          saveStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode), seenWarranty);
+
+          // 7. Completed Notes
+          const seenCompletedNotes = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode));
+          nts.forEach((n) => {
+            if (n.status === 'pending_approval' && n.completedAt) {
+              seenCompletedNotes.add(`${n.id}_${n.completedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompletedNotes);
+
+          // 8. Approved/Rejected Notes
+          const seenApprovalNotes = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode));
+          nts.forEach((n) => {
+            if (n.status === 'approved' && n.approvedAt) {
+              seenApprovalNotes.add(`${n.id}_approved_${n.approvedAt}`);
+            }
+            if (n.status === 'rejected' && n.rejectedAt) {
+              seenApprovalNotes.add(`${n.id}_rejected_${n.rejectedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovalNotes);
+
+          localStorage.setItem(initKey, 'true');
+        }
+
         setAllLocations(migratedLocs);
         setStandardTasks(tasks);
         setAllNotes(nts);
@@ -280,10 +401,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCariler(cariData.cariler);
         setCarilerUpdatedAt(cariData.updatedAt);
         setCarilerTotal(cariData.total);
+        setDataCompanyCode(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
     initData();
@@ -295,9 +419,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'locations' },
         async () => {
+          if (!isMounted) return;
           if (isPolatlar) {
             const locs = await StorageService.getLocations();
-            setAllLocations(locs);
+            if (isMounted) setAllLocations(locs);
           }
         }
       )
@@ -305,9 +430,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
         async () => {
+          if (!isMounted) return;
           if (isPolatlar) {
             const nts = await StorageService.getNotes();
-            setAllNotes(nts);
+            if (isMounted) setAllNotes(nts);
           }
         }
       )
@@ -315,6 +441,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
+          if (!isMounted) return;
           const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
@@ -327,6 +454,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getLeaveRequests(),
             StorageService.getSecurityLogs(),
           ]);
+          if (!isMounted) return;
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
           setAllServices(srvs);
@@ -348,9 +476,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'return_warranty' },
         async () => {
+          if (!isMounted) return;
           if (isPolatlar) {
             const returns = await StorageService.getReturnWarrantyItems();
-            setReturnWarrantyItems(returns);
+            if (isMounted) setReturnWarrantyItems(returns);
           }
         }
       )
@@ -358,9 +487,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'services' },
         async () => {
+          if (!isMounted) return;
           if (isPolatlar) {
             const srvs = await StorageService.getServices();
-            setAllServices(srvs);
+            if (isMounted) setAllServices(srvs);
           }
         }
       )
@@ -368,6 +498,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // High-frequency background sync for mobile devices
     const syncInterval = setInterval(async () => {
+      if (!isMounted) return;
       try {
         const [locs, nts, returns, srvs, wpLoc, branchList, attRecs] = await Promise.all([
           StorageService.getLocations(),
@@ -378,6 +509,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getBranches(),
           StorageService.getAttendanceRecords(),
         ]);
+        if (!isMounted) return;
         setAllLocations((prev) => {
           if (JSON.stringify(prev) !== JSON.stringify(locs)) {
             return locs;
@@ -428,10 +560,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, 3000);
 
     return () => {
+      isMounted = false;
       supabase.removeChannel(channel);
       clearInterval(syncInterval);
     };
-  }, [user?.companyCode, company?.id]);
+  }, [user?.id, user?.companyCode, company?.id]);
 
   // Filter locations based on role:
   // Admin -> Sees ALL locations from all staff members
@@ -484,10 +617,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Check incoming direct notes & timed reminders per user device
   useEffect(() => {
-    if (!user || allNotes.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
 
-    const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id));
-    const seenReminders = getStoredSet(SEEN_REMINDERS_KEY(user.id));
+    const notesStorageKey = SEEN_NOTES_KEY(user.id, compCode);
+    const remindersStorageKey = SEEN_REMINDERS_KEY(user.id, compCode);
+
+    if (localStorage.getItem(notesStorageKey) === null) {
+      const seenNotes = getStoredSet(notesStorageKey);
+      allNotes.forEach((n) => seenNotes.add(n.id));
+      saveStoredSet(notesStorageKey, seenNotes);
+      return;
+    }
+
+    const seenNotes = getStoredSet(notesStorageKey);
+    const seenReminders = getStoredSet(remindersStorageKey);
     const now = Date.now();
     let seenNotesChanged = false;
     let seenRemindersChanged = false;
@@ -542,18 +686,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     if (seenNotesChanged) {
-      saveStoredSet(SEEN_NOTES_KEY(user.id), seenNotes);
+      saveStoredSet(notesStorageKey, seenNotes);
     }
     if (seenRemindersChanged) {
-      saveStoredSet(SEEN_REMINDERS_KEY(user.id), seenReminders);
+      saveStoredSet(remindersStorageKey, seenReminders);
     }
-  }, [allNotes, user]);
+  }, [allNotes, user, dataCompanyCode]);
 
   // Check return & warranty reminders for all users (1-week auto or custom reminder)
   useEffect(() => {
-    if (!user || returnWarrantyItems.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
 
-    const seenWarrantyReminders = getStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id));
+    const storageKey = SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode);
+    const seenWarrantyReminders = getStoredSet(storageKey);
     let seenWarrantyChanged = false;
     const now = Date.now();
 
@@ -578,15 +724,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     if (seenWarrantyChanged) {
-      saveStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id), seenWarrantyReminders);
+      saveStoredSet(storageKey, seenWarrantyReminders);
     }
-  }, [returnWarrantyItems, user]);
+  }, [returnWarrantyItems, user, dataCompanyCode]);
 
   // Check incoming locations from staff members (Admin notification)
   useEffect(() => {
-    if (!user || user.role !== 'admin' || allLocations.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
 
-    const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id));
+    const storageKey = SEEN_LOCATIONS_KEY(user.id, compCode);
+    if (localStorage.getItem(storageKey) === null) {
+      const seenLocs = getStoredSet(storageKey);
+      allLocations.forEach((loc) => seenLocs.add(loc.id));
+      saveStoredSet(storageKey, seenLocs);
+      return;
+    }
+
+    const seenLocs = getStoredSet(storageKey);
     let seenChanged = false;
 
     allLocations.forEach((loc) => {
@@ -612,15 +767,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     if (seenChanged) {
-      saveStoredSet(SEEN_LOCATIONS_KEY(user.id), seenLocs);
+      saveStoredSet(storageKey, seenLocs);
     }
-  }, [allLocations, user]);
+  }, [allLocations, user, dataCompanyCode]);
 
   // Check completed locations from staff members (Admin notification)
   useEffect(() => {
-    if (!user || user.role !== 'admin' || allLocations.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
 
-    const seenDone = getStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id));
+    const storageKey = SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode);
+    if (localStorage.getItem(storageKey) === null) {
+      const seenDone = getStoredSet(storageKey);
+      allLocations.forEach((loc) => {
+        const isComplete =
+          loc.tasks.length > 0 &&
+          loc.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
+        if (isComplete) seenDone.add(loc.id);
+      });
+      saveStoredSet(storageKey, seenDone);
+      return;
+    }
+
+    const seenDone = getStoredSet(storageKey);
     let seenChanged = false;
 
     allLocations.forEach((loc) => {
@@ -644,15 +813,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     if (seenChanged) {
-      saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id), seenDone);
+      saveStoredSet(storageKey, seenDone);
     }
-  }, [allLocations, user]);
+  }, [allLocations, user, dataCompanyCode]);
 
   // Check incoming services from staff members (Admin notification)
   useEffect(() => {
-    if (!user || user.role !== 'admin' || allServices.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allServices.length === 0) return;
 
-    const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id));
+    const storageKey = SEEN_SERVICES_KEY(user.id, compCode);
+    if (localStorage.getItem(storageKey) === null) {
+      const seenServices = getStoredSet(storageKey);
+      allServices.forEach((srv) => seenServices.add(srv.id));
+      saveStoredSet(storageKey, seenServices);
+      return;
+    }
+
+    const seenServices = getStoredSet(storageKey);
     let seenChanged = false;
 
     allServices.forEach((srv) => {
@@ -677,17 +855,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     if (seenChanged) {
-      saveStoredSet(SEEN_SERVICES_KEY(user.id), seenServices);
+      saveStoredSet(storageKey, seenServices);
     }
-  }, [allServices, user]);
+  }, [allServices, user, dataCompanyCode]);
 
   // Check incoming note completions (for Admin) & approval/rejection results (for Staff)
   useEffect(() => {
-    if (!user || allNotes.length === 0) return;
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
 
     // 1. For Admin: Alert when a staff member completes a work order (pending_approval)
     if (isUserAdmin(user)) {
-      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id));
+      const completedStorageKey = SEEN_COMPLETED_NOTES_KEY(user.id, compCode);
+      const seenCompleted = getStoredSet(completedStorageKey);
       let seenChanged = false;
 
       allNotes.forEach((n) => {
@@ -707,13 +887,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       if (seenChanged) {
-        saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id), seenCompleted);
+        saveStoredSet(completedStorageKey, seenCompleted);
       }
     }
 
     // 2. For Staff: Alert when Admin approves or rejects the staff's work order
     if (user.role !== 'admin') {
-      const seenApproval = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      const approvalStorageKey = SEEN_APPROVAL_NOTES_KEY(user.id, compCode);
+      const seenApproval = getStoredSet(approvalStorageKey);
       let seenChanged = false;
 
       allNotes.forEach((n) => {
@@ -756,10 +937,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       if (seenChanged) {
-        saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApproval);
+        saveStoredSet(approvalStorageKey, seenApproval);
       }
     }
-  }, [allNotes, user]);
+  }, [allNotes, user, dataCompanyCode]);
 
   const dismissToast = () => {
     setActiveToast(null);
@@ -801,9 +982,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on creator's device immediately
     if (user?.id) {
-      const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode));
       seenLocs.add(newLocation.id);
-      saveStoredSet(SEEN_LOCATIONS_KEY(user.id), seenLocs);
+      saveStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode), seenLocs);
     }
 
     const newLocations = [newLocation, ...allLocations];
@@ -1066,9 +1248,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on creator's device immediately
     if (user?.id) {
-      const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id, compCode));
       seenNotes.add(newNote.id);
-      saveStoredSet(SEEN_NOTES_KEY(user.id), seenNotes);
+      saveStoredSet(SEEN_NOTES_KEY(user.id, compCode), seenNotes);
     }
 
     // Send hardware push notification directly to locked phones via OneSignal
@@ -1183,9 +1366,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on staff device immediately
     if (user?.id) {
-      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode));
       seenCompleted.add(`${id}_${completedAt}`);
-      saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id), seenCompleted);
+      saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompleted);
     }
 
     await saveNotes(newNotes);
@@ -1254,9 +1438,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on admin device immediately
     if (user?.id) {
-      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode));
       seenApprovals.add(`${id}_approved_${approvedAt}`);
-      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApprovals);
+      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
     await saveNotes(newNotes);
@@ -1318,9 +1503,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on admin device immediately
     if (user?.id) {
-      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode));
       seenApprovals.add(`${id}_rejected_${rejectedAt}`);
-      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id), seenApprovals);
+      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
     await saveNotes(newNotes);
@@ -1478,9 +1664,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Mark as seen on creator's device immediately
     if (user?.id) {
-      const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id));
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id, compCode));
       seenServices.add(newService.id);
-      saveStoredSet(SEEN_SERVICES_KEY(user.id), seenServices);
+      saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
     }
 
     const updated = [newService, ...allServices];

@@ -382,9 +382,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setCompany(null);
     setIsAuthenticated(false);
+    StorageService.setCompany('POLATLAR', 1);
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
       sessionStorage.removeItem(AUTH_STORAGE_KEY);
+      localStorage.removeItem('@saha_takip_company_code');
+      localStorage.removeItem('@saha_takip_company_id');
     } catch (e) {
       console.warn('Oturum silinemedi:', e);
     }
