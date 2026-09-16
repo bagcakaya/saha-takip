@@ -166,6 +166,7 @@ export interface BackupData {
   adminReminders?: AdminReminder[];
   cariler?: string[];
   leaveRequests?: LeaveRequest[];
+  securityLogs?: SecurityLogItem[];
 }
 
 export interface CariData {
@@ -220,5 +221,22 @@ export interface LeaveRequest {
   reviewedBy?: string;
   reviewedAt?: number;
   reviewNote?: string;
+}
+
+export interface SecurityLogItem {
+  id: string;
+  companyCode: string;
+  timestamp: number;
+  attemptedUsername: string;
+  attemptedName?: string;
+  attemptedUserId?: string;
+  boundUserId?: string;
+  boundUserName?: string;
+  deviceId: string;
+  deviceName?: string;
+  platform?: string;
+  message: string;
+  status: 'warning' | 'danger';
+  read: boolean;
 }
 

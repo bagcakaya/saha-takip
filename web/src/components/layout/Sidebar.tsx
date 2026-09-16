@@ -14,6 +14,7 @@ import {
   Wrench,
   UserCheck,
   Megaphone,
+  ShieldAlert,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -45,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     attendanceRecords,
     adminReminders,
     leaveRequests,
+    unreadLogsCount,
     cariler,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
@@ -443,6 +445,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 </span>
               )}
             </button>
+
+            {/* Log Kayıtları (Yalnızca Yönetici) */}
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                  activeTab === 'logs'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldAlert className="w-4 h-4 text-amber-500" />
+                  <span>Log Kayıtları</span>
+                </div>
+                {unreadLogsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse">
+                    {unreadLogsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* 4. Şablon Yönetimi */}
             <button

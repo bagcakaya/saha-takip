@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
@@ -8,7 +8,7 @@ import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { useStorage } from '../../context/StorageContext';
 
-export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'reminders' | 'returns' | 'template';
+export type TabType = 'home' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'reminders' | 'returns' | 'logs' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -26,7 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
   actionButton,
 }) => {
   const { user, logout } = useAuth();
-  const { allNotes, allServices, allLocations } = useStorage();
+  const { allNotes, allServices, allLocations, unreadLogsCount } = useStorage();
+  const isAdmin = user?.role === 'admin';
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
@@ -74,8 +75,6 @@ export const Header: React.FC<HeaderProps> = ({
       setPermission(Notification.permission);
     }
   };
-
-  const isAdmin = user?.role === 'admin';
 
   const badgeCount = React.useMemo(() => {
     if (!user) return 0;
@@ -278,6 +277,24 @@ export const Header: React.FC<HeaderProps> = ({
               <RotateCcw className="w-4 h-4" />
               <span>İade / Garanti</span>
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  activeTab === 'logs'
+                    ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                }`}
+              >
+                <ShieldAlert className="w-4 h-4 text-amber-500" />
+                <span>Log Kayıtları</span>
+                {unreadLogsCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                    {unreadLogsCount}
+                  </span>
+                )}
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('template')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${

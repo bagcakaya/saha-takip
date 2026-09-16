@@ -454,6 +454,44 @@ export const DeviceService = {
         ? `"${existingBinding.boundDeviceName}" (${existingBinding.boundDeviceId})`
         : `"${existingBinding.boundDeviceId}"`;
 
+      // Check if current device belongs to another registered staff member
+      let ownerBinding: import('../types/storage').UserDeviceBinding | undefined;
+      try {
+        const allBindings = await this.getUserDeviceBindings();
+        ownerBinding = allBindings.find(
+          (b) => b.boundDeviceId === currentId && b.userId !== params.userId
+        );
+      } catch {
+        // ignore
+      }
+
+      const attemptingUser = params.userName || params.username || 'Bilinmeyen Personel';
+      let securityLogMessage: string;
+
+      if (ownerBinding) {
+        // Exact user requirement format:
+        // "XXXXX kullanıcı isimli personel, XXXX ID numaralı XXXX kullanıcısına ait Telefonla giriş yapmaya çalıştı"
+        const ownerName = ownerBinding.userName || ownerBinding.username || 'Personel';
+        const ownerId = ownerBinding.userId || ownerBinding.username;
+        securityLogMessage = `${attemptingUser} kullanıcı isimli personel, ${ownerId} ID numaralı ${ownerName} kullanıcısına ait Telefonla giriş yapmaya çalıştı.`;
+      } else {
+        securityLogMessage = `${attemptingUser} kullanıcı isimli personel, ${currentId} ID numaralı yetkisiz bir cihazla giriş yapmaya çalıştı.`;
+      }
+
+      // Automatically log the security event to cloud slot 12
+      StorageService.logSecurityEvent({
+        attemptedUsername: params.username || attemptingUser,
+        attemptedName: params.userName,
+        attemptedUserId: params.userId,
+        boundUserId: ownerBinding?.userId,
+        boundUserName: ownerBinding?.userName,
+        deviceId: currentId,
+        deviceName: currentName,
+        platform: env.platform,
+        message: securityLogMessage,
+        status: 'danger',
+      }).catch((logErr) => console.warn('Güvenlik logu atılamadı:', logErr));
+
       return {
         allowed: false,
         error: `🚫 Giriş Engellendi: Bu kullanıcı hesabı başka bir cihaza [${boundDesc}] kilitlidir. Başka bir personelin telefonundan veya farklı bir cihazdan giriş yapamazsınız. Cihaz değişikliği gerekiyorsa lütfen yöneticinizle iletişime geçin.`,

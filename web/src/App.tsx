@@ -9,6 +9,7 @@ import { InstallationsView } from './views/InstallationsView';
 import { ServicesView } from './views/ServicesView';
 import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
+import { SecurityLogsView } from './views/SecurityLogsView';
 import { TemplateView } from './views/TemplateView';
 import { HomeDashboardView } from './views/HomeDashboardView';
 import { StaffTrackingView } from './views/StaffTrackingView';
@@ -29,6 +30,7 @@ const MainApp: React.FC = () => {
     'staff_tracking',
     'reminders',
     'returns',
+    'logs',
     'template',
   ];
 
@@ -224,6 +226,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Ürün & Kargo Takibi',
           title: 'İade & Garanti Yönetimi',
         };
+      case 'logs':
+        return {
+          subtitle: 'Güvenlik & Cihaz Denetimi',
+          title: 'Log Kayıtları',
+        };
       case 'template':
         return {
           subtitle: 'Şablon Yönetimi',
@@ -268,6 +275,7 @@ const MainApp: React.FC = () => {
           {activeTab === 'staff_tracking' && <StaffTrackingView />}
           {activeTab === 'reminders' && <RemindersView />}
           {activeTab === 'returns' && <ReturnWarrantyView />}
+          {activeTab === 'logs' && <SecurityLogsView />}
           {activeTab === 'template' && <TemplateView />}
         </main>
       </div>

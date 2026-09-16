@@ -10,6 +10,7 @@ import {
   AdminReminder,
   CariData,
   LeaveRequest,
+  SecurityLogItem,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -26,6 +27,7 @@ const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
+const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 
 function resolveCompanyId(code: string, currentId?: number): number {
   const clean = (code || 'POLATLAR').trim().toUpperCase();
@@ -906,6 +908,72 @@ export const StorageService = {
   },
 
   /**
+   * Retrieves security log records (unauthorized device attempts)
+   */
+  async getSecurityLogs(): Promise<SecurityLogItem[]> {
+    const localKey = this.getStorageKey(SECURITY_LOGS_KEY);
+    const slotId = this.getSlotId(12);
+    const { data: cloudData, notFound } = await loadChunkedSlot<SecurityLogItem[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<SecurityLogItem[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves security log records
+   */
+  async saveSecurityLogs(logs: SecurityLogItem[]): Promise<void> {
+    const localKey = this.getStorageKey(SECURITY_LOGS_KEY);
+    await saveItem(localKey, logs);
+    await saveChunkedSlot(this.getSlotId(12), logs);
+  },
+
+  /**
+   * Appends a new security log event directly to cloud slot 12 and local cache
+   */
+  async logSecurityEvent(
+    event: Omit<SecurityLogItem, 'id' | 'timestamp' | 'companyCode' | 'read'> & {
+      companyCode?: string;
+    }
+  ): Promise<SecurityLogItem> {
+    const compCode = (event.companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const newLog: SecurityLogItem = {
+      id: `sec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      companyCode: compCode,
+      timestamp: Date.now(),
+      attemptedUsername: event.attemptedUsername,
+      attemptedName: event.attemptedName,
+      attemptedUserId: event.attemptedUserId,
+      boundUserId: event.boundUserId,
+      boundUserName: event.boundUserName,
+      deviceId: event.deviceId,
+      deviceName: event.deviceName,
+      platform: event.platform,
+      message: event.message,
+      status: event.status || 'warning',
+      read: false,
+    };
+
+    try {
+      const currentLogs = await this.getSecurityLogs();
+      const updated = [newLog, ...currentLogs.slice(0, 199)]; // Keep latest 200 logs
+      await this.saveSecurityLogs(updated);
+    } catch (e) {
+      console.warn('Güvenlik logu kaydedilemedi:', e);
+    }
+
+    return newLog;
+  },
+
+  /**
    * Retrieves Cari list data
    */
   async getCarilerData(): Promise<CariData> {
@@ -1053,6 +1121,7 @@ export const StorageService = {
     const attendanceRecords = await this.getAttendanceRecords();
     const adminReminders = await this.getAdminReminders();
     const leaveRequests = await this.getLeaveRequests();
+    const securityLogs = await this.getSecurityLogs();
     const cariData = await this.getCarilerData();
     const backup: BackupData = {
       locations,
@@ -1064,6 +1133,7 @@ export const StorageService = {
       attendanceRecords,
       adminReminders,
       leaveRequests,
+      securityLogs,
       cariler: cariData.cariler,
     };
     return JSON.stringify(backup, null, 2);
@@ -1096,6 +1166,9 @@ export const StorageService = {
     }
     if (backupData.leaveRequests && Array.isArray(backupData.leaveRequests)) {
       await this.saveLeaveRequests(backupData.leaveRequests);
+    }
+    if (backupData.securityLogs && Array.isArray(backupData.securityLogs)) {
+      await this.saveSecurityLogs(backupData.securityLogs);
     }
     if (backupData.cariler && Array.isArray(backupData.cariler)) {
       await this.saveCarilerData({

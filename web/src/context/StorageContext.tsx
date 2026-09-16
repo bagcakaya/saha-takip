@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -24,6 +24,11 @@ interface StorageContextType {
   attendanceRecords: AttendanceRecord[];
   adminReminders: AdminReminder[];
   leaveRequests: LeaveRequest[];
+  securityLogs: SecurityLogItem[];
+  unreadLogsCount: number;
+  markSecurityLogsAsRead: () => Promise<void>;
+  deleteSecurityLog: (logId: string) => Promise<void>;
+  clearAllSecurityLogs: () => Promise<void>;
   isLoading: boolean;
   activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
@@ -201,6 +206,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [adminReminders, setAdminReminders] = useState<AdminReminder[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [securityLogs, setSecurityLogs] = useState<SecurityLogItem[]>([]);
   const [cariler, setCariler] = useState<string[]>([]);
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
@@ -212,6 +218,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     filter?: string;
   } | null>(null);
 
+  const unreadLogsCount = useMemo(() => securityLogs.filter((l) => !l.read).length, [securityLogs]);
+
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
     const compCode = user?.companyCode || 'POLATLAR';
@@ -222,7 +230,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData, leaveReqs] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData, leaveReqs, secLogs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -233,6 +241,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getAdminReminders(),
           StorageService.getCarilerData(),
           StorageService.getLeaveRequests(),
+          StorageService.getSecurityLogs(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -253,6 +262,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
         setLeaveRequests(leaveReqs);
+        setSecurityLogs(secLogs);
         setCariler(cariData.cariler);
         setCarilerUpdatedAt(cariData.updatedAt);
         setCarilerTotal(cariData.total);
@@ -291,7 +301,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders, leaveReqs] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders, leaveReqs, secLogs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
@@ -300,6 +310,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getAttendanceRecords(),
             StorageService.getAdminReminders(),
             StorageService.getLeaveRequests(),
+            StorageService.getSecurityLogs(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
@@ -314,6 +325,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setAttendanceRecords(attRecs);
           setAdminReminders(reminders);
           setLeaveRequests(leaveReqs);
+          setSecurityLogs(secLogs);
         }
       )
       .on(
@@ -2286,6 +2298,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveLeaveRequests(updated);
   };
 
+  const markSecurityLogsAsRead = async (): Promise<void> => {
+    const updated = securityLogs.map((l) => ({ ...l, read: true }));
+    setSecurityLogs(updated);
+    await StorageService.saveSecurityLogs(updated);
+  };
+
+  const deleteSecurityLog = async (logId: string): Promise<void> => {
+    const updated = securityLogs.filter((l) => l.id !== logId);
+    setSecurityLogs(updated);
+    await StorageService.saveSecurityLogs(updated);
+  };
+
+  const clearAllSecurityLogs = async (): Promise<void> => {
+    setSecurityLogs([]);
+    await StorageService.saveSecurityLogs([]);
+  };
+
   return (
     <StorageContext.Provider
       value={{
@@ -2352,6 +2381,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rejectLeaveRequest,
         cancelLeaveRequest,
         deleteLeaveRequest,
+        securityLogs,
+        unreadLogsCount,
+        markSecurityLogsAsRead,
+        deleteSecurityLog,
+        clearAllSecurityLogs,
       }}
     >
       {children}
