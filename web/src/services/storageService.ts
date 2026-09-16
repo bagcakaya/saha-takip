@@ -27,12 +27,46 @@ const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 
+function resolveCompanyId(code: string, currentId?: number): number {
+  const clean = (code || 'POLATLAR').trim().toUpperCase();
+  if (clean === 'POLATLAR') return 1;
+  if (currentId && currentId > 1) return currentId;
+
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_companies_directory') : null;
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const found = list.find((c: any) => c.code && c.code.toUpperCase() === clean);
+        if (found && typeof found.id === 'number' && found.id > 1) {
+          return found.id;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Deterministic fallback hash based on company code (always >= 2, never 1)
+  let hash = 0;
+  for (let i = 0; i < clean.length; i++) {
+    hash = (hash * 31 + clean.charCodeAt(i)) & 0xffff;
+  }
+  return (Math.abs(hash) % 1000) + 2;
+}
+
 // Active Company state
 let activeCompanyCode =
   typeof localStorage !== 'undefined'
     ? localStorage.getItem('@saha_takip_company_code') || 'POLATLAR'
     : 'POLATLAR';
-let activeCompanyId = 1;
+let activeCompanyId =
+  activeCompanyCode === 'POLATLAR'
+    ? 1
+    : resolveCompanyId(
+        activeCompanyCode,
+        Number(typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_id') : 0) || 0
+      );
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -76,7 +110,7 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
 }
 
 // Helper to load chunked JSON from standard_tasks slot
-async function loadChunkedSlot<T>(slotId: number): Promise<T | null> {
+async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; notFound: boolean }> {
   try {
     const { data, error } = await supabase
       .from('standard_tasks')
@@ -86,12 +120,15 @@ async function loadChunkedSlot<T>(slotId: number): Promise<T | null> {
 
     if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
       const rawJson = data.tasks.join('');
-      return JSON.parse(rawJson) as T;
+      return { data: JSON.parse(rawJson) as T, notFound: false };
+    }
+    if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
+      return { data: null, notFound: true };
     }
   } catch {
     // ignore
   }
-  return null;
+  return { data: null, notFound: false };
 }
 
 // Helper to save chunked JSON to standard_tasks slot
@@ -118,11 +155,16 @@ export const StorageService = {
     return activeCompanyId;
   },
 
-  setCompany(code: string, id: number = 1): void {
+  setCompany(code: string, id?: number): void {
     activeCompanyCode = (code || 'POLATLAR').trim().toUpperCase();
-    activeCompanyId = id > 0 ? id : 1;
+    if (activeCompanyCode === 'POLATLAR') {
+      activeCompanyId = 1;
+    } else {
+      activeCompanyId = resolveCompanyId(activeCompanyCode, id && id > 1 ? id : 0);
+    }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('@saha_takip_company_code', activeCompanyCode);
+      localStorage.setItem('@saha_takip_company_id', String(activeCompanyId));
     }
   },
 
@@ -132,10 +174,11 @@ export const StorageService = {
    * Other companies use: (companyId - 1) * 20 + moduleId
    */
   getSlotId(moduleId: number): number {
-    if (activeCompanyId === 1 || activeCompanyCode === 'POLATLAR') {
+    if (activeCompanyCode === 'POLATLAR') {
       return moduleId;
     }
-    return (activeCompanyId - 1) * 20 + moduleId;
+    const resolvedId = resolveCompanyId(activeCompanyCode, activeCompanyId);
+    return (resolvedId - 1) * 20 + moduleId;
   },
 
   /**
@@ -153,7 +196,6 @@ export const StorageService = {
    */
   async getLocations(): Promise<LocationItem[]> {
     const localKey = this.getStorageKey(LOCATIONS_KEY);
-    const localData = (await loadItem<LocationItem[]>(localKey)) || [];
 
     if (activeCompanyCode === 'POLATLAR') {
       // Primary POLATLAR table in Supabase
@@ -184,16 +226,24 @@ export const StorageService = {
       } catch (e) {
         console.warn('Supabase locations fetch error:', e);
       }
-    } else {
-      // Isolated chunked slot 11 for other companies
-      const cloudData = await loadChunkedSlot<LocationItem[]>(this.getSlotId(11));
-      if (cloudData && Array.isArray(cloudData)) {
-        await saveItem(localKey, cloudData);
-        return cloudData;
-      }
+      return (await loadItem<LocationItem[]>(localKey)) || [];
     }
 
-    return localData;
+    // Isolated chunked slot 11 for other companies
+    const slotId = this.getSlotId(11);
+    const { data: cloudData, notFound } = await loadChunkedSlot<LocationItem[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    const localData = await loadItem<LocationItem[]>(localKey);
+    return Array.isArray(localData) ? localData : [];
   },
 
   /**
@@ -248,19 +298,51 @@ export const StorageService = {
    */
   async getStandardTasks(): Promise<string[]> {
     const localKey = this.getStorageKey(STANDARD_TASKS_KEY);
-    const localData = await loadItem<string[]>(localKey);
-    if (localData && Array.isArray(localData) && localData.length > 0) {
-      return localData;
+
+    if (activeCompanyCode === 'POLATLAR') {
+      const localData = await loadItem<string[]>(localKey);
+      if (localData && Array.isArray(localData) && localData.length > 0) {
+        return localData;
+      }
+
+      const { data: cloudData } = await loadChunkedSlot<string[]>(1);
+      if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+        await saveItem(localKey, cloudData);
+        return cloudData;
+      }
+
+      await saveItem(localKey, DEFAULT_STANDARD_TASKS);
+      return DEFAULT_STANDARD_TASKS;
     }
 
-    const cloudData = await loadChunkedSlot<string[]>(this.getSlotId(1));
-    if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+    // Non-POLATLAR companies strictly isolated:
+    const slotId = this.getSlotId(1);
+    const { data: cloudData, notFound } = await loadChunkedSlot<string[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    await saveItem(localKey, DEFAULT_STANDARD_TASKS);
-    return DEFAULT_STANDARD_TASKS;
+    if (notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    // Check if local cache has leaked DEFAULT_STANDARD_TASKS
+    const localData = await loadItem<string[]>(localKey);
+    if (localData && Array.isArray(localData)) {
+      const isLeakedPolatlar =
+        localData.length === DEFAULT_STANDARD_TASKS.length &&
+        localData[0] === DEFAULT_STANDARD_TASKS[0];
+      if (isLeakedPolatlar) {
+        await saveItem(localKey, []);
+        return [];
+      }
+      return localData;
+    }
+
+    await saveItem(localKey, []);
+    return [];
   },
 
   /**
@@ -281,14 +363,13 @@ export const StorageService = {
    */
   async getNotes(): Promise<GeneralNote[]> {
     const localKey = this.getStorageKey(NOTES_KEY);
-    const localData = (await loadItem<GeneralNote[]>(localKey)) || [];
 
     if (activeCompanyCode === 'POLATLAR') {
       // 1. Fetch fallback cloud sync slot (standard_tasks id: 4)
       let fallbackNotes: GeneralNote[] = [];
       const stFallback = await loadChunkedSlot<GeneralNote[]>(4);
-      if (stFallback && Array.isArray(stFallback)) {
-        fallbackNotes = stFallback;
+      if (stFallback.data && Array.isArray(stFallback.data)) {
+        fallbackNotes = stFallback.data;
       }
 
       // 2. Try fetching from Supabase native notes table
@@ -345,16 +426,36 @@ export const StorageService = {
         await saveItem(localKey, fallbackNotes);
         return fallbackNotes;
       }
-    } else {
-      // Isolated chunked slot 4 for other companies
-      const cloudData = await loadChunkedSlot<GeneralNote[]>(this.getSlotId(4));
-      if (cloudData && Array.isArray(cloudData)) {
-        await saveItem(localKey, cloudData);
-        return cloudData;
-      }
+
+      return (await loadItem<GeneralNote[]>(localKey)) || [];
     }
 
-    return localData;
+    // Isolated chunked slot 4 for other companies
+    const slotId = this.getSlotId(4);
+    const { data: cloudData, notFound } = await loadChunkedSlot<GeneralNote[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    const localData = await loadItem<GeneralNote[]>(localKey);
+    if (Array.isArray(localData)) {
+      const sanitized = localData.filter(
+        (n) => n.createdByName !== 'Murat POLAT' && n.createdByName !== 'Azizcan ISIYEL'
+      );
+      if (sanitized.length !== localData.length) {
+        await saveItem(localKey, sanitized);
+      }
+      return sanitized;
+    }
+
+    await saveItem(localKey, []);
+    return [];
   },
 
   /**
@@ -445,7 +546,6 @@ export const StorageService = {
    */
   async getReturnWarrantyItems(): Promise<ReturnWarrantyItem[]> {
     const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
-    const localData = (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
@@ -480,15 +580,31 @@ export const StorageService = {
       } catch {
         // ignore
       }
+
+      const cloudData = await loadChunkedSlot<ReturnWarrantyItem[]>(2);
+      if (cloudData.data && Array.isArray(cloudData.data)) {
+        await saveItem(localKey, cloudData.data);
+        return cloudData.data;
+      }
+
+      return (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
     }
 
-    const cloudData = await loadChunkedSlot<ReturnWarrantyItem[]>(this.getSlotId(2));
+    // Isolated slot 2 for other companies
+    const slotId = this.getSlotId(2);
+    const { data: cloudData, notFound } = await loadChunkedSlot<ReturnWarrantyItem[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    return localData;
+    if (notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    const localData = await loadItem<ReturnWarrantyItem[]>(localKey);
+    return Array.isArray(localData) ? localData : [];
   },
 
   /**
@@ -550,7 +666,6 @@ export const StorageService = {
    */
   async getServices(): Promise<ServiceItem[]> {
     const localKey = this.getStorageKey(SERVICES_KEY);
-    const localData = (await loadItem<ServiceItem[]>(localKey)) || [];
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
@@ -579,15 +694,31 @@ export const StorageService = {
       } catch {
         // ignore
       }
+
+      const cloudData = await loadChunkedSlot<ServiceItem[]>(3);
+      if (cloudData.data && Array.isArray(cloudData.data)) {
+        await saveItem(localKey, cloudData.data);
+        return cloudData.data;
+      }
+
+      return (await loadItem<ServiceItem[]>(localKey)) || [];
     }
 
-    const cloudData = await loadChunkedSlot<ServiceItem[]>(this.getSlotId(3));
+    // Isolated slot 3 for other companies
+    const slotId = this.getSlotId(3);
+    const { data: cloudData, notFound } = await loadChunkedSlot<ServiceItem[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    return localData;
+    if (notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    const localData = await loadItem<ServiceItem[]>(localKey);
+    return Array.isArray(localData) ? localData : [];
   },
 
   /**
@@ -643,9 +774,8 @@ export const StorageService = {
    */
   async getWorkplaceLocation(): Promise<WorkplaceLocation | null> {
     const localKey = this.getStorageKey(WORKPLACE_LOCATION_KEY);
-    const localData = await loadItem<WorkplaceLocation>(localKey);
-
-    const cloudData = await loadChunkedSlot<WorkplaceLocation>(this.getSlotId(5));
+    const slotId = this.getSlotId(5);
+    const { data: cloudData, notFound } = await loadChunkedSlot<WorkplaceLocation>(slotId);
     if (cloudData && typeof cloudData.latitude === 'number' && typeof cloudData.longitude === 'number') {
       if (!cloudData.radiusMeters || cloudData.radiusMeters === 10) {
         cloudData.radiusMeters = 20;
@@ -654,6 +784,12 @@ export const StorageService = {
       return cloudData;
     }
 
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, null);
+      return null;
+    }
+
+    const localData = await loadItem<WorkplaceLocation>(localKey);
     if (localData && (!localData.radiusMeters || localData.radiusMeters === 10)) {
       localData.radiusMeters = 20;
     }
@@ -674,15 +810,32 @@ export const StorageService = {
    */
   async getAttendanceRecords(): Promise<AttendanceRecord[]> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
-    const localData = (await loadItem<AttendanceRecord[]>(localKey)) || [];
-
-    const cloudData = await loadChunkedSlot<AttendanceRecord[]>(this.getSlotId(6));
+    const slotId = this.getSlotId(6);
+    const { data: cloudData, notFound } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    return localData;
+    if (activeCompanyCode !== 'POLATLAR') {
+      if (notFound) {
+        await saveItem(localKey, []);
+        return [];
+      }
+      const localData = await loadItem<AttendanceRecord[]>(localKey);
+      if (Array.isArray(localData)) {
+        const sanitized = localData.filter(
+          (r) => r.userName !== 'Murat POLAT' && r.userName !== 'Azizcan ISIYEL'
+        );
+        if (sanitized.length !== localData.length) {
+          await saveItem(localKey, sanitized);
+        }
+        return sanitized;
+      }
+      return [];
+    }
+
+    return (await loadItem<AttendanceRecord[]>(localKey)) || [];
   },
 
   /**
@@ -699,15 +852,19 @@ export const StorageService = {
    */
   async getAdminReminders(): Promise<AdminReminder[]> {
     const localKey = this.getStorageKey(ADMIN_REMINDERS_KEY);
-    const localData = (await loadItem<AdminReminder[]>(localKey)) || [];
-
-    const cloudData = await loadChunkedSlot<AdminReminder[]>(this.getSlotId(7));
+    const slotId = this.getSlotId(7);
+    const { data: cloudData, notFound } = await loadChunkedSlot<AdminReminder[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    return localData;
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<AdminReminder[]>(localKey)) || [];
   },
 
   /**
@@ -724,15 +881,19 @@ export const StorageService = {
    */
   async getLeaveRequests(): Promise<LeaveRequest[]> {
     const localKey = this.getStorageKey(LEAVE_REQUESTS_KEY);
-    const localData = (await loadItem<LeaveRequest[]>(localKey)) || [];
-
-    const cloudData = await loadChunkedSlot<LeaveRequest[]>(this.getSlotId(10));
+    const slotId = this.getSlotId(10);
+    const { data: cloudData, notFound } = await loadChunkedSlot<LeaveRequest[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    return localData;
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<LeaveRequest[]>(localKey)) || [];
   },
 
   /**
@@ -749,9 +910,34 @@ export const StorageService = {
    */
   async getCarilerData(): Promise<CariData> {
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
+
+    if (activeCompanyCode !== 'POLATLAR') {
+      try {
+        const cached = await loadItem<CariData>(localKey);
+        if (
+          cached &&
+          Array.isArray(cached.cariler) &&
+          cached.database !== 'POLATLAR2025' &&
+          cached.cariler.length !== 370
+        ) {
+          return cached;
+        }
+      } catch {
+        // ignore
+      }
+      const emptyCari: CariData = {
+        updatedAt: null,
+        database: `${activeCompanyCode} Cariler`,
+        total: 0,
+        cariler: [],
+      };
+      await saveItem(localKey, emptyCari);
+      return emptyCari;
+    }
+
     const fallback: CariData = {
       updatedAt: (defaultCarilerData as any).updatedAt || new Date().toISOString(),
-      database: activeCompanyCode === 'POLATLAR' ? 'POLATLAR2025' : `${activeCompanyCode} Cariler`,
+      database: 'POLATLAR2025',
       total: (defaultCarilerData as any).total || ((defaultCarilerData as any).cariler || []).length,
       cariler: (defaultCarilerData as any).cariler || [],
     };
@@ -759,7 +945,10 @@ export const StorageService = {
     try {
       const cached = await loadItem<CariData>(localKey);
       if (cached?.cariler && cached.cariler.length > 0) {
-        if (!fallback.updatedAt || new Date(cached.updatedAt) >= new Date(fallback.updatedAt)) {
+        if (
+          !fallback.updatedAt ||
+          (cached.updatedAt && new Date(cached.updatedAt) >= new Date(fallback.updatedAt))
+        ) {
           return cached;
         }
       }
@@ -768,7 +957,7 @@ export const StorageService = {
     }
 
     // Non-blocking background fetch check for default POLATLAR cariler
-    if (activeCompanyCode === 'POLATLAR' && typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
       fetch(`/cariler.json?t=${Date.now()}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((fresh) => {

@@ -169,7 +169,7 @@ export interface BackupData {
 }
 
 export interface CariData {
-  updatedAt: string;
+  updatedAt: string | null;
   database?: string;
   total: number;
   cariler: string[];

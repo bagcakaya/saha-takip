@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { useStorage } from '../../context/StorageContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface CariListModalProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ export const CariListModal: React.FC<CariListModalProps> = ({
   onClose,
   onSelectCari,
 }) => {
+  const { user } = useAuth();
+  const isPolatlar = (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
   const {
     cariler,
     carilerUpdatedAt,
@@ -93,7 +96,7 @@ export const CariListModal: React.FC<CariListModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Cari Hesap Listesi (POLATLAR2025)"
+      title={isPolatlar ? 'Cari Hesap Listesi (POLATLAR2025)' : `Cari Hesap Listesi (${user?.companyCode || 'Kurum'})`}
     >
       <div className="space-y-4 max-h-[80vh] flex flex-col">
         {/* Top Info Banner */}
@@ -102,7 +105,7 @@ export const CariListModal: React.FC<CariListModalProps> = ({
             <div className="flex items-center gap-2">
               <Database className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-xs font-bold text-blue-950 dark:text-blue-200">
-                SSMS Veritabanı: POLATLAR2025
+                {isPolatlar ? 'SSMS Veritabanı: POLATLAR2025' : `${user?.companyCode || 'Kurum'} Cari Veritabanı`}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -117,11 +120,13 @@ export const CariListModal: React.FC<CariListModalProps> = ({
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-            Veritabanına yeni bir Cari eklendiğinde masaüstünüzdeki{' '}
-            <strong className="text-blue-700 dark:text-blue-300">Cari_Guncelle.bat</strong>{' '}
-            dosyasını çift tıklayarak tek tıkla Excel ve uygulamayı anında senkronize edebilirsiniz.
-          </p>
+          {isPolatlar && (
+            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              Veritabanına yeni bir Cari eklendiğinde masaüstünüzdeki{' '}
+              <strong className="text-blue-700 dark:text-blue-300">Cari_Guncelle.bat</strong>{' '}
+              dosyasını çift tıklayarak tek tıkla Excel ve uygulamayı anında senkronize edebilirsiniz.
+            </p>
+          )}
 
           {/* Action Buttons: Upload Excel & Download Excel */}
           <div className="flex items-center gap-2 pt-1">

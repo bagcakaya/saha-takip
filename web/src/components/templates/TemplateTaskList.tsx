@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { Search, Plus, Trash2, X, Info } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
+import { useAuth } from '../../context/AuthContext';
 
 export const TemplateTaskList: React.FC = () => {
+  const { user } = useAuth();
   const {
     standardTasks,
     addStandardTask,
     deleteStandardTask,
     resetStandardTasks,
   } = useStorage();
+
+  const isPolatlar = (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [newTaskName, setNewTaskName] = useState('');
@@ -80,9 +84,13 @@ export const TemplateTaskList: React.FC = () => {
               {searchQuery ? 'Aramayla eşleşen şablon görev bulunamadı.' : 'Şablonda görev bulunmuyor.'}
             </span>
             <span className="text-xs text-slate-400 block mb-4">
-              {searchQuery ? 'Lütfen arama teriminizi kontrol edin.' : 'Aşağıdaki alandan yeni standart görev ekleyebilir veya varsayılanları yükleyebilirsiniz.'}
+              {searchQuery
+                ? 'Lütfen arama teriminizi kontrol edin.'
+                : isPolatlar
+                ? 'Aşağıdaki alandan yeni standart görev ekleyebilir veya varsayılanları yükleyebilirsiniz.'
+                : 'Aşağıdaki alandan kurumunuza özel standart görevler tanımlayabilirsiniz.'}
             </span>
-            {!searchQuery && (
+            {!searchQuery && isPolatlar && (
               <button
                 onClick={resetStandardTasks}
                 className="px-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"

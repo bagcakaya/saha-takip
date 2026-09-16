@@ -1,12 +1,16 @@
 import React from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
+import { useAuth } from '../context/AuthContext';
 import { BackupSection } from '../components/templates/BackupSection';
 import { CariSection } from '../components/templates/CariSection';
 import { TemplateTaskList } from '../components/templates/TemplateTaskList';
 
 export const TemplateView: React.FC = () => {
+  const { user } = useAuth();
   const { standardTasks, resetStandardTasks } = useStorage();
+
+  const isPolatlar = (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
 
   const handleReset = () => {
     if (
@@ -31,7 +35,7 @@ export const TemplateView: React.FC = () => {
           </span>
         </div>
 
-        {standardTasks.length > 0 && (
+        {isPolatlar && standardTasks.length > 0 && (
           <button
             onClick={handleReset}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shrink-0"
@@ -43,19 +47,31 @@ export const TemplateView: React.FC = () => {
         )}
       </div>
 
-      {/* Desktop 2-Column Responsive Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column: Backup & Data Portability & Cari Database */}
-        <div className="lg:col-span-5 space-y-5">
-          <BackupSection />
-          <CariSection />
-        </div>
+      {/* Responsive Layout */}
+      {isPolatlar ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* Left Column: Backup & Data Portability & Cari Database */}
+          <div className="lg:col-span-5 space-y-5">
+            <BackupSection />
+            <CariSection />
+          </div>
 
-        {/* Right Column: Standard Tasks List & Addition */}
-        <div className="lg:col-span-7">
-          <TemplateTaskList />
+          {/* Right Column: Standard Tasks List & Addition */}
+          <div className="lg:col-span-7">
+            <TemplateTaskList />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          <div className="lg:col-span-4">
+            <BackupSection />
+          </div>
+          <div className="lg:col-span-8">
+            <TemplateTaskList />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

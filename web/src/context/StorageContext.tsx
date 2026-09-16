@@ -214,9 +214,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
-    if (user?.companyCode) {
-      StorageService.setCompany(user.companyCode, company?.id || 1);
-    }
+    const compCode = user?.companyCode || 'POLATLAR';
+    const compId = company?.id || (compCode === 'POLATLAR' ? 1 : undefined);
+    StorageService.setCompany(compCode, compId);
+
+    const isPolatlar = compCode.toUpperCase() === 'POLATLAR';
 
     const initData = async () => {
       try {
@@ -245,6 +247,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (wpLoc) {
           const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
           setWorkplaceLocation(finalWp);
+        } else {
+          setWorkplaceLocation(null);
         }
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
@@ -262,21 +266,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Realtime listeners for locations, notes, standard_tasks, return_warranty & services
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel(`schema-db-changes-${compCode}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'locations' },
         async () => {
-          const locs = await StorageService.getLocations();
-          setAllLocations(locs);
+          if (isPolatlar) {
+            const locs = await StorageService.getLocations();
+            setAllLocations(locs);
+          }
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
         async () => {
-          const nts = await StorageService.getNotes();
-          setAllNotes(nts);
+          if (isPolatlar) {
+            const nts = await StorageService.getNotes();
+            setAllNotes(nts);
+          }
         }
       )
       .on(
@@ -300,6 +308,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (wpLoc) {
             const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
             setWorkplaceLocation(finalWp);
+          } else {
+            setWorkplaceLocation(null);
           }
           setAttendanceRecords(attRecs);
           setAdminReminders(reminders);
@@ -310,16 +320,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'return_warranty' },
         async () => {
-          const returns = await StorageService.getReturnWarrantyItems();
-          setReturnWarrantyItems(returns);
+          if (isPolatlar) {
+            const returns = await StorageService.getReturnWarrantyItems();
+            setReturnWarrantyItems(returns);
+          }
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'services' },
         async () => {
-          const srvs = await StorageService.getServices();
-          setAllServices(srvs);
+          if (isPolatlar) {
+            const srvs = await StorageService.getServices();
+            setAllServices(srvs);
+          }
         }
       )
       .subscribe();
@@ -907,7 +921,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Reset standard tasks to default template
   const resetStandardTasks = async () => {
-    await saveStandardTasks(DEFAULT_STANDARD_TASKS);
+    const isPolatlar = (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
+    await saveStandardTasks(isPolatlar ? DEFAULT_STANDARD_TASKS : []);
   };
 
   // Update location address, notes, and optionally name & coordinates (guarded: admin or creator only)
