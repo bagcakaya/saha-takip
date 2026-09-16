@@ -1,6 +1,7 @@
 import { RegisteredDevice } from '../types/storage';
 import { supabase } from './supabaseClient';
 import { detectEnvironment } from './oneSignalService';
+import { StorageService } from './storageService';
 
 const DEVICE_ID_KEY = '@saha_takip_device_id';
 const DEVICE_NAME_KEY = '@saha_takip_device_name';
@@ -197,9 +198,10 @@ export const DeviceService = {
    * Fetches all registered devices from Supabase cloud (slot 8) with local fallback
    */
   async getRegisteredDevices(): Promise<RegisteredDevice[]> {
+    const storageKey = StorageService.getStorageKey(REGISTERED_DEVICES_KEY);
     let localData: RegisteredDevice[] = [];
     try {
-      const raw = localStorage.getItem(REGISTERED_DEVICES_KEY);
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) localData = parsed;
@@ -212,7 +214,7 @@ export const DeviceService = {
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
-        .eq('id', 8)
+        .eq('id', StorageService.getSlotId(8))
         .single();
 
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
@@ -220,7 +222,7 @@ export const DeviceService = {
         const parsed: RegisteredDevice[] = JSON.parse(rawJson);
         if (Array.isArray(parsed)) {
           try {
-            localStorage.setItem(REGISTERED_DEVICES_KEY, JSON.stringify(parsed));
+            localStorage.setItem(storageKey, JSON.stringify(parsed));
           } catch {
             // ignore
           }
@@ -238,8 +240,9 @@ export const DeviceService = {
    * Internal helper to save registered devices to Supabase slot 8
    */
   async saveRegisteredDevicesToCloud(devices: RegisteredDevice[]): Promise<void> {
+    const storageKey = StorageService.getStorageKey(REGISTERED_DEVICES_KEY);
     try {
-      localStorage.setItem(REGISTERED_DEVICES_KEY, JSON.stringify(devices));
+      localStorage.setItem(storageKey, JSON.stringify(devices));
     } catch {
       // ignore
     }
@@ -251,7 +254,7 @@ export const DeviceService = {
       for (let i = 0; i < rawJson.length; i += chunkSize) {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
-      await supabase.from('standard_tasks').upsert({ id: 8, tasks: chunks });
+      await supabase.from('standard_tasks').upsert({ id: StorageService.getSlotId(8), tasks: chunks });
     } catch (err) {
       console.warn('Cloud save registered devices error:', err);
     }
@@ -278,7 +281,7 @@ export const DeviceService = {
    * Fetches all user device bindings from Supabase slot 9 (with local cache mirror)
    */
   async getUserDeviceBindings(): Promise<import('../types/storage').UserDeviceBinding[]> {
-    const STORAGE_BINDINGS_KEY = '@saha_takip_user_device_bindings';
+    const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
     let localData: import('../types/storage').UserDeviceBinding[] = [];
     try {
       const raw = localStorage.getItem(STORAGE_BINDINGS_KEY);
@@ -294,7 +297,7 @@ export const DeviceService = {
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
-        .eq('id', 9)
+        .eq('id', StorageService.getSlotId(9))
         .single();
 
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
@@ -322,7 +325,7 @@ export const DeviceService = {
   async saveUserDeviceBindingsToCloud(
     bindings: import('../types/storage').UserDeviceBinding[]
   ): Promise<void> {
-    const STORAGE_BINDINGS_KEY = '@saha_takip_user_device_bindings';
+    const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
     try {
       localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(bindings));
     } catch {
@@ -336,7 +339,7 @@ export const DeviceService = {
       for (let i = 0; i < rawJson.length; i += chunkSize) {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
-      await supabase.from('standard_tasks').upsert({ id: 9, tasks: chunks });
+      await supabase.from('standard_tasks').upsert({ id: StorageService.getSlotId(9), tasks: chunks });
     } catch (err) {
       console.warn('Cloud save user device bindings error:', err);
     }

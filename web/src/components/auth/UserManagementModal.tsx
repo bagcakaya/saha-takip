@@ -23,9 +23,25 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { user: currentUser, users, addUser, updateUser, deleteUser } = useAuth();
+  const {
+    user: currentUser,
+    users,
+    company,
+    addUser,
+    updateUser,
+    deleteUser,
+    suggestUsername,
+  } = useAuth();
 
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'add'>('list');
+
+  // Filter users belonging to current company only
+  const companyUsers = React.useMemo(() => {
+    const currentCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
+    return users.filter(
+      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === currentCode
+    );
+  }, [users, currentUser]);
 
   // Form states for adding user
   const [newUsername, setNewUsername] = useState('');
@@ -39,6 +55,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [changedPassword, setChangedPassword] = useState('');
 
   if (!isOpen) return null;
+
+  const handleNameChange = (val: string) => {
+    setNewName(val);
+    const suggested = suggestUsername(val);
+    setNewUsername(suggested);
+  };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,6 +135,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Kullanıcı ve Yetki Yönetimi" maxWidth="max-w-2xl">
       <div className="space-y-4">
+        {/* Company Header Banner */}
+        <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-blue-900 dark:text-blue-200">
+              🏢 {company?.name || currentUser?.companyCode || 'POLATLAR'}
+            </span>
+          </div>
+          <span className="px-2 py-0.5 rounded-md font-black bg-blue-600 text-white text-[10px] tracking-wider">
+            KURUM KODU: {(currentUser?.companyCode || 'POLATLAR').toUpperCase()}
+          </span>
+        </div>
+
         {/* Sub Tabs */}
         <div className="flex items-center gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80">
           <button
@@ -127,7 +161,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Kullanıcı Listesi ({users.length})</span>
+            <span>Kullanıcı Listesi ({companyUsers.length})</span>
           </button>
 
           <button
@@ -149,7 +183,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         {/* Tab 1: Users List */}
         {activeSubTab === 'list' && (
           <div className="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1">
-            {users.map((account) => {
+            {companyUsers.map((account) => {
               const isAdmin = account.role === 'admin';
               const isCurrent = currentUser?.id === account.id;
 
@@ -287,18 +321,38 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* Username */}
+              {/* Full Name */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-                  Kullanıcı Adı (Giriş için)
+                  Ad Soyad / Unvan
                 </label>
                 <input
                   type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="Örn: ahmet, burak, mert"
+                  value={newName}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Örn: Ahmet Yılmaz"
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Username (Auto-suggested) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Kullanıcı Adı (Giriş için)
+                  </label>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
+                    ✨ Otomatik üretildi
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                  placeholder="Örn: ahmetyilmaz"
+                  required
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -313,20 +367,6 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="En az 3 karakter"
                   required
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Full Name */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-                  Ad Soyad / Unvan
-                </label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Örn: Ahmet Yılmaz"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

@@ -190,7 +190,7 @@ const saveStoredSet = (key: string, setObj: Set<string>) => {
 };
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, users } = useAuth();
+  const { user, users, company } = useAuth();
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
@@ -214,6 +214,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
+    if (user?.companyCode) {
+      StorageService.setCompany(user.companyCode, company?.id || 1);
+    }
+
     const initData = async () => {
       try {
         const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData, leaveReqs] = await Promise.all([
@@ -378,7 +382,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       supabase.removeChannel(channel);
       clearInterval(syncInterval);
     };
-  }, []);
+  }, [user?.companyCode, company?.id]);
 
   // Filter locations based on role:
   // Admin -> Sees ALL locations from all staff members

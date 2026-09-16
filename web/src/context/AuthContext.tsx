@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, UserAccount, UserRole } from '../types/auth';
+import { User, UserAccount, UserRole, Company } from '../types/auth';
 import { UserService } from '../services/userService';
+import { CompanyService } from '../services/companyService';
+import { StorageService } from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
 import { DeviceService } from '../services/deviceService';
@@ -8,12 +10,34 @@ import { DeviceService } from '../services/deviceService';
 interface AuthContextType {
   user: User | null;
   users: UserAccount[];
+  company: Company | null;
   isAuthenticated: boolean;
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; error?: string }>;
+  login: (
+    companyCode: string,
+    usernameOrEmail: string,
+    password: string,
+    rememberMe?: boolean
+  ) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
-  addUser: (params: { username: string; password: string; name: string; role: UserRole }) => Promise<{ success: boolean; error?: string }>;
-  updateUser: (id: string, updates: { name?: string; role?: UserRole; password?: string }) => Promise<{ success: boolean; error?: string }>;
+  registerCompany: (params: {
+    name: string;
+    code: string;
+    adminName: string;
+    adminEmail: string;
+    password: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  addUser: (params: {
+    username: string;
+    password: string;
+    name: string;
+    role: UserRole;
+  }) => Promise<{ success: boolean; error?: string }>;
+  updateUser: (
+    id: string,
+    updates: { name?: string; role?: UserRole; password?: string }
+  ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
+  suggestUsername: (name: string) => string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,12 +46,20 @@ const AUTH_STORAGE_KEY = '@gorev_tamamlama_auth_user';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<UserAccount[]>([]);
+  const [company, setCompany] = useState<Company | null>(null);
 
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem(AUTH_STORAGE_KEY) || sessionStorage.getItem(AUTH_STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed: User = JSON.parse(saved);
+        if (parsed && parsed.companyCode) {
+          StorageService.setCompany(parsed.companyCode);
+        } else if (parsed) {
+          parsed.companyCode = 'POLATLAR';
+          StorageService.setCompany('POLATLAR', 1);
+        }
+        return parsed;
       }
     } catch (e) {
       console.warn('Oturum bilgisi okunamadı:', e);
@@ -36,6 +68,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(user));
+
+  // Load company metadata whenever user changes
+  useEffect(() => {
+    if (user?.companyCode) {
+      CompanyService.getCompanyByCode(user.companyCode).then((comp) => {
+        if (comp) {
+          setCompany(comp);
+          StorageService.setCompany(comp.code, comp.id);
+        }
+      });
+    } else {
+      setCompany(null);
+    }
+  }, [user]);
 
   useEffect(() => {
     setIsAuthenticated(Boolean(user));
@@ -57,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      OneSignalService.loginUser(user.id, user.name, user.role);
+      OneSignalService.loginUser(user.id, user.name, user.role, user.companyCode);
       OneSignalService.selfHealSubscription(user).catch(() => {});
     }
   }, [user]);
@@ -68,7 +114,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const handleResume = () => {
       if (document.visibilityState === 'visible') {
-        // Device authorization guard on resume
         if (user.role !== 'admin') {
           const currentDeviceId = DeviceService.getCurrentDeviceId();
           DeviceService.verifyDeviceAccess({
@@ -85,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
 
-        OneSignalService.loginUser(user.id, user.name, user.role);
+        OneSignalService.loginUser(user.id, user.name, user.role, user.companyCode);
         OneSignalService.selfHealSubscription(user).catch(() => {});
       }
     };
@@ -99,13 +144,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
-  // Initial cloud fetch & realtime subscription
+  // Initial cloud fetch & realtime subscription for app_users
   useEffect(() => {
     UserService.fetchUsersFromCloud().then((cloudUsers) => {
       setUsers(cloudUsers);
     });
 
-    // Supabase Realtime channel for app_users table
     const channel = supabase
       .channel('app_users_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_users' }, async () => {
@@ -125,18 +169,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (
-    username: string,
+    companyCode: string,
+    usernameOrEmail: string,
     password: string,
     rememberMe = true
   ): Promise<{ success: boolean; error?: string }> => {
-    const authResult = await UserService.authenticate(username, password);
+    const cleanCompanyCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+
+    // 1. Verify Company exists
+    const matchedCompany = await CompanyService.getCompanyByCode(cleanCompanyCode);
+    if (!matchedCompany) {
+      return {
+        success: false,
+        error: `"${cleanCompanyCode}" koduna ait bir kurum bulunamadı. Lütfen kurum kodunu kontrol edin.`,
+      };
+    }
+
+    // 2. Authenticate User within this company
+    const authResult = await UserService.authenticate(
+      matchedCompany.code,
+      usernameOrEmail,
+      password
+    );
 
     if (!authResult.success || !authResult.user) {
       return { success: false, error: authResult.error || 'Giriş yapılamadı.' };
     }
     const authenticatedUser = authResult.user;
 
-    // ANTI-FRAUD DEVICE LOCK VERIFICATION
+    // 3. Anti-Fraud Device Lock Verification
     if (authenticatedUser.role !== 'admin') {
       const currentDeviceId = DeviceService.getCurrentDeviceId();
       const accessCheck = await DeviceService.verifyDeviceAccess({
@@ -155,9 +216,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    // 4. Configure Storage & OneSignal for this company
+    StorageService.setCompany(matchedCompany.code, matchedCompany.id);
+    setCompany(matchedCompany);
     setUser(authenticatedUser);
     setIsAuthenticated(true);
-    OneSignalService.loginUser(authenticatedUser.id, authenticatedUser.name, authenticatedUser.role);
+    OneSignalService.loginUser(
+      authenticatedUser.id,
+      authenticatedUser.name,
+      authenticatedUser.role,
+      matchedCompany.code
+    );
 
     try {
       if (rememberMe) {
@@ -167,6 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authenticatedUser));
         localStorage.removeItem(AUTH_STORAGE_KEY);
       }
+      localStorage.setItem('@saha_takip_company_code', matchedCompany.code);
     } catch (e) {
       console.warn('Oturum kaydedilemedi:', e);
     }
@@ -174,9 +244,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  const registerCompany = async (params: {
+    name: string;
+    code: string;
+    adminName: string;
+    adminEmail: string;
+    password: string;
+  }): Promise<{ success: boolean; error?: string }> => {
+    if (!params.password || params.password.length < 3) {
+      return { success: false, error: 'Şifre en az 3 karakter olmalıdır.' };
+    }
+
+    // 1. Register Company
+    const compRes = await CompanyService.registerCompany({
+      name: params.name,
+      code: params.code,
+      adminName: params.adminName,
+      adminEmail: params.adminEmail,
+    });
+
+    if (!compRes.success || !compRes.company) {
+      return { success: false, error: compRes.error || 'Kurum kaydı oluşturulamadı.' };
+    }
+
+    const newCompany = compRes.company;
+
+    // 2. Create Admin Account for Company
+    const adminRes = await UserService.createAdminForCompany(newCompany, params.password);
+    if (!adminRes.success || !adminRes.user) {
+      return { success: false, error: adminRes.error || 'Yönetici hesabı oluşturulamadı.' };
+    }
+
+    // 3. Automatically log in to the new company
+    return login(newCompany.code, adminRes.user.username, params.password, true);
+  };
+
   const logout = () => {
     OneSignalService.logoutUser();
     setUser(null);
+    setCompany(null);
     setIsAuthenticated(false);
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -186,15 +292,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const addUser = async (params: { username: string; password: string; name: string; role: UserRole }) => {
-    const res = await UserService.addUser(params);
+  const addUser = async (params: {
+    username: string;
+    password: string;
+    name: string;
+    role: UserRole;
+  }) => {
+    const currentCompCode = user?.companyCode || 'POLATLAR';
+    const res = await UserService.addUser({
+      ...params,
+      companyCode: currentCompCode,
+    });
     if (res.success) {
       await refreshUsers();
     }
     return res;
   };
 
-  const updateUser = async (id: string, updates: { name?: string; role?: UserRole; password?: string }) => {
+  const updateUser = async (
+    id: string,
+    updates: { name?: string; role?: UserRole; password?: string }
+  ) => {
     const res = await UserService.updateUser(id, updates);
     if (res.success) {
       await refreshUsers();
@@ -218,17 +336,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   };
 
+  const suggestUsername = (name: string): string => {
+    const currentCompCode = user?.companyCode || 'POLATLAR';
+    return UserService.generateSuggestedUsername(name, currentCompCode);
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         users,
+        company,
         isAuthenticated,
         login,
         logout,
+        registerCompany,
         addUser,
         updateUser,
         deleteUser,
+        suggestUsername,
       }}
     >
       {children}

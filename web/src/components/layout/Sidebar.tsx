@@ -524,9 +524,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">
                     {user.name}
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block truncate">
-                    {isAdmin ? 'Sistem Yöneticisi' : 'Saha Yetkilisi'}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 truncate">
+                      {isAdmin ? 'Yönetici' : 'Personel'}
+                    </span>
+                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 uppercase shrink-0">
+                      {user.companyCode || 'POLATLAR'}
+                    </span>
+                  </div>
                 </div>
               </div>
 

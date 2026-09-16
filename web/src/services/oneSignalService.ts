@@ -172,15 +172,17 @@ export const OneSignalService = {
   /**
    * Associates current device with the logged-in user ID and ensures opt-in
    */
-  loginUser(userId: string, name: string, role: string): void {
+  loginUser(userId: string, name: string, role: string, companyCode?: string): void {
     if (typeof window === 'undefined') return;
+
+    const compCode = (companyCode || localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
 
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal: any) => {
       try {
         await OneSignal.login(userId);
         if (OneSignal.User && OneSignal.User.addTags) {
-          await OneSignal.User.addTags({ name, role, userId });
+          await OneSignal.User.addTags({ name, role, userId, company_code: compCode });
         }
         // If permission is already granted in browser, ensure push subscription is opted-in & active
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -300,11 +302,18 @@ export const OneSignalService = {
 
           if (targetUser?.id && OneSignal?.login) {
             await OneSignal.login(targetUser.id);
+            const compCode = (
+              (targetUser as any)?.companyCode ||
+              localStorage.getItem('@saha_takip_company_code') ||
+              'POLATLAR'
+            ).toUpperCase();
+
             if (OneSignal?.User?.addTags) {
               await OneSignal.User.addTags({
                 userId: targetUser.id,
                 name: targetUser.name,
                 role: targetUser.role,
+                company_code: compCode,
                 platform: env.platform,
                 standalone: env.isStandalone ? 'true' : 'false',
                 lastHealed: new Date().toISOString(),
@@ -521,6 +530,7 @@ export const OneSignalService = {
     targetMode?: 'all' | 'custom' | 'self' | 'admin';
     targetUserIds?: string[];
     targetSubscriptionIds?: string[];
+    companyCode?: string;
     url?: string;
     sendAfter?: string;
     delaySeconds?: number;
@@ -531,10 +541,17 @@ export const OneSignalService = {
       targetMode = 'all',
       targetUserIds = [],
       targetSubscriptionIds = [],
+      companyCode,
       url,
       sendAfter,
       delaySeconds,
     } = params;
+
+    const targetCompanyCode = (
+      companyCode ||
+      localStorage.getItem('@saha_takip_company_code') ||
+      'POLATLAR'
+    ).toUpperCase();
 
     // If API Key or App ID is not configured, skip
     if (
@@ -632,18 +649,26 @@ export const OneSignalService = {
         }
       }
 
-      // 2. All subscribers
+      // 2. All subscribers (Filtered strictly by company_code)
       if (targetMode === 'all') {
-        const payload = { ...basePayload, included_segments: ['Total Subscriptions'] };
+        const payload = {
+          ...basePayload,
+          filters: [
+            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
+          ],
+        };
         const res = await this._postNotification(payload);
         return { success: true, data: res };
       }
 
-      // 3. Admin role targeting
+      // 3. Admin role targeting (Filtered strictly by company_code + role=admin)
       if (targetMode === 'admin') {
         const payload = {
           ...basePayload,
-          filters: [{ field: 'tag', key: 'role', relation: '=', value: 'admin' }],
+          filters: [
+            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
+            { field: 'tag', key: 'role', relation: '=', value: 'admin' },
+          ],
         };
         const res = await this._postNotification(payload);
         return { success: true, data: res };

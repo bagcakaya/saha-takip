@@ -1,5 +1,16 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, CariData, LeaveRequest } from '../types/storage';
+import {
+  LocationItem,
+  GeneralNote,
+  BackupData,
+  ReturnWarrantyItem,
+  ServiceItem,
+  WorkplaceLocation,
+  AttendanceRecord,
+  AdminReminder,
+  CariData,
+  LeaveRequest,
+} from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
@@ -15,6 +26,13 @@ const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
+
+// Active Company state
+let activeCompanyCode =
+  typeof localStorage !== 'undefined'
+    ? localStorage.getItem('@saha_takip_company_code') || 'POLATLAR'
+    : 'POLATLAR';
+let activeCompanyId = 1;
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -57,40 +75,122 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
   }
 }
 
+// Helper to load chunked JSON from standard_tasks slot
+async function loadChunkedSlot<T>(slotId: number): Promise<T | null> {
+  try {
+    const { data, error } = await supabase
+      .from('standard_tasks')
+      .select('tasks')
+      .eq('id', slotId)
+      .single();
+
+    if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+      const rawJson = data.tasks.join('');
+      return JSON.parse(rawJson) as T;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+// Helper to save chunked JSON to standard_tasks slot
+async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
+  try {
+    const rawJson = JSON.stringify(data);
+    const chunks: string[] = [];
+    const chunkSize = 8000;
+    for (let i = 0; i < rawJson.length; i += chunkSize) {
+      chunks.push(rawJson.slice(i, i + chunkSize));
+    }
+    await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+  } catch (err) {
+    console.warn(`Cloud save error for slot ${slotId}:`, err);
+  }
+}
+
 export const StorageService = {
+  getCompanyCode(): string {
+    return activeCompanyCode;
+  },
+
+  getCompanyId(): number {
+    return activeCompanyId;
+  },
+
+  setCompany(code: string, id: number = 1): void {
+    activeCompanyCode = (code || 'POLATLAR').trim().toUpperCase();
+    activeCompanyId = id > 0 ? id : 1;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('@saha_takip_company_code', activeCompanyCode);
+    }
+  },
+
+  /**
+   * Calculates cloud standard_tasks slot ID for given module.
+   * POLATLAR (company 1) uses standard slots 1..10.
+   * Other companies use: (companyId - 1) * 20 + moduleId
+   */
+  getSlotId(moduleId: number): number {
+    if (activeCompanyId === 1 || activeCompanyCode === 'POLATLAR') {
+      return moduleId;
+    }
+    return (activeCompanyId - 1) * 20 + moduleId;
+  },
+
+  /**
+   * Scopes local storage key to active company
+   */
+  getStorageKey(baseKey: string): string {
+    if (activeCompanyCode === 'POLATLAR') {
+      return baseKey;
+    }
+    return `${baseKey}_${activeCompanyCode}`;
+  },
+
   /**
    * Retrieves locations (Supabase cloud + local IndexedDB cache)
    */
   async getLocations(): Promise<LocationItem[]> {
-    const localData = (await loadItem<LocationItem[]>(LOCATIONS_KEY)) || [];
+    const localKey = this.getStorageKey(LOCATIONS_KEY);
+    const localData = (await loadItem<LocationItem[]>(localKey)) || [];
 
-    // Try fetching latest from Supabase
-    try {
-      const { data, error } = await supabase
-        .from('locations')
-        .select('*')
-        .order('created_at', { ascending: false });
+    if (activeCompanyCode === 'POLATLAR') {
+      // Primary POLATLAR table in Supabase
+      try {
+        const { data, error } = await supabase
+          .from('locations')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data) {
-        const cloudLocations: LocationItem[] = data.map((row) => ({
-          id: row.id,
-          name: row.name,
-          address: row.address || '',
-          notes: row.notes || '',
-          photos: Array.isArray(row.photos) ? row.photos : [],
-          latitude: row.latitude || undefined,
-          longitude: row.longitude || undefined,
-          createdAt: Number(row.created_at) || Date.now(),
-          createdBy: row.created_by || undefined,
-          createdByName: row.created_by_name || undefined,
-          tasks: Array.isArray(row.tasks) ? row.tasks : [],
-        }));
+        if (!error && data) {
+          const cloudLocations: LocationItem[] = data.map((row) => ({
+            id: row.id,
+            name: row.name,
+            address: row.address || '',
+            notes: row.notes || '',
+            photos: Array.isArray(row.photos) ? row.photos : [],
+            latitude: row.latitude || undefined,
+            longitude: row.longitude || undefined,
+            createdAt: Number(row.created_at) || Date.now(),
+            createdBy: row.created_by || undefined,
+            createdByName: row.created_by_name || undefined,
+            tasks: Array.isArray(row.tasks) ? row.tasks : [],
+          }));
 
-        await saveItem(LOCATIONS_KEY, cloudLocations);
-        return cloudLocations;
+          await saveItem(localKey, cloudLocations);
+          return cloudLocations;
+        }
+      } catch (e) {
+        console.warn('Supabase locations fetch error:', e);
       }
-    } catch (e) {
-      console.warn('Supabase locations fetch error:', e);
+    } else {
+      // Isolated chunked slot 11 for other companies
+      const cloudData = await loadChunkedSlot<LocationItem[]>(this.getSlotId(11));
+      if (cloudData && Array.isArray(cloudData)) {
+        await saveItem(localKey, cloudData);
+        return cloudData;
+      }
     }
 
     return localData;
@@ -100,45 +200,46 @@ export const StorageService = {
    * Saves locations to local cache and syncs with Supabase
    */
   async saveLocations(locations: LocationItem[]): Promise<void> {
-    await saveItem(LOCATIONS_KEY, locations);
+    const localKey = this.getStorageKey(LOCATIONS_KEY);
+    await saveItem(localKey, locations);
 
-    // Sync to Supabase
-    try {
-      const rows = locations.map((loc) => ({
-        id: loc.id,
-        name: loc.name,
-        address: loc.address || '',
-        notes: loc.notes || '',
-        photos: loc.photos || [],
-        latitude: loc.latitude || null,
-        longitude: loc.longitude || null,
-        created_at: loc.createdAt,
-        created_by: loc.createdBy || null,
-        created_by_name: loc.createdByName || null,
-        tasks: loc.tasks || [],
-      }));
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const rows = locations.map((loc) => ({
+          id: loc.id,
+          name: loc.name,
+          address: loc.address || '',
+          notes: loc.notes || '',
+          photos: loc.photos || [],
+          latitude: loc.latitude || null,
+          longitude: loc.longitude || null,
+          created_at: loc.createdAt,
+          created_by: loc.createdBy || null,
+          created_by_name: loc.createdByName || null,
+          tasks: loc.tasks || [],
+        }));
 
-      if (rows.length > 0) {
-        await supabase.from('locations').upsert(rows);
-      }
-
-      // Clean up deleted items from Supabase
-      const currentIds = locations.map((l) => l.id);
-      if (currentIds.length > 0) {
-        const { data: cloudData } = await supabase.from('locations').select('id');
-        if (cloudData) {
-          const idsToDelete = cloudData
-            .map((c) => c.id)
-            .filter((id) => !currentIds.includes(id));
-          if (idsToDelete.length > 0) {
-            await supabase.from('locations').delete().in('id', idsToDelete);
+        if (rows.length > 0) {
+          await supabase.from('locations').upsert(rows);
+          const currentIds = locations.map((l) => l.id);
+          const { data: cloudData } = await supabase.from('locations').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('locations').delete().in('id', idsToDelete);
+            }
           }
+        } else {
+          await supabase.from('locations').delete().neq('id', '___');
         }
-      } else {
-        await supabase.from('locations').delete().neq('id', '___');
+      } catch (err) {
+        console.warn('Supabase save locations error:', err);
       }
-    } catch (err) {
-      console.warn('Supabase save locations error:', err);
+    } else {
+      // Isolated chunked slot 11
+      await saveChunkedSlot(this.getSlotId(11), locations);
     }
   },
 
@@ -146,28 +247,19 @@ export const StorageService = {
    * Retrieves standard tasks template
    */
   async getStandardTasks(): Promise<string[]> {
-    const localData = await loadItem<string[]>(STANDARD_TASKS_KEY);
+    const localKey = this.getStorageKey(STANDARD_TASKS_KEY);
+    const localData = await loadItem<string[]>(localKey);
     if (localData && Array.isArray(localData) && localData.length > 0) {
       return localData;
     }
 
-    // Try cloud
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 1)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        await saveItem(STANDARD_TASKS_KEY, data.tasks);
-        return data.tasks;
-      }
-    } catch {
-      // ignore
+    const cloudData = await loadChunkedSlot<string[]>(this.getSlotId(1));
+    if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
-    await saveItem(STANDARD_TASKS_KEY, DEFAULT_STANDARD_TASKS);
+    await saveItem(localKey, DEFAULT_STANDARD_TASKS);
     return DEFAULT_STANDARD_TASKS;
   },
 
@@ -175,9 +267,10 @@ export const StorageService = {
    * Saves standard tasks template
    */
   async saveStandardTasks(tasks: string[]): Promise<void> {
-    await saveItem(STANDARD_TASKS_KEY, tasks);
+    const localKey = this.getStorageKey(STANDARD_TASKS_KEY);
+    await saveItem(localKey, tasks);
     try {
-      await supabase.from('standard_tasks').upsert({ id: 1, tasks });
+      await supabase.from('standard_tasks').upsert({ id: this.getSlotId(1), tasks });
     } catch (err) {
       console.warn('Supabase save standard tasks error:', err);
     }
@@ -187,75 +280,25 @@ export const StorageService = {
    * Retrieves notes (Supabase cloud + local cache)
    */
   async getNotes(): Promise<GeneralNote[]> {
-    const localData = (await loadItem<GeneralNote[]>(NOTES_KEY)) || [];
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const localData = (await loadItem<GeneralNote[]>(localKey)) || [];
 
-    // 1. Fetch fallback cloud sync slot (standard_tasks id: 4) where workflow fields are mirrored
-    let fallbackNotes: GeneralNote[] = [];
-    try {
-      const { data: stData, error: stError } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 4)
-        .single();
-
-      if (!stError && stData?.tasks && Array.isArray(stData.tasks) && stData.tasks.length > 0) {
-        const rawJson = stData.tasks.join('');
-        const parsed: GeneralNote[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          fallbackNotes = parsed;
-        }
+    if (activeCompanyCode === 'POLATLAR') {
+      // 1. Fetch fallback cloud sync slot (standard_tasks id: 4)
+      let fallbackNotes: GeneralNote[] = [];
+      const stFallback = await loadChunkedSlot<GeneralNote[]>(4);
+      if (stFallback && Array.isArray(stFallback)) {
+        fallbackNotes = stFallback;
       }
-    } catch {
-      // ignore
-    }
 
-    // 2. Try fetching from Supabase native notes table
-    try {
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // 2. Try fetching from Supabase native notes table
+      try {
+        const { data, error } = await supabase
+          .from('notes')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
-        // Check if native notes table actually has the status column migrated
-        const hasNativeStatus = 'status' in data[0] && data[0].status !== undefined;
-
-        if (hasNativeStatus) {
-          const cloudNotes: GeneralNote[] = data.map((row) => ({
-            id: row.id,
-            content: row.content,
-            createdAt: Number(row.created_at) || Date.now(),
-            createdBy: row.created_by || undefined,
-            createdByName: row.created_by_name || undefined,
-            targetMode: row.target_mode || 'self',
-            targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
-            targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
-            targetUserId: row.target_user_id || undefined,
-            targetUserName: row.target_user_name || undefined,
-            reminderActive: Boolean(row.reminder_active),
-            reminderDate: row.reminder_date || undefined,
-            notified: Boolean(row.notified),
-            cariName: (row as any).cari_name || (fallbackNotes.find((f) => f.id === row.id)?.cariName) || undefined,
-            photos: (row as any).photos || (fallbackNotes.find((f) => f.id === row.id)?.photos) || [],
-            completionPhotos: (row as any).completion_photos || (fallbackNotes.find((f) => f.id === row.id)?.completionPhotos) || [],
-            status: (row.status as any) || 'pending',
-            completedAt: row.completed_at ? Number(row.completed_at) : undefined,
-            completedBy: row.completed_by || undefined,
-            completedByName: row.completed_by_name || undefined,
-            completionNote: row.completion_note || undefined,
-            approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
-            approvedBy: row.approved_by || undefined,
-            approvedByName: row.approved_by_name || undefined,
-            rejectedAt: row.rejected_at ? Number(row.rejected_at) : undefined,
-            rejectedBy: row.rejected_by || undefined,
-            rejectedByName: row.rejected_by_name || undefined,
-            rejectionReason: row.rejection_reason || undefined,
-          }));
-
-          await saveItem(NOTES_KEY, cloudNotes);
-          return cloudNotes;
-        } else {
-          // Native table columns not yet migrated! Merge with fallback mirror (which has status & completion notes)
+        if (!error && data && data.length > 0) {
           const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
           const mergedNotes: GeneralNote[] = data.map((row) => {
             const fb = fallbackMap.get(row.id);
@@ -291,17 +334,24 @@ export const StorageService = {
             };
           });
 
-          await saveItem(NOTES_KEY, mergedNotes);
+          await saveItem(localKey, mergedNotes);
           return mergedNotes;
         }
+      } catch (e) {
+        console.warn('Supabase notes fetch error:', e);
       }
-    } catch (e) {
-      console.warn('Supabase notes fetch error:', e);
-    }
 
-    if (fallbackNotes.length > 0) {
-      await saveItem(NOTES_KEY, fallbackNotes);
-      return fallbackNotes;
+      if (fallbackNotes.length > 0) {
+        await saveItem(localKey, fallbackNotes);
+        return fallbackNotes;
+      }
+    } else {
+      // Isolated chunked slot 4 for other companies
+      const cloudData = await loadChunkedSlot<GeneralNote[]>(this.getSlotId(4));
+      if (cloudData && Array.isArray(cloudData)) {
+        await saveItem(localKey, cloudData);
+        return cloudData;
+      }
     }
 
     return localData;
@@ -311,153 +361,131 @@ export const StorageService = {
    * Saves notes to local cache and syncs with Supabase
    */
   async saveNotes(notes: GeneralNote[]): Promise<void> {
-    await saveItem(NOTES_KEY, notes);
+    const localKey = this.getStorageKey(NOTES_KEY);
+    await saveItem(localKey, notes);
 
-    // 1. Try sync to native notes table in Supabase
-    try {
-      const fullRows = notes.map((n) => ({
-        id: n.id,
-        content: n.content,
-        cari_name: n.cariName || null,
-        created_at: n.createdAt,
-        created_by: n.createdBy || null,
-        created_by_name: n.createdByName || null,
-        target_mode: n.targetMode || 'self',
-        target_user_ids: n.targetUserIds || [],
-        target_user_names: n.targetUserNames || [],
-        target_user_id: n.targetUserId || null,
-        target_user_name: n.targetUserName || null,
-        reminder_active: n.reminderActive,
-        reminder_date: n.reminderDate || null,
-        notified: n.notified || false,
-        status: n.status || 'pending',
-        completed_at: n.completedAt || null,
-        completed_by: n.completedBy || null,
-        completed_by_name: n.completedByName || null,
-        completion_note: n.completionNote || null,
-        approved_at: n.approvedAt || null,
-        approved_by: n.approvedBy || null,
-        approved_by_name: n.approvedByName || null,
-        rejected_at: n.rejectedAt || null,
-        rejected_by: n.rejectedBy || null,
-        rejected_by_name: n.rejectedByName || null,
-        rejection_reason: n.rejectionReason || null,
-      }));
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const fullRows = notes.map((n) => ({
+          id: n.id,
+          content: n.content,
+          cari_name: n.cariName || null,
+          created_at: n.createdAt,
+          created_by: n.createdBy || null,
+          created_by_name: n.createdByName || null,
+          target_mode: n.targetMode || 'self',
+          target_user_ids: n.targetUserIds || [],
+          target_user_names: n.targetUserNames || [],
+          target_user_id: n.targetUserId || null,
+          target_user_name: n.targetUserName || null,
+          reminder_active: n.reminderActive,
+          reminder_date: n.reminderDate || null,
+          notified: n.notified || false,
+          status: n.status || 'pending',
+          completed_at: n.completedAt || null,
+          completed_by: n.completedBy || null,
+          completed_by_name: n.completedByName || null,
+          completion_note: n.completionNote || null,
+          approved_at: n.approvedAt || null,
+          approved_by: n.approvedBy || null,
+          approved_by_name: n.approvedByName || null,
+          rejected_at: n.rejectedAt || null,
+          rejected_by: n.rejectedBy || null,
+          rejected_by_name: n.rejectedByName || null,
+          rejection_reason: n.rejectionReason || null,
+        }));
 
-      if (fullRows.length > 0) {
-        const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
-        if (upsertErr) {
-          // If columns don't exist yet in Supabase notes table, fallback to standard columns
-          const basicRows = notes.map((n) => ({
-            id: n.id,
-            content: n.content,
-            created_at: n.createdAt,
-            created_by: n.createdBy || null,
-            created_by_name: n.createdByName || null,
-            target_mode: n.targetMode || 'self',
-            target_user_ids: n.targetUserIds || [],
-            target_user_names: n.targetUserNames || [],
-            target_user_id: n.targetUserId || null,
-            target_user_name: n.targetUserName || null,
-            reminder_active: n.reminderActive,
-            reminder_date: n.reminderDate || null,
-            notified: n.notified || false,
-          }));
-          await supabase.from('notes').upsert(basicRows);
-        }
-
-        // Delete removed notes
-        const currentIds = notes.map((n) => n.id);
-        if (currentIds.length > 0) {
-          const { data: cloudData } = await supabase.from('notes').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('notes').delete().in('id', idsToDelete);
-            }
+        if (fullRows.length > 0) {
+          const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
+          if (upsertErr) {
+            const basicRows = notes.map((n) => ({
+              id: n.id,
+              content: n.content,
+              created_at: n.createdAt,
+              created_by: n.createdBy || null,
+              created_by_name: n.createdByName || null,
+              target_mode: n.targetMode || 'self',
+              target_user_ids: n.targetUserIds || [],
+              target_user_names: n.targetUserNames || [],
+              target_user_id: n.targetUserId || null,
+              target_user_name: n.targetUserName || null,
+              reminder_active: n.reminderActive,
+              reminder_date: n.reminderDate || null,
+              notified: n.notified || false,
+            }));
+            await supabase.from('notes').upsert(basicRows);
           }
-        } else {
-          await supabase.from('notes').delete().neq('id', '___');
-        }
-      }
-    } catch (err) {
-      console.warn('Supabase save notes error:', err);
-    }
 
-    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 4) so all phones sync immediately
-    try {
-      const rawJson = JSON.stringify(notes);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
+          const currentIds = notes.map((n) => n.id);
+          if (currentIds.length > 0) {
+            const { data: cloudData } = await supabase.from('notes').select('id');
+            if (cloudData) {
+              const idsToDelete = cloudData
+                .map((c) => c.id)
+                .filter((id) => !currentIds.includes(id));
+              if (idsToDelete.length > 0) {
+                await supabase.from('notes').delete().in('id', idsToDelete);
+              }
+            }
+          } else {
+            await supabase.from('notes').delete().neq('id', '___');
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase save notes error:', err);
       }
-      await supabase.from('standard_tasks').upsert({ id: 4, tasks: chunks });
-    } catch (fallbackErr) {
-      console.warn('Fallback notes sync mirror error:', fallbackErr);
+      await saveChunkedSlot(4, notes);
+    } else {
+      await saveChunkedSlot(this.getSlotId(4), notes);
     }
   },
 
   /**
-   * Retrieves return & warranty tracking items (Supabase cloud + local cache)
+   * Retrieves return & warranty items (Supabase cloud + local cache + standard_tasks slot 2)
    */
   async getReturnWarrantyItems(): Promise<ReturnWarrantyItem[]> {
-    const localData = (await loadItem<ReturnWarrantyItem[]>(RETURN_WARRANTY_KEY)) || [];
+    const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
+    const localData = (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
 
-    // 1. Try fetching from Supabase native table
-    try {
-      const { data, error } = await supabase
-        .from('return_warranty')
-        .select('*')
-        .order('created_at', { ascending: false });
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const { data, error } = await supabase
+          .from('return_warranty')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data) {
-        const cloudItems: ReturnWarrantyItem[] = data.map((row) => ({
-          id: row.id,
-          type: (row.type as ReturnWarrantyType) || 'warranty',
-          companyName: row.company_name,
-          sentDate: row.sent_date,
-          serialNumber: row.serial_number || undefined,
-          trackingCode: row.tracking_code || undefined,
-          serialNumberPhoto: row.serial_number_photo || undefined,
-          trackingCodePhoto: row.tracking_code_photo || undefined,
-          notes: row.notes || undefined,
-          status: row.status || 'pending',
-          reminderDate: row.reminder_date || undefined,
-          reminderActive: Boolean(row.reminder_active),
-          notified: Boolean(row.notified),
-          createdAt: Number(row.created_at) || Date.now(),
-          createdBy: row.created_by || undefined,
-          createdByName: row.created_by_name || undefined,
-        }));
+        if (!error && data) {
+          const cloudItems: ReturnWarrantyItem[] = data.map((row) => ({
+            id: row.id,
+            type: row.type as any,
+            companyName: row.company_name,
+            sentDate: row.sent_date,
+            serialNumber: row.serial_number || undefined,
+            trackingCode: row.tracking_code || undefined,
+            serialNumberPhoto: row.serial_number_photo || undefined,
+            trackingCodePhoto: row.tracking_code_photo || undefined,
+            notes: row.notes || undefined,
+            status: row.status as any,
+            reminderDate: row.reminder_date || undefined,
+            reminderActive: Boolean(row.reminder_active),
+            notified: Boolean(row.notified),
+            createdAt: Number(row.created_at) || Date.now(),
+            createdBy: row.created_by || undefined,
+            createdByName: row.created_by_name || undefined,
+          }));
 
-        await saveItem(RETURN_WARRANTY_KEY, cloudItems);
-        return cloudItems;
+          await saveItem(localKey, cloudItems);
+          return cloudItems;
+        }
+      } catch {
+        // ignore
       }
-    } catch (e) {
-      console.warn('Supabase return_warranty fetch error:', e);
     }
 
-    // 2. Fallback cloud sync slot (standard_tasks id: 2) in case return_warranty table is not created yet
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 2)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: ReturnWarrantyItem[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          await saveItem(RETURN_WARRANTY_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
+    const cloudData = await loadChunkedSlot<ReturnWarrantyItem[]>(this.getSlotId(2));
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     return localData;
@@ -467,118 +495,96 @@ export const StorageService = {
    * Saves return & warranty items to local cache and syncs with Supabase
    */
   async saveReturnWarrantyItems(items: ReturnWarrantyItem[]): Promise<void> {
-    await saveItem(RETURN_WARRANTY_KEY, items);
+    const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
+    await saveItem(localKey, items);
 
-    // 1. Try sync to native return_warranty table in Supabase
-    try {
-      const rows = items.map((item) => ({
-        id: item.id,
-        type: item.type,
-        company_name: item.companyName,
-        sent_date: item.sentDate,
-        serial_number: item.serialNumber || null,
-        tracking_code: item.trackingCode || null,
-        serial_number_photo: item.serialNumberPhoto || null,
-        tracking_code_photo: item.trackingCodePhoto || null,
-        notes: item.notes || null,
-        status: item.status,
-        reminder_date: item.reminderDate || null,
-        reminder_active: item.reminderActive,
-        notified: item.notified || false,
-        created_at: item.createdAt,
-        created_by: item.createdBy || null,
-        created_by_name: item.createdByName || null,
-      }));
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const rows = items.map((item) => ({
+          id: item.id,
+          type: item.type,
+          company_name: item.companyName,
+          sent_date: item.sentDate,
+          serial_number: item.serialNumber || null,
+          tracking_code: item.trackingCode || null,
+          serial_number_photo: item.serialNumberPhoto || null,
+          tracking_code_photo: item.trackingCodePhoto || null,
+          notes: item.notes || null,
+          status: item.status,
+          reminder_date: item.reminderDate || null,
+          reminder_active: item.reminderActive,
+          notified: item.notified || false,
+          created_at: item.createdAt,
+          created_by: item.createdBy || null,
+          created_by_name: item.createdByName || null,
+        }));
 
-      if (rows.length > 0) {
-        const { error: upsertErr } = await supabase.from('return_warranty').upsert(rows);
-        if (!upsertErr) {
-          // Delete removed items
-          const currentIds = items.map((i) => i.id);
-          const { data: cloudData } = await supabase.from('return_warranty').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('return_warranty').delete().in('id', idsToDelete);
+        if (rows.length > 0) {
+          const { error: upsertErr } = await supabase.from('return_warranty').upsert(rows);
+          if (!upsertErr) {
+            const currentIds = items.map((i) => i.id);
+            const { data: cloudData } = await supabase.from('return_warranty').select('id');
+            if (cloudData) {
+              const idsToDelete = cloudData
+                .map((c) => c.id)
+                .filter((id) => !currentIds.includes(id));
+              if (idsToDelete.length > 0) {
+                await supabase.from('return_warranty').delete().in('id', idsToDelete);
+              }
             }
           }
+        } else {
+          await supabase.from('return_warranty').delete().neq('id', '___');
         }
-      } else {
-        await supabase.from('return_warranty').delete().neq('id', '___');
+      } catch (err) {
+        console.warn('Native return_warranty table sync skipped:', err);
       }
-    } catch (err) {
-      console.warn('Native return_warranty table sync skipped:', err);
-    }
-
-    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 2) so all phones sync immediately
-    try {
-      const rawJson = JSON.stringify(items);
-      // Chunk string into pieces of 8000 chars for text[] array
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 2, tasks: chunks });
-    } catch (fallbackErr) {
-      console.warn('Fallback return_warranty sync mirror error:', fallbackErr);
+      await saveChunkedSlot(2, items);
+    } else {
+      await saveChunkedSlot(this.getSlotId(2), items);
     }
   },
 
   /**
-   * Retrieves services (Supabase cloud + local cache + standard_tasks id:3 fallback)
+   * Retrieves services (Supabase cloud + local cache)
    */
   async getServices(): Promise<ServiceItem[]> {
-    const localData = (await loadItem<ServiceItem[]>(SERVICES_KEY)) || [];
+    const localKey = this.getStorageKey(SERVICES_KEY);
+    const localData = (await loadItem<ServiceItem[]>(localKey)) || [];
 
-    // 1. Try fetching from native services table in Supabase
-    try {
-      const { data, error } = await supabase
-        .from('services')
-        .select('*')
-        .order('created_at', { ascending: false });
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const { data, error } = await supabase
+          .from('services')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data) {
-        const cloudServices: ServiceItem[] = data.map((row) => ({
-          id: row.id,
-          companyName: row.company_name,
-          location: row.location || undefined,
-          latitude: row.latitude != null ? Number(row.latitude) : undefined,
-          longitude: row.longitude != null ? Number(row.longitude) : undefined,
-          workDone: row.work_done,
-          date: row.date || undefined,
-          createdAt: Number(row.created_at) || Date.now(),
-          createdBy: row.created_by || undefined,
-          createdByName: row.created_by_name || undefined,
-        }));
+        if (!error && data) {
+          const cloudServices: ServiceItem[] = data.map((row) => ({
+            id: row.id,
+            companyName: row.company_name,
+            location: row.location || undefined,
+            latitude: row.latitude != null ? Number(row.latitude) : undefined,
+            longitude: row.longitude != null ? Number(row.longitude) : undefined,
+            workDone: row.work_done,
+            date: row.date || undefined,
+            createdAt: Number(row.created_at) || Date.now(),
+            createdBy: row.created_by || undefined,
+            createdByName: row.created_by_name || undefined,
+          }));
 
-        await saveItem(SERVICES_KEY, cloudServices);
-        return cloudServices;
+          await saveItem(localKey, cloudServices);
+          return cloudServices;
+        }
+      } catch {
+        // ignore
       }
-    } catch (e) {
-      console.warn('Supabase services fetch error:', e);
     }
 
-    // 2. Fallback cloud sync slot (standard_tasks id: 3) in case services table is not created yet
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 3)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: ServiceItem[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          await saveItem(SERVICES_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
+    const cloudData = await loadChunkedSlot<ServiceItem[]>(this.getSlotId(3));
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     return localData;
@@ -588,85 +594,64 @@ export const StorageService = {
    * Saves services to local cache and syncs with Supabase
    */
   async saveServices(items: ServiceItem[]): Promise<void> {
-    await saveItem(SERVICES_KEY, items);
+    const localKey = this.getStorageKey(SERVICES_KEY);
+    await saveItem(localKey, items);
 
-    // 1. Try sync to native services table in Supabase
-    try {
-      const rows = items.map((item) => ({
-        id: item.id,
-        company_name: item.companyName,
-        location: item.location || null,
-        latitude: item.latitude || null,
-        longitude: item.longitude || null,
-        work_done: item.workDone,
-        date: item.date || null,
-        created_at: item.createdAt,
-        created_by: item.createdBy || null,
-        created_by_name: item.createdByName || null,
-      }));
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const rows = items.map((item) => ({
+          id: item.id,
+          company_name: item.companyName,
+          location: item.location || null,
+          latitude: item.latitude || null,
+          longitude: item.longitude || null,
+          work_done: item.workDone,
+          date: item.date || null,
+          created_at: item.createdAt,
+          created_by: item.createdBy || null,
+          created_by_name: item.createdByName || null,
+        }));
 
-      if (rows.length > 0) {
-        const { error: upsertErr } = await supabase.from('services').upsert(rows);
-        if (!upsertErr) {
-          const currentIds = items.map((i) => i.id);
-          const { data: cloudData } = await supabase.from('services').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('services').delete().in('id', idsToDelete);
+        if (rows.length > 0) {
+          const { error: upsertErr } = await supabase.from('services').upsert(rows);
+          if (!upsertErr) {
+            const currentIds = items.map((i) => i.id);
+            const { data: cloudData } = await supabase.from('services').select('id');
+            if (cloudData) {
+              const idsToDelete = cloudData
+                .map((c) => c.id)
+                .filter((id) => !currentIds.includes(id));
+              if (idsToDelete.length > 0) {
+                await supabase.from('services').delete().in('id', idsToDelete);
+              }
             }
           }
+        } else {
+          await supabase.from('services').delete().neq('id', '___');
         }
-      } else {
-        await supabase.from('services').delete().neq('id', '___');
+      } catch (err) {
+        console.warn('Native services table sync skipped:', err);
       }
-    } catch (err) {
-      console.warn('Native services table sync skipped:', err);
-    }
-
-    // 2. Always maintain fallback cloud mirror in standard_tasks (id: 3) so all phones sync immediately
-    try {
-      const rawJson = JSON.stringify(items);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 3, tasks: chunks });
-    } catch (fallbackErr) {
-      console.warn('Fallback services sync mirror error:', fallbackErr);
+      await saveChunkedSlot(3, items);
+    } else {
+      await saveChunkedSlot(this.getSlotId(3), items);
     }
   },
 
   /**
-   * Retrieves admin-configured workplace location (Supabase cloud + local cache)
+   * Retrieves workplace location
    */
   async getWorkplaceLocation(): Promise<WorkplaceLocation | null> {
-    const localData = await loadItem<WorkplaceLocation>(WORKPLACE_LOCATION_KEY);
+    const localKey = this.getStorageKey(WORKPLACE_LOCATION_KEY);
+    const localData = await loadItem<WorkplaceLocation>(localKey);
 
-    // Try cloud slot standard_tasks id: 5
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 5)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: WorkplaceLocation = JSON.parse(rawJson);
-        if (parsed && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
-          if (!parsed.radiusMeters || parsed.radiusMeters === 10) {
-            parsed.radiusMeters = 20;
-          }
-          await saveItem(WORKPLACE_LOCATION_KEY, parsed);
-          return parsed;
-        }
+    const cloudData = await loadChunkedSlot<WorkplaceLocation>(this.getSlotId(5));
+    if (cloudData && typeof cloudData.latitude === 'number' && typeof cloudData.longitude === 'number') {
+      if (!cloudData.radiusMeters || cloudData.radiusMeters === 10) {
+        cloudData.radiusMeters = 20;
       }
-    } catch {
-      // ignore
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     if (localData && (!localData.radiusMeters || localData.radiusMeters === 10)) {
@@ -676,181 +661,103 @@ export const StorageService = {
   },
 
   /**
-   * Saves workplace location to local cache and syncs with Supabase slot 5
+   * Saves workplace location
    */
   async saveWorkplaceLocation(location: WorkplaceLocation): Promise<void> {
-    await saveItem(WORKPLACE_LOCATION_KEY, location);
-
-    try {
-      const rawJson = JSON.stringify(location);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 5, tasks: chunks });
-    } catch (err) {
-      console.warn('Cloud save workplace location error:', err);
-    }
+    const localKey = this.getStorageKey(WORKPLACE_LOCATION_KEY);
+    await saveItem(localKey, location);
+    await saveChunkedSlot(this.getSlotId(5), location);
   },
 
   /**
-   * Retrieves attendance records (Supabase cloud + local cache)
+   * Retrieves attendance records
    */
   async getAttendanceRecords(): Promise<AttendanceRecord[]> {
-    const localData = (await loadItem<AttendanceRecord[]>(ATTENDANCE_RECORDS_KEY)) || [];
+    const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
+    const localData = (await loadItem<AttendanceRecord[]>(localKey)) || [];
 
-    // Try cloud slot standard_tasks id: 6
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 6)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: AttendanceRecord[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          await saveItem(ATTENDANCE_RECORDS_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
+    const cloudData = await loadChunkedSlot<AttendanceRecord[]>(this.getSlotId(6));
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     return localData;
   },
 
   /**
-   * Saves attendance records to local cache and syncs with Supabase slot 6
+   * Saves attendance records
    */
   async saveAttendanceRecords(records: AttendanceRecord[]): Promise<void> {
-    await saveItem(ATTENDANCE_RECORDS_KEY, records);
-
-    try {
-      const rawJson = JSON.stringify(records);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 6, tasks: chunks });
-    } catch (err) {
-      console.warn('Cloud save attendance records error:', err);
-    }
+    const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
+    await saveItem(localKey, records);
+    await saveChunkedSlot(this.getSlotId(6), records);
   },
 
   /**
-   * Retrieves admin reminders / directives (Supabase cloud + local cache)
+   * Retrieves admin reminders
    */
   async getAdminReminders(): Promise<AdminReminder[]> {
-    const localData = (await loadItem<AdminReminder[]>(ADMIN_REMINDERS_KEY)) || [];
+    const localKey = this.getStorageKey(ADMIN_REMINDERS_KEY);
+    const localData = (await loadItem<AdminReminder[]>(localKey)) || [];
 
-    // Fallback cloud sync slot (standard_tasks id: 7)
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 7)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: AdminReminder[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          await saveItem(ADMIN_REMINDERS_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Cloud fetch admin reminders error:', e);
+    const cloudData = await loadChunkedSlot<AdminReminder[]>(this.getSlotId(7));
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     return localData;
   },
 
   /**
-   * Saves admin reminders to local cache and syncs with Supabase slot 7
+   * Saves admin reminders
    */
   async saveAdminReminders(reminders: AdminReminder[]): Promise<void> {
-    await saveItem(ADMIN_REMINDERS_KEY, reminders);
-
-    try {
-      const rawJson = JSON.stringify(reminders);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 7, tasks: chunks });
-    } catch (err) {
-      console.warn('Cloud save admin reminders error:', err);
-    }
+    const localKey = this.getStorageKey(ADMIN_REMINDERS_KEY);
+    await saveItem(localKey, reminders);
+    await saveChunkedSlot(this.getSlotId(7), reminders);
   },
 
   /**
-   * Retrieves leave requests (Supabase cloud slot 10 + local cache)
+   * Retrieves leave requests
    */
   async getLeaveRequests(): Promise<LeaveRequest[]> {
-    const localData = (await loadItem<LeaveRequest[]>(LEAVE_REQUESTS_KEY)) || [];
+    const localKey = this.getStorageKey(LEAVE_REQUESTS_KEY);
+    const localData = (await loadItem<LeaveRequest[]>(localKey)) || [];
 
-    // Fallback cloud sync slot (standard_tasks id: 10)
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', 10)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: LeaveRequest[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          await saveItem(LEAVE_REQUESTS_KEY, parsed);
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Cloud fetch leave requests error:', e);
+    const cloudData = await loadChunkedSlot<LeaveRequest[]>(this.getSlotId(10));
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
     }
 
     return localData;
   },
 
   /**
-   * Saves leave requests to local cache and syncs with Supabase slot 10
+   * Saves leave requests
    */
   async saveLeaveRequests(requests: LeaveRequest[]): Promise<void> {
-    await saveItem(LEAVE_REQUESTS_KEY, requests);
-
-    try {
-      const rawJson = JSON.stringify(requests);
-      const chunks: string[] = [];
-      const chunkSize = 8000;
-      for (let i = 0; i < rawJson.length; i += chunkSize) {
-        chunks.push(rawJson.slice(i, i + chunkSize));
-      }
-      await supabase.from('standard_tasks').upsert({ id: 10, tasks: chunks });
-    } catch (err) {
-      console.warn('Cloud save leave requests error:', err);
-    }
+    const localKey = this.getStorageKey(LEAVE_REQUESTS_KEY);
+    await saveItem(localKey, requests);
+    await saveChunkedSlot(this.getSlotId(10), requests);
   },
 
   /**
-   * Retrieves Cari list data (cached locally, static json fallback, or fresh fetch)
+   * Retrieves Cari list data
    */
   async getCarilerData(): Promise<CariData> {
+    const localKey = this.getStorageKey(CARILER_DATA_KEY);
     const fallback: CariData = {
       updatedAt: (defaultCarilerData as any).updatedAt || new Date().toISOString(),
-      database: (defaultCarilerData as any).database || 'POLATLAR2025',
+      database: activeCompanyCode === 'POLATLAR' ? 'POLATLAR2025' : `${activeCompanyCode} Cariler`,
       total: (defaultCarilerData as any).total || ((defaultCarilerData as any).cariler || []).length,
       cariler: (defaultCarilerData as any).cariler || [],
     };
 
     try {
-      const cached = await loadItem<CariData>(CARILER_DATA_KEY);
+      const cached = await loadItem<CariData>(localKey);
       if (cached?.cariler && cached.cariler.length > 0) {
         if (!fallback.updatedAt || new Date(cached.updatedAt) >= new Date(fallback.updatedAt)) {
           return cached;
@@ -860,13 +767,13 @@ export const StorageService = {
       // ignore
     }
 
-    // Non-blocking background fetch check from public /cariler.json
-    if (typeof window !== 'undefined') {
+    // Non-blocking background fetch check for default POLATLAR cariler
+    if (activeCompanyCode === 'POLATLAR' && typeof window !== 'undefined') {
       fetch(`/cariler.json?t=${Date.now()}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((fresh) => {
           if (fresh?.cariler && Array.isArray(fresh.cariler) && fresh.cariler.length > 0) {
-            saveItem(CARILER_DATA_KEY, fresh);
+            saveItem(localKey, fresh);
           }
         })
         .catch(() => {});
@@ -879,7 +786,8 @@ export const StorageService = {
    * Saves updated Cari data to local cache
    */
   async saveCarilerData(data: CariData): Promise<void> {
-    await saveItem(CARILER_DATA_KEY, data);
+    const localKey = this.getStorageKey(CARILER_DATA_KEY);
+    await saveItem(localKey, data);
   },
 
   /**
@@ -929,7 +837,8 @@ export const StorageService = {
       cariler: sortedCariler,
     };
 
-    await saveItem(CARILER_DATA_KEY, result);
+    const localKey = this.getStorageKey(CARILER_DATA_KEY);
+    await saveItem(localKey, result);
     return result;
   },
 

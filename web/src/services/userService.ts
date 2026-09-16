@@ -1,4 +1,4 @@
-import { UserAccount, UserRole, User } from '../types/auth';
+import { UserAccount, UserRole, User, Company } from '../types/auth';
 import { supabase } from './supabaseClient';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
@@ -10,6 +10,8 @@ const DEFAULT_ADMIN: UserAccount = {
   name: 'Sistem Yöneticisi',
   role: 'admin',
   createdAt: 1700000000000,
+  companyCode: 'POLATLAR',
+  companyName: 'Polatlar',
 };
 
 export const UserService = {
@@ -22,7 +24,10 @@ export const UserService = {
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return parsed.map((u) => ({
+            ...u,
+            companyCode: (u.companyCode || 'POLATLAR').toUpperCase(),
+          }));
         }
       }
     } catch (e) {
@@ -47,6 +52,48 @@ export const UserService = {
   },
 
   /**
+   * Converts Turkish Full Name into clean suggested username:
+   * "Ahmet Yılmaz" -> "ahmetyilmaz", if exists -> "ahmetyilmaz01", "ahmetyilmaz02"
+   */
+  generateSuggestedUsername(fullName: string, companyCode: string = 'POLATLAR'): string {
+    const trMap: { [k: string]: string } = {
+      'ç': 'c', 'Ç': 'c',
+      'ğ': 'g', 'Ğ': 'g',
+      'ı': 'i', 'İ': 'i', 'I': 'i',
+      'ö': 'o', 'Ö': 'o',
+      'ş': 's', 'Ş': 's',
+      'ü': 'u', 'Ü': 'u',
+    };
+
+    let clean = (fullName || '').trim();
+    for (const [tr, en] of Object.entries(trMap)) {
+      clean = clean.split(tr).join(en);
+    }
+    clean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!clean) clean = 'personel';
+
+    const users = this.getUsers().filter(
+      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCode.toUpperCase()
+    );
+    const existingUsernames = new Set(users.map((u) => u.username.toLowerCase()));
+
+    if (!existingUsernames.has(clean)) {
+      return clean;
+    }
+
+    // Find next available suffix (01, 02, 03...)
+    let counter = 1;
+    while (true) {
+      const suffix = counter < 10 ? `0${counter}` : `${counter}`;
+      const candidate = `${clean}${suffix}`;
+      if (!existingUsernames.has(candidate)) {
+        return candidate;
+      }
+      counter++;
+    }
+  },
+
+  /**
    * Fetches latest users from Supabase cloud database and syncs both ways
    */
   async fetchUsersFromCloud(): Promise<UserAccount[]> {
@@ -59,25 +106,41 @@ export const UserService = {
         .order('created_at', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        const cloudUsers: UserAccount[] = data.map((row) => ({
-          id: row.id,
-          username: row.username,
-          password: row.password,
-          name: row.name,
-          role: row.role as UserRole,
-          createdAt: Number(row.created_at) || Date.now(),
-        }));
+        const cloudUsers: UserAccount[] = data.map((row) => {
+          let companyCode = 'POLATLAR';
+          let username = row.username;
+
+          // Parse composite companyCode:username format
+          if (row.username && row.username.includes(':')) {
+            const parts = row.username.split(':');
+            companyCode = parts[0].toUpperCase();
+            username = parts.slice(1).join(':');
+          }
+
+          return {
+            id: row.id,
+            username,
+            password: row.password,
+            name: row.name,
+            role: row.role as UserRole,
+            createdAt: Number(row.created_at) || Date.now(),
+            companyCode,
+            email: row.email || undefined,
+          };
+        });
 
         // Merge any local users not yet in cloud
-        const cloudUsernames = new Set(cloudUsers.map((u) => u.username.toLowerCase()));
-        const missingLocal = localUsers.filter((u) => !cloudUsernames.has(u.username.toLowerCase()));
+        const cloudKeys = new Set(cloudUsers.map((u) => `${u.companyCode}:${u.username.toLowerCase()}`));
+        const missingLocal = localUsers.filter(
+          (u) => !cloudKeys.has(`${u.companyCode}:${u.username.toLowerCase()}`)
+        );
 
         if (missingLocal.length > 0) {
           try {
             await supabase.from('app_users').upsert(
               missingLocal.map((u) => ({
                 id: u.id,
-                username: u.username,
+                username: u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`,
                 password: u.password,
                 name: u.name,
                 role: u.role,
@@ -98,7 +161,7 @@ export const UserService = {
           await supabase.from('app_users').upsert(
             localUsers.map((u) => ({
               id: u.id,
-              username: u.username,
+              username: u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`,
               password: u.password,
               name: u.name,
               role: u.role,
@@ -117,15 +180,18 @@ export const UserService = {
   },
 
   /**
-   * Adds a new user account (Syncs locally + Supabase)
+   * Adds a new user account within a specific company
    */
   async addUser(params: {
     username: string;
     password: string;
     name: string;
     role: UserRole;
+    companyCode?: string;
+    email?: string;
   }): Promise<{ success: boolean; error?: string; user?: User }> {
     const users = this.getUsers();
+    const cleanCompanyCode = (params.companyCode || 'POLATLAR').trim().toUpperCase();
     const cleanUsername = params.username.trim().toLowerCase();
     const cleanName = params.name.trim() || params.username.trim();
     const cleanPassword = params.password.trim();
@@ -136,8 +202,16 @@ export const UserService = {
     if (!cleanPassword || cleanPassword.length < 3) {
       return { success: false, error: 'Şifre en az 3 karakter olmalıdır.' };
     }
-    if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
-      return { success: false, error: 'Bu kullanıcı adı zaten kullanılmaktadır.' };
+
+    // Check collision within the SAME company
+    if (
+      users.some(
+        (u) =>
+          (u.companyCode || 'POLATLAR').toUpperCase() === cleanCompanyCode &&
+          u.username.toLowerCase() === cleanUsername
+      )
+    ) {
+      return { success: false, error: `Bu kullanıcı adı "${cleanCompanyCode}" kurumu içinde zaten kullanılmaktadır.` };
     }
 
     const newUser: UserAccount = {
@@ -147,6 +221,8 @@ export const UserService = {
       name: cleanName,
       role: params.role,
       createdAt: Date.now(),
+      companyCode: cleanCompanyCode,
+      email: params.email?.trim().toLowerCase(),
     };
 
     const updated = [...users, newUser];
@@ -154,10 +230,13 @@ export const UserService = {
 
     // Sync to Supabase in background
     try {
+      const cloudUsername =
+        cleanCompanyCode === 'POLATLAR' ? newUser.username : `${cleanCompanyCode}:${newUser.username}`;
+
       await supabase.from('app_users').upsert([
         {
           id: newUser.id,
-          username: newUser.username,
+          username: cloudUsername,
           password: newUser.password,
           name: newUser.name,
           role: newUser.role,
@@ -176,8 +255,30 @@ export const UserService = {
         name: newUser.name,
         role: newUser.role,
         createdAt: newUser.createdAt,
+        companyCode: newUser.companyCode,
+        email: newUser.email,
       },
     };
+  },
+
+  /**
+   * Creates initial admin user when a new company registers
+   */
+  async createAdminForCompany(
+    company: Company,
+    password: string
+  ): Promise<{ success: boolean; error?: string; user?: User }> {
+    // Generate a default admin username from company code or email
+    const username = 'admin';
+
+    return this.addUser({
+      username,
+      password,
+      name: company.adminName || `${company.name} Yöneticisi`,
+      role: 'admin',
+      companyCode: company.code,
+      email: company.adminEmail,
+    });
   },
 
   /**
@@ -198,18 +299,22 @@ export const UserService = {
       return { success: false, error: 'Kullanıcı bulunamadı.' };
     }
 
-    // Protection: Prevent demoting the last admin
+    const current = users[userIndex];
+    const companyCode = current.companyCode || 'POLATLAR';
+
+    // Protection: Prevent demoting the last admin of this company
     if (updates.role && updates.role !== 'admin') {
-      const adminCount = users.filter((u) => u.role === 'admin').length;
-      if (adminCount <= 1 && users[userIndex].role === 'admin') {
+      const adminCount = users.filter(
+        (u) => (u.companyCode || 'POLATLAR') === companyCode && u.role === 'admin'
+      ).length;
+      if (adminCount <= 1 && current.role === 'admin') {
         return {
           success: false,
-          error: 'Sistemde en az 1 adet Yönetici (Admin) bulunmalıdır. Yetki düşürülemez.',
+          error: 'Bu kurumda en az 1 adet Yönetici (Admin) bulunmalıdır. Yetki düşürülemez.',
         };
       }
     }
 
-    const current = users[userIndex];
     const updatedUser = {
       ...current,
       name: updates.name !== undefined && updates.name.trim() ? updates.name.trim() : current.name,
@@ -222,18 +327,19 @@ export const UserService = {
 
     // Sync to Supabase
     try {
-      await supabase
-        .from('app_users')
-        .upsert([
-          {
-            id: updatedUser.id,
-            username: updatedUser.username,
-            name: updatedUser.name,
-            role: updatedUser.role,
-            password: updatedUser.password,
-            created_at: updatedUser.createdAt,
-          },
-        ]);
+      const cloudUsername =
+        companyCode === 'POLATLAR' ? updatedUser.username : `${companyCode}:${updatedUser.username}`;
+
+      await supabase.from('app_users').upsert([
+        {
+          id: updatedUser.id,
+          username: cloudUsername,
+          name: updatedUser.name,
+          role: updatedUser.role,
+          password: updatedUser.password,
+          created_at: updatedUser.createdAt,
+        },
+      ]);
     } catch (err) {
       console.warn('Supabase kullanıcı güncelleme hatası:', err);
     }
@@ -252,13 +358,17 @@ export const UserService = {
       return { success: false, error: 'Kullanıcı bulunamadı.' };
     }
 
-    // Protection: Prevent deleting the last admin
+    const companyCode = target.companyCode || 'POLATLAR';
+
+    // Protection: Prevent deleting the last admin of this company
     if (target.role === 'admin') {
-      const adminCount = users.filter((u) => u.role === 'admin').length;
+      const adminCount = users.filter(
+        (u) => (u.companyCode || 'POLATLAR') === companyCode && u.role === 'admin'
+      ).length;
       if (adminCount <= 1) {
         return {
           success: false,
-          error: 'Sistemdeki son Yönetici (Admin) hesabı silinemez.',
+          error: 'Bu kurumdaki son Yönetici (Admin) hesabı silinemez.',
         };
       }
     }
@@ -277,35 +387,56 @@ export const UserService = {
   },
 
   /**
-   * Authenticates user against registered accounts (Local + Cloud fallback)
+   * Authenticates user against registered accounts within a specific company
    */
   async authenticate(
-    username: string,
+    companyCode: string,
+    usernameOrEmail: string,
     password: string
   ): Promise<{ success: boolean; error?: string; user?: User }> {
-    const cleanUser = username.trim().toLowerCase();
+    const cleanCompany = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const cleanIdentifier = (usernameOrEmail || '').trim().toLowerCase();
     const cleanPass = password.trim();
+
+    if (!cleanCompany) {
+      return { success: false, error: 'Lütfen Kurum Kodunu giriniz (Örn: POLATLAR).' };
+    }
+    if (!cleanIdentifier) {
+      return { success: false, error: 'Lütfen Kullanıcı Adınızı giriniz.' };
+    }
+
+    // Helper to find match
+    const findMatch = (userList: UserAccount[]) => {
+      return userList.find((u) => {
+        const uComp = (u.companyCode || 'POLATLAR').toUpperCase();
+        if (uComp !== cleanCompany) return false;
+
+        const isUserMatch = u.username.toLowerCase() === cleanIdentifier;
+        const isEmailMatch = u.email && u.email.toLowerCase() === cleanIdentifier;
+
+        return (isUserMatch || isEmailMatch) && u.password === cleanPass;
+      });
+    };
 
     // 1. Try local list first
     let users = this.getUsers();
-    let account = users.find(
-      (u) => u.username.toLowerCase() === cleanUser && u.password === cleanPass
-    );
+    let account = findMatch(users);
 
-    // 2. If not found locally, try fetching latest users from Supabase
+    // 2. If not found locally, try fetching latest users from Supabase cloud
     if (!account) {
       try {
         const cloudUsers = await this.fetchUsersFromCloud();
-        account = cloudUsers.find(
-          (u) => u.username.toLowerCase() === cleanUser && u.password === cleanPass
-        );
+        account = findMatch(cloudUsers);
       } catch {
         // ignore
       }
     }
 
     if (!account) {
-      return { success: false, error: 'Kullanıcı adı veya şifre hatalı.' };
+      return {
+        success: false,
+        error: `"${cleanCompany}" kurumu için kullanıcı adı veya şifre hatalı.`,
+      };
     }
 
     return {
@@ -316,6 +447,9 @@ export const UserService = {
         name: account.name,
         role: account.role,
         createdAt: account.createdAt,
+        companyCode: account.companyCode || cleanCompany,
+        companyName: account.companyName,
+        email: account.email,
       },
     };
   },
