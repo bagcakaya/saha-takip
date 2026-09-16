@@ -1,5 +1,6 @@
 import { UserAccount, UserRole, User, Company } from '../types/auth';
 import { supabase } from './supabaseClient';
+import { CompanyService } from './companyService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 
@@ -100,6 +101,19 @@ export const UserService = {
     const localUsers = this.getUsers();
 
     try {
+      // 1. Fetch companies directory to enrich admin users with their registered email
+      const companiesMap = new Map<string, string>();
+      try {
+        const companies = await CompanyService.fetchCompanies();
+        companies.forEach((c) => {
+          if (c.code && c.adminEmail) {
+            companiesMap.set(c.code.toUpperCase(), c.adminEmail.toLowerCase());
+          }
+        });
+      } catch {
+        // ignore
+      }
+
       const { data, error } = await supabase
         .from('app_users')
         .select('*')
@@ -109,12 +123,25 @@ export const UserService = {
         const cloudUsers: UserAccount[] = data.map((row) => {
           let companyCode = 'POLATLAR';
           let username = row.username;
+          let email: string | undefined = undefined;
+
+          // Parse embedded email format (e.g. "BURAKDEV:admin#b.agcakaya@gmail.com")
+          if (row.username && row.username.includes('#')) {
+            const hashParts = row.username.split('#');
+            username = hashParts[0];
+            email = hashParts[1]?.toLowerCase();
+          }
 
           // Parse composite companyCode:username format
-          if (row.username && row.username.includes(':')) {
-            const parts = row.username.split(':');
+          if (username && username.includes(':')) {
+            const parts = username.split(':');
             companyCode = parts[0].toUpperCase();
             username = parts.slice(1).join(':');
+          }
+
+          // If email is not in username, resolve from company directory if admin
+          if (!email && row.role === 'admin' && companiesMap.has(companyCode)) {
+            email = companiesMap.get(companyCode);
           }
 
           return {
@@ -125,7 +152,7 @@ export const UserService = {
             role: row.role as UserRole,
             createdAt: Number(row.created_at) || Date.now(),
             companyCode,
-            email: row.email || undefined,
+            email,
           };
         });
 
@@ -138,14 +165,21 @@ export const UserService = {
         if (missingLocal.length > 0) {
           try {
             await supabase.from('app_users').upsert(
-              missingLocal.map((u) => ({
-                id: u.id,
-                username: u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`,
-                password: u.password,
-                name: u.name,
-                role: u.role,
-                created_at: u.createdAt,
-              }))
+              missingLocal.map((u) => {
+                let cloudUsername =
+                  u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`;
+                if (u.email) {
+                  cloudUsername = `${cloudUsername}#${u.email}`;
+                }
+                return {
+                  id: u.id,
+                  username: cloudUsername,
+                  password: u.password,
+                  name: u.name,
+                  role: u.role,
+                  created_at: u.createdAt,
+                };
+              })
             );
           } catch {
             // ignore
@@ -159,14 +193,21 @@ export const UserService = {
         // Cloud table exists but empty -> seed from local
         try {
           await supabase.from('app_users').upsert(
-            localUsers.map((u) => ({
-              id: u.id,
-              username: u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`,
-              password: u.password,
-              name: u.name,
-              role: u.role,
-              created_at: u.createdAt,
-            }))
+            localUsers.map((u) => {
+              let cloudUsername =
+                u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`;
+              if (u.email) {
+                cloudUsername = `${cloudUsername}#${u.email}`;
+              }
+              return {
+                id: u.id,
+                username: cloudUsername,
+                password: u.password,
+                name: u.name,
+                role: u.role,
+                created_at: u.createdAt,
+              };
+            })
           );
         } catch {
           // ignore
@@ -230,8 +271,11 @@ export const UserService = {
 
     // Sync to Supabase in background
     try {
-      const cloudUsername =
+      let cloudUsername =
         cleanCompanyCode === 'POLATLAR' ? newUser.username : `${cleanCompanyCode}:${newUser.username}`;
+      if (newUser.email) {
+        cloudUsername = `${cloudUsername}#${newUser.email}`;
+      }
 
       await supabase.from('app_users').upsert([
         {
@@ -405,6 +449,23 @@ export const UserService = {
       return { success: false, error: 'Lütfen Kullanıcı Adınızı giriniz.' };
     }
 
+    // Always fetch company to verify company and get adminEmail
+    let company = await CompanyService.getCompanyByCode(cleanCompany);
+    if (!company && cleanCompany !== 'POLATLAR') {
+      // Force refresh from cloud
+      const cloudCompanies = await CompanyService.fetchCompanies();
+      company = cloudCompanies.find((c) => c.code.toUpperCase() === cleanCompany) || null;
+    }
+
+    if (!company && cleanCompany !== 'POLATLAR') {
+      return {
+        success: false,
+        error: `"${cleanCompany}" koduna sahip bir kurum bulunamadı. Lütfen kurum kodunu kontrol ediniz.`,
+      };
+    }
+
+    const companyAdminEmail = company?.adminEmail?.trim().toLowerCase();
+
     // Helper to find match
     const findMatch = (userList: UserAccount[]) => {
       return userList.find((u) => {
@@ -412,7 +473,9 @@ export const UserService = {
         if (uComp !== cleanCompany) return false;
 
         const isUserMatch = u.username.toLowerCase() === cleanIdentifier;
-        const isEmailMatch = u.email && u.email.toLowerCase() === cleanIdentifier;
+        const isEmailMatch =
+          (u.email && u.email.toLowerCase() === cleanIdentifier) ||
+          (u.role === 'admin' && companyAdminEmail && companyAdminEmail === cleanIdentifier);
 
         return (isUserMatch || isEmailMatch) && u.password === cleanPass;
       });
@@ -437,6 +500,10 @@ export const UserService = {
         success: false,
         error: `"${cleanCompany}" kurumu için kullanıcı adı veya şifre hatalı.`,
       };
+    }
+
+    if (!account.email && companyAdminEmail) {
+      account.email = companyAdminEmail;
     }
 
     return {
