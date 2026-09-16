@@ -764,8 +764,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           seenWarrantyChanged = true;
 
           const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
-          const title = `🛡️ ${typeLabel} Durum Takibi: ${item.companyName}`;
-          const body = `${item.companyName} firmasına gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
+          const targetName = item.cariName ? `${item.cariName} (${item.companyName})` : item.companyName;
+          const title = `🛡️ ${typeLabel} Durum Takibi: ${targetName}`;
+          const body = `${targetName} için gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
           NotificationService.sendNotification(title, body);
           setActiveToast({ title, body, tab: 'returns' });
         }

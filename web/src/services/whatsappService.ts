@@ -98,6 +98,7 @@ export const WhatsappService = {
   shareReturnWarranty(params: {
     type: 'warranty' | 'return';
     companyName: string;
+    cariName?: string;
     sentDate: string;
     serialNumber?: string;
     trackingCode?: string;
@@ -105,7 +106,7 @@ export const WhatsappService = {
     staffName: string;
     targetPhone?: string;
   }): void {
-    const { type, companyName, sentDate, serialNumber, trackingCode, notes, staffName, targetPhone } = params;
+    const { type, companyName, cariName, sentDate, serialNumber, trackingCode, notes, staffName, targetPhone } = params;
 
     const isWarranty = type === 'warranty';
     const typeTitle = isWarranty ? '🛡️ *GARANTİ GÖNDERİM BİLDİRİMİ*' : '🔄 *İADE GÖNDERİM BİLDİRİMİ*';
@@ -118,7 +119,8 @@ export const WhatsappService = {
     const message = [
       typeTitle,
       '━━━━━━━━━━━━━━━━━━━',
-      `🏢 *Firma:* ${companyName}`,
+      cariName ? `🏢 *İlgili Cari / Müşteri:* ${cariName}` : '',
+      `🏢 *Gönderilen Firma:* ${companyName}`,
       `📅 *Gönderim Tarihi:* ${dateFormatted}`,
       serialNumber ? `🔢 *Seri No:* ${serialNumber}` : '',
       trackingCode ? `📦 *Kargo Takip Kodu:* ${trackingCode}` : '',

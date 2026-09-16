@@ -64,6 +64,7 @@ export const ReturnWarrantyView: React.FC = () => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
         item.companyName.toLowerCase().includes(q) ||
+        (item.cariName && item.cariName.toLowerCase().includes(q)) ||
         (item.serialNumber && item.serialNumber.toLowerCase().includes(q)) ||
         (item.trackingCode && item.trackingCode.toLowerCase().includes(q)) ||
         (item.createdByName && item.createdByName.toLowerCase().includes(q)) ||

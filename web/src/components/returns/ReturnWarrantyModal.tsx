@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
-import { CariListModal } from '../common/CariListModal';
+import { CariSelect } from '../common/CariSelect';
 
 interface ReturnWarrantyModalProps {
   isOpen: boolean;
@@ -37,8 +37,8 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
   const { user } = useAuth();
 
   const [type, setType] = useState<ReturnWarrantyType>('warranty');
+  const [cariName, setCariName] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [isCariModalOpen, setIsCariModalOpen] = useState(false);
   const [sentDateStr, setSentDateStr] = useState('');
   const [sentTimeStr, setSentTimeStr] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
@@ -63,6 +63,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
   useEffect(() => {
     if (editingItem) {
       setType(editingItem.type);
+      setCariName(editingItem.cariName || '');
       setCompanyName(editingItem.companyName);
       setSerialNumber(editingItem.serialNumber || '');
       setTrackingCode(editingItem.trackingCode || '');
@@ -96,6 +97,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       }
     } else {
       setType('warranty');
+      setCariName('');
       setCompanyName('');
       setSerialNumber('');
       setTrackingCode('');
@@ -235,6 +237,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       await onSave({
         type,
         companyName: companyName.trim(),
+        cariName: cariName.trim() || undefined,
         sentDate: combinedSentDate.toISOString(),
         serialNumber: serialNumber.trim() || undefined,
         trackingCode: trackingCode.trim() || undefined,
@@ -250,6 +253,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
         WhatsappService.shareReturnWarranty({
           type,
           companyName: companyName.trim(),
+          cariName: cariName.trim() || undefined,
           sentDate: combinedSentDate.toISOString(),
           serialNumber: serialNumber.trim() || undefined,
           trackingCode: trackingCode.trim() || undefined,
@@ -265,8 +269,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
   };
 
   return (
-    <>
-      <Modal
+    <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={editingItem ? 'İade / Garanti Kaydını Düzenle' : 'Yeni İade / Garanti Kaydı'}
@@ -375,29 +378,42 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
           )}
         </div>
 
+        {/* Cari Selection (Optional) with Integrated Search in Dropdown */}
+        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-2">
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Building2 className="w-3.5 h-3.5 text-blue-500" />
+            <span>İlgili Cari / Müşteri (İsteğe Bağlı)</span>
+          </label>
+
+          <CariSelect
+            value={cariName}
+            onChange={(val) => {
+              setCariName(val);
+              if (!companyName.trim() && val) {
+                setCompanyName(val);
+              }
+            }}
+            placeholder="Açılan listeden cari seçin veya arayın..."
+          />
+
+          <span className="block text-[11px] text-slate-400">
+            💡 İsteğe bağlıdır. Cari seçilmezse boş geçilir; seçilirse personele en üstte gösterilir.
+          </span>
+        </div>
+
         {/* Company Name */}
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-blue-500" />
-              <span>Gönderilen Firma İsmi *</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => setIsCariModalOpen(true)}
-              className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <Building2 className="w-3 h-3" />
-              <span>Cari Listesinden Seç</span>
-            </button>
-          </div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1.5">
+            <Building2 className="w-3.5 h-3.5 text-blue-500" />
+            <span>Gönderilen Firma İsmi *</span>
+          </label>
           <input
             type="text"
             required
             list="cari-names-list"
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="Örn: 12 YAZILIM, ADA CAFE..."
+            placeholder="Örn: 12 YAZILIM, ADA CAFE, İNGENİCO SERVİS..."
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium"
           />
         </div>
@@ -648,13 +664,5 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
         </div>
       </form>
     </Modal>
-
-    {/* Cari Listesi Seçim Modalı */}
-    <CariListModal
-      isOpen={isCariModalOpen}
-      onClose={() => setIsCariModalOpen(false)}
-      onSelectCari={(selectedCari) => setCompanyName(selectedCari)}
-    />
-  </>
-);
+  );
 };

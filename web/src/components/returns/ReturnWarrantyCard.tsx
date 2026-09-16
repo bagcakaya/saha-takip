@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Hourglass,
   Maximize2,
+  Building2,
 } from 'lucide-react';
 import { ReturnWarrantyItem } from '../../types/storage';
 import { WhatsappService } from '../../services/whatsappService';
@@ -110,6 +111,21 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
             : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 hover:shadow-md'
         }`}
       >
+        {/* Cari Banner at the very top */}
+        {item.cariName && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xs">
+            <Building2 className="w-4 h-4 text-blue-200 shrink-0" />
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md">
+                Cari / Müşteri
+              </span>
+              <span className="text-xs sm:text-sm font-black truncate">
+                {item.cariName}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Top Badges & Actions */}
         <div className="flex items-start justify-between gap-2 flex-wrap">
           {/* Left Badges */}
@@ -175,6 +191,7 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
                 WhatsappService.shareReturnWarranty({
                   type: item.type,
                   companyName: item.companyName,
+                  cariName: item.cariName,
                   sentDate: item.sentDate,
                   serialNumber: item.serialNumber,
                   trackingCode: item.trackingCode,

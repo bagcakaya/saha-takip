@@ -93,6 +93,7 @@ export interface ReturnWarrantyItem {
   id: string;
   type: ReturnWarrantyType;
   companyName: string;
+  cariName?: string; // İlgili Cari / Müşteri Adı (İsteğe bağlı)
   sentDate: string; // ISO string: YYYY-MM-DDTHH:mm
   serialNumber?: string;
   trackingCode?: string;

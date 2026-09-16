@@ -608,6 +608,12 @@ export const StorageService = {
     const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
 
     if (activeCompanyCode === 'POLATLAR') {
+      let fallbackItems: ReturnWarrantyItem[] = [];
+      const stFallback = await loadChunkedSlot<ReturnWarrantyItem[]>(2);
+      if (stFallback.data && Array.isArray(stFallback.data)) {
+        fallbackItems = stFallback.data;
+      }
+
       try {
         const { data, error } = await supabase
           .from('return_warranty')
@@ -615,24 +621,29 @@ export const StorageService = {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          const cloudItems: ReturnWarrantyItem[] = data.map((row) => ({
-            id: row.id,
-            type: row.type as any,
-            companyName: row.company_name,
-            sentDate: row.sent_date,
-            serialNumber: row.serial_number || undefined,
-            trackingCode: row.tracking_code || undefined,
-            serialNumberPhoto: row.serial_number_photo || undefined,
-            trackingCodePhoto: row.tracking_code_photo || undefined,
-            notes: row.notes || undefined,
-            status: row.status as any,
-            reminderDate: row.reminder_date || undefined,
-            reminderActive: Boolean(row.reminder_active),
-            notified: Boolean(row.notified),
-            createdAt: Number(row.created_at) || Date.now(),
-            createdBy: row.created_by || undefined,
-            createdByName: row.created_by_name || undefined,
-          }));
+          const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
+          const cloudItems: ReturnWarrantyItem[] = data.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              type: row.type as any,
+              companyName: row.company_name,
+              cariName: fb?.cariName || (row as any).cari_name || undefined,
+              sentDate: row.sent_date,
+              serialNumber: row.serial_number || undefined,
+              trackingCode: row.tracking_code || undefined,
+              serialNumberPhoto: row.serial_number_photo || undefined,
+              trackingCodePhoto: row.tracking_code_photo || undefined,
+              notes: row.notes || undefined,
+              status: row.status as any,
+              reminderDate: row.reminder_date || undefined,
+              reminderActive: Boolean(row.reminder_active),
+              notified: Boolean(row.notified),
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+            };
+          });
 
           await saveItem(localKey, cloudItems);
           return cloudItems;
@@ -641,10 +652,9 @@ export const StorageService = {
         // ignore
       }
 
-      const cloudData = await loadChunkedSlot<ReturnWarrantyItem[]>(2);
-      if (cloudData.data && Array.isArray(cloudData.data)) {
-        await saveItem(localKey, cloudData.data);
-        return cloudData.data;
+      if (fallbackItems.length > 0) {
+        await saveItem(localKey, fallbackItems);
+        return fallbackItems;
       }
 
       return (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
@@ -676,10 +686,11 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
-        const rows = items.map((item) => ({
+        const fullRows = items.map((item) => ({
           id: item.id,
           type: item.type,
           company_name: item.companyName,
+          cari_name: item.cariName || null,
           sent_date: item.sentDate,
           serial_number: item.serialNumber || null,
           tracking_code: item.trackingCode || null,
@@ -695,18 +706,39 @@ export const StorageService = {
           created_by_name: item.createdByName || null,
         }));
 
-        if (rows.length > 0) {
-          const { error: upsertErr } = await supabase.from('return_warranty').upsert(rows);
-          if (!upsertErr) {
-            const currentIds = items.map((i) => i.id);
-            const { data: cloudData } = await supabase.from('return_warranty').select('id');
-            if (cloudData) {
-              const idsToDelete = cloudData
-                .map((c) => c.id)
-                .filter((id) => !currentIds.includes(id));
-              if (idsToDelete.length > 0) {
-                await supabase.from('return_warranty').delete().in('id', idsToDelete);
-              }
+        if (fullRows.length > 0) {
+          const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
+          if (upsertErr) {
+            // Fallback in case cari_name column hasn't been added to SQL yet
+            const basicRows = items.map((item) => ({
+              id: item.id,
+              type: item.type,
+              company_name: item.companyName,
+              sent_date: item.sentDate,
+              serial_number: item.serialNumber || null,
+              tracking_code: item.trackingCode || null,
+              serial_number_photo: item.serialNumberPhoto || null,
+              tracking_code_photo: item.trackingCodePhoto || null,
+              notes: item.notes || null,
+              status: item.status,
+              reminder_date: item.reminderDate || null,
+              reminder_active: item.reminderActive,
+              notified: item.notified || false,
+              created_at: item.createdAt,
+              created_by: item.createdBy || null,
+              created_by_name: item.createdByName || null,
+            }));
+            await supabase.from('return_warranty').upsert(basicRows);
+          }
+
+          const currentIds = items.map((i) => i.id);
+          const { data: cloudData } = await supabase.from('return_warranty').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('return_warranty').delete().in('id', idsToDelete);
             }
           }
         } else {

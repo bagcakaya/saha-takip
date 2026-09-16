@@ -24,3 +24,6 @@ CREATE TABLE IF NOT EXISTS public.return_warranty (
 
 -- Realtime dinleyicisi için tabloyu yayına açın:
 ALTER PUBLICATION supabase_realtime ADD TABLE return_warranty;
+
+-- İlgili cari / müşteri sütununu ekleyin:
+ALTER TABLE public.return_warranty ADD COLUMN IF NOT EXISTS cari_name TEXT;
