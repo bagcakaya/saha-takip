@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   UserPlus,
@@ -9,10 +9,14 @@ import {
   Crown,
   Users,
   CheckCircle2,
+  Unlock,
+  Smartphone,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types/auth';
+import { DeviceService } from '../../services/deviceService';
+import { UserDeviceBinding } from '../../types/storage';
 
 interface UserManagementModalProps {
   isOpen: boolean;
@@ -53,6 +57,46 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   // States for password edit modal/prompt
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [changedPassword, setChangedPassword] = useState('');
+
+  // Device bindings state
+  const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+
+  const loadBindings = async () => {
+    try {
+      const list = await DeviceService.getUserDeviceBindings();
+      setUserBindings(list);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadBindings();
+    }
+  }, [isOpen]);
+
+  const handleResetDeviceLock = async (userId: string, userName: string) => {
+    if (
+      !window.confirm(
+        `"${userName}" kullanıcısının telefon cihaz kilidini sıfırlamak istediğinize emin misiniz?\n\nKilit kaldırıldığında personel yeni telefonundan sisteme girdiği anda yeni cihazı sisteme otomatik kilitlenecektir.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setResettingUserId(userId);
+      await DeviceService.unbindUserDevice(userId);
+      await loadBindings();
+      alert(`"${userName}" kullanıcısının cihaz kilidi başarıyla sıfırlandı.`);
+    } catch (err: any) {
+      alert(err?.message || 'Cihaz kilidi sıfırlanamadı.');
+    } finally {
+      setResettingUserId(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -186,6 +230,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             {companyUsers.map((account) => {
               const isAdmin = account.role === 'admin';
               const isCurrent = currentUser?.id === account.id;
+              const binding = userBindings.find(
+                (b) =>
+                  b.userId === account.id ||
+                  (b.username && b.username.toLowerCase() === account.username.toLowerCase())
+              );
 
               return (
                 <div
@@ -219,6 +268,22 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         <span className="text-xs text-slate-400 font-mono block truncate">
                           @{account.username}
                         </span>
+
+                        {/* Device Lock Status Badge */}
+                        {binding && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-rose-600 dark:text-rose-400 font-medium mt-1">
+                            <Smartphone className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span className="truncate">
+                              Kilitli Cihaz: <strong>{binding.boundDeviceName || binding.boundDeviceId}</strong>
+                            </span>
+                          </div>
+                        )}
+                        {!binding && !isAdmin && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mt-1">
+                            <Smartphone className="w-3.5 h-3.5 opacity-50 shrink-0" />
+                            <span>Cihaz henüz kilitlenmedi (İlk girişte kilitlenecek)</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -273,6 +338,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     </span>
 
                     <div className="flex items-center gap-1.5">
+                      {binding && (
+                        <button
+                          type="button"
+                          disabled={resettingUserId === account.id}
+                          onClick={() => handleResetDeviceLock(account.id, account.name)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/70 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                          title="Personelin cihaz kilidini sıfırlayın (Yeni telefondan giriş yapabilmesi için)"
+                        >
+                          <Unlock className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                          <span>{resettingUserId === account.id ? 'Sıfırlanıyor...' : '🔓 Kilidi Sıfırla'}</span>
+                        </button>
+                      )}
+
                       <button
                         onClick={() => {
                           setEditingPasswordUserId(
