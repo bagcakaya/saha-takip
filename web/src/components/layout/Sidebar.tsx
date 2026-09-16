@@ -23,7 +23,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
-import { WeatherData } from '../../types/auth';
+import { WeatherData, isUserAdmin } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { CariListModal } from '../common/CariListModal';
@@ -55,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
 
   // Live weather state for sidebar
   const [weather, setWeather] = useState<WeatherData>({
@@ -141,7 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     if (!user) return 0;
     let count = 0;
 
-    if (user.role === 'admin') {
+    if (isAdmin) {
       // 1. Pending approval notes newer than lastReadTime
       count += allNotes.filter(
         (n) => n.status === 'pending_approval' && (n.completedAt || n.createdAt) > lastReadTime
@@ -488,7 +488,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             </button>
 
             {/* Log Kayıtları (Yalnızca Yönetici) */}
-            {user?.role === 'admin' && (
+            {isAdmin && (
               <button
                 onClick={() => setActiveTab('logs')}
                 className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${

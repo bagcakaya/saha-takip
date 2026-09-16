@@ -50,3 +50,20 @@ export interface WeatherData {
   locationName: string;
   isDay: boolean;
 }
+
+/**
+ * Checks if a user is an administrator.
+ * In POLATLAR company, both 'admin' and 'murat' have full administrator privileges.
+ */
+export function isUserAdmin(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const comp = (user.companyCode || 'POLATLAR').toUpperCase();
+  const uname = (user.username || '').toLowerCase();
+  if (comp === 'POLATLAR' && (uname === 'admin' || uname === 'murat')) {
+    return true;
+  }
+  return false;
+}

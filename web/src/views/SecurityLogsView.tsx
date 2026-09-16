@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
+import { isUserAdmin } from '../types/auth';
 import { DeviceService } from '../services/deviceService';
 
 export const SecurityLogsView: React.FC = () => {
@@ -132,7 +133,7 @@ export const SecurityLogsView: React.FC = () => {
   }, [securityLogs]);
 
   // Admin access guard
-  if (user?.role !== 'admin') {
+  if (!isUserAdmin(user)) {
     return (
       <div className="max-w-xl mx-auto mt-16 p-8 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl space-y-4">
         <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto">

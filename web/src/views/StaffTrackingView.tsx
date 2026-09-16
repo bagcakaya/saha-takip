@@ -22,6 +22,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { LocationService } from '../services/locationService';
 
@@ -46,7 +47,7 @@ export const StaffTrackingView: React.FC = () => {
     deleteLeaveRequest,
   } = useStorage();
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
   const allowedRadius =
     workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10
       ? workplaceLocation.radiusMeters

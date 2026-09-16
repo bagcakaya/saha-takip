@@ -5,6 +5,7 @@ import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as Im
 import { NotificationService } from '../../services/notificationService';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { compressImage } from '../../utils/imageUtils';
 import { CariSelect } from '../common/CariSelect';
 
@@ -31,7 +32,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   onSave,
 }) => {
   const { user: currentUser, users } = useAuth();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isUserAdmin(currentUser);
 
   const [content, setContent] = useState('');
   const [cariName, setCariName] = useState('');
@@ -331,7 +332,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
                             </div>
 
                             <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-extrabold shrink-0">
-                              {u.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                              {isUserAdmin(u) ? 'Yönetici' : 'Saha Yetkilisi'}
                             </span>
                           </div>
                         );

@@ -15,6 +15,7 @@ import { ProgressBar } from '../common/ProgressBar';
 import { LocationService } from '../../services/locationService';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 
 interface LocationCardProps {
   location: LocationItem;
@@ -28,7 +29,7 @@ export const LocationCard: React.FC<LocationCardProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
 
   const total = location.tasks.length;
   const completed = location.tasks.filter((t) => t.status === 'completed').length;

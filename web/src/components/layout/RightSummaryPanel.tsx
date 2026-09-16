@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { CircularProgress } from '../common/CircularProgress';
 import { LocationItem } from '../../types/storage';
 import { LocationService } from '../../services/locationService';
@@ -24,7 +25,7 @@ export const RightSummaryPanel: React.FC<RightSummaryPanelProps> = ({
 }) => {
   const { locations, notes } = useStorage();
   const { user, users } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
 
   // Target preview location: explicitly selected, or fallback to first/latest location
   const activeLocation = selectedLocation || locations[0] || null;

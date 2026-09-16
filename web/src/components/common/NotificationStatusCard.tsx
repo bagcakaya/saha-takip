@@ -23,6 +23,7 @@ import { OneSignalService, SubscriptionDetails } from '../../services/oneSignalS
 import { DeviceService } from '../../services/deviceService';
 import { RegisteredDevice, UserDeviceBinding } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 
 interface NotificationStatusCardProps {
   className?: string;
@@ -551,7 +552,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
                 Aktif Bildirim Alıcısı:
               </div>
               <div className="font-medium text-slate-800 dark:text-slate-200">
-                {user.name} ({user.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'})
+                {user.name} ({isUserAdmin(user) ? 'Yönetici' : 'Saha Yetkilisi'})
               </div>
             </div>
             <button
@@ -680,7 +681,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         </div>
 
         {/* ANTI-FRAUD DEVICE LOCKS MANAGEMENT (Admin Only) */}
-        {user?.role === 'admin' && (
+        {isUserAdmin(user) && (
           <div className="p-3.5 sm:p-4 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/30 dark:bg-rose-950/20 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AdminReminder, AdminReminderCategory } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { ImageLightboxModal } from '../common/ImageLightboxModal';
 
 interface ReminderCardProps {
@@ -31,7 +32,7 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
   onMarkAsRead,
 }) => {
   const { user, users } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
   const hasRead = Boolean(user?.id && reminder.readBy?.includes(user.id));
 
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);

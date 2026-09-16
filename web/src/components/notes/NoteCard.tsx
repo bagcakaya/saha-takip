@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { useStorage } from '../../context/StorageContext';
 import { WhatsappService } from '../../services/whatsappService';
 import { CompleteNoteModal } from './CompleteNoteModal';
@@ -35,7 +36,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
   const { user: currentUser } = useAuth();
   const { completeNote, approveNote, rejectNote } = useStorage();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isUserAdmin(currentUser);
   const isCreatedByMe = note.createdBy === currentUser?.id;
 
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);

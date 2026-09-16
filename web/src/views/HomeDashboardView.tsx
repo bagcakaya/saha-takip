@@ -14,6 +14,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
+import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
@@ -80,7 +81,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     }
   };
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
   const pendingReturns = returnWarrantyItems.filter((i) => i.status === 'pending').length;
   const todayKey = new Date().toISOString().split('T')[0];
   const activeStaffCount = attendanceRecords.filter(
@@ -381,7 +382,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         </button>
 
         {/* Log Kayıtları - Rose / Slate Gradient Card (Admin Only - İade/Garanti ile Şablon Arasında) */}
-        {user?.role === 'admin' && (
+        {isAdmin && (
           <button
             onClick={() => onNavigate('logs')}
             className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-amber-600 via-rose-800 to-slate-900 text-white border border-amber-400/30 cursor-pointer"

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, UserAccount, UserRole, Company } from '../types/auth';
+import { User, UserAccount, UserRole, Company, isUserAdmin } from '../types/auth';
 import { UserService } from '../services/userService';
 import { CompanyService } from '../services/companyService';
 import { StorageService } from '../services/storageService';
@@ -71,6 +71,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           parsed.companyCode = 'POLATLAR';
           StorageService.setCompany('POLATLAR', 1);
         }
+        if (isUserAdmin(parsed)) {
+          parsed.role = 'admin';
+        }
         return parsed;
       }
     } catch (e) {
@@ -98,8 +101,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setIsAuthenticated(Boolean(user));
     if (user) {
-      // Check device authorization guard on session start
-      if (user.role !== 'admin') {
+      // Check device authorization guard on session start (Admins exempt)
+      if (!isUserAdmin(user)) {
         const currentDeviceId = DeviceService.getCurrentDeviceId();
         DeviceService.verifyDeviceAccess({
           userId: user.id,
@@ -115,8 +118,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      OneSignalService.loginUser(user.id, user.name, user.role, user.companyCode);
-      OneSignalService.selfHealSubscription(user).catch(() => {});
+      const effectiveRole = isUserAdmin(user) ? 'admin' : user.role;
+      OneSignalService.loginUser(user.id, user.name, effectiveRole, user.companyCode);
+      OneSignalService.selfHealSubscription({ ...user, role: effectiveRole }).catch(() => {});
     }
   }, [user]);
 
@@ -126,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const handleResume = () => {
       if (document.visibilityState === 'visible') {
-        if (user.role !== 'admin') {
+        if (!isUserAdmin(user)) {
           const currentDeviceId = DeviceService.getCurrentDeviceId();
           DeviceService.verifyDeviceAccess({
             userId: user.id,
@@ -142,8 +146,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
 
-        OneSignalService.loginUser(user.id, user.name, user.role, user.companyCode);
-        OneSignalService.selfHealSubscription(user).catch(() => {});
+        const effectiveRole = isUserAdmin(user) ? 'admin' : user.role;
+        OneSignalService.loginUser(user.id, user.name, effectiveRole, user.companyCode);
+        OneSignalService.selfHealSubscription({ ...user, role: effectiveRole }).catch(() => {});
       }
     };
 
@@ -158,8 +163,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initial cloud fetch & realtime subscription for app_users
   useEffect(() => {
+    const syncCurrentSession = (cloudUsers: UserAccount[]) => {
+      setUser((currentUser) => {
+        if (!currentUser) return null;
+        const fresh = cloudUsers.find(
+          (u) =>
+            u.id === currentUser.id ||
+            ((u.companyCode || 'POLATLAR').toUpperCase() === (currentUser.companyCode || 'POLATLAR').toUpperCase() &&
+              u.username.toLowerCase() === currentUser.username.toLowerCase())
+        );
+        const shouldBeAdmin = isUserAdmin(currentUser) || (fresh && isUserAdmin(fresh));
+        const finalRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : currentUser.role);
+        const finalName = fresh ? fresh.name : currentUser.name;
+
+        if (finalRole !== currentUser.role || finalName !== currentUser.name) {
+          const updated: User = {
+            ...currentUser,
+            role: finalRole,
+            name: finalName,
+          };
+          try {
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+          } catch {
+            // ignore
+          }
+          return updated;
+        }
+        return currentUser;
+      });
+    };
+
     UserService.fetchUsersFromCloud().then((cloudUsers) => {
       setUsers(cloudUsers);
+      syncCurrentSession(cloudUsers);
     });
 
     const channel = supabase
@@ -167,6 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_users' }, async () => {
         const cloudUsers = await UserService.fetchUsersFromCloud();
         setUsers(cloudUsers);
+        syncCurrentSession(cloudUsers);
       })
       .subscribe();
 
@@ -210,7 +247,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const authenticatedUser = authResult.user;
 
     // 3. Anti-Fraud Device Lock Verification
-    if (authenticatedUser.role !== 'admin') {
+    if (!isUserAdmin(authenticatedUser)) {
       const currentDeviceId = DeviceService.getCurrentDeviceId();
       const accessCheck = await DeviceService.verifyDeviceAccess({
         userId: authenticatedUser.id,
@@ -229,23 +266,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // 4. Configure Storage & OneSignal for this company
+    const effectiveRole: UserRole = isUserAdmin(authenticatedUser) ? 'admin' : authenticatedUser.role;
+    const finalUser: User = isUserAdmin(authenticatedUser) ? { ...authenticatedUser, role: 'admin' } : authenticatedUser;
+
     StorageService.setCompany(matchedCompany.code, matchedCompany.id);
     setCompany(matchedCompany);
-    setUser(authenticatedUser);
+    setUser(finalUser);
     setIsAuthenticated(true);
     OneSignalService.loginUser(
-      authenticatedUser.id,
-      authenticatedUser.name,
-      authenticatedUser.role,
+      finalUser.id,
+      finalUser.name,
+      effectiveRole,
       matchedCompany.code
     );
 
     try {
       if (rememberMe) {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authenticatedUser));
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(finalUser));
         sessionStorage.removeItem(AUTH_STORAGE_KEY);
       } else {
-        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authenticatedUser));
+        sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(finalUser));
         localStorage.removeItem(AUTH_STORAGE_KEY);
       }
       localStorage.setItem('@saha_takip_company_code', matchedCompany.code);

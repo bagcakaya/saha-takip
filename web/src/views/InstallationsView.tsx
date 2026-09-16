@@ -6,6 +6,7 @@ import { AddLocationModal } from '../components/installations/AddLocationModal';
 import { LocationDetailModal } from '../components/installations/LocationDetailModal';
 import { LocationItem } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
+import { isUserAdmin } from '../types/auth';
 
 export const InstallationsView: React.FC = () => {
   const {
@@ -22,7 +23,7 @@ export const InstallationsView: React.FC = () => {
   } = useStorage();
 
   const { user: currentUser, users } = useAuth();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isUserAdmin(currentUser);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'in_progress' | 'completed' | 'with_location'>('all');
@@ -135,7 +136,7 @@ export const InstallationsView: React.FC = () => {
                 <option value="all">Tüm Personeller</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.name} ({u.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'})
+                    {u.name} ({isUserAdmin(u) ? 'Yönetici' : 'Saha Yetkilisi'})
                   </option>
                 ))}
               </select>

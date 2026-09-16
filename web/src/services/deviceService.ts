@@ -1,4 +1,5 @@
 import { RegisteredDevice } from '../types/storage';
+import { isUserAdmin } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { detectEnvironment, OneSignalService } from './oneSignalService';
 import { StorageService } from './storageService';
@@ -424,7 +425,7 @@ export const DeviceService = {
     binding?: import('../types/storage').UserDeviceBinding;
   }> {
     // 1. Admins have access from any device (laptop, office PC, phone)
-    if (params.role === 'admin') {
+    if (params.role === 'admin' || isUserAdmin(params)) {
       return { allowed: true };
     }
 

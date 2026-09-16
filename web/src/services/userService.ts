@@ -1,4 +1,4 @@
-import { UserAccount, UserRole, User, Company } from '../types/auth';
+import { UserAccount, UserRole, User, Company, isUserAdmin } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { CompanyService } from './companyService';
 
@@ -15,6 +15,17 @@ const DEFAULT_ADMIN: UserAccount = {
   companyName: 'Polatlar',
 };
 
+const DEFAULT_MURAT: UserAccount = {
+  id: 'mtjsnufrp8pfa',
+  username: 'murat',
+  password: '4412',
+  name: 'Murat POLAT',
+  role: 'admin',
+  createdAt: 1788335296983,
+  companyCode: 'POLATLAR',
+  companyName: 'Polatlar',
+};
+
 export const UserService = {
   /**
    * Retrieves all user accounts from local storage / cache
@@ -25,18 +36,23 @@ export const UserService = {
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((u) => ({
-            ...u,
-            companyCode: (u.companyCode || 'POLATLAR').toUpperCase(),
-          }));
+          return parsed.map((u) => {
+            const comp = (u.companyCode || 'POLATLAR').toUpperCase();
+            const isAdmin = isUserAdmin(u);
+            return {
+              ...u,
+              companyCode: comp,
+              role: isAdmin ? ('admin' as UserRole) : u.role,
+            };
+          });
         }
       }
     } catch (e) {
       console.warn('Kullanıcı listesi okunamadı:', e);
     }
 
-    // Initialize with default admin
-    const initialUsers = [DEFAULT_ADMIN];
+    // Initialize with default admins
+    const initialUsers = [DEFAULT_ADMIN, DEFAULT_MURAT];
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initialUsers));
     return initialUsers;
   },
@@ -144,12 +160,14 @@ export const UserService = {
             email = companiesMap.get(companyCode);
           }
 
+          const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+
           return {
             id: row.id,
             username,
             password: row.password,
             name: row.name,
-            role: row.role as UserRole,
+            role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
             createdAt: Number(row.created_at) || Date.now(),
             companyCode,
             email,
@@ -529,13 +547,15 @@ export const UserService = {
       account.email = companyAdminEmail;
     }
 
+    const finalRole = isUserAdmin(account) ? ('admin' as UserRole) : account.role;
+
     return {
       success: true,
       user: {
         id: account.id,
         username: account.username,
         name: account.name,
-        role: account.role,
+        role: finalRole,
         createdAt: account.createdAt,
         companyCode: account.companyCode || cleanCompany,
         companyName: account.companyName,

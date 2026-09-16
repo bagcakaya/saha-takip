@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
-import { UserRole } from '../../types/auth';
+import { UserRole, isUserAdmin } from '../../types/auth';
 import { DeviceService } from '../../services/deviceService';
 import { UserDeviceBinding } from '../../types/storage';
 import { CreateCompanyModal } from './CreateCompanyModal';
@@ -30,8 +30,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   onClose,
 }) => {
   const {
-    user: currentUser,
     users,
+    user: currentUser,
     company,
     addUser,
     updateUser,
@@ -40,7 +40,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   } = useAuth();
 
   const isPolatlarAdmin =
-    currentUser?.role === 'admin' &&
+    isUserAdmin(currentUser) &&
     (currentUser?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
 
@@ -248,7 +248,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         {activeSubTab === 'list' && (
           <div className="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1">
             {companyUsers.map((account) => {
-              const isAdmin = account.role === 'admin';
+              const isAdmin = isUserAdmin(account);
               const isCurrent = currentUser?.id === account.id;
               const binding = userBindings.find(
                 (b) =>

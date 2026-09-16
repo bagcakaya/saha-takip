@@ -16,11 +16,12 @@ import { NoteCard } from '../components/notes/NoteCard';
 import { NoteModal } from '../components/notes/NoteModal';
 import { GeneralNote, NoteTargetMode } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
+import { isUserAdmin } from '../types/auth';
 
 export const NotesView: React.FC = () => {
   const { notes, isLoading, addNote, updateNote, deleteNote } = useStorage();
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isUserAdmin(currentUser);
 
   const [searchQuery, setSearchQuery] = useState('');
 

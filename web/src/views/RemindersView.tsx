@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
+import { isUserAdmin } from '../types/auth';
 import { ReminderCard } from '../components/reminders/ReminderCard';
 import { ReminderModal } from '../components/reminders/ReminderModal';
 import { AdminReminder, AdminReminderCategory } from '../types/storage';
@@ -24,7 +25,7 @@ export const RemindersView: React.FC = () => {
     markReminderAsRead,
   } = useStorage();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<AdminReminderCategory | 'all'>('all');

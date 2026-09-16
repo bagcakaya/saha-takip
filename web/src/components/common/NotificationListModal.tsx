@@ -16,6 +16,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { useStorage } from '../../context/StorageContext';
 import { TabType } from '../layout/Header';
 import { NotificationStatusCard } from './NotificationStatusCard';
@@ -76,7 +77,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
   if (!isOpen || !user) return null;
 
-  const isAdmin = user.role === 'admin';
+  const isAdmin = isUserAdmin(user);
 
   // Build real notification feed based on current user role
   const notifications: AppNotification[] = [];

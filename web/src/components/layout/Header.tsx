@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { OneSignalService } from '../../services/oneSignalService';
@@ -35,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
     attendanceRecords,
     leaveRequests,
   } = useStorage();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
@@ -88,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (!user) return 0;
     let count = 0;
 
-    if (user.role === 'admin') {
+    if (isAdmin) {
       // 1. Pending approval notes newer than lastReadTime
       count += allNotes.filter(
         (n) => n.status === 'pending_approval' && (n.completedAt || n.createdAt) > lastReadTime

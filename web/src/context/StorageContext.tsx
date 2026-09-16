@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
+import { isUserAdmin } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -415,7 +416,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Staff (Saha Yetkilisi) -> ONLY sees locations created by himself
   const visibleLocations = useMemo(() => {
     if (!user) return [];
-    if (user.role === 'admin') {
+    if (isUserAdmin(user)) {
       return allLocations;
     }
     // Staff role: strictly only own creations
@@ -427,7 +428,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Staff -> Strictly sees notes created by themselves, OR notes targeted directly to them (single/multi), OR public announcements ('all')
   const visibleNotes = useMemo(() => {
     if (!user) return [];
-    if (user.role === 'admin') {
+    if (isUserAdmin(user)) {
       return allNotes;
     }
     return allNotes.filter((n) => {
@@ -450,7 +451,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Staff (Saha Yetkilisi) -> ONLY sees services created by himself
   const visibleServices = useMemo(() => {
     if (!user) return [];
-    if (user.role === 'admin') {
+    if (isUserAdmin(user)) {
       return allServices;
     }
     // Staff role: strictly only own creations
@@ -663,7 +664,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user || allNotes.length === 0) return;
 
     // 1. For Admin: Alert when a staff member completes a work order (pending_approval)
-    if (user.role === 'admin') {
+    if (isUserAdmin(user)) {
       const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id));
       let seenChanged = false;
 
@@ -787,8 +788,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveLocations(newLocations);
 
     // If added by Field Staff, send hardware push notification directly to all Admins!
-    if (user?.role !== 'admin') {
-      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+    if (!isUserAdmin(user)) {
+      const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
       if (adminIds.length > 0) {
         const staffName = user?.name || user?.username || 'Saha Personeli';
         await OneSignalService.sendPushNotification({
@@ -804,19 +805,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Delete location (guarded: admin or creator only)
   const deleteLocation = async (id: string) => {
-    const target = allLocations.find((loc) => loc.id === id);
-    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
-      alert('Bu kurulumu silme yetkiniz bulunmuyor.');
+    const target = allLocations.find((l) => l.id === id);
+    if (!target) return;
+    if (!isUserAdmin(user) && target.createdBy !== user?.id) {
+      alert('Yalnızca kendi eklediğiniz kurulum kayıtlarını silebilirsiniz.');
       return;
     }
-    const newLocations = allLocations.filter((loc) => loc.id !== id);
-    await saveLocations(newLocations);
+
+    const updated = allLocations.filter((l) => l.id !== id);
+    await saveLocations(updated);
   };
 
   // Update task status inside a location (guarded: admin or creator only)
   const updateTaskStatus = async (locationId: string, taskId: string, status: TaskStatus) => {
     const target = allLocations.find((loc) => loc.id === locationId);
-    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+    if (target && !isUserAdmin(user) && target.createdBy !== user?.id) {
       return;
     }
 
@@ -832,7 +835,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ...loc,
           tasks: loc.tasks.map((task) => {
             if (task.id === taskId) {
-              return { ...task, status };
+              return {
+                ...task,
+                status,
+                completedAt: status === 'completed' ? new Date().toISOString() : undefined,
+              };
             }
             return task;
           }),
@@ -852,7 +859,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // If just transitioned to complete, send hardware push notification directly to all Admins!
     if (!wasAlreadyComplete && isNowComplete && updatedTarget) {
       const staffName = user?.name || user?.username || 'Saha Personeli';
-      const adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+      const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
 
       if (adminIds.length > 0) {
         await OneSignalService.sendPushNotification({
@@ -864,7 +871,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       }
 
-      if (user?.role === 'admin') {
+      if (isUserAdmin(user)) {
         setActiveToast({
           title: '✅ Kurulum Tamamlandı!',
           body: `"${updatedTarget.name}" kurulumundaki tüm görevler tamamlandı.`,
@@ -1162,11 +1169,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveNotes(newNotes);
 
     // Send instant hardware push notification to Admin(s)
-    let adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
     if (adminIds.length === 0) {
       try {
         const cloudUsers = await UserService.fetchUsersFromCloud();
-        adminIds = cloudUsers.filter((u) => u.role === 'admin').map((u) => u.id);
+        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
       } catch {
         // ignore
       }
@@ -1459,12 +1466,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveServices(updated);
 
     // If added by Field Staff, send hardware push notification directly to all Admins!
-    if (user?.role !== 'admin') {
-      let adminIds = users.filter((u) => u.role === 'admin').map((u) => u.id);
+    if (!isUserAdmin(user)) {
+      let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
       if (adminIds.length === 0) {
         try {
           const cloudUsers = await UserService.fetchUsersFromCloud();
-          adminIds = cloudUsers.filter((u) => u.role === 'admin').map((u) => u.id);
+          adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
         } catch {
           // ignore
         }
@@ -2279,7 +2286,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     requestId: string
   ): Promise<{ success: boolean; message: string }> => {
     if (!user) return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
-    const req = leaveRequests.find((r) => r.id === requestId && (r.userId === user.id || user.role === 'admin'));
+    const req = leaveRequests.find((r) => r.id === requestId && (r.userId === user.id || isUserAdmin(user)));
     if (!req) return { success: false, message: 'İptal edilecek izin talebi bulunamadı.' };
 
     const updated = leaveRequests.filter((r) => r.id !== requestId);

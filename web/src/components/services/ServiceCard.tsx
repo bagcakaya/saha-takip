@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { WhatsappService } from '../../services/whatsappService';
 import { LocationService } from '../../services/locationService';
 import { ImageLightboxModal } from '../common/ImageLightboxModal';
@@ -29,7 +30,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isUserAdmin(user);
   const isCreator = user?.id === service.createdBy;
   const canModify = isAdmin || isCreator;
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
