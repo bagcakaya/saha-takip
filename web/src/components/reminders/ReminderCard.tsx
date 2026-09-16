@@ -35,7 +35,11 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
   const isAdmin = isUserAdmin(user);
   const hasRead = Boolean(user?.id && reminder.readBy?.includes(user.id));
 
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{
+    images: string[];
+    initialIndex: number;
+    title: string;
+  } | null>(null);
   const [showReadList, setShowReadList] = useState(false);
 
   // Format date
@@ -158,7 +162,13 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
                 <button
                   key={pIdx}
                   type="button"
-                  onClick={() => setSelectedPhoto(photo)}
+                  onClick={() =>
+                    setLightboxData({
+                      images: reminder.photos!,
+                      initialIndex: pIdx,
+                      title: `${reminder.title} - Ekli Görseller`,
+                    })
+                  }
                   className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/img cursor-pointer hover:opacity-90 transition-all shadow-xs"
                 >
                   <img
@@ -260,10 +270,11 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
 
       {/* Lightbox Modal for Fullscreen Photo View */}
       <ImageLightboxModal
-        isOpen={Boolean(selectedPhoto)}
-        imageUrl={selectedPhoto}
-        title={reminder.title}
-        onClose={() => setSelectedPhoto(null)}
+        isOpen={Boolean(lightboxData)}
+        images={lightboxData?.images || []}
+        initialIndex={lightboxData?.initialIndex || 0}
+        title={lightboxData?.title || reminder.title}
+        onClose={() => setLightboxData(null)}
       />
     </>
   );

@@ -29,7 +29,13 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
   onDelete,
   onToggleStatus,
 }) => {
-  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{
+    images: string[];
+    initialIndex: number;
+    title: string;
+  } | null>(null);
+
+  const returnPhotos = [item.serialNumberPhoto, item.trackingCodePhoto].filter(Boolean) as string[];
 
   const isWarranty = item.type === 'warranty';
   const isCompleted = item.status === 'completed';
@@ -291,7 +297,13 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
             {/* Serial Number Photo */}
             {item.serialNumberPhoto ? (
               <div
-                onClick={() => setLightboxPhoto(item.serialNumberPhoto!)}
+                onClick={() =>
+                  setLightboxData({
+                    images: returnPhotos,
+                    initialIndex: returnPhotos.indexOf(item.serialNumberPhoto!),
+                    title: `${item.companyName} - Seri No Fotoğrafı`,
+                  })
+                }
                 className="group relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 cursor-pointer"
               >
                 <img
@@ -315,7 +327,13 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
             {/* Tracking Code Photo */}
             {item.trackingCodePhoto ? (
               <div
-                onClick={() => setLightboxPhoto(item.trackingCodePhoto!)}
+                onClick={() =>
+                  setLightboxData({
+                    images: returnPhotos,
+                    initialIndex: returnPhotos.indexOf(item.trackingCodePhoto!),
+                    title: `${item.companyName} - Kargo Takip Fişi`,
+                  })
+                }
                 className="group relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 cursor-pointer"
               >
                 <img
@@ -375,8 +393,13 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
       </div>
 
       {/* Lightbox for Fullscreen Photo View */}
-      {lightboxPhoto && (
-        <Lightbox photoUrl={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
+      {lightboxData && (
+        <Lightbox
+          images={lightboxData.images}
+          initialIndex={lightboxData.initialIndex}
+          title={lightboxData.title}
+          onClose={() => setLightboxData(null)}
+        />
       )}
     </>
   );

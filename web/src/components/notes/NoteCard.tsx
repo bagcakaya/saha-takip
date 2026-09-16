@@ -41,7 +41,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
 
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{
+    images: string[];
+    initialIndex: number;
+    title: string;
+  } | null>(null);
 
   // Only the creator or an Admin can edit or delete a note
   const canModify = isAdmin || isCreatedByMe;
@@ -279,7 +283,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
               <button
                 key={pIdx}
                 type="button"
-                onClick={() => setLightboxPhoto(photo)}
+                onClick={() =>
+                  setLightboxData({
+                    images: note.photos!,
+                    initialIndex: pIdx,
+                    title: `${note.cariName || 'İş Emri'} - Fotoğraflar`,
+                  })
+                }
                 className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/img cursor-pointer hover:opacity-90 transition-all shadow-xs"
               >
                 <img
@@ -350,7 +360,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
                   <button
                     key={cIdx}
                     type="button"
-                    onClick={() => setLightboxPhoto(photo)}
+                    onClick={() =>
+                      setLightboxData({
+                        images: note.completionPhotos!,
+                        initialIndex: cIdx,
+                        title: `${note.cariName || 'İş Emri'} - Tamamlama Fotoğrafları`,
+                      })
+                    }
                     className="relative aspect-square rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
                   >
                     <img
@@ -518,10 +534,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
 
       {/* Lightbox Modal for Fullscreen Photo View */}
       <ImageLightboxModal
-        isOpen={Boolean(lightboxPhoto)}
-        imageUrl={lightboxPhoto}
-        title="İş Emri Fotoğrafı"
-        onClose={() => setLightboxPhoto(null)}
+        isOpen={Boolean(lightboxData)}
+        images={lightboxData?.images || []}
+        initialIndex={lightboxData?.initialIndex || 0}
+        title={lightboxData?.title || 'İş Emri Fotoğrafı'}
+        onClose={() => setLightboxData(null)}
       />
     </div>
   );

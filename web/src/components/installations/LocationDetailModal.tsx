@@ -64,7 +64,11 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<'checklist' | 'metadata'>('checklist');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{
+    images: string[];
+    initialIndex: number;
+    title: string;
+  } | null>(null);
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
@@ -222,7 +226,13 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
                               key={idx}
                               src={p}
                               alt="Tamamlama"
-                              onClick={() => setPreviewPhoto(p)}
+                              onClick={() =>
+                                setLightboxData({
+                                  images: location.completionPhotos!,
+                                  initialIndex: idx,
+                                  title: `${location.name} - Tamamlama Fotoğrafları`,
+                                })
+                              }
                               className="w-12 h-12 rounded-lg object-cover border border-amber-200 cursor-pointer hover:opacity-80 transition-all shrink-0"
                             />
                           ))}
@@ -381,7 +391,13 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
                 onUpdateDetails={onUpdateDetails}
                 onAddPhoto={onAddPhoto}
                 onDeletePhoto={onDeletePhoto}
-                onPreviewPhoto={(url) => setPreviewPhoto(url)}
+                onPreviewPhoto={(url, idx) =>
+                  setLightboxData({
+                    images: location.photos || [url],
+                    initialIndex: idx !== undefined ? idx : 0,
+                    title: `${location.name} - Kurulum Fotoğrafları`,
+                  })
+                }
               />
             )}
           </div>
@@ -390,9 +406,23 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
 
       {/* Lightbox for Fullscreen Image View */}
       <Lightbox
-        photoUrl={previewPhoto}
-        onClose={() => setPreviewPhoto(null)}
-        onDelete={onDeletePhoto}
+        images={lightboxData?.images || []}
+        initialIndex={lightboxData?.initialIndex || 0}
+        title={lightboxData?.title || 'Kurulum Fotoğrafı'}
+        onClose={() => setLightboxData(null)}
+        onDelete={(photoUrl) => {
+          onDeletePhoto(photoUrl);
+          setLightboxData((prev) => {
+            if (!prev) return null;
+            const remaining = prev.images.filter((img) => img !== photoUrl);
+            if (remaining.length === 0) return null;
+            return {
+              ...prev,
+              images: remaining,
+              initialIndex: Math.min(prev.initialIndex, remaining.length - 1),
+            };
+          });
+        }}
       />
 
       {/* Complete Location Modal */}

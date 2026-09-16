@@ -64,7 +64,7 @@ export default function HomeScreen() {
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [detailTab, setDetailTab] = useState<'checklist' | 'metadata'>('checklist');
-  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Find currently open location details from state (keeps UI fresh after task status changes)
   const openLocation = useMemo(() => {
@@ -1018,69 +1018,121 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Photos Grid */}
-                  <View style={styles.photoGrid}>
-                    {(openLocation.photos || []).map((photoUri, index) => (
-                      <View key={index} style={styles.photoWrapper}>
-                        <TouchableOpacity
-                          style={[styles.photoCardFrame, { backgroundColor: colors.backgroundSelected }]}
-                          onPress={() => setLightboxPhoto(photoUri)}
-                        >
-                          <Image source={{ uri: photoUri }} style={styles.photoImage} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.photoDeleteBtn, { backgroundColor: colors.danger }]}
-                          onPress={() => handleDeletePhoto(photoUri)}
-                        >
-                          <Ionicons name="close" size={14} color="#FFFFFF" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                </ScrollView>
-              </KeyboardAvoidingView>
-            )}
-          </SafeAreaView>
-        </Modal>
-      )}
+                    {/* Photos Grid */}
+                    <View style={styles.photoGrid}>
+                      {(openLocation.photos || []).map((photoUri, index) => (
+                        <View key={index} style={styles.photoWrapper}>
+                          <TouchableOpacity
+                            style={[styles.photoCardFrame, { backgroundColor: colors.backgroundSelected }]}
+                            onPress={() => setLightboxIndex(index)}
+                          >
+                            <Image source={{ uri: photoUri }} style={styles.photoImage} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.photoDeleteBtn, { backgroundColor: colors.danger }]}
+                            onPress={() => handleDeletePhoto(photoUri)}
+                          >
+                            <Ionicons name="close" size={14} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </KeyboardAvoidingView>
+              )}
+            </SafeAreaView>
+          </Modal>
+        )}
 
       {/* Lightbox full-screen photo Modal */}
-      <Modal
-        visible={!!lightboxPhoto}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setLightboxPhoto(null)}
-      >
-        <View style={styles.lightboxOverlay}>
-          <TouchableOpacity
-            style={styles.lightboxCloseBtn}
-            onPress={() => setLightboxPhoto(null)}
-          >
-            <Ionicons name="close-circle" size={38} color="#FFFFFF" />
-          </TouchableOpacity>
-          
-          {lightboxPhoto && (
-            <Image
-              source={{ uri: lightboxPhoto }}
-              style={styles.lightboxImage}
-              resizeMode="contain"
-            />
-          )}
+      {(() => {
+        const photosList = openLocation?.photos || [];
+        const activePhoto = lightboxIndex !== null && photosList[lightboxIndex] ? photosList[lightboxIndex] : null;
 
-          <TouchableOpacity
-            style={[styles.lightboxDeleteBtn, { backgroundColor: colors.danger }]}
-            onPress={() => {
-              if (lightboxPhoto) {
-                handleDeletePhoto(lightboxPhoto);
-                setLightboxPhoto(null);
-              }
-            }}
+        return (
+          <Modal
+            visible={!!activePhoto}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setLightboxIndex(null)}
           >
-            <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.lightboxDeleteText}>Fotoğrafı Sil</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+            <View style={styles.lightboxOverlay}>
+              {/* Header Bar: Counter & Close */}
+              <View style={styles.lightboxTopBar}>
+                {photosList.length > 1 && lightboxIndex !== null && (
+                  <View style={styles.lightboxCounterBadge}>
+                    <Text style={styles.lightboxCounterText}>
+                      {lightboxIndex + 1} / {photosList.length}
+                    </Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.lightboxCloseBtn}
+                  onPress={() => setLightboxIndex(null)}
+                >
+                  <Ionicons name="close-circle" size={36} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Main Photo View Area with Left/Right Buttons */}
+              <View style={styles.lightboxImageContainer}>
+                {photosList.length > 1 && (
+                  <TouchableOpacity
+                    style={[styles.lightboxNavBtn, styles.lightboxNavBtnLeft]}
+                    onPress={() =>
+                      setLightboxIndex((prev) =>
+                        prev !== null ? (prev - 1 + photosList.length) % photosList.length : 0
+                      )
+                    }
+                  >
+                    <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
+
+                {activePhoto && (
+                  <Image
+                    source={{ uri: activePhoto }}
+                    style={styles.lightboxImage}
+                    resizeMode="contain"
+                  />
+                )}
+
+                {photosList.length > 1 && (
+                  <TouchableOpacity
+                    style={[styles.lightboxNavBtn, styles.lightboxNavBtnRight]}
+                    onPress={() =>
+                      setLightboxIndex((prev) =>
+                        prev !== null ? (prev + 1) % photosList.length : 0
+                      )
+                    }
+                  >
+                    <Ionicons name="chevron-forward" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.lightboxDeleteBtn, { backgroundColor: colors.danger }]}
+                onPress={() => {
+                  if (activePhoto) {
+                    handleDeletePhoto(activePhoto);
+                    if (photosList.length <= 1) {
+                      setLightboxIndex(null);
+                    } else {
+                      setLightboxIndex((prev) =>
+                        prev !== null ? Math.min(prev, photosList.length - 2) : 0
+                      );
+                    }
+                  }
+                }}
+              >
+                <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.lightboxDeleteText}>Fotoğrafı Sil</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        );
+      })()}
 
       {/* Loading Overlay for PDF generation */}
       {isGeneratingPdf && (
@@ -1589,15 +1641,58 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  lightboxImage: {
-    width: '90%',
-    height: '70%',
-  },
-  lightboxCloseBtn: {
+  lightboxTopBar: {
     position: 'absolute',
     top: 40,
+    left: 20,
     right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 15,
+  },
+  lightboxCounterBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  lightboxCounterText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  lightboxCloseBtn: {
+    marginLeft: 'auto',
+  },
+  lightboxImageContainer: {
+    width: '100%',
+    height: '70%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  lightboxImage: {
+    width: '85%',
+    height: '100%',
+  },
+  lightboxNavBtn: {
+    position: 'absolute',
+    top: '50%',
+    transform: [{ translateY: -22 }],
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
     zIndex: 10,
+  },
+  lightboxNavBtnLeft: {
+    left: 10,
+  },
+  lightboxNavBtnRight: {
+    right: 10,
   },
   lightboxDeleteBtn: {
     position: 'absolute',

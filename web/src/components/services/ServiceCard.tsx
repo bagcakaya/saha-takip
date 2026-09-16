@@ -43,7 +43,11 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   const isAdmin = isUserAdmin(user);
   const isCreator = user?.id === service.createdBy;
   const canModify = isAdmin || isCreator;
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [lightboxData, setLightboxData] = useState<{
+    images: string[];
+    initialIndex: number;
+    title: string;
+  } | null>(null);
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
@@ -191,7 +195,13 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
                 <button
                   key={pIdx}
                   type="button"
-                  onClick={() => setSelectedPhoto(photo)}
+                  onClick={() =>
+                    setLightboxData({
+                      images: service.photos!,
+                      initialIndex: pIdx,
+                      title: `${service.companyName || 'Servis'} Fotoğrafları`,
+                    })
+                  }
                   className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/simg cursor-pointer hover:opacity-90 transition-all shadow-xs"
                 >
                   <img
@@ -240,7 +250,13 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
                     <button
                       key={cIdx}
                       type="button"
-                      onClick={() => setSelectedPhoto(photo)}
+                      onClick={() =>
+                        setLightboxData({
+                          images: service.completionPhotos!,
+                          initialIndex: cIdx,
+                          title: `${service.companyName || 'Servis'} - Tamamlama Fotoğrafları`,
+                        })
+                      }
                       className="relative aspect-square rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
                     >
                       <img
@@ -440,10 +456,11 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
 
       {/* Lightbox Modal */}
       <ImageLightboxModal
-        isOpen={Boolean(selectedPhoto)}
-        imageUrl={selectedPhoto}
-        title={`${service.companyName} - Servis Fotoğrafı`}
-        onClose={() => setSelectedPhoto(null)}
+        isOpen={Boolean(lightboxData)}
+        images={lightboxData?.images || []}
+        initialIndex={lightboxData?.initialIndex || 0}
+        title={lightboxData?.title || `${service.companyName} - Servis Fotoğrafı`}
+        onClose={() => setLightboxData(null)}
       />
 
       {/* Complete Service Modal */}

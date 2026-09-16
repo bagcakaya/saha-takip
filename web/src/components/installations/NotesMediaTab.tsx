@@ -22,7 +22,7 @@ interface NotesMediaTabProps {
   ) => void;
   onAddPhoto: (photoDataUrl: string) => void;
   onDeletePhoto: (photoDataUrl: string) => void;
-  onPreviewPhoto: (photoDataUrl: string) => void;
+  onPreviewPhoto: (photoDataUrl: string, index?: number) => void;
 }
 
 export const NotesMediaTab: React.FC<NotesMediaTabProps> = ({
@@ -286,7 +286,7 @@ export const NotesMediaTab: React.FC<NotesMediaTabProps> = ({
                 <img
                   src={photoUri}
                   alt={`Kurulum Fotoğrafı ${idx + 1}`}
-                  onClick={() => onPreviewPhoto(photoUri)}
+                  onClick={() => onPreviewPhoto(photoUri, idx)}
                   className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
                 />
                 <button
