@@ -10,6 +10,10 @@ import {
   ChevronRight,
   Smartphone,
   CheckCheck,
+  ShieldAlert,
+  Calendar,
+  UserCheck,
+  UserX,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -25,7 +29,16 @@ export interface AppNotification {
     | 'note_rejected'
     | 'reminder'
     | 'location_added'
-    | 'service_added';
+    | 'service_added'
+    | 'leave_requested'
+    | 'leave_approved'
+    | 'leave_rejected'
+    | 'attendance_pending'
+    | 'attendance_approved'
+    | 'attendance_rejected'
+    | 'attendance_checked_in'
+    | 'attendance_checked_out'
+    | 'security_log';
   title: string;
   senderName: string;
   senderRole?: string;
@@ -51,7 +64,14 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   onMarkAllAsRead,
 }) => {
   const { user } = useAuth();
-  const { allNotes, allServices, allLocations } = useStorage();
+  const {
+    allNotes,
+    allServices,
+    allLocations,
+    attendanceRecords,
+    leaveRequests,
+    securityLogs,
+  } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   if (!isOpen || !user) return null;
@@ -62,7 +82,97 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   const notifications: AppNotification[] = [];
 
   if (isAdmin) {
-    // 1. Work orders awaiting admin approval
+    // 1. Güvenlik & Cihaz Uyuşmazlığı İhlal Logları
+    securityLogs.forEach((l) => {
+      notifications.push({
+        id: `sec_${l.id}`,
+        type: 'security_log',
+        title: '🚨 Güvenlik & Cihaz İhlali',
+        senderName: l.attemptedName || l.attemptedUsername || 'Personel',
+        senderRole: 'Güvenlik Uyarısı',
+        content: l.message,
+        createdAt: l.timestamp,
+        tab: 'logs',
+      });
+    });
+
+    // 2. Personellerin İzin Talepleri (Onay Bekleyen & Yeni)
+    leaveRequests.forEach((req) => {
+      const isPending = req.status === 'pending';
+      notifications.push({
+        id: `leave_${req.id}`,
+        type: 'leave_requested',
+        title: isPending ? '🏖️ Yeni İzin Talebi (Onay Bekliyor)' : '🏖️ İzin Talebi',
+        senderName: req.userName,
+        senderRole: req.userRole || 'Saha Yetkilisi',
+        content: `${req.userName} - ${req.durationText} (${req.date}) ${req.leaveType === 'hourly' ? 'saatlik' : 'günlük'} izin talebi.${req.reason ? ' Mazeret: ' + req.reason : ''}`,
+        createdAt: req.requestedAt,
+        tab: 'staff_tracking',
+        filter: 'leaves',
+      });
+    });
+
+    // 3. Personellerin Mesai Giriş / Çıkış Bildirimleri & Onay Talepleri
+    attendanceRecords.forEach((att) => {
+      // Check-in pending approval (outside location)
+      if (att.checkInOutside && att.checkInApprovalStatus === 'pending') {
+        notifications.push({
+          id: `att_cin_pend_${att.id}`,
+          type: 'attendance_pending',
+          title: '⚠️ Konum Dışı Giriş Onay Bekliyor',
+          senderName: att.userName,
+          senderRole: att.userRole || 'Saha Yetkilisi',
+          content: `${att.userName} iş yeri konumundan uzakta işe giriş onay talebi gönderdi.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
+          createdAt: att.checkInTime,
+          tab: 'staff_tracking',
+          filter: 'attendance',
+        });
+      }
+      // Check-out pending approval (outside location)
+      if (att.checkOutOutside && att.checkOutApprovalStatus === 'pending') {
+        notifications.push({
+          id: `att_cout_pend_${att.id}`,
+          type: 'attendance_pending',
+          title: '⚠️ Konum Dışı Çıkış Onay Bekliyor',
+          senderName: att.userName,
+          senderRole: att.userRole || 'Saha Yetkilisi',
+          content: `${att.userName} iş yeri konumundan uzakta işten çıkış onay talebi gönderdi.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
+          createdAt: att.checkOutTime || att.checkInTime,
+          tab: 'staff_tracking',
+          filter: 'attendance',
+        });
+      }
+      // Normal mesai girişi
+      if (!att.checkInOutside && att.checkInTime) {
+        notifications.push({
+          id: `att_cin_${att.id}`,
+          type: 'attendance_checked_in',
+          title: '🟢 Personel Mesaiye Başladı',
+          senderName: att.userName,
+          senderRole: att.userRole || 'Saha Yetkilisi',
+          content: `${att.userName} saat ${new Date(att.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı.`,
+          createdAt: att.checkInTime,
+          tab: 'staff_tracking',
+          filter: 'attendance',
+        });
+      }
+      // Normal mesai çıkışı
+      if (att.checkOutTime && att.status === 'completed' && !att.checkOutOutside) {
+        notifications.push({
+          id: `att_cout_${att.id}`,
+          type: 'attendance_checked_out',
+          title: '🔴 Personel Mesaiyi Bitirdi',
+          senderName: att.userName,
+          senderRole: att.userRole || 'Saha Yetkilisi',
+          content: `${att.userName} saat ${new Date(att.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla mesaisini tamamladı.`,
+          createdAt: att.checkOutTime,
+          tab: 'staff_tracking',
+          filter: 'attendance',
+        });
+      }
+    });
+
+    // 4. Work orders awaiting admin approval
     allNotes.forEach((n) => {
       if (n.status === 'pending_approval') {
         notifications.push({
@@ -79,7 +189,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 2. Work orders created by other users or shared
+    // 5. Work orders created by other users or shared
     allNotes.forEach((n) => {
       if (n.createdBy !== user.id && n.status !== 'pending_approval') {
         notifications.push({
@@ -96,7 +206,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 3. New services from staff
+    // 6. New services from staff
     allServices.forEach((s) => {
       if (s.createdBy !== user.id) {
         notifications.push({
@@ -112,7 +222,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 4. New locations from staff
+    // 7. New locations from staff
     allLocations.forEach((loc) => {
       if (loc.createdBy !== user.id) {
         notifications.push({
@@ -128,7 +238,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 5. Active reminders
+    // 8. Active reminders
     allNotes.forEach((n) => {
       if (n.reminderActive && n.reminderDate) {
         notifications.push({
@@ -146,7 +256,103 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     });
   } else {
     // STAFF (Saha Yetkilisi) Feed
-    // 1. Work orders assigned to this staff
+    // 1. Yöneticinin İzin Talebini Onaylaması / Reddetmesi
+    leaveRequests.forEach((req) => {
+      if (req.userId === user.id) {
+        if (req.status === 'approved') {
+          notifications.push({
+            id: `leave_app_${req.id}_${req.reviewedAt || req.requestedAt}`,
+            type: 'leave_approved',
+            title: '✅ İzin Talebiniz Onaylandı',
+            senderName: req.reviewedBy || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${req.durationText} süreli (${req.date}) izin talebiniz yönetici tarafından onaylandı.${req.reviewNote ? ` (Not: ${req.reviewNote})` : ''}`,
+            createdAt: req.reviewedAt || req.requestedAt,
+            tab: 'staff_tracking',
+            filter: 'leaves',
+          });
+        } else if (req.status === 'rejected') {
+          notifications.push({
+            id: `leave_rej_${req.id}_${req.reviewedAt || req.requestedAt}`,
+            type: 'leave_rejected',
+            title: '❌ İzin Talebiniz Reddedildi',
+            senderName: req.reviewedBy || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${req.durationText} süreli (${req.date}) izin talebiniz yönetici tarafından reddedildi.${req.reviewNote ? ` (Gerekçe: ${req.reviewNote})` : ''}`,
+            createdAt: req.reviewedAt || req.requestedAt,
+            tab: 'staff_tracking',
+            filter: 'leaves',
+          });
+        }
+      }
+    });
+
+    // 2. Yöneticinin Mesai Giriş / Çıkışını Onaylaması / Reddetmesi
+    attendanceRecords.forEach((att) => {
+      if (att.userId === user.id) {
+        // İşe Giriş Onayı
+        if (att.checkInApprovalStatus === 'approved' && att.checkInOutside) {
+          notifications.push({
+            id: `att_cin_app_${att.id}_${att.checkInApprovedAt || att.checkInTime}`,
+            type: 'attendance_approved',
+            title: '✅ Mesai Girişiniz Onaylandı',
+            senderName: att.checkInApprovedBy || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${att.date} tarihindeki konum dışı işe giriş talebiniz yönetici tarafından onaylandı.`,
+            createdAt: att.checkInApprovedAt || att.checkInTime,
+            tab: 'staff_tracking',
+            filter: 'attendance',
+          });
+        }
+        // İşe Giriş Reddi
+        if (att.checkInApprovalStatus === 'rejected') {
+          notifications.push({
+            id: `att_cin_rej_${att.id}_${att.checkInTime}`,
+            type: 'attendance_rejected',
+            title: '❌ Mesai Girişiniz Reddedildi',
+            senderName: 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${att.date} tarihindeki konum dışı işe giriş talebiniz yönetici tarafından reddedildi.`,
+            createdAt: att.checkInTime,
+            tab: 'staff_tracking',
+            filter: 'attendance',
+          });
+        }
+        // İşten Çıkış Onayı
+        if (att.checkOutApprovalStatus === 'approved' && att.checkOutOutside) {
+          const durationText = att.workDurationMinutes
+            ? `${Math.floor(att.workDurationMinutes / 60)} saat ${att.workDurationMinutes % 60} dakika`
+            : '';
+          notifications.push({
+            id: `att_cout_app_${att.id}_${att.checkOutApprovedAt || att.checkOutTime || att.checkInTime}`,
+            type: 'attendance_approved',
+            title: '✅ Mesai Çıkışınız Onaylandı',
+            senderName: att.checkOutApprovedBy || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${att.date} tarihindeki konum dışı işten çıkış onay talebiniz yönetici tarafından onaylandı.${durationText ? ` (Toplam Mesai: ${durationText})` : ''}`,
+            createdAt: att.checkOutApprovedAt || att.checkOutTime || att.checkInTime,
+            tab: 'staff_tracking',
+            filter: 'attendance',
+          });
+        }
+        // İşten Çıkış Reddi
+        if (att.checkOutApprovalStatus === 'rejected') {
+          notifications.push({
+            id: `att_cout_rej_${att.id}_${att.checkOutTime || att.checkInTime}`,
+            type: 'attendance_rejected',
+            title: '❌ Mesai Çıkışınız Reddedildi',
+            senderName: 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${att.date} tarihindeki konum dışı işten çıkış talebiniz yönetici tarafından reddedildi.`,
+            createdAt: att.checkOutTime || att.checkInTime,
+            tab: 'staff_tracking',
+            filter: 'attendance',
+          });
+        }
+      }
+    });
+
+    // 3. Work orders assigned to this staff
     allNotes.forEach((n) => {
       const isTargetedToMe =
         n.createdBy !== user.id &&
@@ -169,7 +375,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         });
       }
 
-      // 2. Approved work orders
+      // 4. Approved work orders
       if (
         n.status === 'approved' &&
         (n.completedBy === user.id ||
@@ -189,7 +395,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         });
       }
 
-      // 3. Rejected work orders
+      // 5. Rejected work orders
       if (
         n.status === 'rejected' &&
         (n.completedBy === user.id ||
@@ -209,7 +415,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         });
       }
 
-      // 4. Active reminders for staff
+      // 6. Active reminders for staff
       if (
         n.reminderActive &&
         n.reminderDate &&
@@ -250,11 +456,24 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   const getIcon = (type: AppNotification['type']) => {
     switch (type) {
       case 'note_pending_approval':
+      case 'attendance_pending':
         return <Clock className="w-4 h-4 text-amber-500" />;
       case 'note_approved':
+      case 'leave_approved':
+      case 'attendance_approved':
         return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
       case 'note_rejected':
+      case 'leave_rejected':
+      case 'attendance_rejected':
         return <AlertCircle className="w-4 h-4 text-rose-500" />;
+      case 'security_log':
+        return <ShieldAlert className="w-4 h-4 text-rose-500" />;
+      case 'leave_requested':
+        return <Calendar className="w-4 h-4 text-amber-500" />;
+      case 'attendance_checked_in':
+        return <UserCheck className="w-4 h-4 text-emerald-500" />;
+      case 'attendance_checked_out':
+        return <UserX className="w-4 h-4 text-slate-500" />;
       case 'location_added':
         return <Building2 className="w-4 h-4 text-blue-500" />;
       case 'service_added':
@@ -269,6 +488,11 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   const handleItemClick = (item: AppNotification) => {
     onMarkAllAsRead();
     onClose();
+    if (item.tab === 'staff_tracking' && item.filter) {
+      window.dispatchEvent(
+        new CustomEvent('saha:set-staff-subtab', { detail: { subTab: item.filter } })
+      );
+    }
     onNavigate(item.tab, item.filter);
   };
 

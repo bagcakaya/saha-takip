@@ -372,6 +372,19 @@ export const StaffTrackingView: React.FC = () => {
 
   // --- 6. Staff Leave Requests State & Handlers ---
   const [activeSubTab, setActiveSubTab] = useState<'attendance' | 'leaves'>('attendance');
+
+  useEffect(() => {
+    const handleSetSubTab = (e: any) => {
+      if (e?.detail?.subTab === 'leaves' || e?.detail?.filter === 'leaves') {
+        setActiveSubTab('leaves');
+      } else if (e?.detail?.subTab === 'attendance' || e?.detail?.filter === 'attendance') {
+        setActiveSubTab('attendance');
+      }
+    };
+    window.addEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
+    return () => window.removeEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
+  }, []);
+
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [leaveType, setLeaveType] = useState<'hourly' | 'daily'>('hourly');

@@ -47,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     adminReminders,
     leaveRequests,
     unreadLogsCount,
+    securityLogs,
     cariler,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
@@ -167,6 +168,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         const remTime = new Date(n.reminderDate).getTime();
         return remTime <= Date.now() && remTime > lastReadTime;
       }).length;
+
+      // 6. Security Logs newer than lastReadTime or unread
+      count += securityLogs.filter((l) => l.timestamp > lastReadTime || !l.read).length;
+
+      // 7. Leave Requests pending or newer than lastReadTime
+      count += leaveRequests.filter((r) => r.status === 'pending' || r.requestedAt > lastReadTime).length;
+
+      // 8. Attendance check-ins/check-outs pending approval or newer than lastReadTime
+      count += attendanceRecords.filter((a) =>
+        a.status === 'pending_checkin_approval' ||
+        a.status === 'pending_checkout_approval' ||
+        a.checkInTime > lastReadTime ||
+        (a.checkOutTime && a.checkOutTime > lastReadTime)
+      ).length;
     } else {
       // Staff
       // 1. Targeted notes newer than lastReadTime
@@ -213,10 +228,36 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
       // 5. New admin reminders / directives
       count += adminReminders.filter((r) => r.createdAt > lastReadTime && !r.readBy?.includes(user.id)).length;
+
+      // 6. Leave Requests approved or rejected by admin newer than lastReadTime
+      count += leaveRequests.filter(
+        (r) =>
+          r.userId === user.id &&
+          (r.status === 'approved' || r.status === 'rejected') &&
+          (r.reviewedAt || r.requestedAt) > lastReadTime
+      ).length;
+
+      // 7. Attendance check-in / check-out approved or rejected newer than lastReadTime
+      count += attendanceRecords.filter((a) => {
+        if (a.userId !== user.id) return false;
+        const inApproved =
+          a.checkInApprovalStatus === 'approved' &&
+          a.checkInOutside &&
+          (a.checkInApprovedAt || a.checkInTime) > lastReadTime;
+        const inRejected = a.checkInApprovalStatus === 'rejected' && a.checkInTime > lastReadTime;
+        const outApproved =
+          a.checkOutApprovalStatus === 'approved' &&
+          a.checkOutOutside &&
+          (a.checkOutApprovedAt || a.checkOutTime || a.checkInTime) > lastReadTime;
+        const outRejected =
+          a.checkOutApprovalStatus === 'rejected' &&
+          (a.checkOutTime || a.checkInTime) > lastReadTime;
+        return inApproved || inRejected || outApproved || outRejected;
+      }).length;
     }
 
     return count;
-  }, [allNotes, allServices, allLocations, adminReminders, user, lastReadTime]);
+  }, [allNotes, allServices, allLocations, adminReminders, securityLogs, leaveRequests, attendanceRecords, user, lastReadTime]);
 
   const unreadRemindersCount = React.useMemo(() => {
     if (!user?.id || isAdmin) return 0;
@@ -654,9 +695,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         onNavigate={(tab, filter) => {
           setActiveTab(tab);
           if (filter) {
-            window.dispatchEvent(
-              new CustomEvent('saha:set-notes-filter', { detail: { filter } })
-            );
+            if (tab === 'staff_tracking') {
+              window.dispatchEvent(
+                new CustomEvent('saha:set-staff-subtab', { detail: { subTab: filter } })
+              );
+            } else if (tab === 'notes') {
+              window.dispatchEvent(
+                new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+              );
+            }
           }
         }}
       />

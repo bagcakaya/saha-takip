@@ -1,6 +1,6 @@
 import { RegisteredDevice } from '../types/storage';
 import { supabase } from './supabaseClient';
-import { detectEnvironment } from './oneSignalService';
+import { detectEnvironment, OneSignalService } from './oneSignalService';
 import { StorageService } from './storageService';
 
 const DEVICE_ID_KEY = '@saha_takip_device_id';
@@ -491,6 +491,14 @@ export const DeviceService = {
         message: securityLogMessage,
         status: 'danger',
       }).catch((logErr) => console.warn('Güvenlik logu atılamadı:', logErr));
+
+      // Realtime hardware push notification to Admin
+      OneSignalService.sendPushNotification({
+        title: '🚨 Güvenlik & Cihaz Uyuşmazlığı İhlali',
+        message: securityLogMessage,
+        targetMode: 'admin',
+        url: 'https://saha-takip-beige.vercel.app/?tab=logs',
+      }).catch((pushErr) => console.warn('Güvenlik ihlali bildirimi gönderilemedi:', pushErr));
 
       return {
         allowed: false,
