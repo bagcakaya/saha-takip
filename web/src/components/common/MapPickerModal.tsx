@@ -30,13 +30,13 @@ const TILE_LAYERS: Record<
 > = {
   google_roadmap: {
     name: 'Google Harita',
-    url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    url: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
     maxZoom: 20,
     attribution: '&copy; Google Maps',
   },
   google_satellite: {
     name: 'Google Uydu',
-    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    url: 'https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
     maxZoom: 20,
     attribution: '&copy; Google Maps',
   },
@@ -169,6 +169,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
     if (mapInstanceRef.current) {
       if (panMap) {
         mapInstanceRef.current.setView([lat, lon], 18, { animate: true });
+        mapInstanceRef.current.invalidateSize();
       }
 
       if (markerRef.current) {
@@ -234,15 +235,30 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
 
       // Clean up previous instance if any
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
+        try {
+          mapInstanceRef.current.remove();
+        } catch {
+          // ignore
+        }
         mapInstanceRef.current = null;
       }
 
-      const map = L.map(mapContainerRef.current, {
-        center: [startLat, startLon],
-        zoom: zoom,
-        zoomControl: false,
-      });
+      // Clear leaflet id if container was previously assigned
+      if (mapContainerRef.current && (mapContainerRef.current as any)._leaflet_id) {
+        delete (mapContainerRef.current as any)._leaflet_id;
+      }
+
+      let map: L.Map;
+      try {
+        map = L.map(mapContainerRef.current, {
+          center: [startLat, startLon],
+          zoom: zoom,
+          zoomControl: false,
+        });
+      } catch (err) {
+        console.error('Leaflet map initialization error:', err);
+        return;
+      }
 
       // Custom zoom control in bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -253,10 +269,16 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         maxZoom: provider.maxZoom,
         attribution: provider.attribution,
         subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-      }).addTo(map);
+      });
+      tileLayer.addTo(map);
 
       currentTileLayerRef.current = tileLayer;
       mapInstanceRef.current = map;
+
+      // Map Click Handler: Click anywhere to move the pin!
+      map.on('click', (e: L.LeafletMouseEvent) => {
+        updatePinnedLocation(e.latlng.lat, e.latlng.lng, undefined, false);
+      });
 
       // If autoSearchOnOpen is active and address exists, search address immediately
       if (autoSearchOnOpen && initialAddress && initialAddress.trim().length > 2) {
@@ -290,21 +312,21 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         executeSearch(initialAddress);
       }
 
-      // Map Click Handler: Click anywhere to move the pin!
-      map.on('click', (e: L.LeafletMouseEvent) => {
-        updatePinnedLocation(e.latlng.lat, e.latlng.lng, undefined, false);
-      });
-
-      // Invalidate size to guarantee perfect full-width rendering
-      setTimeout(() => {
-        map.invalidateSize();
-      }, 200);
+      // Invalidate size in multiple stages to guarantee full rendering on mobile
+      map.invalidateSize();
+      setTimeout(() => map.invalidateSize(), 150);
+      setTimeout(() => map.invalidateSize(), 400);
+      setTimeout(() => map.invalidateSize(), 800);
     }, 100);
 
     return () => {
       clearTimeout(timer);
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
+        try {
+          mapInstanceRef.current.remove();
+        } catch {
+          // ignore
+        }
         mapInstanceRef.current = null;
       }
       markerRef.current = null;
@@ -422,11 +444,27 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         </div>
 
         {/* Map Container Area */}
-        <div className="relative flex-1 min-h-[380px] sm:min-h-[440px] w-full bg-slate-950 overflow-hidden">
-          <div ref={mapContainerRef} className="w-full h-full z-10" />
+        <div
+          className="relative w-full bg-slate-900 overflow-hidden"
+          style={{ height: '400px', minHeight: '380px' }}
+        >
+          <div
+            ref={mapContainerRef}
+            className="w-full h-full z-10"
+            style={{
+              height: '400px',
+              minHeight: '380px',
+              width: '100%',
+              position: 'relative',
+              backgroundColor: '#e2e8f0',
+            }}
+          />
 
           {/* Floating Map Layer Switcher (Top Right) */}
-          <div className="absolute top-3 right-3 z-20 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-2xl border border-slate-700/80 shadow-lg text-[11px] font-bold">
+          <div
+            className="absolute top-3 right-3 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-2xl border border-slate-700/80 shadow-lg text-[11px] font-bold"
+            style={{ zIndex: 1000 }}
+          >
             <button
               type="button"
               onClick={() => switchTileLayer('google_roadmap')}
