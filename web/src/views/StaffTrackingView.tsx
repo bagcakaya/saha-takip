@@ -21,14 +21,25 @@ import {
   FileText,
   Check,
   Store,
+  FileSpreadsheet,
+  FileDown,
+  CalendarRange,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { LocationService } from '../services/locationService';
+import {
+  exportAttendanceToExcel,
+  exportAttendanceToPdf,
+  formatMinutesToDuration,
+  calculateRecordDurationMinutes,
+  StaffAttendanceSummary,
+} from '../services/attendanceExportService';
 
 export const StaffTrackingView: React.FC = () => {
-  const { user } = useAuth();
+  const { user, users, company } = useAuth();
   const {
     workplaceLocation,
     branches,
@@ -371,32 +382,251 @@ export const StaffTrackingView: React.FC = () => {
     );
   }, [attendanceRecords]);
 
-  // --- 5. Date Filter for Table (Admin & Staff) ---
-  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  // --- 5. Date Range & Staff Filters for Table & Analytics ---
+  const defaultStartDate = useMemo(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}-01`;
+  }, []);
 
+  const [startDate, setStartDate] = useState<string>(defaultStartDate);
+  const [endDate, setEndDate] = useState<string>(todayStr);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('all');
+  const [activePreset, setActivePreset] = useState<
+    'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all' | 'custom'
+  >('this_month');
+
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  // Quick Date Preset Handler
+  const applyPreset = (
+    preset: 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all'
+  ) => {
+    setActivePreset(preset);
+    const now = new Date();
+    if (preset === 'today') {
+      setStartDate(todayStr);
+      setEndDate(todayStr);
+    } else if (preset === 'yesterday') {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yStr = y.toISOString().split('T')[0];
+      setStartDate(yStr);
+      setEndDate(yStr);
+    } else if (preset === 'this_week') {
+      const day = now.getDay();
+      const diffToMonday = day === 0 ? 6 : day - 1;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - diffToMonday);
+      setStartDate(monday.toISOString().split('T')[0]);
+      setEndDate(todayStr);
+    } else if (preset === 'this_month') {
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      setStartDate(`${year}-${month}-01`);
+      setEndDate(todayStr);
+    } else if (preset === 'last_month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setStartDate(`${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-01`);
+      setEndDate(`${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`);
+    } else if (preset === 'all') {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  // Staff options for filter dropdown
+  const staffOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; role?: string }>();
+    if (users && users.length > 0) {
+      users.forEach((u) => {
+        map.set(u.id, { id: u.id, name: u.name || u.username, role: u.role });
+      });
+    }
+    attendanceRecords.forEach((r) => {
+      if (!map.has(r.userId)) {
+        map.set(r.userId, { id: r.userId, name: r.userName, role: r.userRole });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users, attendanceRecords]);
+
+  // Filtered records based on date range, selected staff, and user role
   const filteredRecords = useMemo(() => {
     let list = attendanceRecords;
-    if (selectedDate) {
-      list = list.filter((r) => r.date === selectedDate);
+    if (startDate) {
+      list = list.filter((r) => r.date >= startDate);
+    }
+    if (endDate) {
+      list = list.filter((r) => r.date <= endDate);
+    }
+    if (selectedStaffId && selectedStaffId !== 'all') {
+      list = list.filter((r) => r.userId === selectedStaffId);
     }
     // If not admin, only show own records
     if (!isAdmin && user) {
       list = list.filter((r) => r.userId === user.id);
     }
     return list;
-  }, [attendanceRecords, selectedDate, isAdmin, user]);
+  }, [attendanceRecords, startDate, endDate, selectedStaffId, isAdmin, user]);
 
-  // Statistics for selected date
+  // Staff Attendance Summaries (for the selected date range)
+  const staffSummaries = useMemo<StaffAttendanceSummary[]>(() => {
+    let rangeRecords = attendanceRecords;
+    if (startDate) {
+      rangeRecords = rangeRecords.filter((r) => r.date >= startDate);
+    }
+    if (endDate) {
+      rangeRecords = rangeRecords.filter((r) => r.date <= endDate);
+    }
+    if (!isAdmin && user) {
+      rangeRecords = rangeRecords.filter((r) => r.userId === user.id);
+    }
+
+    const staffMap = new Map<
+      string,
+      {
+        userName: string;
+        userRole?: string;
+        branchName?: string;
+        uniqueDates: Set<string>;
+        totalMinutes: number;
+        completed: number;
+        active: number;
+        pending: number;
+      }
+    >();
+
+    rangeRecords.forEach((r) => {
+      if (!staffMap.has(r.userId)) {
+        staffMap.set(r.userId, {
+          userName: r.userName,
+          userRole: r.userRole,
+          branchName: r.branchName,
+          uniqueDates: new Set(),
+          totalMinutes: 0,
+          completed: 0,
+          active: 0,
+          pending: 0,
+        });
+      }
+      const entry = staffMap.get(r.userId)!;
+      entry.uniqueDates.add(r.date);
+      const min = calculateRecordDurationMinutes(r);
+      entry.totalMinutes += min;
+      if (r.status === 'completed') entry.completed++;
+      else if (r.status === 'checked_in') entry.active++;
+      else if (r.status.startsWith('pending_')) entry.pending++;
+    });
+
+    // Also include company staff from users list if admin
+    if (isAdmin && users && users.length > 0) {
+      users.forEach((u) => {
+        if (!staffMap.has(u.id)) {
+          staffMap.set(u.id, {
+            userName: u.name || u.username,
+            userRole: u.role,
+            branchName: u.branchName,
+            uniqueDates: new Set(),
+            totalMinutes: 0,
+            completed: 0,
+            active: 0,
+            pending: 0,
+          });
+        }
+      });
+    }
+
+    const summaries: StaffAttendanceSummary[] = [];
+    staffMap.forEach((entry, uid) => {
+      const days = entry.uniqueDates.size;
+      const avgMin = days > 0 ? Math.round(entry.totalMinutes / days) : 0;
+      summaries.push({
+        userId: uid,
+        userName: entry.userName,
+        userRole: entry.userRole,
+        branchName: entry.branchName,
+        totalDays: days,
+        totalMinutes: entry.totalMinutes,
+        totalDurationFormatted: formatMinutesToDuration(entry.totalMinutes),
+        averageMinutesPerDay: avgMin,
+        averageDurationFormatted: formatMinutesToDuration(avgMin),
+        completedSessions: entry.completed,
+        activeSessions: entry.active,
+        pendingSessions: entry.pending,
+      });
+    });
+
+    summaries.sort((a, b) => b.totalMinutes - a.totalMinutes || a.userName.localeCompare(b.userName));
+    return summaries;
+  }, [attendanceRecords, startDate, endDate, isAdmin, user, users]);
+
+  // Aggregated stats for the filtered records
   const stats = useMemo(() => {
-    const list = attendanceRecords.filter((r) => r.date === selectedDate);
-    const active = list.filter((r) => r.status === 'checked_in').length;
-    const completed = list.filter((r) => r.status === 'completed').length;
+    const totalMinutes = filteredRecords.reduce((acc, r) => acc + calculateRecordDurationMinutes(r), 0);
+    const uniqueDays = new Set(filteredRecords.map((r) => r.date)).size;
+    const active = filteredRecords.filter((r) => r.status === 'checked_in').length;
+    const completed = filteredRecords.filter((r) => r.status === 'completed').length;
+    const pending = filteredRecords.filter((r) => r.status.startsWith('pending_')).length;
+    const distinctStaff = new Set(filteredRecords.map((r) => r.userId)).size;
+
     return {
-      total: list.length,
+      total: filteredRecords.length,
+      totalMinutes,
+      totalDurationFormatted: formatMinutesToDuration(totalMinutes),
+      uniqueDays,
       active,
       completed,
+      pending,
+      distinctStaff,
+      avgMinutesPerDay: uniqueDays > 0 ? Math.round(totalMinutes / uniqueDays) : 0,
+      avgDurationPerDayFormatted: formatMinutesToDuration(
+        uniqueDays > 0 ? Math.round(totalMinutes / uniqueDays) : 0
+      ),
     };
-  }, [attendanceRecords, selectedDate]);
+  }, [filteredRecords]);
+
+  // Excel export handler
+  const handleExportExcel = () => {
+    try {
+      setIsExportingExcel(true);
+      const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      exportAttendanceToExcel({
+        records: filteredRecords,
+        summaries: staffSummaries,
+        startDate,
+        endDate,
+        companyName: compName,
+      });
+    } catch (err: any) {
+      alert('Excel dosyası oluşturulurken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  // PDF export handler
+  const handleExportPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      await exportAttendanceToPdf({
+        records: filteredRecords,
+        summaries: staffSummaries,
+        startDate,
+        endDate,
+        companyName: compName,
+      });
+    } catch (err: any) {
+      alert('PDF raporu oluşturulurken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   // Calculate live work duration for active check-in
   const [activeDurationText, setActiveDurationText] = useState('');
@@ -1354,24 +1584,37 @@ export const StaffTrackingView: React.FC = () => {
           </div>
 
           {activeSubTab === 'attendance' ? (
-            /* Tarih Seçici */
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              {selectedDate !== todayStr && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate(todayStr)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 text-xs font-bold cursor-pointer"
-                >
-                  Bugün
-                </button>
-              )}
+            /* Dışa Aktarma Butonları (Yönetici & Personel) */
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                disabled={isExportingExcel || filteredRecords.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                title="Excel (.xlsx) olarak indir"
+              >
+                {isExportingExcel ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )}
+                <span>Excel İndir (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf || filteredRecords.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                title="PDF Raporu olarak indir"
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="w-3.5 h-3.5" />
+                )}
+                <span>PDF Raporu İndir</span>
+              </button>
             </div>
           ) : (
             /* İzin Filtresi ve Yeni İzin Butonu */
@@ -1426,214 +1669,420 @@ export const StaffTrackingView: React.FC = () => {
 
         {activeSubTab === 'attendance' && (
           <>
-            {/* İstatistik Çubukları (Admin için) */}
-        {isAdmin && (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 block">
-                Toplam Giriş
-              </span>
-              <span className="text-base sm:text-xl font-black text-slate-800 dark:text-slate-100">
-                {stats.total} Kişi
-              </span>
-            </div>
-
-            <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
-              <span className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 block">
-                Şu An Mesaide
-              </span>
-              <span className="text-base sm:text-xl font-black text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                {stats.active} Kişi
-              </span>
-            </div>
-
-            <div className="p-3 sm:p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
-              <span className="text-[10px] sm:text-xs font-bold text-blue-600 dark:text-blue-400 block">
-                Çıkış Yapanlar
-              </span>
-              <span className="text-base sm:text-xl font-black text-blue-700 dark:text-blue-300">
-                {stats.completed} Kişi
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Kayıtlar Listesi */}
-        {filteredRecords.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 space-y-2">
-            <Clock className="w-10 h-10 mx-auto opacity-30" />
-            <p className="text-xs sm:text-sm font-bold">
-              Bu tarihe ait herhangi bir giriş / çıkış kaydı bulunamadı.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider">
-                  <th className="py-3 px-3">Personel</th>
-                  <th className="py-3 px-3">Şube</th>
-                  <th className="py-3 px-3">Durum</th>
-                  <th className="py-3 px-3">Giriş Saati</th>
-                  <th className="py-3 px-3">Giriş Mesafesi</th>
-                  <th className="py-3 px-3">Çıkış Saati</th>
-                  <th className="py-3 px-3">Çıkış Mesafesi</th>
-                  <th className="py-3 px-3">Toplam Süre</th>
-                  {isAdmin && <th className="py-3 px-3 text-right">İşlem</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-300">
-                {filteredRecords.map((record) => {
-                  const checkInDate = new Date(record.checkInTime);
-                  const checkOutDate = record.checkOutTime
-                    ? new Date(record.checkOutTime)
-                    : null;
-
-                  return (
-                    <tr
-                      key={record.id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+            {/* 1. Tarih Aralığı Filtre Barı ve Hızlı Seçim Butonları */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-3">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                {/* Hızlı Seçim Butonları */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 mr-1">
+                    <CalendarRange className="w-3.5 h-3.5" />
+                    <span>Dönem:</span>
+                  </span>
+                  {[
+                    { id: 'this_month', label: 'Bu Ay' },
+                    { id: 'last_month', label: 'Geçen Ay' },
+                    { id: 'this_week', label: 'Bu Hafta' },
+                    { id: 'today', label: 'Bugün' },
+                    { id: 'yesterday', label: 'Dün' },
+                    { id: 'all', label: 'Tümü' },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => applyPreset(p.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        activePreset === p.id
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
                     >
-                      {/* Personel */}
-                      <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
-                            {record.userName.charAt(0).toUpperCase()}
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Personel Seçici (Admin için) */}
+                {isAdmin && (
+                  <div className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <select
+                      value={selectedStaffId}
+                      onChange={(e) => setSelectedStaffId(e.target.value)}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    >
+                      <option value="all">👥 Tüm Personeller ({staffOptions.length})</option>
+                      {staffOptions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Özel Tarih Aralığı Seçicileri */}
+              <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold">Başlangıç:</span>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      setActivePreset('custom');
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold">Bitiş:</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value);
+                      setActivePreset('custom');
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                {(startDate || endDate || selectedStaffId !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      applyPreset('this_month');
+                      setSelectedStaffId('all');
+                    }}
+                    className="text-xs text-rose-500 hover:text-rose-600 font-semibold underline ml-auto cursor-pointer"
+                  >
+                    Filtreleri Sıfırla
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Mesai İstatistik Kartları */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800">
+                <span className="text-[10px] sm:text-xs font-bold text-sky-600 dark:text-sky-400 block">
+                  Toplam Mesai Süresi
+                </span>
+                <span className="text-base sm:text-xl font-black text-sky-800 dark:text-sky-200">
+                  {stats.totalDurationFormatted}
+                </span>
+                <span className="text-[10px] text-sky-600/80 dark:text-sky-400/80 block mt-0.5">
+                  ({stats.totalMinutes} dakika)
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 block">
+                  Çalışılan Gün / Ort.
+                </span>
+                <span className="text-base sm:text-xl font-black text-emerald-700 dark:text-emerald-300">
+                  {stats.uniqueDays} Gün
+                </span>
+                <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 block mt-0.5">
+                  Ort: {stats.avgDurationPerDayFormatted} / gün
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
+                <span className="text-[10px] sm:text-xs font-bold text-blue-600 dark:text-blue-400 block">
+                  Mesai Kayıtları
+                </span>
+                <span className="text-base sm:text-xl font-black text-blue-700 dark:text-blue-300">
+                  {stats.total} Giriş
+                </span>
+                <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 block mt-0.5">
+                  {stats.completed} Tamamlandı • {stats.active} Mesaide
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 block">
+                  {isAdmin ? 'Personel Sayısı' : 'Durum'}
+                </span>
+                <span className="text-base sm:text-xl font-black text-slate-800 dark:text-slate-100">
+                  {isAdmin ? `${stats.distinctStaff} Kişi` : (stats.active > 0 ? 'Mesaide' : 'Mesaide Değil')}
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">
+                  {isAdmin ? `${staffOptions.length} kayıtlı personelden` : 'Kendi kayıtlarınız'}
+                </span>
+              </div>
+            </div>
+
+            {/* 3. Personel Bazlı Mesai Özet Grid'i (Admin için) */}
+            {isAdmin && staffSummaries.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-emerald-600" />
+                    Personel Mesai Özeti
+                  </span>
+                  {selectedStaffId !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStaffId('all')}
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                    >
+                      Tüm Personelleri Göster
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {staffSummaries.map((s) => {
+                    const isSelected = selectedStaffId === s.userId;
+                    return (
+                      <div
+                        key={s.userId}
+                        onClick={() => setSelectedStaffId(isSelected ? 'all' : s.userId)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/20'
+                            : 'bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
+                              {s.userName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-black text-xs text-slate-800 dark:text-slate-200 leading-tight">
+                                {s.userName}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {s.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                              </div>
+                            </div>
+                          </div>
+                          {s.activeSessions > 0 && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 animate-pulse">
+                              Mesaide
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1 text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block">TOPLAM</span>
+                            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+                              {s.totalDurationFormatted}
+                            </span>
                           </div>
                           <div>
-                            <div>{record.userName}</div>
-                            {record.userRole && (
-                              <div className="text-[10px] text-slate-400 font-normal">
-                                {record.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
-                              </div>
-                            )}
+                            <span className="text-[9px] font-bold text-slate-400 block">GÜN</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-300">
+                              {s.totalDays} gün
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block">ORTALAMA</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              {s.averageDurationFormatted}
+                            </span>
                           </div>
                         </div>
-                      </td>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-                      {/* Şube */}
-                      <td className="py-3 px-3">
-                        {record.branchName ? (
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                              <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                              {record.branchName}
-                            </span>
-                            {record.isOtherBranch && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
-                                (Asıl: {record.assignedBranchName || 'Bilinmiyor'})
+            {/* 4. Kayıtlar Listesi */}
+            {filteredRecords.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 space-y-2">
+                <Clock className="w-10 h-10 mx-auto opacity-30" />
+                <p className="text-xs sm:text-sm font-bold">
+                  Seçilen tarih aralığına ait herhangi bir mesai kaydı bulunamadı.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                      <th className="py-3 px-3">Tarih</th>
+                      <th className="py-3 px-3">Personel</th>
+                      <th className="py-3 px-3">Şube</th>
+                      <th className="py-3 px-3">Durum</th>
+                      <th className="py-3 px-3">Giriş Saati</th>
+                      <th className="py-3 px-3">Giriş Mesafesi</th>
+                      <th className="py-3 px-3">Çıkış Saati</th>
+                      <th className="py-3 px-3">Çıkış Mesafesi</th>
+                      <th className="py-3 px-3">Toplam Süre</th>
+                      <th className="py-3 px-3">Not / Açıklama</th>
+                      {isAdmin && <th className="py-3 px-3 text-right">İşlem</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-300">
+                    {filteredRecords.map((record) => {
+                      const checkInDate = new Date(record.checkInTime);
+                      const checkOutDate = record.checkOutTime
+                        ? new Date(record.checkOutTime)
+                        : null;
+                      const durationMinutes = calculateRecordDurationMinutes(record);
+
+                      return (
+                        <tr
+                          key={record.id}
+                          className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                        >
+                          {/* Tarih */}
+                          <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              <span>{record.date}</span>
+                            </div>
+                          </td>
+
+                          {/* Personel */}
+                          <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
+                                {record.userName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div>{record.userName}</div>
+                                {record.userRole && (
+                                  <div className="text-[10px] text-slate-400 font-normal">
+                                    {record.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Şube */}
+                          <td className="py-3 px-3">
+                            {record.branchName ? (
+                              <div className="flex flex-col">
+                                <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                                  <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                                  {record.branchName}
+                                </span>
+                                {record.isOtherBranch && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                                    (Asıl: {record.assignedBranchName || 'Bilinmiyor'})
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">Merkez</span>
+                            )}
+                          </td>
+
+                          {/* Durum */}
+                          <td className="py-3 px-3">
+                            {record.status === 'pending_checkin_approval' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                Giriş Onayı Bekliyor
+                              </span>
+                            ) : record.status === 'pending_checkout_approval' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                Çıkış Onayı Bekliyor
+                              </span>
+                            ) : record.status === 'checked_in' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Mesaide
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                Çıkış Yaptı
                               </span>
                             )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">Merkez</span>
-                        )}
-                      </td>
+                          </td>
 
-                      {/* Durum */}
-                      <td className="py-3 px-3">
-                        {record.status === 'pending_checkin_approval' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            Giriş Onayı Bekliyor
-                          </span>
-                        ) : record.status === 'pending_checkout_approval' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            Çıkış Onayı Bekliyor
-                          </span>
-                        ) : record.status === 'checked_in' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Mesaide
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                            Çıkış Yaptı
-                          </span>
-                        )}
-                      </td>
+                          {/* Giriş Saati */}
+                          <td className="py-3 px-3 font-bold">
+                            {checkInDate.toLocaleTimeString('tr-TR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
 
-                      {/* Giriş Saati */}
-                      <td className="py-3 px-3 font-bold">
-                        {checkInDate.toLocaleTimeString('tr-TR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-
-                      {/* Giriş Mesafesi */}
-                      <td className="py-3 px-3">
-                        {record.checkInDistance !== undefined ? (
-                          <div className="flex flex-col">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                              {LocationService.formatDistance(record.checkInDistance)}
-                            </span>
-                            {record.checkInOutside && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                                {record.checkInApprovalStatus === 'pending'
-                                  ? '⏳ Onay Bekliyor'
-                                  : '✅ Yönetici Onaylı'}
-                              </span>
+                          {/* Giriş Mesafesi */}
+                          <td className="py-3 px-3">
+                            {record.checkInDistance !== undefined ? (
+                              <div className="flex flex-col">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                  {LocationService.formatDistance(record.checkInDistance)}
+                                </span>
+                                {record.checkInOutside && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                    {record.checkInApprovalStatus === 'pending'
+                                      ? '⏳ Onay Bekliyor'
+                                      : '✅ Yönetici Onaylı'}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">≤ {allowedRadius} m</span>
                             )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">≤ {allowedRadius} m</span>
-                        )}
-                      </td>
+                          </td>
 
-                      {/* Çıkış Saati */}
-                      <td className="py-3 px-3 font-bold">
-                        {checkOutDate ? (
-                          checkOutDate.toLocaleTimeString('tr-TR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        ) : (
-                          <span className="text-slate-400 italic font-normal">-</span>
-                        )}
-                      </td>
-
-                      {/* Çıkış Mesafesi */}
-                      <td className="py-3 px-3">
-                        {record.checkOutDistance !== undefined ? (
-                          <div className="flex flex-col">
-                            <span className="text-rose-600 dark:text-rose-400 font-bold">
-                              {LocationService.formatDistance(record.checkOutDistance)}
-                            </span>
-                            {record.checkOutOutside && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                                {record.checkOutApprovalStatus === 'pending'
-                                  ? '⏳ Onay Bekliyor'
-                                  : '✅ Yönetici Onaylı'}
-                              </span>
+                          {/* Çıkış Saati */}
+                          <td className="py-3 px-3 font-bold">
+                            {checkOutDate ? (
+                              checkOutDate.toLocaleTimeString('tr-TR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            ) : (
+                              <span className="text-slate-400 italic font-normal">-</span>
                             )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic font-normal">-</span>
-                        )}
-                      </td>
+                          </td>
 
-                      {/* Toplam Süre */}
-                      <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                        {record.workDurationMinutes ? (
-                          <span>
-                            {Math.floor(record.workDurationMinutes / 60)} sa{' '}
-                            {record.workDurationMinutes % 60} dk
-                          </span>
-                        ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
-                          <span className="text-emerald-600 font-semibold">Devam ediyor</span>
-                        ) : record.status === 'pending_checkin_approval' ? (
-                          <span className="text-amber-600 font-semibold text-xs">Onay Bekliyor</span>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
+                          {/* Çıkış Mesafesi */}
+                          <td className="py-3 px-3">
+                            {record.checkOutDistance !== undefined ? (
+                              <div className="flex flex-col">
+                                <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                  {LocationService.formatDistance(record.checkOutDistance)}
+                                </span>
+                                {record.checkOutOutside && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                    {record.checkOutApprovalStatus === 'pending'
+                                      ? '⏳ Onay Bekliyor'
+                                      : '✅ Yönetici Onaylı'}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            )}
+                          </td>
 
-                      {/* İşlem (Admin Only) */}
-                      {isAdmin && (
-                        <td className="py-3 px-3 text-right">
+                          {/* Toplam Süre */}
+                          <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
+                            {durationMinutes > 0 ? (
+                              <span>{formatMinutesToDuration(durationMinutes)}</span>
+                            ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
+                              <span className="text-emerald-600 font-semibold">Devam ediyor</span>
+                            ) : record.status === 'pending_checkin_approval' ? (
+                              <span className="text-amber-600 font-semibold text-xs">Onay Bekliyor</span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+
+                          {/* Not / Açıklama */}
+                          <td className="py-3 px-3 text-slate-500 text-[11px] max-w-[150px] truncate" title={record.notes || record.approvalNote || ''}>
+                            {record.notes || record.approvalNote || '-'}
+                          </td>
+
+                          {/* İşlem (Admin Only) */}
+                          {isAdmin && (
+                            <td className="py-3 px-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {record.status === 'pending_checkin_approval' && (
                               <>
