@@ -124,7 +124,9 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const handleSelectSearchResult = (result: AddressSearchResult) => {
     setLatitude(result.latitude);
     setLongitude(result.longitude);
-    setAddress(result.displayName);
+    if (!address || address.trim().length < 10) {
+      setAddress(result.displayName);
+    }
     setShowSearchResults(false);
   };
 
@@ -252,6 +254,10 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                   <span>Ara</span>
                 </button>
               </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                💡 <strong>Örnek Format:</strong> Kongre Caddesi, Yakutiye, Erzurum (veya Cadde/Sokak, İlçe, İl). No/Kat bilgileri arama esnasında otomatik çözümlenir.
+              </p>
 
               {/* Search Results Dropdown */}
               {showSearchResults && searchResults.length > 0 && (

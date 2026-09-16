@@ -135,31 +135,69 @@ export const LocationService = {
   },
 
   /**
-   * Searches address and returns coordinates using OpenStreetMap Nominatim
+   * Searches address and returns coordinates using OpenStreetMap Nominatim with intelligent Turkish address fallbacks
    */
   async searchAddress(query: string): Promise<AddressSearchResult[]> {
     const trimmed = query.trim();
     if (!trimmed || trimmed.length < 2) return [];
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&limit=5&addressdetails=1`,
-        {
-          headers: {
-            'Accept-Language': 'tr',
-          },
-        }
-      );
-      if (!response.ok) return [];
-      const data = await response.json();
-      if (!Array.isArray(data)) return [];
-      return data.map((item: any) => ({
-        latitude: parseFloat(item.lat),
-        longitude: parseFloat(item.lon),
-        displayName: item.display_name,
-      }));
-    } catch {
-      return [];
+
+    // Clean out typical non-geocodable additions like "No:44", "Kat: 2", "Daire: 5", "Apt.", "Sitesi"
+    const cleaned = trimmed
+      .replace(/\b(no\s*[:\.]?\s*\d+[a-zA-Z]?|no\s+\d+[a-zA-Z]?|\bno\.\d+)\b/gi, '')
+      .replace(/\b(daire|d\s*:\s*\d+|kat|apt|apartman[ıi]|sitesi|blok|iş\s*merkezi|plaza)\s*[:#]?\s*\w+/gi, '')
+      .replace(/\s+/g, ' ')
+      .replace(/,\s*,/g, ',')
+      .replace(/^,\s*|,\s*$/g, '')
+      .trim();
+
+    const searchQueries: string[] = [trimmed];
+    if (cleaned && cleaned !== trimmed) {
+      searchQueries.push(cleaned);
     }
+
+    const parts = (cleaned || trimmed).split(/[,/]+/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 3) {
+      const street = parts.find((p) => /cadd?e|sokak|bulvar|yol/i.test(p));
+      const mahalle = parts.find((p) => /mahal?le/i.test(p));
+      const others = parts.filter((p) => p !== street && p !== mahalle);
+
+      if (street && others.length > 0) {
+        searchQueries.push([street, ...others].join(', '));
+      }
+      if (mahalle && others.length > 0) {
+        searchQueries.push([mahalle, ...others].join(', '));
+      }
+      if (street && others.length > 1) {
+        searchQueries.push([street, others[others.length - 1]].join(', '));
+      }
+    }
+
+    const uniqueQueries = [...new Set(searchQueries.filter(Boolean))];
+
+    for (const q of uniqueQueries) {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`,
+          {
+            headers: {
+              'Accept-Language': 'tr',
+            },
+          }
+        );
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data.map((item: any) => ({
+            latitude: parseFloat(item.lat),
+            longitude: parseFloat(item.lon),
+            displayName: item.display_name,
+          }));
+        }
+      } catch {
+        // try next fallback query
+      }
+    }
+    return [];
   },
 };
 
