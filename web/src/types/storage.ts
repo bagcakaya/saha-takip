@@ -174,3 +174,17 @@ export interface CariData {
   cariler: string[];
 }
 
+export interface RegisteredDevice {
+  deviceId: string;
+  deviceName: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  platform: 'ios' | 'android' | 'desktop';
+  isStandalone: boolean;
+  pushSubscriptionId: string | null;
+  pushStatus: 'connected' | 'pending' | 'denied';
+  lastSeen: string;
+  createdAt: string;
+}
+

@@ -1,4 +1,5 @@
 import { ONESIGNAL_CONFIG } from '../constants/oneSignalConfig';
+import { DeviceService } from './deviceService';
 
 declare global {
   interface Window {
@@ -49,6 +50,8 @@ export interface SubscriptionDetails {
   platform: 'ios' | 'android' | 'desktop';
   serviceWorkerActive: boolean;
   lastHealedAt?: string | null;
+  deviceId?: string;
+  deviceName?: string;
 }
 
 export const OneSignalService = {
@@ -129,10 +132,20 @@ export const OneSignalService = {
       }
 
       // Keep push subscription persistently synced and active across token refreshes
-      if (OneSignal.User && OneSignal.User.pushSubscription) {
-        OneSignal.User.pushSubscription.addEventListener('change', async (event: any) => {
+      const pushSubObj = OneSignal?.User?.PushSubscription || OneSignal?.User?.pushSubscription;
+      if (pushSubObj && pushSubObj.addEventListener) {
+        pushSubObj.addEventListener('change', async (event: any) => {
           console.log('OneSignal push aboneliği güncellendi:', event);
           try {
+            const currentSubId = event?.current?.id || pushSubObj.id;
+            if (currentSubId) {
+              localStorage.setItem('@saha_takip_last_sub_id', currentSubId);
+              window.dispatchEvent(
+                new CustomEvent('saha:push-subscription-changed', {
+                  detail: { subscriptionId: currentSubId },
+                })
+              );
+            }
             const storedUser = localStorage.getItem('@gorev_tamamlama_auth_user');
             if (storedUser) {
               const u = JSON.parse(storedUser);
@@ -141,6 +154,11 @@ export const OneSignalService = {
                 if (OneSignal.User && OneSignal.User.addTags) {
                   await OneSignal.User.addTags({ userId: u.id, role: u.role, name: u.name });
                 }
+                DeviceService.syncCurrentDevice({
+                  user: u,
+                  pushSubscriptionId: currentSubId || null,
+                  pushStatus: currentSubId ? 'connected' : 'pending',
+                }).catch(() => {});
               }
             }
           } catch {
@@ -241,11 +259,12 @@ export const OneSignalService = {
         clearTimeout(timer);
         try {
           // If browser granted permission, force push opt-in so push token doesn't sleep
+          const pushSubObj = OneSignal?.User?.PushSubscription || OneSignal?.User?.pushSubscription;
           if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            if (OneSignal?.User?.pushSubscription?.optIn) {
-              const optedIn = OneSignal.User.pushSubscription.optedIn;
+            if (pushSubObj?.optIn) {
+              const optedIn = pushSubObj.optedIn;
               if (!optedIn) {
-                await OneSignal.User.pushSubscription.optIn();
+                await pushSubObj.optIn();
               }
             }
           }
@@ -256,6 +275,24 @@ export const OneSignalService = {
             try {
               const stored = localStorage.getItem('@gorev_tamamlama_auth_user');
               if (stored) targetUser = JSON.parse(stored);
+            } catch {
+              // ignore
+            }
+          }
+
+          const subId =
+            pushSubObj?.id ||
+            pushSubObj?.token ||
+            localStorage.getItem('@saha_takip_last_sub_id') ||
+            null;
+
+          if (subId) {
+            try {
+              localStorage.setItem('@saha_takip_last_sub_id', subId);
+              localStorage.setItem('@saha_takip_last_healed', new Date().toISOString());
+              if (targetUser?.id) {
+                localStorage.setItem(`@saha_takip_sub_${targetUser.id}`, subId);
+              }
             } catch {
               // ignore
             }
@@ -274,16 +311,16 @@ export const OneSignalService = {
               });
             }
 
-            const subId = OneSignal?.User?.pushSubscription?.id;
-            if (subId) {
-              try {
-                localStorage.setItem(`@saha_takip_sub_${targetUser.id}`, subId);
-                localStorage.setItem('@saha_takip_last_sub_id', subId);
-                localStorage.setItem('@saha_takip_last_healed', new Date().toISOString());
-              } catch {
-                // ignore
-              }
-            }
+            // Sync with central Device Registry
+            DeviceService.syncCurrentDevice({
+              user: targetUser,
+              pushSubscriptionId: subId,
+              pushStatus: subId
+                ? 'connected'
+                : typeof Notification !== 'undefined' && Notification.permission === 'denied'
+                ? 'denied'
+                : 'pending',
+            }).catch(() => {});
           }
 
           const details = await this.getSubscriptionDetails();
@@ -309,6 +346,8 @@ export const OneSignalService = {
       typeof localStorage !== 'undefined'
         ? localStorage.getItem('@saha_takip_last_healed')
         : null;
+    const deviceId = DeviceService.getCurrentDeviceId();
+    const deviceName = DeviceService.getCurrentDeviceName();
 
     const fallback: SubscriptionDetails = {
       isSupported: typeof Notification !== 'undefined' && 'serviceWorker' in navigator,
@@ -320,6 +359,8 @@ export const OneSignalService = {
       platform: env.platform,
       serviceWorkerActive: swActive,
       lastHealedAt: lastHealed,
+      deviceId,
+      deviceName,
     };
 
     if (typeof window === 'undefined') return fallback;
@@ -337,12 +378,23 @@ export const OneSignalService = {
             typeof Notification !== 'undefined' && 'serviceWorker' in navigator;
           const permission =
             typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+          const pushSub =
+            OneSignal?.User?.PushSubscription || OneSignal?.User?.pushSubscription;
           const subId =
-            OneSignal?.User?.pushSubscription?.id ||
+            pushSub?.id ||
+            pushSub?.token ||
             localStorage.getItem('@saha_takip_last_sub_id') ||
             null;
-          const optedIn = OneSignal?.User?.pushSubscription?.optedIn ?? false;
+          const optedIn = pushSub?.optedIn ?? false;
           const isSubscribed = permission === 'granted' && (optedIn || !!subId);
+
+          if (subId) {
+            try {
+              localStorage.setItem('@saha_takip_last_sub_id', subId);
+            } catch {
+              // ignore
+            }
+          }
 
           resolve({
             isSupported,
@@ -357,6 +409,8 @@ export const OneSignalService = {
               'serviceWorker' in navigator &&
               !!navigator.serviceWorker.controller,
             lastHealedAt: lastHealed,
+            deviceId,
+            deviceName,
           });
         } catch {
           resolve(fallback);

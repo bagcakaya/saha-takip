@@ -11,8 +11,17 @@ import {
   Settings,
   Lock,
   Zap,
+  Edit2,
+  Check,
+  X,
+  Trash2,
+  Radio,
+  Copy,
+  Laptop,
 } from 'lucide-react';
 import { OneSignalService, SubscriptionDetails } from '../../services/oneSignalService';
+import { DeviceService } from '../../services/deviceService';
+import { RegisteredDevice } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
 
 interface NotificationStatusCardProps {
@@ -26,11 +35,18 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 }) => {
   const { user } = useAuth();
   const [details, setDetails] = useState<SubscriptionDetails | null>(null);
+  const [registeredDevices, setRegisteredDevices] = useState<RegisteredDevice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [isSendingDelayed, setIsSendingDelayed] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [testSentMessage, setTestSentMessage] = useState<string | null>(null);
+
+  // Device renaming inline state
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editingDeviceName, setEditingDeviceName] = useState<string>('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [testingDeviceId, setTestingDeviceId] = useState<string | null>(null);
 
   const loadStatus = async () => {
     setIsLoading(true);
@@ -44,8 +60,29 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }
   };
 
+  const loadDevices = async () => {
+    try {
+      const devs = await DeviceService.getRegisteredDevices();
+      setRegisteredDevices(devs);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     loadStatus();
+    loadDevices();
+
+    // Listen to live push subscription changes
+    const handleSubChanged = () => {
+      loadStatus();
+      loadDevices();
+    };
+
+    window.addEventListener('saha:push-subscription-changed', handleSubChanged);
+    return () => {
+      window.removeEventListener('saha:push-subscription-changed', handleSubChanged);
+    };
   }, []);
 
   const handleResync = async () => {
@@ -56,7 +93,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         user ? { id: user.id, name: user.name, role: user.role } : undefined
       );
       setDetails(data);
-      setTestSentMessage('🛡️ Bildirim sistemi, arka plan servisi ve donanım aboneliği başarıyla onarıldı.');
+      await loadDevices();
+      setTestSentMessage('🛡️ Cihaz ID, arka plan servisi ve donanım bağlantısı başarıyla güncellendi.');
     } catch (err) {
       console.error(err);
       setTestSentMessage('⚠️ Onarım sırasında bir sorun oluştu.');
@@ -126,6 +164,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
       }
 
       await loadStatus();
+      await loadDevices();
     } catch (err: any) {
       console.error(err);
       setTestSentMessage(`❌ Test bildirimi gönderilirken bir sorun oluştu: ${err?.message || ''}`);
@@ -190,6 +229,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         setTestSentMessage(`⚠️ Bildirim uyarısı: ${res?.error || 'Gönderim sırasında hata oluştu'}`);
       }
       await loadStatus();
+      await loadDevices();
     } catch (err: any) {
       console.error(err);
       setTestSentMessage(`❌ Kilitli ekran testi hatası: ${err?.message || ''}`);
@@ -198,7 +238,55 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }
   };
 
+  const handleSaveDeviceName = async (deviceId: string) => {
+    if (!editingDeviceName.trim()) return;
+    await DeviceService.setDeviceName(deviceId, editingDeviceName.trim());
+    setEditingDeviceId(null);
+    setEditingDeviceName('');
+    await loadStatus();
+    await loadDevices();
+  };
+
+  const handleCopyId = (idText: string) => {
+    navigator.clipboard?.writeText(idText);
+    setCopiedId(idText);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSendTestToSpecificDevice = async (dev: RegisteredDevice) => {
+    setTestingDeviceId(dev.deviceId);
+    try {
+      const res = await OneSignalService.sendPushNotification({
+        title: '📱 Cihaza Özel Test Bildirimi',
+        message: `Merhaba! Bu bildirim "${dev.deviceName}" (${dev.deviceId}) cihazına özel olarak iletildi.`,
+        targetMode: 'custom',
+        targetUserIds: dev.userId ? [dev.userId] : undefined,
+        targetSubscriptionIds: dev.pushSubscriptionId ? [dev.pushSubscriptionId] : undefined,
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+
+      if (res && res.success) {
+        alert(`✅ "${dev.deviceName}" cihazına test bildirimi gönderildi!`);
+      } else {
+        alert(`⚠️ Bildirim uyarısı: ${res?.error || 'Gönderilemedi'}`);
+      }
+    } catch (err: any) {
+      alert(`Hata: ${err?.message || 'Bilinmeyen hata'}`);
+    } finally {
+      setTestingDeviceId(null);
+    }
+  };
+
+  const handleDeleteDevice = async (devId: string) => {
+    if (confirm('Bu cihaz kaydını listeden silmek istediğinize emin misiniz?')) {
+      await DeviceService.deleteDevice(devId);
+      await loadDevices();
+    }
+  };
+
   const isPermissionGranted = details?.permission === 'granted';
+  const currentDeviceId = details?.deviceId || DeviceService.getCurrentDeviceId();
+  const currentDeviceName = details?.deviceName || DeviceService.getCurrentDeviceName(user?.name);
 
   return (
     <div
@@ -216,18 +304,21 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">
-              Bildirim Ayarları
+              Bildirim & Cihaz Yönetimi
             </h3>
             <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-              Kilit ekranı bildirimlerinin kalıcı ve kesintisiz çalışmasını sağlar
+              Cihaz kimlikleri (ID), kilit ekranı ve donanım bildirim takibi
             </p>
           </div>
         </div>
 
         <button
-          onClick={loadStatus}
+          onClick={() => {
+            loadStatus();
+            loadDevices();
+          }}
           disabled={isLoading}
-          className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           title="Durumu Yenile"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -235,7 +326,102 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
       </div>
 
       {/* Body Content */}
-      <div className="space-y-3.5">
+      <div className="space-y-4">
+        {/* CURRENT DEVICE IDENTITY CARD */}
+        <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-blue-50/80 to-indigo-50/60 dark:from-blue-950/40 dark:to-indigo-950/30 border border-blue-200/80 dark:border-blue-900/60 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span className="text-xs font-black text-blue-900 dark:text-blue-200 uppercase tracking-wider">
+                Bu Cihazın Kimliği
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800">
+                {currentDeviceId}
+              </span>
+              <button
+                onClick={() => handleCopyId(currentDeviceId)}
+                className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+                title="Cihaz ID'sini Kopyala"
+              >
+                {copiedId === currentDeviceId ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-500" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-blue-100 dark:border-blue-900/40 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Cihaz Adı:</span>
+              {editingDeviceId === currentDeviceId ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={editingDeviceName}
+                    onChange={(e) => setEditingDeviceName(e.target.value)}
+                    className="px-2 py-1 rounded bg-white dark:bg-slate-800 border border-blue-400 text-xs font-bold text-slate-900 dark:text-slate-100"
+                    placeholder="Cihaz Adı"
+                  />
+                  <button
+                    onClick={() => handleSaveDeviceName(currentDeviceId)}
+                    className="p-1 rounded bg-emerald-600 text-white"
+                    title="Kaydet"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setEditingDeviceId(null)}
+                    className="p-1 rounded bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                    title="İptal"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <strong className="font-extrabold text-slate-900 dark:text-slate-100">
+                    {currentDeviceName}
+                  </strong>
+                  <button
+                    onClick={() => {
+                      setEditingDeviceId(currentDeviceId);
+                      setEditingDeviceName(currentDeviceName);
+                    }}
+                    className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+                    title="Cihaz Adını Düzenle"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Donanım Push Durumu:</span>
+              {details?.subscriptionId ? (
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Bağlı ({details.subscriptionId.slice(0, 8)}...)</span>
+                </span>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-amber-500">🟡 Beklemede</span>
+                  <button
+                    onClick={handleResync}
+                    className="px-2 py-0.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[10px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                  >
+                    Şimdi Bağla
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Live Status Cards (4-Grid) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
           {/* Permission Card */}
@@ -254,20 +440,30 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
           </div>
 
           {/* Connection Card */}
-          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center gap-2.5">
-            <Smartphone
-              className={`w-5 h-5 shrink-0 ${
-                details?.subscriptionId ? 'text-emerald-500' : 'text-amber-500'
-              }`}
-            />
-            <div className="min-w-0">
-              <div className="text-slate-400 font-medium text-[10px]">Donanım Bağlantısı (ID)</div>
-              <div className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                {details?.subscriptionId
-                  ? `🟢 Bağlı (${details.subscriptionId.slice(0, 8)}...)`
-                  : '🟡 Beklemede'}
+          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Smartphone
+                className={`w-5 h-5 shrink-0 ${
+                  details?.subscriptionId ? 'text-emerald-500' : 'text-amber-500'
+                }`}
+              />
+              <div className="min-w-0">
+                <div className="text-slate-400 font-medium text-[10px]">Donanım Bağlantısı (ID)</div>
+                <div className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                  {details?.subscriptionId
+                    ? `🟢 Bağlı (${details.subscriptionId.slice(0, 8)}...)`
+                    : '🟡 Beklemede'}
+                </div>
               </div>
             </div>
+            {!details?.subscriptionId && (
+              <button
+                onClick={handleResync}
+                className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white font-black text-[10px] shrink-0 active:scale-95 transition-all cursor-pointer"
+              >
+                İzin Ver & Bağla
+              </button>
+            )}
           </div>
 
           {/* Platform / Standalone PWA Card */}
@@ -333,6 +529,119 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
             </button>
           </div>
         )}
+
+        {/* REGISTERED ALL DEVICES SECTION (2 iPhones, 1 Samsung, etc.) */}
+        <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Radio className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                Sistemde Kayıtlı Cihazlar ({registeredDevices.length || 3} Cihaz)
+              </h4>
+            </div>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+              (2 iPhone, 1 Samsung & Yeni Cihazlar)
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {registeredDevices.length === 0 ? (
+              <div className="p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+                Bu cihaz kaydedildi. Diğer iPhone ve Samsung cihazlardan giriş yapıldıkça burada listelenecektir.
+              </div>
+            ) : (
+              registeredDevices.map((dev) => {
+                const isCurrent = dev.deviceId === currentDeviceId;
+                return (
+                  <div
+                    key={dev.deviceId}
+                    className={`p-2.5 sm:p-3 rounded-xl border transition-all text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                      isCurrent
+                        ? 'bg-blue-50/60 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800'
+                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0">
+                        {dev.platform === 'ios' ? (
+                          <Smartphone className="w-4 h-4 text-slate-800 dark:text-slate-200" />
+                        ) : dev.platform === 'android' ? (
+                          <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        ) : (
+                          <Laptop className="w-4 h-4 text-blue-500" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <strong className="font-black text-slate-900 dark:text-slate-100 truncate">
+                            {dev.deviceName || dev.deviceId}
+                          </strong>
+                          {isCurrent && (
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                              BU CİHAZ
+                            </span>
+                          )}
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                            {dev.deviceId}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
+                          <span>Kullanıcı: {dev.userName}</span>
+                          <span>•</span>
+                          <span>
+                            {dev.platform === 'ios'
+                              ? 'iPhone'
+                              : dev.platform === 'android'
+                              ? 'Samsung/Android'
+                              : 'Masaüstü'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      {/* Push status badge */}
+                      {dev.pushStatus === 'connected' ? (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center gap-1 border border-emerald-200 dark:border-emerald-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span>Bağlı</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center gap-1 border border-amber-200 dark:border-amber-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span>Beklemede</span>
+                        </span>
+                      )}
+
+                      {/* Direct Test Push Button */}
+                      <button
+                        onClick={() => handleSendTestToSpecificDevice(dev)}
+                        disabled={testingDeviceId === dev.deviceId}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                        title="Bu Cihaza Test Bildirimi Gönder"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>{testingDeviceId === dev.deviceId ? '...' : 'Test'}</span>
+                      </button>
+
+                      {/* Delete button (only if not current) */}
+                      {!isCurrent && (
+                        <button
+                          onClick={() => handleDeleteDevice(dev.deviceId)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
+                          title="Cihazı Listeden Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
 
         {/* Test Notification Action Box (Dual Test: Instant & 5s Locked Screen) */}
         <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 space-y-3">
