@@ -55,6 +55,9 @@ interface StorageContextType {
   ) => Promise<void>;
   addPhotoToLocation: (locationId: string, photoDataUrl: string) => Promise<void>;
   deletePhotoFromLocation: (locationId: string, photoDataUrl: string) => Promise<void>;
+  completeLocation: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<void>;
+  approveLocation: (id: string) => Promise<void>;
+  rejectLocation: (id: string, reason?: string) => Promise<void>;
   addNote: (
     content: string,
     reminderActive: boolean,
@@ -101,6 +104,9 @@ interface StorageContextType {
   ) => Promise<void>;
   updateService: (id: string, updates: Partial<ServiceItem>) => Promise<void>;
   deleteService: (id: string) => Promise<void>;
+  completeService: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<void>;
+  approveService: (id: string) => Promise<void>;
+  rejectService: (id: string, reason?: string) => Promise<void>;
   updateWorkplaceLocation: (
     address: string,
     latitude: number,
@@ -188,6 +194,9 @@ const SEEN_COMPLETED_LOCATIONS_KEY = (userId: string, compCode?: string) => `@se
 const SEEN_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_services_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_COMPLETED_NOTES_KEY = (userId: string, compCode?: string) => `@seen_completed_notes_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_APPROVAL_NOTES_KEY = (userId: string, compCode?: string) => `@seen_approval_notes_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_COMPLETED_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_completed_services_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_APPROVAL_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_approval_services_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_APPROVAL_LOCATIONS_KEY = (userId: string, compCode?: string) => `@seen_approval_locations_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
@@ -379,6 +388,42 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           });
           saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovalNotes);
 
+          // 9. Completed Services
+          const seenCompletedServices = getStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode));
+          srvs.forEach((s) => {
+            if (s.status === 'pending_approval' && s.completedAt) {
+              seenCompletedServices.add(`${s.id}_${s.completedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode), seenCompletedServices);
+
+          // 10. Approved/Rejected Services
+          const seenApprovalServices = getStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode));
+          srvs.forEach((s) => {
+            if (s.status === 'approved' && s.approvedAt) {
+              seenApprovalServices.add(`${s.id}_approved_${s.approvedAt}`);
+            }
+            if (s.status === 'rejected' && s.rejectedAt) {
+              seenApprovalServices.add(`${s.id}_rejected_${s.rejectedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode), seenApprovalServices);
+
+          // 11. Approved/Rejected Locations
+          const seenApprovalLocations = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode));
+          migratedLocs.forEach((l) => {
+            if (l.status === 'pending_approval' && l.completedAt) {
+              seenApprovalLocations.add(`${l.id}_pending_${l.completedAt}`);
+            }
+            if (l.status === 'approved' && l.approvedAt) {
+              seenApprovalLocations.add(`${l.id}_approved_${l.approvedAt}`);
+            }
+            if (l.status === 'rejected' && l.rejectedAt) {
+              seenApprovalLocations.add(`${l.id}_rejected_${l.rejectedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovalLocations);
+
           localStorage.setItem(initKey, 'true');
         }
 
@@ -442,7 +487,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
           if (!isMounted) return;
-          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
@@ -453,12 +498,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getAdminReminders(),
             StorageService.getLeaveRequests(),
             StorageService.getSecurityLogs(),
+            StorageService.getLocations(),
           ]);
           if (!isMounted) return;
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
           setAllServices(srvs);
           setAllNotes(nts);
+          setAllLocations(locs);
           if (wpLoc) {
             const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
             setWorkplaceLocation(finalWp);
@@ -942,6 +989,166 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [allNotes, user, dataCompanyCode]);
 
+  // Check incoming service completions (for Admin) & approval/rejection results (for Staff)
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || allServices.length === 0) return;
+
+    // 1. For Admin: Alert when a staff member completes a service (pending_approval)
+    if (isUserAdmin(user)) {
+      const completedStorageKey = SEEN_COMPLETED_SERVICES_KEY(user.id, compCode);
+      const seenCompleted = getStoredSet(completedStorageKey);
+      let seenChanged = false;
+
+      allServices.forEach((s) => {
+        if (s.status === 'pending_approval' && s.completedAt && s.completedBy !== user.id) {
+          const key = `${s.id}_${s.completedAt}`;
+          if (!seenCompleted.has(key)) {
+            seenCompleted.add(key);
+            seenChanged = true;
+
+            const staff = s.completedByName || 'Saha Yetkilisi';
+            const title = '🔧 Servis Onay Bekliyor!';
+            const body = `${staff}, "${s.companyName}" servis kaydını tamamladı.${s.completionNote ? ` Not: ${s.completionNote}` : ''}`;
+            NotificationService.sendNotification(title, body);
+            setActiveToast({ title, body, tab: 'services', filter: 'pending_approval' });
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(completedStorageKey, seenCompleted);
+      }
+    }
+
+    // 2. For Staff: Alert when Admin approves or rejects the staff's service
+    if (user.role !== 'admin') {
+      const approvalStorageKey = SEEN_APPROVAL_SERVICES_KEY(user.id, compCode);
+      const seenApproval = getStoredSet(approvalStorageKey);
+      let seenChanged = false;
+
+      allServices.forEach((s) => {
+        const isMyService = s.completedBy === user.id || s.createdBy === user.id;
+
+        if (isMyService) {
+          // Check Approved
+          if (s.status === 'approved' && s.approvedAt) {
+            const key = `${s.id}_approved_${s.approvedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = s.approvedByName || 'Yönetici';
+              const title = '✅ Servis Kaydınız Onaylandı!';
+              const body = `${admin}, "${s.companyName}" servis kaydınızı başarıyla onayladı.`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'services', filter: 'approved' });
+            }
+          }
+
+          // Check Rejected
+          if (s.status === 'rejected' && s.rejectedAt) {
+            const key = `${s.id}_rejected_${s.rejectedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = s.rejectedByName || 'Yönetici';
+              const title = '❌ Servis Kaydınız Reddedildi!';
+              const body = `${admin}, "${s.companyName}" servis kaydını reddetti. Gerekçe: ${s.rejectionReason || 'Eksikler var'}`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'services', filter: 'rejected' });
+            }
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(approvalStorageKey, seenApproval);
+      }
+    }
+  }, [allServices, user, dataCompanyCode]);
+
+  // Check incoming location completions (for Admin) & approval/rejection results (for Staff)
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
+
+    // 1. For Admin: Alert when a staff member completes a location (pending_approval)
+    if (isUserAdmin(user)) {
+      const completedStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
+      const seenCompleted = getStoredSet(completedStorageKey);
+      let seenChanged = false;
+
+      allLocations.forEach((loc) => {
+        if (loc.status === 'pending_approval' && loc.completedAt && loc.completedBy !== user.id) {
+          const key = `${loc.id}_pending_${loc.completedAt}`;
+          if (!seenCompleted.has(key)) {
+            seenCompleted.add(key);
+            seenChanged = true;
+
+            const staff = loc.completedByName || 'Saha Personeli';
+            const title = '📍 Kurulum Onay Bekliyor!';
+            const body = `${staff}, "${loc.name}" kurulumunu tamamladı.${loc.completionNote ? ` Not: ${loc.completionNote}` : ''}`;
+            NotificationService.sendNotification(title, body);
+            setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(completedStorageKey, seenCompleted);
+      }
+    }
+
+    // 2. For Staff: Alert when Admin approves or rejects the staff's location
+    if (user.role !== 'admin') {
+      const approvalStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
+      const seenApproval = getStoredSet(approvalStorageKey);
+      let seenChanged = false;
+
+      allLocations.forEach((loc) => {
+        const isMyLoc = loc.completedBy === user.id || loc.createdBy === user.id;
+
+        if (isMyLoc) {
+          // Check Approved
+          if (loc.status === 'approved' && loc.approvedAt) {
+            const key = `${loc.id}_approved_${loc.approvedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = loc.approvedByName || 'Yönetici';
+              const title = '✅ Kurulumunuz Onaylandı!';
+              const body = `${admin}, "${loc.name}" kurulumunuzu başarıyla onayladı.`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+            }
+          }
+
+          // Check Rejected
+          if (loc.status === 'rejected' && loc.rejectedAt) {
+            const key = `${loc.id}_rejected_${loc.rejectedAt}`;
+            if (!seenApproval.has(key)) {
+              seenApproval.add(key);
+              seenChanged = true;
+
+              const admin = loc.rejectedByName || 'Yönetici';
+              const title = '❌ Kurulumunuz Reddedildi!';
+              const body = `${admin}, "${loc.name}" kurulumunu reddetti. Gerekçe: ${loc.rejectionReason || 'Eksikler var'}`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+            }
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(approvalStorageKey, seenApproval);
+      }
+    }
+  }, [allLocations, user, dataCompanyCode]);
+
   const dismissToast = () => {
     setActiveToast(null);
   };
@@ -962,6 +1169,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const saveNotes = async (newNotes: GeneralNote[]) => {
     setAllNotes(newNotes);
     await StorageService.saveNotes(newNotes);
+  };
+
+  // Save services helper
+  const saveServices = async (newServices: ServiceItem[]) => {
+    setAllServices(newServices);
+    await StorageService.saveServices(newServices);
   };
 
   // Add location with creator tracking & Admin notification
@@ -1213,6 +1426,188 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return loc;
     });
     await saveLocations(newLocations);
+  };
+
+  // Complete location checklist & submit for admin approval
+  const completeLocation = async (id: string, completionNote?: string, completionPhotos?: string[]) => {
+    const targetLocation = allLocations.find((l) => l.id === id);
+    if (!targetLocation) return;
+
+    const completedAt = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Personeli';
+    const trimmedNote = completionNote?.trim() || undefined;
+
+    const newLocations = allLocations.map((l) => {
+      if (l.id === id) {
+        return {
+          ...l,
+          status: 'pending_approval' as const,
+          completedAt,
+          completedBy: user?.id,
+          completedByName: staffName,
+          completionNote: trimmedNote,
+          completionPhotos: completionPhotos !== undefined ? completionPhotos : l.completionPhotos || [],
+          // Reset previous rejection if resubmitted
+          rejectedAt: undefined,
+          rejectedBy: undefined,
+          rejectedByName: undefined,
+          rejectionReason: undefined,
+        };
+      }
+      return l;
+    });
+
+    // Mark as seen on staff device immediately
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode));
+      seenApprovals.add(`${id}_pending_${completedAt}`);
+      saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await saveLocations(newLocations);
+
+    // Send instant hardware push notification to Admin(s)
+    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+    if (adminIds.length === 0) {
+      try {
+        const cloudUsers = await UserService.fetchUsersFromCloud();
+        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+      } catch {
+        // ignore
+      }
+    }
+    if (adminIds.length === 0) {
+      adminIds = ['admin-1'];
+    }
+
+    const locSnippet = targetLocation.name.length > 50 ? `${targetLocation.name.slice(0, 50)}...` : targetLocation.name;
+    const locExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+
+    await OneSignalService.sendPushNotification({
+      title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
+      targetMode: 'custom',
+      targetUserIds: adminIds,
+      url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+    });
+
+    await OneSignalService.sendPushNotification({
+      title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+    });
+  };
+
+  // Admin approves completed location
+  const approveLocation = async (id: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler kurulum kayıtlarını onaylayabilir.');
+      return;
+    }
+
+    const targetLoc = allLocations.find((l) => l.id === id);
+    if (!targetLoc) return;
+
+    const approvedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const newLocations = allLocations.map((l) => {
+      if (l.id === id) {
+        return {
+          ...l,
+          status: 'approved' as const,
+          approvedAt,
+          approvedBy: user?.id,
+          approvedByName: adminName,
+        };
+      }
+      return l;
+    });
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode));
+      seenApprovals.add(`${id}_approved_${approvedAt}`);
+      saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await saveLocations(newLocations);
+
+    const targetRecipientIds = Array.from(
+      new Set(
+        [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
+      )
+    );
+
+    const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '✅ Kurulum Onaylandı!',
+        message: `${adminName}, "${locSnippet}" kurulumunuzu onayladı.`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
+      });
+    }
+  };
+
+  // Admin rejects completed location with reason
+  const rejectLocation = async (id: string, reason?: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler kurulum kayıtlarını reddedebilir.');
+      return;
+    }
+
+    const targetLoc = allLocations.find((l) => l.id === id);
+    if (!targetLoc) return;
+
+    const rejectedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+    const trimmedReason = reason?.trim() || 'Yönetici tarafından eksik görüldü';
+
+    const newLocations = allLocations.map((l) => {
+      if (l.id === id) {
+        return {
+          ...l,
+          status: 'rejected' as const,
+          rejectedAt,
+          rejectedBy: user?.id,
+          rejectedByName: adminName,
+          rejectionReason: trimmedReason,
+        };
+      }
+      return l;
+    });
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode));
+      seenApprovals.add(`${id}_rejected_${rejectedAt}`);
+      saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await saveLocations(newLocations);
+
+    const targetRecipientIds = Array.from(
+      new Set(
+        [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
+      )
+    );
+
+    const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '❌ Kurulum Reddedildi!',
+        message: `${adminName}, "${locSnippet}" kurulumunu reddetti. Gerekçe: ${trimmedReason}`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
+      });
+    }
   };
 
   // Add general note with single/multi target user sharing and photo support
@@ -1735,6 +2130,188 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = allServices.filter((s) => s.id !== id);
     setAllServices(updated);
     await StorageService.saveServices(updated);
+  };
+
+  // Complete service & submit for admin approval
+  const completeService = async (id: string, completionNote?: string, completionPhotos?: string[]) => {
+    const targetService = allServices.find((s) => s.id === id);
+    if (!targetService) return;
+
+    const completedAt = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Yetkilisi';
+    const trimmedNote = completionNote?.trim() || undefined;
+
+    const newServices = allServices.map((s) => {
+      if (s.id === id) {
+        return {
+          ...s,
+          status: 'pending_approval' as const,
+          completedAt,
+          completedBy: user?.id,
+          completedByName: staffName,
+          completionNote: trimmedNote,
+          completionPhotos: completionPhotos !== undefined ? completionPhotos : s.completionPhotos || [],
+          // Reset previous rejection if resubmitted
+          rejectedAt: undefined,
+          rejectedBy: undefined,
+          rejectedByName: undefined,
+          rejectionReason: undefined,
+        };
+      }
+      return s;
+    });
+
+    // Mark as seen on staff device immediately
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode));
+      seenCompleted.add(`${id}_${completedAt}`);
+      saveStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode), seenCompleted);
+    }
+
+    await saveServices(newServices);
+
+    // Send instant hardware push notification to Admin(s)
+    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+    if (adminIds.length === 0) {
+      try {
+        const cloudUsers = await UserService.fetchUsersFromCloud();
+        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+      } catch {
+        // ignore
+      }
+    }
+    if (adminIds.length === 0) {
+      adminIds = ['admin-1'];
+    }
+
+    const srvSnippet = targetService.companyName.length > 50 ? `${targetService.companyName.slice(0, 50)}...` : targetService.companyName;
+    const srvExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+
+    await OneSignalService.sendPushNotification({
+      title: '🔧 Servis Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${srvSnippet}" servis kaydını tamamladı ve onayınıza sundu.${srvExplanation}`,
+      targetMode: 'custom',
+      targetUserIds: adminIds,
+      url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=pending_approval',
+    });
+
+    await OneSignalService.sendPushNotification({
+      title: '🔧 Servis Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, "${srvSnippet}" servis kaydını tamamladı ve onayınıza sundu.${srvExplanation}`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=pending_approval',
+    });
+  };
+
+  // Admin approves completed service
+  const approveService = async (id: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler servis kayıtlarını onaylayabilir.');
+      return;
+    }
+
+    const targetService = allServices.find((s) => s.id === id);
+    if (!targetService) return;
+
+    const approvedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const newServices = allServices.map((s) => {
+      if (s.id === id) {
+        return {
+          ...s,
+          status: 'approved' as const,
+          approvedAt,
+          approvedBy: user?.id,
+          approvedByName: adminName,
+        };
+      }
+      return s;
+    });
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode));
+      seenApprovals.add(`${id}_approved_${approvedAt}`);
+      saveStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await saveServices(newServices);
+
+    const targetRecipientIds = Array.from(
+      new Set(
+        [targetService.completedBy, targetService.createdBy].filter(Boolean) as string[]
+      )
+    );
+
+    const srvSnippet = targetService.companyName.length > 50 ? `${targetService.companyName.slice(0, 50)}...` : targetService.companyName;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '✅ Servis Onaylandı!',
+        message: `${adminName}, "${srvSnippet}" servis kaydınızı onayladı.`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=approved',
+      });
+    }
+  };
+
+  // Admin rejects completed service with reason
+  const rejectService = async (id: string, reason?: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler servis kayıtlarını reddedebilir.');
+      return;
+    }
+
+    const targetService = allServices.find((s) => s.id === id);
+    if (!targetService) return;
+
+    const rejectedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+    const trimmedReason = reason?.trim() || 'Yönetici tarafından eksik görüldü';
+
+    const newServices = allServices.map((s) => {
+      if (s.id === id) {
+        return {
+          ...s,
+          status: 'rejected' as const,
+          rejectedAt,
+          rejectedBy: user?.id,
+          rejectedByName: adminName,
+          rejectionReason: trimmedReason,
+        };
+      }
+      return s;
+    });
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode));
+      seenApprovals.add(`${id}_rejected_${rejectedAt}`);
+      saveStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await saveServices(newServices);
+
+    const targetRecipientIds = Array.from(
+      new Set(
+        [targetService.completedBy, targetService.createdBy].filter(Boolean) as string[]
+      )
+    );
+
+    const srvSnippet = targetService.companyName.length > 50 ? `${targetService.companyName.slice(0, 50)}...` : targetService.companyName;
+
+    if (targetRecipientIds.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '❌ Servis Reddedildi!',
+        message: `${adminName}, "${srvSnippet}" servis kaydını reddetti. Gerekçe: ${trimmedReason}`,
+        targetMode: 'custom',
+        targetUserIds: targetRecipientIds,
+        url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=rejected',
+      });
+    }
   };
 
   // Import backup data (merges / replaces)
@@ -2939,12 +3516,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 3. New services from staff
       count += allServices.filter(
-        (s) => s.createdBy !== user.id && s.createdAt > lastReadTime
+        (s) => s.createdBy !== user.id && s.status !== 'pending_approval' && s.createdAt > lastReadTime
+      ).length;
+
+      // 3b. Pending approval services
+      count += allServices.filter(
+        (s) => s.status === 'pending_approval' && (s.completedAt || s.createdAt) > lastReadTime
       ).length;
 
       // 4. New locations from staff
       count += allLocations.filter(
-        (l) => l.createdBy !== user.id && l.createdAt > lastReadTime
+        (l) => l.createdBy !== user.id && l.status !== 'pending_approval' && l.createdAt > lastReadTime
+      ).length;
+
+      // 4b. Pending approval locations
+      count += allLocations.filter(
+        (l) => l.status === 'pending_approval' && (l.completedAt || l.createdAt) > lastReadTime
       ).length;
 
       // 5. Active reminders due
@@ -2996,6 +3583,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           (n.completedBy === user.id ||
             (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
             n.targetUserId === user.id)
+      ).length;
+
+      // 3b. Approved / Rejected services newer than lastReadTime
+      count += allServices.filter(
+        (s) =>
+          (s.status === 'approved' || s.status === 'rejected') &&
+          (s.approvedAt || s.rejectedAt || s.createdAt) > lastReadTime &&
+          (s.completedBy === user.id || s.createdBy === user.id)
+      ).length;
+
+      // 3c. Approved / Rejected locations newer than lastReadTime
+      count += allLocations.filter(
+        (l) =>
+          (l.status === 'approved' || l.status === 'rejected') &&
+          (l.approvedAt || l.rejectedAt || l.createdAt) > lastReadTime &&
+          (l.completedBy === user.id || l.createdBy === user.id)
       ).length;
 
       // 4. Active reminders due
@@ -3087,6 +3690,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateLocationDetails,
         addPhotoToLocation,
         deletePhotoFromLocation,
+        completeLocation,
+        approveLocation,
+        rejectLocation,
         addNote,
         updateNote,
         deleteNote,
@@ -3103,6 +3709,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addService,
         updateService,
         deleteService,
+        completeService,
+        approveService,
+        rejectService,
         updateWorkplaceLocation,
         addBranch,
         updateBranch,

@@ -9,6 +9,8 @@ import {
   FileText,
   User as UserIcon,
   MessageCircle,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
 import { LocationItem } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
@@ -69,11 +71,35 @@ export const LocationCard: React.FC<LocationCardProps> = ({
 
   // Status Badge Helper
   const getStatusBadge = () => {
+    if (location.status === 'approved') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          Onaylandı
+        </span>
+      );
+    }
+    if (location.status === 'pending_approval') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+          <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+          Onay Bekliyor
+        </span>
+      );
+    }
+    if (location.status === 'rejected') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+          <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+          Reddedildi
+        </span>
+      );
+    }
     if (total > 0 && completed + notPresent === total) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Tamamlandı
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          Görevler Bitti
         </span>
       );
     }
@@ -93,10 +119,23 @@ export const LocationCard: React.FC<LocationCardProps> = ({
     );
   };
 
+  const cardBorderClass = () => {
+    if (location.status === 'approved') {
+      return 'border-emerald-300/80 dark:border-emerald-800/80 ring-1 ring-emerald-500/20';
+    }
+    if (location.status === 'pending_approval') {
+      return 'border-amber-300/80 dark:border-amber-800/80 ring-1 ring-amber-500/20';
+    }
+    if (location.status === 'rejected') {
+      return 'border-rose-300/80 dark:border-rose-800/80 ring-1 ring-rose-500/20';
+    }
+    return 'border-slate-200/80 dark:border-slate-700/80';
+  };
+
   return (
     <div
       onClick={onClick}
-      className="bg-white dark:bg-slate-800/95 rounded-2xl p-5 shadow-xs hover:shadow-lg border border-slate-200/80 dark:border-slate-700/80 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99] group flex flex-col justify-between max-w-full overflow-hidden"
+      className={`bg-white dark:bg-slate-800/95 rounded-2xl p-5 shadow-xs hover:shadow-lg border cursor-pointer transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99] group flex flex-col justify-between max-w-full overflow-hidden ${cardBorderClass()}`}
     >
       {/* Top Section */}
       <div className="space-y-3 min-w-0 w-full">
@@ -135,6 +174,14 @@ export const LocationCard: React.FC<LocationCardProps> = ({
             <MapPin className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 shrink-0" />
             <span>Adres girilmemiş</span>
           </p>
+        )}
+
+        {/* Rejection Alert Box */}
+        {location.status === 'rejected' && location.rejectionReason && (
+          <div className="p-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 text-xs text-rose-800 dark:text-rose-300">
+            <span className="font-bold">Red Gerekçesi: </span>
+            {location.rejectionReason}
+          </div>
         )}
 
         {/* Media / Notes Badges row */}

@@ -1,4 +1,5 @@
 export type TaskStatus = 'pending' | 'completed' | 'not_present';
+export type ApprovalStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected';
 
 export interface Task {
   id: string;
@@ -18,10 +19,24 @@ export interface LocationItem {
   createdBy?: string; // User ID who created this installation
   createdByName?: string; // User name who created this installation
   tasks: Task[];
+  // Approval and Completion workflow
+  status?: ApprovalStatus;
+  completedAt?: number;
+  completedBy?: string;
+  completedByName?: string;
+  completionNote?: string;
+  completionPhotos?: string[];
+  approvedAt?: number;
+  approvedBy?: string;
+  approvedByName?: string;
+  rejectedAt?: number;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectionReason?: string;
 }
 
 export type NoteTargetMode = 'self' | 'all' | 'custom';
-export type NoteStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected';
+export type NoteStatus = ApprovalStatus;
 
 export interface GeneralNote {
   id: string;
@@ -105,6 +120,20 @@ export interface ServiceItem {
   createdAt: number;
   createdBy?: string;
   createdByName?: string;
+  // Approval and Completion workflow
+  status?: ApprovalStatus;
+  completedAt?: number;
+  completedBy?: string;
+  completedByName?: string;
+  completionNote?: string;
+  completionPhotos?: string[];
+  approvedAt?: number;
+  approvedBy?: string;
+  approvedByName?: string;
+  rejectedAt?: number;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectionReason?: string;
 }
 
 export interface Branch {

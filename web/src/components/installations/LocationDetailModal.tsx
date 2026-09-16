@@ -7,6 +7,12 @@ import {
   FileText,
   Loader2,
   MessageCircle,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Check,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import { LocationItem, TaskStatus } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
@@ -15,6 +21,11 @@ import { NotesMediaTab } from './NotesMediaTab';
 import { Lightbox } from '../common/Lightbox';
 import { PdfService } from '../../services/pdfService';
 import { WhatsappService } from '../../services/whatsappService';
+import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
+import { useStorage } from '../../context/StorageContext';
+import { CompleteLocationModal } from './CompleteLocationModal';
+import { RejectLocationModal } from './RejectLocationModal';
 
 interface LocationDetailModalProps {
   location: LocationItem | null;
@@ -47,9 +58,15 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
   onAddPhoto,
   onDeletePhoto,
 }) => {
+  const { user } = useAuth();
+  const isAdmin = isUserAdmin(user);
+  const { completeLocation, approveLocation, rejectLocation } = useStorage();
+
   const [activeTab, setActiveTab] = useState<'checklist' | 'metadata'>('checklist');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
   if (!isOpen || !location) return null;
 
@@ -164,11 +181,169 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
             <ProgressBar completedPct={completedPct} notPresentPct={notPresentPct} height="h-2" />
           </div>
 
+          {/* Approval Workflow & Status Banner */}
+          <div className="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-900/70 border-b border-slate-200/80 dark:border-slate-700/80 shrink-0 space-y-2">
+            {isAdmin ? (
+              /* Admin Approval View */
+              <>
+                {location.status === 'pending_approval' && (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+                        <span>Personel Onay Bekliyor ({location.completedByName || 'Saha Personeli'})</span>
+                      </span>
+                      {location.completedAt && (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                          {new Date(location.completedAt).toLocaleDateString('tr-TR', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
+
+                    {location.completionNote && (
+                      <p className="text-xs text-slate-800 dark:text-slate-200 bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40">
+                        <strong className="text-slate-900 dark:text-slate-100">Personel Notu:</strong> {location.completionNote}
+                      </p>
+                    )}
+
+                    {location.completionPhotos && location.completionPhotos.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">
+                          Tamamlama Fotoğrafları ({location.completionPhotos.length}):
+                        </span>
+                        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                          {location.completionPhotos.map((p, idx) => (
+                            <img
+                              key={idx}
+                              src={p}
+                              alt="Tamamlama"
+                              onClick={() => setPreviewPhoto(p)}
+                              className="w-12 h-12 rounded-lg object-cover border border-amber-200 cursor-pointer hover:opacity-80 transition-all shrink-0"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => approveLocation(location.id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Kurulumu Onayla</span>
+                      </button>
+                      <button
+                        onClick={() => setIsRejectModalOpen(true)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/50 active:scale-95 font-extrabold text-xs transition-all cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>Reddet</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {location.status === 'rejected' && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-300">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>Kurulum Reddedildi</span>
+                      </div>
+                      <p className="text-[11px] text-rose-600 dark:text-rose-400 truncate">
+                        Gerekçe: {location.rejectionReason || 'Eksikler var'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => approveLocation(location.id)}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+                    >
+                      Yine de Onayla
+                    </button>
+                  </div>
+                )}
+
+                {location.status === 'approved' && (
+                  <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Bu kurulum {location.approvedByName || 'Yönetici'} tarafından onaylandı.</span>
+                    </span>
+                    {location.approvedAt && (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                        {new Date(location.approvedAt).toLocaleDateString('tr-TR', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Field Staff Approval View */
+              <>
+                {(!location.status || location.status === 'pending') && (
+                  <button
+                    onClick={() => setIsCompleteModalOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>✓ Kurulumu Tamamla (Yönetici Onayına Gönder)</span>
+                  </button>
+                )}
+
+                {location.status === 'pending_approval' && (
+                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-xs font-bold text-amber-700 dark:text-amber-400 gap-2">
+                    <Clock className="w-4 h-4 animate-spin" />
+                    <span>Kurulum tamamlandı ve yönetici onayına gönderildi. Onay bekleniyor.</span>
+                  </div>
+                )}
+
+                {location.status === 'rejected' && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-300">
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Yönetici Kurulumu Reddetti</span>
+                    </div>
+                    {location.rejectionReason && (
+                      <p className="text-xs text-rose-800 dark:text-rose-200 bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg border border-rose-200">
+                        <strong>Red Gerekçesi:</strong> {location.rejectionReason}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => setIsCompleteModalOpen(true)}
+                      className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>↻ Eksikleri Giderdim / Tekrar Onaya Gönder</span>
+                    </button>
+                  </div>
+                )}
+
+                {location.status === 'approved' && (
+                  <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-xs font-bold text-emerald-700 dark:text-emerald-400 gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Bu kurulum yönetici tarafından onaylandı.</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           {/* Sub Tab Switcher */}
           <div className="flex border-b border-slate-200 dark:border-slate-700/80 shrink-0 bg-white dark:bg-slate-800">
             <button
               onClick={() => setActiveTab('checklist')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
                 activeTab === 'checklist'
                   ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/20'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -180,7 +355,7 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
 
             <button
               onClick={() => setActiveTab('metadata')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
                 activeTab === 'metadata'
                   ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/20'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -218,6 +393,26 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
         photoUrl={previewPhoto}
         onClose={() => setPreviewPhoto(null)}
         onDelete={onDeletePhoto}
+      />
+
+      {/* Complete Location Modal */}
+      <CompleteLocationModal
+        isOpen={isCompleteModalOpen}
+        location={location}
+        onClose={() => setIsCompleteModalOpen(false)}
+        onConfirm={async (note, photos) => {
+          await completeLocation(location.id, note, photos);
+        }}
+      />
+
+      {/* Reject Location Modal */}
+      <RejectLocationModal
+        isOpen={isRejectModalOpen}
+        location={location}
+        onClose={() => setIsRejectModalOpen(false)}
+        onConfirm={async (reason) => {
+          await rejectLocation(location.id, reason);
+        }}
       />
     </>
   );

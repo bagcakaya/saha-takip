@@ -1,5 +1,17 @@
-import React, { useMemo, useState } from 'react';
-import { Search, Plus, Building2, X, Filter, User } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+  Search,
+  Plus,
+  Building2,
+  X,
+  Filter,
+  User,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Hourglass,
+  MapPin,
+} from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { LocationCard } from '../components/installations/LocationCard';
 import { AddLocationModal } from '../components/installations/AddLocationModal';
@@ -7,6 +19,14 @@ import { LocationDetailModal } from '../components/installations/LocationDetailM
 import { LocationItem } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
+
+export type LocationFilterType =
+  | 'all'
+  | 'in_progress'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
+  | 'with_location';
 
 export const InstallationsView: React.FC = () => {
   const {
@@ -26,22 +46,80 @@ export const InstallationsView: React.FC = () => {
   const isAdmin = isUserAdmin(currentUser);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'in_progress' | 'completed' | 'with_location'>('all');
+  const filterStorageKey = `@saha_takip_installations_active_filter_${currentUser?.id || 'default'}`;
+
+  const [activeFilter, setActiveFilterState] = useState<LocationFilterType>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlFilter = urlParams.get('filter');
+        if (
+          urlFilter &&
+          ['all', 'in_progress', 'pending_approval', 'approved', 'rejected', 'with_location'].includes(urlFilter)
+        ) {
+          return urlFilter as LocationFilterType;
+        }
+
+        const saved = localStorage.getItem(filterStorageKey);
+        if (
+          saved &&
+          ['all', 'in_progress', 'pending_approval', 'approved', 'rejected', 'with_location'].includes(saved)
+        ) {
+          return saved as LocationFilterType;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return 'all';
+  });
+
+  const setActiveFilter = (filter: LocationFilterType) => {
+    setActiveFilterState(filter);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(filterStorageKey, filter);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Listen for global deep link filter change events
+  useEffect(() => {
+    const handleFilterChange = (e: any) => {
+      const newFilter = e?.detail?.filter;
+      if (
+        newFilter &&
+        ['all', 'in_progress', 'pending_approval', 'approved', 'rejected', 'with_location'].includes(newFilter)
+      ) {
+        setActiveFilter(newFilter as LocationFilterType);
+      }
+    };
+    window.addEventListener('saha:set-installations-filter' as any, handleFilterChange);
+    return () => {
+      window.removeEventListener('saha:set-installations-filter' as any, handleFilterChange);
+    };
+  }, [filterStorageKey]);
+
   const [selectedCreatorId, setSelectedCreatorId] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
 
   // Filter counts for pills
   const counts = useMemo(() => {
-    let completedCount = 0;
     let inProgressCount = 0;
+    let pendingApprovalCount = 0;
+    let approvedCount = 0;
+    let rejectedCount = 0;
 
     locations.forEach((loc) => {
-      const total = loc.tasks.length;
-      const completed = loc.tasks.filter((t) => t.status === 'completed').length;
-      const notPresent = loc.tasks.filter((t) => t.status === 'not_present').length;
-      if (total > 0 && completed + notPresent === total) {
-        completedCount++;
+      if (loc.status === 'pending_approval') {
+        pendingApprovalCount++;
+      } else if (loc.status === 'approved') {
+        approvedCount++;
+      } else if (loc.status === 'rejected') {
+        rejectedCount++;
       } else {
         inProgressCount++;
       }
@@ -49,7 +127,9 @@ export const InstallationsView: React.FC = () => {
 
     return {
       inProgressCount,
-      completedCount,
+      pendingApprovalCount,
+      approvedCount,
+      rejectedCount,
       withLocationCount: locations.filter(
         (l) => Boolean(l.address?.trim() || (l.latitude && l.longitude))
       ).length,
@@ -74,14 +154,10 @@ export const InstallationsView: React.FC = () => {
 
       // 3. Tab Filter
       if (activeFilter === 'all') return true;
-
-      const total = loc.tasks.length;
-      const completed = loc.tasks.filter((t) => t.status === 'completed').length;
-      const notPresent = loc.tasks.filter((t) => t.status === 'not_present').length;
-      const isDone = total > 0 && completed + notPresent === total;
-
-      if (activeFilter === 'completed') return isDone;
-      if (activeFilter === 'in_progress') return !isDone;
+      if (activeFilter === 'pending_approval') return loc.status === 'pending_approval';
+      if (activeFilter === 'approved') return loc.status === 'approved';
+      if (activeFilter === 'rejected') return loc.status === 'rejected';
+      if (activeFilter === 'in_progress') return !loc.status || loc.status === 'pending';
       if (activeFilter === 'with_location') {
         return Boolean(loc.address?.trim() || (loc.latitude && loc.longitude));
       }
@@ -161,7 +237,7 @@ export const InstallationsView: React.FC = () => {
 
           <button
             onClick={() => setActiveFilter('all')}
-            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
               activeFilter === 'all'
                 ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -172,35 +248,62 @@ export const InstallationsView: React.FC = () => {
 
           <button
             onClick={() => setActiveFilter('in_progress')}
-            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
               activeFilter === 'in_progress'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Devam Edenler ({counts.inProgressCount})
+            <Clock className="w-3.5 h-3.5 text-blue-400" />
+            <span>Devam Edenler ({counts.inProgressCount})</span>
           </button>
 
           <button
-            onClick={() => setActiveFilter('completed')}
-            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 ${
-              activeFilter === 'completed'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            onClick={() => setActiveFilter('pending_approval')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
+              activeFilter === 'pending_approval'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/60 hover:bg-amber-100'
             }`}
           >
-            Tamamlananlar ({counts.completedCount})
+            <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+            <span>Onay Bekleyenler ({counts.pendingApprovalCount})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveFilter('approved')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
+              activeFilter === 'approved'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/60 hover:bg-emerald-100'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Onaylananlar ({counts.approvedCount})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveFilter('rejected')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
+              activeFilter === 'rejected'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800/60 hover:bg-rose-100'
+            }`}
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+            <span>Reddedilenler ({counts.rejectedCount})</span>
           </button>
 
           <button
             onClick={() => setActiveFilter('with_location')}
-            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer ${
               activeFilter === 'with_location'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            Konumlu ({counts.withLocationCount})
+            <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Konumlu ({counts.withLocationCount})</span>
           </button>
         </div>
       </div>
@@ -218,53 +321,31 @@ export const InstallationsView: React.FC = () => {
               ? 'Aramayla eşleşen kurulum bulunamadı'
               : activeFilter !== 'all' || selectedCreatorId !== 'all'
               ? 'Bu filtreye uygun kurulum bulunmuyor'
-              : !isAdmin
-              ? 'Henüz adınıza kayıtlı bir kurulum bulunmuyor'
-              : 'Henüz kurulum kaydı eklenmedi'}
+              : 'Henüz kayıtlı bir kurulum yeri yok'}
           </h3>
-          <p className="text-xs text-slate-400 leading-relaxed mb-5">
+          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm max-w-sm mx-auto mb-6">
             {searchQuery
-              ? 'Lütfen arama terimini kontrol edin veya filtreleri temizleyin.'
-              : !isAdmin
-              ? 'Yeni bir kurulum ekleyerek kendi saha görev listenizi ve teslim raporlarınızı oluşturabilirsiniz.'
-              : 'Yeni bir kurulum yeri ekleyerek görev kontrol listesini, fotoğrafları ve teslim raporunu oluşturabilirsiniz.'}
+              ? 'Farklı arama terimleri deneyebilir veya filtreleri temizleyebilirsiniz.'
+              : 'Yeni bir kurulum yeri ekleyerek görev listesini takip etmeye başlayın.'}
           </p>
-          <button
-            onClick={() => {
-              if (activeFilter !== 'all' || searchQuery || selectedCreatorId !== 'all') {
-                setActiveFilter('all');
-                setSelectedCreatorId('all');
-                setSearchQuery('');
-              } else {
-                setIsAddModalOpen(true);
-              }
-            }}
-            className="px-5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors inline-flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>
-              {activeFilter !== 'all' || searchQuery || selectedCreatorId !== 'all'
-                ? 'Filtreleri Sıfırla'
-                : 'İlk Kurulumu Ekle'}
-            </span>
-          </button>
+          {!searchQuery && activeFilter === 'all' && (
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>İlk Kurulumu Ekle</span>
+            </button>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {filteredLocations.map((loc) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+          {filteredLocations.map((location) => (
             <LocationCard
-              key={loc.id}
-              location={loc}
-              onClick={() => setSelectedLocationId(loc.id)}
-              onDelete={() => {
-                if (
-                  window.confirm(
-                    `"${loc.name}" kurulum kaydını silmek istediğinize emin misiniz?`
-                  )
-                ) {
-                  deleteLocation(loc.id);
-                }
-              }}
+              key={location.id}
+              location={location}
+              onClick={() => setSelectedLocationId(location.id)}
+              onDelete={() => deleteLocation(location.id)}
             />
           ))}
         </div>
@@ -280,7 +361,7 @@ export const InstallationsView: React.FC = () => {
       {/* Location Detail Modal */}
       <LocationDetailModal
         location={selectedLocation}
-        isOpen={Boolean(selectedLocation)}
+        isOpen={Boolean(selectedLocationId)}
         onClose={() => setSelectedLocationId(null)}
         onDelete={() => {
           if (selectedLocationId) {
@@ -298,27 +379,24 @@ export const InstallationsView: React.FC = () => {
             addCustomTaskToLocation(selectedLocationId, taskName);
           }
         }}
-        onDeleteCustomTask={(taskId, taskName) => {
-          if (
-            selectedLocationId &&
-            window.confirm(`"${taskName}" görevini silmek istediğinize emin misiniz?`)
-          ) {
+        onDeleteCustomTask={(taskId) => {
+          if (selectedLocationId) {
             deleteCustomTaskFromLocation(selectedLocationId, taskId);
           }
         }}
-        onUpdateDetails={(addr, notes, lat, lon, name) => {
+        onUpdateDetails={(address, notes, lat, lon, name) => {
           if (selectedLocationId) {
-            updateLocationDetails(selectedLocationId, addr, notes, lat, lon, name);
+            updateLocationDetails(selectedLocationId, address, notes, lat, lon, name);
           }
         }}
-        onAddPhoto={(photoUrl) => {
+        onAddPhoto={(photo) => {
           if (selectedLocationId) {
-            addPhotoToLocation(selectedLocationId, photoUrl);
+            addPhotoToLocation(selectedLocationId, photo);
           }
         }}
-        onDeletePhoto={(photoUrl) => {
+        onDeletePhoto={(photo) => {
           if (selectedLocationId) {
-            deletePhotoFromLocation(selectedLocationId, photoUrl);
+            deletePhotoFromLocation(selectedLocationId, photo);
           }
         }}
       />

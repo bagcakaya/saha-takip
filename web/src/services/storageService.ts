@@ -202,6 +202,9 @@ export const StorageService = {
     const localKey = this.getStorageKey(LOCATIONS_KEY);
 
     if (activeCompanyCode === 'POLATLAR') {
+      const fallbackLocations = (await loadChunkedSlot<LocationItem[]>(11)).data || [];
+      const fallbackMap = new Map(fallbackLocations.map((l) => [l.id, l]));
+
       // Primary POLATLAR table in Supabase
       try {
         const { data, error } = await supabase
@@ -210,25 +213,47 @@ export const StorageService = {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          const cloudLocations: LocationItem[] = data.map((row) => ({
-            id: row.id,
-            name: row.name,
-            address: row.address || '',
-            notes: row.notes || '',
-            photos: Array.isArray(row.photos) ? row.photos : [],
-            latitude: row.latitude || undefined,
-            longitude: row.longitude || undefined,
-            createdAt: Number(row.created_at) || Date.now(),
-            createdBy: row.created_by || undefined,
-            createdByName: row.created_by_name || undefined,
-            tasks: Array.isArray(row.tasks) ? row.tasks : [],
-          }));
+          const cloudLocations: LocationItem[] = data.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              name: row.name,
+              address: row.address || '',
+              notes: row.notes || '',
+              photos: Array.isArray(row.photos) ? row.photos : [],
+              latitude: row.latitude || undefined,
+              longitude: row.longitude || undefined,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              tasks: Array.isArray(row.tasks) ? row.tasks : [],
+              status: (row as any).status || fb?.status || 'pending',
+              completedAt: (row as any).completed_at || fb?.completedAt,
+              completedBy: (row as any).completed_by || fb?.completedBy,
+              completedByName: (row as any).completed_by_name || fb?.completedByName,
+              completionNote: (row as any).completion_note || fb?.completionNote,
+              completionPhotos: Array.isArray((row as any).completion_photos)
+                ? (row as any).completion_photos
+                : fb?.completionPhotos || [],
+              approvedAt: (row as any).approved_at || fb?.approvedAt,
+              approvedBy: (row as any).approved_by || fb?.approvedBy,
+              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
+              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
+              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
+              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
+              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
+            };
+          });
 
           await saveItem(localKey, cloudLocations);
           return cloudLocations;
         }
       } catch (e) {
         console.warn('Supabase locations fetch error:', e);
+      }
+      if (fallbackLocations.length > 0) {
+        await saveItem(localKey, fallbackLocations);
+        return fallbackLocations;
       }
       return (await loadItem<LocationItem[]>(localKey)) || [];
     }
@@ -259,7 +284,7 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
-        const rows = locations.map((loc) => ({
+        const fullRows = locations.map((loc) => ({
           id: loc.id,
           name: loc.name,
           address: loc.address || '',
@@ -271,10 +296,40 @@ export const StorageService = {
           created_by: loc.createdBy || null,
           created_by_name: loc.createdByName || null,
           tasks: loc.tasks || [],
+          status: loc.status || 'pending',
+          completed_at: loc.completedAt || null,
+          completed_by: loc.completedBy || null,
+          completed_by_name: loc.completedByName || null,
+          completion_note: loc.completionNote || null,
+          completion_photos: loc.completionPhotos || [],
+          approved_at: loc.approvedAt || null,
+          approved_by: loc.approvedBy || null,
+          approved_by_name: loc.approvedByName || null,
+          rejected_at: loc.rejectedAt || null,
+          rejected_by: loc.rejectedBy || null,
+          rejected_by_name: loc.rejectedByName || null,
+          rejection_reason: loc.rejectionReason || null,
         }));
 
-        if (rows.length > 0) {
-          await supabase.from('locations').upsert(rows);
+        if (fullRows.length > 0) {
+          const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
+          if (upsertErr) {
+            // Fallback if columns do not exist in locations table
+            const basicRows = locations.map((loc) => ({
+              id: loc.id,
+              name: loc.name,
+              address: loc.address || '',
+              notes: loc.notes || '',
+              photos: loc.photos || [],
+              latitude: loc.latitude || null,
+              longitude: loc.longitude || null,
+              created_at: loc.createdAt,
+              created_by: loc.createdBy || null,
+              created_by_name: loc.createdByName || null,
+              tasks: loc.tasks || [],
+            }));
+            await supabase.from('locations').upsert(basicRows);
+          }
           const currentIds = locations.map((l) => l.id);
           const { data: cloudData } = await supabase.from('locations').select('id');
           if (cloudData) {
@@ -291,8 +346,9 @@ export const StorageService = {
       } catch (err) {
         console.warn('Supabase save locations error:', err);
       }
+      await saveChunkedSlot(11, locations);
     } else {
-      // Isolated chunked slot 11
+      // Isolated chunked slot 11 for other companies
       await saveChunkedSlot(this.getSlotId(11), locations);
     }
   },
@@ -672,6 +728,9 @@ export const StorageService = {
     const localKey = this.getStorageKey(SERVICES_KEY);
 
     if (activeCompanyCode === 'POLATLAR') {
+      const fallbackServices = (await loadChunkedSlot<ServiceItem[]>(3)).data || [];
+      const fallbackMap = new Map(fallbackServices.map((s) => [s.id, s]));
+
       try {
         const { data, error } = await supabase
           .from('services')
@@ -679,18 +738,36 @@ export const StorageService = {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          const cloudServices: ServiceItem[] = data.map((row) => ({
-            id: row.id,
-            companyName: row.company_name,
-            location: row.location || undefined,
-            latitude: row.latitude != null ? Number(row.latitude) : undefined,
-            longitude: row.longitude != null ? Number(row.longitude) : undefined,
-            workDone: row.work_done,
-            date: row.date || undefined,
-            createdAt: Number(row.created_at) || Date.now(),
-            createdBy: row.created_by || undefined,
-            createdByName: row.created_by_name || undefined,
-          }));
+          const cloudServices: ServiceItem[] = data.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              companyName: row.company_name,
+              location: row.location || undefined,
+              latitude: row.latitude != null ? Number(row.latitude) : undefined,
+              longitude: row.longitude != null ? Number(row.longitude) : undefined,
+              workDone: row.work_done,
+              date: row.date || undefined,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              status: (row as any).status || fb?.status || 'pending',
+              completedAt: (row as any).completed_at || fb?.completedAt,
+              completedBy: (row as any).completed_by || fb?.completedBy,
+              completedByName: (row as any).completed_by_name || fb?.completedByName,
+              completionNote: (row as any).completion_note || fb?.completionNote,
+              completionPhotos: Array.isArray((row as any).completion_photos)
+                ? (row as any).completion_photos
+                : fb?.completionPhotos || [],
+              approvedAt: (row as any).approved_at || fb?.approvedAt,
+              approvedBy: (row as any).approved_by || fb?.approvedBy,
+              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
+              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
+              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
+              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
+              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
+            };
+          });
 
           await saveItem(localKey, cloudServices);
           return cloudServices;
@@ -699,10 +776,9 @@ export const StorageService = {
         // ignore
       }
 
-      const cloudData = await loadChunkedSlot<ServiceItem[]>(3);
-      if (cloudData.data && Array.isArray(cloudData.data)) {
-        await saveItem(localKey, cloudData.data);
-        return cloudData.data;
+      if (fallbackServices.length > 0) {
+        await saveItem(localKey, fallbackServices);
+        return fallbackServices;
       }
 
       return (await loadItem<ServiceItem[]>(localKey)) || [];
@@ -734,7 +810,7 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
-        const rows = items.map((item) => ({
+        const fullRows = items.map((item) => ({
           id: item.id,
           company_name: item.companyName,
           location: item.location || null,
@@ -745,20 +821,47 @@ export const StorageService = {
           created_at: item.createdAt,
           created_by: item.createdBy || null,
           created_by_name: item.createdByName || null,
+          status: item.status || 'pending',
+          completed_at: item.completedAt || null,
+          completed_by: item.completedBy || null,
+          completed_by_name: item.completedByName || null,
+          completion_note: item.completionNote || null,
+          completion_photos: item.completionPhotos || [],
+          approved_at: item.approvedAt || null,
+          approved_by: item.approvedBy || null,
+          approved_by_name: item.approvedByName || null,
+          rejected_at: item.rejectedAt || null,
+          rejected_by: item.rejectedBy || null,
+          rejected_by_name: item.rejectedByName || null,
+          rejection_reason: item.rejectionReason || null,
         }));
 
-        if (rows.length > 0) {
-          const { error: upsertErr } = await supabase.from('services').upsert(rows);
-          if (!upsertErr) {
-            const currentIds = items.map((i) => i.id);
-            const { data: cloudData } = await supabase.from('services').select('id');
-            if (cloudData) {
-              const idsToDelete = cloudData
-                .map((c) => c.id)
-                .filter((id) => !currentIds.includes(id));
-              if (idsToDelete.length > 0) {
-                await supabase.from('services').delete().in('id', idsToDelete);
-              }
+        if (fullRows.length > 0) {
+          const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
+          if (upsertErr) {
+            // Fallback if columns do not exist in services table
+            const basicRows = items.map((item) => ({
+              id: item.id,
+              company_name: item.companyName,
+              location: item.location || null,
+              latitude: item.latitude || null,
+              longitude: item.longitude || null,
+              work_done: item.workDone,
+              date: item.date || null,
+              created_at: item.createdAt,
+              created_by: item.createdBy || null,
+              created_by_name: item.createdByName || null,
+            }));
+            await supabase.from('services').upsert(basicRows);
+          }
+          const currentIds = items.map((i) => i.id);
+          const { data: cloudData } = await supabase.from('services').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('services').delete().in('id', idsToDelete);
             }
           }
         } else {

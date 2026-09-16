@@ -28,6 +28,12 @@ export interface AppNotification {
     | 'note_pending_approval'
     | 'note_approved'
     | 'note_rejected'
+    | 'service_pending_approval'
+    | 'service_approved'
+    | 'service_rejected'
+    | 'location_pending_approval'
+    | 'location_approved'
+    | 'location_rejected'
     | 'reminder'
     | 'location_added'
     | 'service_added'
@@ -207,9 +213,21 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 6. New services from staff
+    // 6. Services from staff (pending approval or newly added)
     allServices.forEach((s) => {
-      if (s.createdBy !== user.id) {
+      if (s.status === 'pending_approval') {
+        notifications.push({
+          id: `srv_pend_${s.id}_${s.completedAt || s.createdAt}`,
+          type: 'service_pending_approval',
+          title: '🔧 Servis Onay Bekliyor',
+          senderName: s.completedByName || s.createdByName || 'Saha Personeli',
+          senderRole: 'Saha Yetkilisi',
+          content: `${s.companyName} - ${s.workDone}${s.completionNote ? ` (Açıklama: ${s.completionNote})` : ''}`,
+          createdAt: s.completedAt || s.createdAt,
+          tab: 'services',
+          filter: 'pending_approval',
+        });
+      } else if (s.createdBy !== user.id) {
         notifications.push({
           id: `service_${s.id}`,
           type: 'service_added',
@@ -223,9 +241,21 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 7. New locations from staff
+    // 7. Locations from staff (pending approval or newly added)
     allLocations.forEach((loc) => {
-      if (loc.createdBy !== user.id) {
+      if (loc.status === 'pending_approval') {
+        notifications.push({
+          id: `loc_pend_${loc.id}_${loc.completedAt || loc.createdAt}`,
+          type: 'location_pending_approval',
+          title: '📍 Kurulum Onay Bekliyor',
+          senderName: loc.completedByName || loc.createdByName || 'Saha Personeli',
+          senderRole: 'Saha Yetkilisi',
+          content: `${loc.name}${loc.completionNote ? ` (Açıklama: ${loc.completionNote})` : ''}`,
+          createdAt: loc.completedAt || loc.createdAt,
+          tab: 'installations',
+          filter: 'pending_approval',
+        });
+      } else if (loc.createdBy !== user.id) {
         notifications.push({
           id: `loc_${loc.id}`,
           type: 'location_added',
@@ -435,6 +465,68 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         });
       }
     });
+
+    // 7. Approved / Rejected Services for staff
+    allServices.forEach((s) => {
+      if (s.completedBy === user.id || s.createdBy === user.id) {
+        if (s.status === 'approved') {
+          notifications.push({
+            id: `srv_app_${s.id}_${s.approvedAt || s.createdAt}`,
+            type: 'service_approved',
+            title: '✅ Servis Kaydınız Onaylandı',
+            senderName: s.approvedByName || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${s.companyName} servis kaydınız yönetici tarafından onaylandı.`,
+            createdAt: s.approvedAt || s.createdAt,
+            tab: 'services',
+            filter: 'approved',
+          });
+        } else if (s.status === 'rejected') {
+          notifications.push({
+            id: `srv_rej_${s.id}_${s.rejectedAt || s.createdAt}`,
+            type: 'service_rejected',
+            title: '❌ Servis Kaydınız Reddedildi',
+            senderName: s.rejectedByName || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `${s.companyName} servis kaydınız reddedildi. Gerekçe: ${s.rejectionReason || 'Eksikler var'}`,
+            createdAt: s.rejectedAt || s.createdAt,
+            tab: 'services',
+            filter: 'rejected',
+          });
+        }
+      }
+    });
+
+    // 8. Approved / Rejected Locations for staff
+    allLocations.forEach((loc) => {
+      if (loc.completedBy === user.id || loc.createdBy === user.id) {
+        if (loc.status === 'approved') {
+          notifications.push({
+            id: `loc_app_${loc.id}_${loc.approvedAt || loc.createdAt}`,
+            type: 'location_approved',
+            title: '✅ Kurulumunuz Onaylandı',
+            senderName: loc.approvedByName || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `"${loc.name}" kurulum kaydınız yönetici tarafından onaylandı.`,
+            createdAt: loc.approvedAt || loc.createdAt,
+            tab: 'installations',
+            filter: 'approved',
+          });
+        } else if (loc.status === 'rejected') {
+          notifications.push({
+            id: `loc_rej_${loc.id}_${loc.rejectedAt || loc.createdAt}`,
+            type: 'location_rejected',
+            title: '❌ Kurulumunuz Reddedildi',
+            senderName: loc.rejectedByName || 'Yönetici',
+            senderRole: 'Yönetici',
+            content: `"${loc.name}" kurulum kaydınız reddedildi. Gerekçe: ${loc.rejectionReason || 'Eksikler var'}`,
+            createdAt: loc.rejectedAt || loc.createdAt,
+            tab: 'installations',
+            filter: 'rejected',
+          });
+        }
+      }
+    });
   }
 
   // Sort newest first
@@ -459,13 +551,19 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   const getIcon = (type: AppNotification['type']) => {
     switch (type) {
       case 'note_pending_approval':
+      case 'service_pending_approval':
+      case 'location_pending_approval':
       case 'attendance_pending':
         return <Clock className="w-4 h-4 text-amber-500" />;
       case 'note_approved':
+      case 'service_approved':
+      case 'location_approved':
       case 'leave_approved':
       case 'attendance_approved':
         return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
       case 'note_rejected':
+      case 'service_rejected':
+      case 'location_rejected':
       case 'leave_rejected':
       case 'attendance_rejected':
         return <AlertCircle className="w-4 h-4 text-rose-500" />;
@@ -494,6 +592,21 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     if (item.tab === 'staff_tracking' && item.filter) {
       window.dispatchEvent(
         new CustomEvent('saha:set-staff-subtab', { detail: { subTab: item.filter } })
+      );
+    }
+    if (item.tab === 'notes' && item.filter) {
+      window.dispatchEvent(
+        new CustomEvent('saha:set-notes-filter', { detail: { filter: item.filter } })
+      );
+    }
+    if (item.tab === 'services' && item.filter) {
+      window.dispatchEvent(
+        new CustomEvent('saha:set-services-filter', { detail: { filter: item.filter } })
+      );
+    }
+    if (item.tab === 'installations' && item.filter) {
+      window.dispatchEvent(
+        new CustomEvent('saha:set-installations-filter', { detail: { filter: item.filter } })
       );
     }
     onNavigate(item.tab, item.filter);
