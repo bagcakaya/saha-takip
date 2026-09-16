@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest } from '../types/storage';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -23,6 +23,7 @@ interface StorageContextType {
   workplaceLocation: WorkplaceLocation | null;
   attendanceRecords: AttendanceRecord[];
   adminReminders: AdminReminder[];
+  leaveRequests: LeaveRequest[];
   isLoading: boolean;
   activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
@@ -134,6 +135,19 @@ interface StorageContextType {
   updateAttendanceRecord: (id: string, updates: Partial<AttendanceRecord>) => Promise<void>;
   refreshAttendance: () => Promise<void>;
   importBackupData: (backupData: BackupData) => Promise<void>;
+  requestLeave: (params: {
+    leaveType: 'hourly' | 'daily';
+    date: string;
+    endDate?: string;
+    startTime?: string;
+    endTime?: string;
+    durationText: string;
+    reason: string;
+  }) => Promise<{ success: boolean; message: string }>;
+  approveLeaveRequest: (requestId: string) => Promise<{ success: boolean; message: string }>;
+  rejectLeaveRequest: (requestId: string, reason?: string) => Promise<{ success: boolean; message: string }>;
+  cancelLeaveRequest: (requestId: string) => Promise<{ success: boolean; message: string }>;
+  deleteLeaveRequest: (requestId: string) => Promise<void>;
   cariler: string[];
   carilerUpdatedAt: string | null;
   carilerTotal: number;
@@ -186,6 +200,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [adminReminders, setAdminReminders] = useState<AdminReminder[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [cariler, setCariler] = useState<string[]>([]);
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
@@ -201,7 +216,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, attRecs, reminders, cariData, leaveReqs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -211,6 +226,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getAttendanceRecords(),
           StorageService.getAdminReminders(),
           StorageService.getCarilerData(),
+          StorageService.getLeaveRequests(),
         ]);
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -228,6 +244,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         setAttendanceRecords(attRecs);
         setAdminReminders(reminders);
+        setLeaveRequests(leaveReqs);
         setCariler(cariData.cariler);
         setCarilerUpdatedAt(cariData.updatedAt);
         setCarilerTotal(cariData.total);
@@ -262,7 +279,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
-          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, attRecs, reminders, leaveReqs] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
@@ -270,6 +287,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getWorkplaceLocation(),
             StorageService.getAttendanceRecords(),
             StorageService.getAdminReminders(),
+            StorageService.getLeaveRequests(),
           ]);
           setStandardTasks(tasks);
           setReturnWarrantyItems(returns);
@@ -281,6 +299,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
           setAttendanceRecords(attRecs);
           setAdminReminders(reminders);
+          setLeaveRequests(leaveReqs);
         }
       )
       .on(
@@ -2065,6 +2084,189 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCarilerTotal(res.total);
   };
 
+  // ==========================================
+  // STAFF LEAVE REQUESTS (HOURLY / DAILY)
+  // ==========================================
+
+  const requestLeave = async (params: {
+    leaveType: 'hourly' | 'daily';
+    date: string;
+    endDate?: string;
+    startTime?: string;
+    endTime?: string;
+    durationText: string;
+    reason: string;
+  }): Promise<{ success: boolean; message: string }> => {
+    if (!user) {
+      return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+
+    const newRequest: LeaveRequest = {
+      id: generateId(),
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      leaveType: params.leaveType,
+      date: params.date,
+      endDate: params.endDate,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      durationText: params.durationText,
+      reason: params.reason,
+      status: 'pending',
+      requestedAt: Date.now(),
+    };
+
+    const updated = [newRequest, ...leaveRequests];
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+
+    // Format date details for notification
+    let details = '';
+    try {
+      const dateFormatted = new Date(params.date).toLocaleDateString('tr-TR');
+      if (params.leaveType === 'hourly') {
+        details = `${dateFormatted} saat ${params.startTime || ''}-${params.endTime || ''} (${params.durationText})`;
+      } else {
+        const endFormatted =
+          params.endDate && params.endDate !== params.date
+            ? ` - ${new Date(params.endDate).toLocaleDateString('tr-TR')}`
+            : '';
+        details = `${dateFormatted}${endFormatted} (${params.durationText})`;
+      }
+    } catch {
+      details = `${params.date} (${params.durationText})`;
+    }
+
+    // Send OneSignal Push Notification to Admins
+    try {
+      await OneSignalService.sendPushNotification({
+        title: `📝 Yeni İzin Talebi: ${user.name}`,
+        message: `${user.name}, ${details} ${
+          params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
+        } İzin talebinde bulundu. Neden: ${params.reason}`,
+        targetMode: 'admin',
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+    } catch (pushErr) {
+      console.warn('İzin talebi bildirim gönderim hatası:', pushErr);
+    }
+
+    return {
+      success: true,
+      message: 'İzin talebiniz başarıyla oluşturuldu ve yönetici onayına iletildi.',
+    };
+  };
+
+  const approveLeaveRequest = async (
+    requestId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user) return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    const req = leaveRequests.find((r) => r.id === requestId);
+    if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
+
+    const updated = leaveRequests.map((r) =>
+      r.id === requestId
+        ? {
+            ...r,
+            status: 'approved' as const,
+            reviewedBy: user.name,
+            reviewedAt: Date.now(),
+          }
+        : r
+    );
+
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+
+    // Notify employee via push notification
+    try {
+      await OneSignalService.sendPushNotification({
+        title: '✅ İzin Talebiniz Onaylandı',
+        message: `Sayın ${req.userName}, ${
+          req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
+        } izin talebiniz (${req.durationText}) onaylandı.`,
+        targetUserIds: [req.userId],
+        targetMode: 'custom',
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+    } catch (e) {
+      console.warn('İzin onay bildirimi hatası:', e);
+    }
+
+    return {
+      success: true,
+      message: `${req.userName} kullanıcısının izin talebi onaylandı.`,
+    };
+  };
+
+  const rejectLeaveRequest = async (
+    requestId: string,
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user) return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    const req = leaveRequests.find((r) => r.id === requestId);
+    if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
+
+    const updated = leaveRequests.map((r) =>
+      r.id === requestId
+        ? {
+            ...r,
+            status: 'rejected' as const,
+            reviewedBy: user.name,
+            reviewedAt: Date.now(),
+            reviewNote: reason,
+          }
+        : r
+    );
+
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+
+    // Notify employee via push notification
+    try {
+      await OneSignalService.sendPushNotification({
+        title: '❌ İzin Talebiniz Reddedildi',
+        message: `Sayın ${req.userName}, ${
+          req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
+        } izin talebiniz reddedildi.${reason ? ` Gerekçe: ${reason}` : ''}`,
+        targetUserIds: [req.userId],
+        targetMode: 'custom',
+        url: 'https://saha-takip-beige.vercel.app',
+      });
+    } catch (e) {
+      console.warn('İzin ret bildirimi hatası:', e);
+    }
+
+    return {
+      success: true,
+      message: `${req.userName} kullanıcısının izin talebi reddedildi.`,
+    };
+  };
+
+  const cancelLeaveRequest = async (
+    requestId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user) return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    const req = leaveRequests.find((r) => r.id === requestId && (r.userId === user.id || user.role === 'admin'));
+    if (!req) return { success: false, message: 'İptal edilecek izin talebi bulunamadı.' };
+
+    const updated = leaveRequests.filter((r) => r.id !== requestId);
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+
+    return {
+      success: true,
+      message: 'İzin talebiniz iptal edildi.',
+    };
+  };
+
+  const deleteLeaveRequest = async (requestId: string): Promise<void> => {
+    const updated = leaveRequests.filter((r) => r.id !== requestId);
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+  };
+
   return (
     <StorageContext.Provider
       value={{
@@ -2125,6 +2327,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateAttendanceRecord,
         refreshAttendance,
         importBackupData,
+        leaveRequests,
+        requestLeave,
+        approveLeaveRequest,
+        rejectLeaveRequest,
+        cancelLeaveRequest,
+        deleteLeaveRequest,
       }}
     >
       {children}

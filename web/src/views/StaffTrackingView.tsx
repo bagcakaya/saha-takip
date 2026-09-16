@@ -17,6 +17,9 @@ import {
   Send,
   X,
   MessageSquare,
+  CalendarPlus,
+  FileText,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useStorage } from '../context/StorageContext';
@@ -35,6 +38,12 @@ export const StaffTrackingView: React.FC = () => {
     cancelAttendanceRequest,
     deleteAttendanceRecord,
     refreshAttendance,
+    leaveRequests,
+    requestLeave,
+    approveLeaveRequest,
+    rejectLeaveRequest,
+    cancelLeaveRequest,
+    deleteLeaveRequest,
   } = useStorage();
 
   const isAdmin = user?.role === 'admin';
@@ -361,6 +370,152 @@ export const StaffTrackingView: React.FC = () => {
     return () => clearInterval(interval);
   }, [isCheckedIn, currentUserTodayRecord]);
 
+  // --- 6. Staff Leave Requests State & Handlers ---
+  const [activeSubTab, setActiveSubTab] = useState<'attendance' | 'leaves'>('attendance');
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [leaveType, setLeaveType] = useState<'hourly' | 'daily'>('hourly');
+  const [leaveDate, setLeaveDate] = useState<string>(todayStr);
+  const [leaveEndDate, setLeaveEndDate] = useState<string>(todayStr);
+  const [leaveStartTime, setLeaveStartTime] = useState<string>('13:00');
+  const [leaveEndTime, setLeaveEndTime] = useState<string>('15:00');
+  const [leaveReason, setLeaveReason] = useState<string>('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
+  const [processingLeaveId, setProcessingLeaveId] = useState<string | null>(null);
+
+  // Auto calculate duration text
+  const calculatedDuration = useMemo(() => {
+    if (leaveType === 'hourly') {
+      if (!leaveStartTime || !leaveEndTime) return '1 Saat';
+      const [sh, sm] = leaveStartTime.split(':').map(Number);
+      const [eh, em] = leaveEndTime.split(':').map(Number);
+      const diffMinutes = eh * 60 + em - (sh * 60 + sm);
+      if (diffMinutes <= 0) return '1 Saat';
+      const hours = Math.floor(diffMinutes / 60);
+      const mins = diffMinutes % 60;
+      if (hours > 0 && mins > 0) return `${hours} Saat ${mins} Dk`;
+      if (hours > 0) return `${hours} Saat`;
+      return `${mins} Dk`;
+    } else {
+      if (!leaveDate) return '1 Gün';
+      if (!leaveEndDate || leaveEndDate === leaveDate) return '1 Gün';
+      const start = new Date(leaveDate).getTime();
+      const end = new Date(leaveEndDate).getTime();
+      const diffDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1);
+      return `${diffDays} Gün`;
+    }
+  }, [leaveType, leaveStartTime, leaveEndTime, leaveDate, leaveEndDate]);
+
+  const handleOpenLeaveModal = () => {
+    setLeaveDate(todayStr);
+    setLeaveEndDate(todayStr);
+    setLeaveStartTime('13:00');
+    setLeaveEndTime('15:00');
+    setLeaveReason('');
+    setIsLeaveModalOpen(true);
+  };
+
+  const handleLeaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveReason.trim()) {
+      alert('Lütfen izin alma nedeninizi kısaca belirtin.');
+      return;
+    }
+    try {
+      setIsSubmittingLeave(true);
+      const res = await requestLeave({
+        leaveType,
+        date: leaveDate,
+        endDate: leaveType === 'daily' ? leaveEndDate : undefined,
+        startTime: leaveType === 'hourly' ? leaveStartTime : undefined,
+        endTime: leaveType === 'hourly' ? leaveEndTime : undefined,
+        durationText: calculatedDuration,
+        reason: leaveReason.trim(),
+      });
+
+      if (res.success) {
+        setIsLeaveModalOpen(false);
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'İzin talebi gönderilemedi.');
+    } finally {
+      setIsSubmittingLeave(false);
+    }
+  };
+
+  const handleApproveLeave = async (requestId: string) => {
+    try {
+      setProcessingLeaveId(requestId);
+      const res = await approveLeaveRequest(requestId);
+      if (res.success) {
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Onaylama hatası');
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  const handleRejectLeave = async (requestId: string) => {
+    const reason = window.prompt('Reddetme gerekçesi (İsteğe bağlı):');
+    if (reason === null) return;
+    try {
+      setProcessingLeaveId(requestId);
+      const res = await rejectLeaveRequest(requestId, reason);
+      if (res.success) {
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Ret işlemi hatası');
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  const handleCancelMyLeave = async (requestId: string) => {
+    if (!window.confirm('Bu izin talebinizi iptal etmek istediğinize emin misiniz?')) return;
+    try {
+      setProcessingLeaveId(requestId);
+      const res = await cancelLeaveRequest(requestId);
+      if (res.success) {
+        setActionFeedback({ type: 'success', text: res.message });
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'İptal hatası');
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  // Leave requests filtered for display
+  const userLeaveRequests = useMemo(() => {
+    let list = leaveRequests;
+    if (!isAdmin && user) {
+      list = list.filter((r) => r.userId === user.id);
+    }
+    if (leaveStatusFilter !== 'all') {
+      list = list.filter((r) => r.status === leaveStatusFilter);
+    }
+    return list;
+  }, [leaveRequests, isAdmin, user, leaveStatusFilter]);
+
+  const pendingLeaveCount = useMemo(() => {
+    if (isAdmin) {
+      return leaveRequests.filter((r) => r.status === 'pending').length;
+    }
+    return leaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length;
+  }, [leaveRequests, isAdmin, user]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header Banner */}
@@ -378,7 +533,15 @@ export const StaffTrackingView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={handleOpenLeaveModal}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-emerald-900 hover:bg-emerald-50 active:scale-95 text-xs font-black shadow-lg shadow-black/10 transition-all cursor-pointer"
+          >
+            <CalendarPlus className="w-4 h-4 text-emerald-600" />
+            <span>İzin Talebi Oluştur</span>
+          </button>
           <button
             onClick={() => refreshAttendance()}
             className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/20 hover:bg-white/30 active:scale-95 text-white text-xs font-black backdrop-blur-md border border-white/30 transition-all cursor-pointer"
@@ -508,6 +671,103 @@ export const StaffTrackingView: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* --- ADMIN: ONAY BEKLEYEN İZİN TALEPLERİ PANELİ --- */}
+      {isAdmin && pendingLeaveCount > 0 && (
+        <div className="bg-gradient-to-br from-blue-500/15 via-indigo-500/5 to-purple-500/15 dark:from-blue-950/50 dark:via-slate-900 dark:to-indigo-950/50 rounded-3xl p-5 sm:p-6 border-2 border-blue-400 dark:border-blue-600 shadow-xl shadow-blue-500/10 space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-blue-200 dark:border-blue-800/80 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3.5 w-3.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500"></span>
+              </span>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-blue-950 dark:text-blue-200 flex items-center gap-2">
+                  <span>Onay Bekleyen İzin Talepleri</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-600 text-white shadow-sm">
+                    {pendingLeaveCount}
+                  </span>
+                </h3>
+                <p className="text-xs text-blue-800/90 dark:text-blue-300/90 font-medium">
+                  Personellerden gelen saatlik veya günlük izin başvuruları onayınızı bekliyor.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('leaves')}
+              className="text-xs font-bold text-blue-700 dark:text-blue-300 underline cursor-pointer"
+            >
+              Tümünü Gör
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {leaveRequests
+              .filter((r) => r.status === 'pending')
+              .map((req) => (
+                <div
+                  key={req.id}
+                  className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/80 space-y-3 shadow-xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <strong className="text-sm font-black text-slate-900 dark:text-slate-100">
+                          {req.userName}
+                        </strong>
+                        <span
+                          className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                            req.leaveType === 'hourly'
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                              : 'bg-purple-100 text-purple-700 dark:text-purple-950 dark:text-purple-300'
+                          }`}
+                        >
+                          {req.leaveType === 'hourly' ? '🕒 Saatlik İzin' : '📅 Günlük İzin'} ({req.durationText})
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {new Date(req.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        {req.leaveType === 'hourly' && req.startTime && req.endTime && (
+                          <span className="font-bold text-slate-700 dark:text-slate-300"> • {req.startTime} - {req.endTime}</span>
+                        )}
+                        {req.leaveType === 'daily' && req.endDate && req.endDate !== req.date && (
+                          <span> - {new Date(req.endDate).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {req.reason && (
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300">
+                      <strong>Gerekçe:</strong> "{req.reason}"
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      disabled={processingLeaveId === req.id}
+                      onClick={() => handleRejectLeave(req.id)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Reddet
+                    </button>
+                    <button
+                      type="button"
+                      disabled={processingLeaveId === req.id}
+                      onClick={() => handleApproveLeave(req.id)}
+                      className="px-4 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {processingLeaveId === req.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                      <span>Onayla</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
           </div>
         </div>
       )}
@@ -941,40 +1201,113 @@ export const StaffTrackingView: React.FC = () => {
       {/* --- SECTION 3: CANLI İZLEME TABLOSU VE GEÇMİŞ KAYITLAR --- */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div>
-            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <History className="w-5 h-5 text-emerald-600" />
-              <span>{isAdmin ? 'Tüm Personel Mesai Tablosu' : 'Mesai Geçmişim'}</span>
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {isAdmin
-                ? 'Tüm çalışanların giriş, çıkış saatleri ve lokasyon doğrulama kayıtları'
-                : 'Geçmiş işe giriş ve çıkış saatleriniz'}
-            </p>
+          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800 w-fit">
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('attendance')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                activeSubTab === 'attendance'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <History className="w-4 h-4 text-emerald-600" />
+              <span>{isAdmin ? 'Mesai Tablosu' : 'Mesai Geçmişim'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('leaves')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                activeSubTab === 'leaves'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>{isAdmin ? 'İzin Talepleri' : 'İzinlerim'}</span>
+              {pendingLeaveCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black animate-pulse">
+                  {pendingLeaveCount}
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Tarih Seçici */}
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            {selectedDate !== todayStr && (
+          {activeSubTab === 'attendance' ? (
+            /* Tarih Seçici */
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-slate-400" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              {selectedDate !== todayStr && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(todayStr)}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 text-xs font-bold cursor-pointer"
+                >
+                  Bugün
+                </button>
+              )}
+            </div>
+          ) : (
+            /* İzin Filtresi ve Yeni İzin Butonu */
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    leaveStatusFilter === 'all'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Tümü ({leaveRequests.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('pending')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    leaveStatusFilter === 'pending'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Bekleyen ({leaveRequests.filter((l) => l.status === 'pending').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('approved')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    leaveStatusFilter === 'approved'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Onaylanan
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setSelectedDate(todayStr)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 text-xs font-bold cursor-pointer"
+                onClick={handleOpenLeaveModal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
               >
-                Bugün
+                <CalendarPlus className="w-3.5 h-3.5" />
+                <span>İzin Al</span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* İstatistik Çubukları (Admin için) */}
+        {activeSubTab === 'attendance' && (
+          <>
+            {/* İstatistik Çubukları (Admin için) */}
         {isAdmin && (
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
@@ -1227,7 +1560,239 @@ export const StaffTrackingView: React.FC = () => {
             </table>
           </div>
         )}
+      </>
+    )}
+
+    {/* SUB-TAB 2: İZİN TALEPLERİ */}
+    {activeSubTab === 'leaves' && (
+      <div className="space-y-4">
+        {userLeaveRequests.length === 0 ? (
+          <div className="py-12 text-center text-slate-400 dark:text-slate-500">
+            <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="font-semibold text-sm">
+              {leaveStatusFilter === 'all'
+                ? 'Kayıtlı herhangi bir izin talebi bulunamadı.'
+                : 'Bu filtreye uygun izin talebi bulunamadı.'}
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenLeaveModal}
+              className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+            >
+              <CalendarPlus className="w-4 h-4" />
+              <span>İlk İzin Talebini Oluştur</span>
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
+              <thead className="bg-slate-50 dark:bg-slate-800/40 uppercase font-black text-[10px] text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="py-3 px-3">Personel</th>
+                  <th className="py-3 px-3">Tür</th>
+                  <th className="py-3 px-3">Tarih / Saat</th>
+                  <th className="py-3 px-3">Süre</th>
+                  <th className="py-3 px-3">Gerekçe</th>
+                  <th className="py-3 px-3">Durum</th>
+                  <th className="py-3 px-3 text-right">İşlemler</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                {userLeaveRequests.map((req) => {
+                  const isOwner = user?.id === req.userId;
+                  const isProcessing = processingLeaveId === req.id;
+
+                  return (
+                    <tr
+                      key={req.id}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      {/* Personel */}
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <span>{req.userName}</span>
+                          {req.userRole === 'admin' && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                              Yönetici
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {new Date(req.requestedAt).toLocaleDateString('tr-TR', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </div>
+                      </td>
+
+                      {/* Tür */}
+                      <td className="py-3 px-3">
+                        {req.leaveType === 'hourly' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                            ⏱️ Saatlik
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                            📅 Günlük
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Tarih / Saat */}
+                      <td className="py-3 px-3">
+                        {req.leaveType === 'hourly' ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {new Date(req.date).toLocaleDateString('tr-TR', {
+                                day: 'numeric',
+                                month: 'long',
+                                weekday: 'short',
+                              })}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {req.startTime} - {req.endTime}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {new Date(req.date).toLocaleDateString('tr-TR', {
+                                day: 'numeric',
+                                month: 'short',
+                              })}
+                              {req.endDate && req.endDate !== req.date && (
+                                <span>
+                                  {' '}
+                                  -{' '}
+                                  {new Date(req.endDate).toLocaleDateString('tr-TR', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                  })}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Süre */}
+                      <td className="py-3 px-3">
+                        <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-black text-slate-900 dark:text-slate-100">
+                          {req.durationText}
+                        </span>
+                      </td>
+
+                      {/* Gerekçe */}
+                      <td className="py-3 px-3 max-w-[200px]">
+                        <p className="text-xs text-slate-700 dark:text-slate-300 font-medium truncate" title={req.reason}>
+                          {req.reason}
+                        </p>
+                        {req.reviewNote && (
+                          <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5 truncate" title={req.reviewNote}>
+                            Not: {req.reviewNote}
+                          </p>
+                        )}
+                      </td>
+
+                      {/* Durum */}
+                      <td className="py-3 px-3">
+                        {req.status === 'pending' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 animate-pulse">
+                            <Clock className="w-3 h-3" />
+                            <span>Onay Bekliyor</span>
+                          </span>
+                        )}
+                        {req.status === 'approved' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Onaylandı</span>
+                          </span>
+                        )}
+                        {req.status === 'rejected' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
+                            <UserX className="w-3 h-3" />
+                            <span>Reddedildi</span>
+                          </span>
+                        )}
+                        {req.status === 'cancelled' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            İptal Edildi
+                          </span>
+                        )}
+                      </td>
+
+                      {/* İşlemler */}
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Admin Onayla / Reddet */}
+                          {isAdmin && req.status === 'pending' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isProcessing}
+                                onClick={() => handleApproveLeave(req.id)}
+                                className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                {isProcessing ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Check className="w-3 h-3" />
+                                )}
+                                <span>Onayla</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isProcessing}
+                                onClick={() => handleRejectLeave(req.id)}
+                                className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Reddet</span>
+                              </button>
+                            </>
+                          )}
+
+                          {/* Personel İptal Et */}
+                          {isOwner && req.status === 'pending' && (
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleCancelMyLeave(req.id)}
+                              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              İptal Et
+                            </button>
+                          )}
+
+                          {/* Admin Silme */}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`${req.userName} kullanıcısının izin talebini silmek istediğinize emin misiniz?`)) {
+                                  deleteLeaveRequest(req.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="Talebi Sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+    )}
+  </div>
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (
@@ -1383,6 +1948,208 @@ export const StaffTrackingView: React.FC = () => {
                 Evet (Çıkış Yap)
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: İZİN TALEBİ OLUŞTURMA MODALI --- */}
+      {isLeaveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-200 dark:border-blue-900/60 space-y-5">
+            {/* Modal Başlık */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-800 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                  <CalendarPlus className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                    İzin Talebi Oluştur
+                  </h3>
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                    Yönetici onayına sunulacak izin
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLeaveModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLeaveSubmit} className="space-y-4">
+              {/* İzin Türü Seçici (Saatlik / Günlük) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  İzin Türü
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setLeaveType('hourly')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      leaveType === 'hourly'
+                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>⏱️ Saatlik İzin</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeaveType('daily')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      leaveType === 'daily'
+                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>📅 Günlük İzin</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Saatlik İzin Form Alanları */}
+              {leaveType === 'hourly' && (
+                <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      İzin Tarihi
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={leaveDate}
+                      onChange={(e) => setLeaveDate(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Başlangıç Saati
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        value={leaveStartTime}
+                        onChange={(e) => setLeaveStartTime(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Bitiş Saati
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        value={leaveEndTime}
+                        onChange={(e) => setLeaveEndTime(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-slate-500">Hesaplanan Süre:</span>
+                    <span className="font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-lg">
+                      {calculatedDuration}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Günlük İzin Form Alanları */}
+              {leaveType === 'daily' && (
+                <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Başlangıç Tarihi
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={leaveDate}
+                        onChange={(e) => {
+                          setLeaveDate(e.target.value);
+                          if (!leaveEndDate || leaveEndDate < e.target.value) {
+                            setLeaveEndDate(e.target.value);
+                          }
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Bitiş Tarihi
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={leaveEndDate}
+                        min={leaveDate}
+                        onChange={(e) => setLeaveEndDate(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-slate-500">Hesaplanan Gün:</span>
+                    <span className="font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-lg">
+                      {calculatedDuration}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Gerekçe */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>İzin Alma Nedeni / Mazeret</span>
+                  <span className="text-[10px] text-rose-500 font-semibold">* Zorunlu</span>
+                </label>
+                <textarea
+                  required
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  placeholder="Örn: Doktor randevusu, resmi daire işleri, ailevi durum vb."
+                  rows={3}
+                  className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
+                />
+              </div>
+
+              {/* Bilgilendirme Notu */}
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
+                ℹ️ Talebiniz yöneticilere <strong>anında bildirim (push)</strong> olarak iletilecektir. Sonuçlandığında telefonunuza bildirim gelecektir.
+              </div>
+
+              {/* Butonlar */}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsLeaveModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingLeave}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingLeave ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>Yönetici Onayına Gönder</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

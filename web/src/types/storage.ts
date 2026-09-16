@@ -165,6 +165,7 @@ export interface BackupData {
   attendanceRecords?: AttendanceRecord[];
   adminReminders?: AdminReminder[];
   cariler?: string[];
+  leaveRequests?: LeaveRequest[];
 }
 
 export interface CariData {
@@ -197,5 +198,27 @@ export interface UserDeviceBinding {
   boundPlatform: 'ios' | 'android' | 'desktop';
   boundAt: string;
   isLocked: boolean;
+}
+
+export type LeaveType = 'hourly' | 'daily';
+export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface LeaveRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole?: string;
+  leaveType: LeaveType;
+  date: string; // 'YYYY-MM-DD' (Tarih veya Başlangıç Tarihi)
+  endDate?: string; // 'YYYY-MM-DD' (Günlük izin için bitiş tarihi)
+  startTime?: string; // 'HH:mm' (Saatlik izin için başlangıç saati)
+  endTime?: string; // 'HH:mm' (Saatlik izin için bitiş saati)
+  durationText: string; // Örn: '2 Saat' veya '3 Gün'
+  reason: string; // İzin nedeni / mazeret
+  status: LeaveStatus;
+  requestedAt: number; // timestamp
+  reviewedBy?: string;
+  reviewedAt?: number;
+  reviewNote?: string;
 }
 

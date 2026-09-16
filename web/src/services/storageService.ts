@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, CariData } from '../types/storage';
+import { LocationItem, GeneralNote, BackupData, ReturnWarrantyItem, ReturnWarrantyType, ServiceItem, WorkplaceLocation, AttendanceRecord, AdminReminder, CariData, LeaveRequest } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
@@ -14,6 +14,7 @@ const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
 const ATTENDANCE_RECORDS_KEY = '@saha_takip_attendance_records';
 const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
+const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
@@ -790,6 +791,54 @@ export const StorageService = {
   },
 
   /**
+   * Retrieves leave requests (Supabase cloud slot 10 + local cache)
+   */
+  async getLeaveRequests(): Promise<LeaveRequest[]> {
+    const localData = (await loadItem<LeaveRequest[]>(LEAVE_REQUESTS_KEY)) || [];
+
+    // Fallback cloud sync slot (standard_tasks id: 10)
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', 10)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const rawJson = data.tasks.join('');
+        const parsed: LeaveRequest[] = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) {
+          await saveItem(LEAVE_REQUESTS_KEY, parsed);
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Cloud fetch leave requests error:', e);
+    }
+
+    return localData;
+  },
+
+  /**
+   * Saves leave requests to local cache and syncs with Supabase slot 10
+   */
+  async saveLeaveRequests(requests: LeaveRequest[]): Promise<void> {
+    await saveItem(LEAVE_REQUESTS_KEY, requests);
+
+    try {
+      const rawJson = JSON.stringify(requests);
+      const chunks: string[] = [];
+      const chunkSize = 8000;
+      for (let i = 0; i < rawJson.length; i += chunkSize) {
+        chunks.push(rawJson.slice(i, i + chunkSize));
+      }
+      await supabase.from('standard_tasks').upsert({ id: 10, tasks: chunks });
+    } catch (err) {
+      console.warn('Cloud save leave requests error:', err);
+    }
+  },
+
+  /**
    * Retrieves Cari list data (cached locally, static json fallback, or fresh fetch)
    */
   async getCarilerData(): Promise<CariData> {
@@ -905,6 +954,7 @@ export const StorageService = {
     const workplaceLocation = (await this.getWorkplaceLocation()) || undefined;
     const attendanceRecords = await this.getAttendanceRecords();
     const adminReminders = await this.getAdminReminders();
+    const leaveRequests = await this.getLeaveRequests();
     const cariData = await this.getCarilerData();
     const backup: BackupData = {
       locations,
@@ -915,6 +965,7 @@ export const StorageService = {
       workplaceLocation,
       attendanceRecords,
       adminReminders,
+      leaveRequests,
       cariler: cariData.cariler,
     };
     return JSON.stringify(backup, null, 2);
@@ -944,6 +995,9 @@ export const StorageService = {
     }
     if (backupData.adminReminders && Array.isArray(backupData.adminReminders)) {
       await this.saveAdminReminders(backupData.adminReminders);
+    }
+    if (backupData.leaveRequests && Array.isArray(backupData.leaveRequests)) {
+      await this.saveLeaveRequests(backupData.leaveRequests);
     }
     if (backupData.cariler && Array.isArray(backupData.cariler)) {
       await this.saveCarilerData({

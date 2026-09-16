@@ -43,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     allLocations,
     attendanceRecords,
     adminReminders,
+    leaveRequests,
     cariler,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
@@ -124,10 +125,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
   const pendingStaffApprovalCount = React.useMemo(() => {
     if (user?.role !== 'admin') return 0;
-    return attendanceRecords.filter(
+    const pendingAttendance = attendanceRecords.filter(
       (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
     ).length;
-  }, [attendanceRecords, user]);
+    const pendingLeaves = leaveRequests.filter((l) => l.status === 'pending').length;
+    return pendingAttendance + pendingLeaves;
+  }, [attendanceRecords, leaveRequests, user]);
 
   const badgeCount = React.useMemo(() => {
     if (!user) return 0;
