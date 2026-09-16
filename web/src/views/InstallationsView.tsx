@@ -45,6 +45,17 @@ export const InstallationsView: React.FC = () => {
   const { user: currentUser, users } = useAuth();
   const isAdmin = isUserAdmin(currentUser);
 
+  const currentCompanyCode = useMemo(() => {
+    return (currentUser?.companyCode || 'POLATLAR').trim().toUpperCase();
+  }, [currentUser?.companyCode]);
+
+  const companyUsers = useMemo(() => {
+    if (!users || users.length === 0) return [];
+    return users.filter(
+      (u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === currentCompanyCode
+    );
+  }, [users, currentCompanyCode]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const filterStorageKey = `@saha_takip_installations_active_filter_${currentUser?.id || 'default'}`;
 
@@ -201,7 +212,7 @@ export const InstallationsView: React.FC = () => {
           </div>
 
           {/* Admin Creator Selector */}
-          {isAdmin && users.length > 1 && (
+          {isAdmin && companyUsers.length > 1 && (
             <div className="flex items-center gap-1.5 shrink-0">
               <User className="w-4 h-4 text-slate-400" />
               <select
@@ -210,7 +221,7 @@ export const InstallationsView: React.FC = () => {
                 className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">Tüm Personeller</option>
-                {users.map((u) => (
+                {companyUsers.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name} ({isUserAdmin(u) ? 'Yönetici' : 'Saha Yetkilisi'})
                   </option>

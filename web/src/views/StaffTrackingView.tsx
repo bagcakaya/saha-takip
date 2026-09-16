@@ -375,12 +375,32 @@ export const StaffTrackingView: React.FC = () => {
   const isPendingCheckIn = currentUserTodayRecord?.status === 'pending_checkin_approval';
   const isPendingCheckOut = currentUserTodayRecord?.status === 'pending_checkout_approval';
 
-  // Admin: All pending approval requests
-  const pendingRequests = useMemo(() => {
-    return attendanceRecords.filter(
-      (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
+  // Current active company code (e.g. 'POLATLAR', 'BURAKDEV')
+  const currentCompanyCode = useMemo(() => {
+    return (user?.companyCode || company?.code || 'POLATLAR').trim().toUpperCase();
+  }, [user?.companyCode, company?.code]);
+
+  // Users strictly belonging to the current company only
+  const companyUsers = useMemo(() => {
+    if (!users || users.length === 0) return [];
+    return users.filter(
+      (u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === currentCompanyCode
     );
-  }, [attendanceRecords]);
+  }, [users, currentCompanyCode]);
+
+  const companyUserIds = useMemo(() => {
+    return new Set(companyUsers.map((u) => u.id));
+  }, [companyUsers]);
+
+  // Admin: All pending approval requests (for current company only)
+  const pendingRequests = useMemo(() => {
+    return attendanceRecords.filter((r) => {
+      const isPending = r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval';
+      if (!isPending) return false;
+      if (companyUserIds.size > 0 && !companyUserIds.has(r.userId)) return false;
+      return true;
+    });
+  }, [attendanceRecords, companyUserIds]);
 
   // --- 5. Date Range & Staff Filters for Table & Analytics ---
   const defaultStartDate = useMemo(() => {
@@ -439,25 +459,28 @@ export const StaffTrackingView: React.FC = () => {
     }
   };
 
-  // Staff options for filter dropdown
+  // Staff options for filter dropdown (strictly for current company)
   const staffOptions = useMemo(() => {
     const map = new Map<string, { id: string; name: string; role?: string }>();
-    if (users && users.length > 0) {
-      users.forEach((u) => {
-        map.set(u.id, { id: u.id, name: u.name || u.username, role: u.role });
-      });
-    }
+    companyUsers.forEach((u) => {
+      map.set(u.id, { id: u.id, name: u.name || u.username, role: u.role });
+    });
     attendanceRecords.forEach((r) => {
-      if (!map.has(r.userId)) {
-        map.set(r.userId, { id: r.userId, name: r.userName, role: r.userRole });
+      if (companyUserIds.size === 0 || companyUserIds.has(r.userId)) {
+        if (!map.has(r.userId)) {
+          map.set(r.userId, { id: r.userId, name: r.userName, role: r.userRole });
+        }
       }
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [users, attendanceRecords]);
+  }, [companyUsers, companyUserIds, attendanceRecords]);
 
-  // Filtered records based on date range, selected staff, and user role
+  // Filtered records based on company, date range, selected staff, and user role
   const filteredRecords = useMemo(() => {
     let list = attendanceRecords;
+    if (companyUserIds.size > 0) {
+      list = list.filter((r) => companyUserIds.has(r.userId));
+    }
     if (startDate) {
       list = list.filter((r) => r.date >= startDate);
     }
@@ -472,11 +495,14 @@ export const StaffTrackingView: React.FC = () => {
       list = list.filter((r) => r.userId === user.id);
     }
     return list;
-  }, [attendanceRecords, startDate, endDate, selectedStaffId, isAdmin, user]);
+  }, [attendanceRecords, companyUserIds, startDate, endDate, selectedStaffId, isAdmin, user]);
 
-  // Staff Attendance Summaries (for the selected date range)
+  // Staff Attendance Summaries (for the selected date range, strictly current company)
   const staffSummaries = useMemo<StaffAttendanceSummary[]>(() => {
     let rangeRecords = attendanceRecords;
+    if (companyUserIds.size > 0) {
+      rangeRecords = rangeRecords.filter((r) => companyUserIds.has(r.userId));
+    }
     if (startDate) {
       rangeRecords = rangeRecords.filter((r) => r.date >= startDate);
     }
@@ -523,9 +549,9 @@ export const StaffTrackingView: React.FC = () => {
       else if (r.status.startsWith('pending_')) entry.pending++;
     });
 
-    // Also include company staff from users list if admin
-    if (isAdmin && users && users.length > 0) {
-      users.forEach((u) => {
+    // Also include company staff from current company only if admin
+    if (isAdmin && companyUsers.length > 0) {
+      companyUsers.forEach((u) => {
         if (!staffMap.has(u.id)) {
           staffMap.set(u.id, {
             userName: u.name || u.username,
@@ -563,7 +589,7 @@ export const StaffTrackingView: React.FC = () => {
 
     summaries.sort((a, b) => b.totalMinutes - a.totalMinutes || a.userName.localeCompare(b.userName));
     return summaries;
-  }, [attendanceRecords, startDate, endDate, isAdmin, user, users]);
+  }, [attendanceRecords, companyUserIds, companyUsers, startDate, endDate, isAdmin, user]);
 
   // Aggregated stats for the filtered records
   const stats = useMemo(() => {
