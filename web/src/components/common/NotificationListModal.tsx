@@ -440,6 +440,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   // Sort newest first
   notifications.sort((a, b) => b.createdAt - a.createdAt);
 
+  const unreadCount = notifications.filter((n) => n.createdAt > lastReadTime).length;
+
   const formatRelativeTime = (timestamp: number) => {
     const diff = Date.now() - timestamp;
     if (diff < 60 * 1000) return 'Az önce';
@@ -511,8 +513,12 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                 <h3 className="text-base font-black text-slate-950 dark:text-slate-100">
                   Gelen Bildirimler
                 </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white dark:bg-blue-950 dark:text-blue-300">
-                  {notifications.length}
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  unreadCount > 0
+                    ? 'bg-blue-600 text-white animate-pulse'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                }`}>
+                  {unreadCount > 0 ? `${unreadCount} Yeni` : `${notifications.length} Bildirim`}
                 </span>
               </div>
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">

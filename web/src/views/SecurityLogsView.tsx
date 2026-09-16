@@ -21,7 +21,7 @@ export const SecurityLogsView: React.FC = () => {
   const {
     securityLogs,
     unreadLogsCount,
-    markSecurityLogsAsRead,
+    markAllAsRead,
     deleteSecurityLog,
     clearAllSecurityLogs,
   } = useStorage();
@@ -31,7 +31,7 @@ export const SecurityLogsView: React.FC = () => {
   const [isUnbindingId, setIsUnbindingId] = useState<string | null>(null);
 
   const handleMarkAllRead = async () => {
-    await markSecurityLogsAsRead();
+    await markAllAsRead();
   };
 
   const handleClearAll = async () => {

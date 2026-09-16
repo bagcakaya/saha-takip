@@ -27,6 +27,9 @@ interface StorageContextType {
   leaveRequests: LeaveRequest[];
   securityLogs: SecurityLogItem[];
   unreadLogsCount: number;
+  lastReadTime: number;
+  badgeCount: number;
+  markAllAsRead: () => Promise<void>;
   markSecurityLogsAsRead: () => Promise<void>;
   deleteSecurityLog: (logId: string) => Promise<void>;
   clearAllSecurityLogs: () => Promise<void>;
@@ -2322,6 +2325,172 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveSecurityLogs([]);
   };
 
+  const [lastReadTime, setLastReadTime] = useState<number>(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
+      if (val) return Number(val);
+    }
+    return Date.now() - 24 * 60 * 60 * 1000;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
+      if (val) {
+        setLastReadTime(Number(val));
+      } else {
+        setLastReadTime(Date.now() - 24 * 60 * 60 * 1000);
+      }
+    }
+  }, [user?.id]);
+
+  const markAllAsRead = async (): Promise<void> => {
+    const now = Date.now();
+    setLastReadTime(now);
+    if (user?.id) {
+      try {
+        localStorage.setItem(`@saha_takip_last_read_time_${user.id}`, String(now));
+      } catch {
+        // ignore
+      }
+    }
+    // Mark security logs as read in storage and state
+    const updated = securityLogs.map((l) => ({ ...l, read: true }));
+    setSecurityLogs(updated);
+    await StorageService.saveSecurityLogs(updated);
+  };
+
+  const badgeCount = useMemo(() => {
+    if (!user) return 0;
+    let count = 0;
+    const effectiveIsAdmin = isUserAdmin(user);
+
+    if (effectiveIsAdmin) {
+      // 1. Pending approval notes newer than lastReadTime
+      count += allNotes.filter(
+        (n) => n.status === 'pending_approval' && (n.completedAt || n.createdAt) > lastReadTime
+      ).length;
+
+      // 2. Notes created by others newer than lastReadTime
+      count += allNotes.filter(
+        (n) => n.createdBy !== user.id && n.status !== 'pending_approval' && n.createdAt > lastReadTime
+      ).length;
+
+      // 3. New services from staff
+      count += allServices.filter(
+        (s) => s.createdBy !== user.id && s.createdAt > lastReadTime
+      ).length;
+
+      // 4. New locations from staff
+      count += allLocations.filter(
+        (l) => l.createdBy !== user.id && l.createdAt > lastReadTime
+      ).length;
+
+      // 5. Active reminders due
+      count += allNotes.filter((n) => {
+        if (!n.reminderActive || !n.reminderDate) return false;
+        const remTime = new Date(n.reminderDate).getTime();
+        return remTime <= Date.now() && remTime > lastReadTime;
+      }).length;
+
+      // 6. Security Logs newer than lastReadTime
+      count += securityLogs.filter((l) => l.timestamp > lastReadTime && !l.read).length;
+
+      // 7. Leave Requests newer than lastReadTime
+      count += leaveRequests.filter((r) => r.requestedAt > lastReadTime).length;
+
+      // 8. Attendance check-ins/check-outs newer than lastReadTime
+      count += attendanceRecords.filter((a) =>
+        a.checkInTime > lastReadTime ||
+        (a.checkOutTime && a.checkOutTime > lastReadTime)
+      ).length;
+    } else {
+      // Staff
+      // 1. Targeted notes newer than lastReadTime
+      count += allNotes.filter(
+        (n) =>
+          n.createdBy !== user.id &&
+          n.createdAt > lastReadTime &&
+          (n.targetMode === 'all' ||
+            n.targetUserId === 'all' ||
+            (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+
+      // 2. Approved notes newer than lastReadTime
+      count += allNotes.filter(
+        (n) =>
+          n.status === 'approved' &&
+          (n.approvedAt || n.createdAt) > lastReadTime &&
+          (n.completedBy === user.id ||
+            (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+
+      // 3. Rejected notes newer than lastReadTime
+      count += allNotes.filter(
+        (n) =>
+          n.status === 'rejected' &&
+          (n.rejectedAt || n.createdAt) > lastReadTime &&
+          (n.completedBy === user.id ||
+            (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+            n.targetUserId === user.id)
+      ).length;
+
+      // 4. Active reminders due
+      count += allNotes.filter((n) => {
+        if (!n.reminderActive || !n.reminderDate) return false;
+        const remTime = new Date(n.reminderDate).getTime();
+        const isTargeted =
+          n.createdBy === user.id ||
+          (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
+          n.targetUserId === user.id;
+        return isTargeted && remTime <= Date.now() && remTime > lastReadTime;
+      }).length;
+
+      // 5. Admin reminders newer than lastReadTime
+      count += adminReminders.filter((r) => r.createdAt > lastReadTime).length;
+
+      // 6. Leave Requests reviewed newer than lastReadTime
+      count += leaveRequests.filter(
+        (r) =>
+          r.userId === user.id &&
+          (r.status === 'approved' || r.status === 'rejected') &&
+          (r.reviewedAt || r.requestedAt) > lastReadTime
+      ).length;
+
+      // 7. Attendance check-in / check-out reviewed newer than lastReadTime
+      count += attendanceRecords.filter((a) => {
+        if (a.userId !== user.id) return false;
+        const inApproved =
+          a.checkInApprovalStatus === 'approved' &&
+          a.checkInOutside &&
+          (a.checkInApprovedAt || a.checkInTime) > lastReadTime;
+        const inRejected = a.checkInApprovalStatus === 'rejected' && a.checkInTime > lastReadTime;
+        const outApproved =
+          a.checkOutApprovalStatus === 'approved' &&
+          a.checkOutOutside &&
+          (a.checkOutApprovedAt || a.checkOutTime || a.checkInTime) > lastReadTime;
+        const outRejected =
+          a.checkOutApprovalStatus === 'rejected' &&
+          (a.checkOutTime || a.checkInTime) > lastReadTime;
+        return inApproved || inRejected || outApproved || outRejected;
+      }).length;
+    }
+
+    return count;
+  }, [
+    allNotes,
+    allServices,
+    allLocations,
+    securityLogs,
+    leaveRequests,
+    attendanceRecords,
+    adminReminders,
+    user,
+    lastReadTime,
+  ]);
+
   return (
     <StorageContext.Provider
       value={{
@@ -2390,6 +2559,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteLeaveRequest,
         securityLogs,
         unreadLogsCount,
+        lastReadTime,
+        badgeCount,
+        markAllAsRead,
         markSecurityLogsAsRead,
         deleteSecurityLog,
         clearAllSecurityLogs,
