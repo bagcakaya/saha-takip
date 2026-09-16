@@ -94,6 +94,31 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
       ).length
     : 0;
+
+  // Kurulumlar (Installations) Counts
+  const installationPendingApprovalCount = locations.filter(
+    (loc) => loc.status === 'pending_approval'
+  ).length;
+  const installationPendingCount = locations.filter(
+    (loc) => !loc.status || loc.status === 'pending'
+  ).length;
+
+  // Servisler (Services) Counts
+  const servicesPendingApprovalCount = services.filter(
+    (s) => s.status === 'pending_approval'
+  ).length;
+  const servicesPendingCount = services.filter(
+    (s) => !s.status || s.status === 'pending'
+  ).length;
+
+  // İş Emirleri (Notes) Counts
+  const notesPendingApprovalCount = notes.filter(
+    (n) => n.status === 'pending_approval'
+  ).length;
+  const notesPendingCount = notes.filter(
+    (n) => !n.status || n.status === 'pending'
+  ).length;
+
   const unreadRemindersCount = adminReminders.filter(
     (r) => !r.readBy || !r.readBy.includes(user?.id || '')
   ).length;
@@ -223,16 +248,46 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         {/* 2. Kurulumlar - Blue Gradient Square Card */}
         <button
           onClick={() => onNavigate('installations')}
-          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white border border-blue-400/30"
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white border border-blue-400/30 cursor-pointer"
         >
-          {/* Top Row: Icon and Badge */}
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+          {/* Top Row: Icon and Badges */}
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform shrink-0">
               <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              {locations.length} Kayıt
-            </span>
+
+            {/* Badges Stack */}
+            <div className="flex flex-col items-end gap-1 z-10 shrink-0">
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {/* Onay Bekleyen Badge */}
+                <span
+                  className={`px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black border backdrop-blur-xs flex items-center gap-1 transition-all ${
+                    installationPendingApprovalCount > 0
+                      ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-xs animate-pulse'
+                      : 'bg-white/10 text-white/70 border-white/15'
+                  }`}
+                  title={`${installationPendingApprovalCount} Onay Bekleyen`}
+                >
+                  {installationPendingApprovalCount > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-ping shrink-0" />
+                  )}
+                  <span>{installationPendingApprovalCount} Onay</span>
+                </span>
+
+                {/* Bekleyen Badge */}
+                <span
+                  className="px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs"
+                  title={`${installationPendingCount} Bekleyen`}
+                >
+                  {installationPendingCount} Bekleyen
+                </span>
+              </div>
+
+              {/* Total Count */}
+              <span className="text-[9px] sm:text-[10px] font-semibold text-white/75 pr-0.5">
+                {locations.length} Toplam
+              </span>
+            </div>
           </div>
 
           {/* Bottom Content */}
@@ -250,19 +305,49 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
 
-        {/* 2. Servisler - Orange / Amber Gradient Square Card */}
+        {/* 3. Servisler - Orange / Amber Gradient Square Card */}
         <button
           onClick={() => onNavigate('services')}
-          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-amber-500 via-orange-600 to-amber-700 text-white border border-amber-400/30"
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-amber-500 via-orange-600 to-amber-700 text-white border border-amber-400/30 cursor-pointer"
         >
-          {/* Top Row */}
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+          {/* Top Row: Icon and Badges */}
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform shrink-0">
               <Wrench className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              {services.length} Servis
-            </span>
+
+            {/* Badges Stack */}
+            <div className="flex flex-col items-end gap-1 z-10 shrink-0">
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {/* Onay Bekleyen Badge */}
+                <span
+                  className={`px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black border backdrop-blur-xs flex items-center gap-1 transition-all ${
+                    servicesPendingApprovalCount > 0
+                      ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-xs animate-pulse'
+                      : 'bg-white/10 text-white/70 border-white/15'
+                  }`}
+                  title={`${servicesPendingApprovalCount} Onay Bekleyen`}
+                >
+                  {servicesPendingApprovalCount > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-ping shrink-0" />
+                  )}
+                  <span>{servicesPendingApprovalCount} Onay</span>
+                </span>
+
+                {/* Bekleyen Badge */}
+                <span
+                  className="px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs"
+                  title={`${servicesPendingCount} Bekleyen`}
+                >
+                  {servicesPendingCount} Bekleyen
+                </span>
+              </div>
+
+              {/* Total Count */}
+              <span className="text-[9px] sm:text-[10px] font-semibold text-white/75 pr-0.5">
+                {services.length} Toplam
+              </span>
+            </div>
           </div>
 
           {/* Bottom Content */}
@@ -279,19 +364,49 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
 
-        {/* 3. İş Emirleri - Purple / Violet Gradient Square Card */}
+        {/* 4. İş Emirleri - Purple / Violet Gradient Square Card */}
         <button
           onClick={() => onNavigate('notes')}
-          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-violet-600 via-purple-700 to-indigo-900 text-white border border-purple-400/30"
+          className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-violet-600 via-purple-700 to-indigo-900 text-white border border-purple-400/30 cursor-pointer"
         >
-          {/* Top Row */}
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+          {/* Top Row: Icon and Badges */}
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform shrink-0">
               <ClipboardList className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              {notes.length} Emir
-            </span>
+
+            {/* Badges Stack */}
+            <div className="flex flex-col items-end gap-1 z-10 shrink-0">
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {/* Onay Bekleyen Badge */}
+                <span
+                  className={`px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black border backdrop-blur-xs flex items-center gap-1 transition-all ${
+                    notesPendingApprovalCount > 0
+                      ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-xs animate-pulse'
+                      : 'bg-white/10 text-white/70 border-white/15'
+                  }`}
+                  title={`${notesPendingApprovalCount} Onay Bekleyen`}
+                >
+                  {notesPendingApprovalCount > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-ping shrink-0" />
+                  )}
+                  <span>{notesPendingApprovalCount} Onay</span>
+                </span>
+
+                {/* Bekleyen Badge */}
+                <span
+                  className="px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs"
+                  title={`${notesPendingCount} Bekleyen`}
+                >
+                  {notesPendingCount} Bekleyen
+                </span>
+              </div>
+
+              {/* Total Count */}
+              <span className="text-[9px] sm:text-[10px] font-semibold text-white/75 pr-0.5">
+                {notes.length} Toplam
+              </span>
+            </div>
           </div>
 
           {/* Bottom Content */}
