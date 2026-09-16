@@ -166,6 +166,9 @@ export const StaffTrackingView: React.FC = () => {
     note: '',
   });
 
+  // State to confirm accidental click on "İşten Çıkış Yaptım"
+  const [showCheckOutConfirmModal, setShowCheckOutConfirmModal] = useState(false);
+
   const handleCheckIn = async (allowOutside = false, customNote?: string) => {
     try {
       setIsProcessingAction(true);
@@ -843,7 +846,7 @@ export const StaffTrackingView: React.FC = () => {
             {/* Buton 2: İşten Çıkış Yaptım (Kırmızı) */}
             <button
               type="button"
-              onClick={() => handleCheckOut(false)}
+              onClick={() => setShowCheckOutConfirmModal(true)}
               disabled={isProcessingAction || !isCheckedIn || isPendingCheckOut}
               className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
                 !isCheckedIn || isPendingCheckOut
@@ -1316,6 +1319,68 @@ export const StaffTrackingView: React.FC = () => {
                   <Send className="w-4 h-4" />
                 )}
                 <span>Yönetici Onayına Gönder</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: İŞTEN ÇIKIŞ "EMİN MİSİNİZ?" ONAY MODALI --- */}
+      {showCheckOutConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/60 space-y-5">
+            {/* Modal Başlık */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                  <UserX className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                    İşten Çıkış Onayı
+                  </h3>
+                  <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                    Mesai Sonlandırma
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCheckOutConfirmModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* İkaz Metni */}
+            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 space-y-2 text-center">
+              <p className="text-base font-black text-rose-950 dark:text-rose-100 leading-snug">
+                İşten çıkış yapmak istiyorsunuz, Emin misiniz?
+              </p>
+              <p className="text-xs text-rose-800/80 dark:text-rose-300/80 leading-relaxed">
+                Yanlışlıkla bastıysanız <strong>"Hayır"</strong> butonuna dokunarak mesainize kesintisiz devam edebilirsiniz.
+              </p>
+            </div>
+
+            {/* Seçim Butonları: Hayır / Evet */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCheckOutConfirmModal(false)}
+                className="w-full py-3 px-3 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 transition-all cursor-pointer text-center"
+              >
+                Hayır (Mesaiye Devam Et)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCheckOutConfirmModal(false);
+                  handleCheckOut(false);
+                }}
+                className="w-full py-3 px-3 rounded-xl text-xs font-black bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-700 hover:to-red-800 text-white shadow-lg shadow-rose-600/25 active:scale-95 transition-all cursor-pointer text-center"
+              >
+                Evet (Çıkış Yap)
               </button>
             </div>
           </div>
