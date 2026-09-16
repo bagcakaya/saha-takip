@@ -274,9 +274,10 @@ export const LoginView: React.FC = () => {
         isOpen={isForgotPasswordOpen}
         onClose={() => setIsForgotPasswordOpen(false)}
         initialCompanyCode={companyCode}
-        onSuccess={(compCode, newPass) => {
+        onSuccess={(compCode, newPass, adminUser) => {
           if (compCode) setCompanyCode(compCode);
           if (newPass) setPassword(newPass);
+          if (adminUser) setUsername(adminUser);
         }}
       />
     </div>

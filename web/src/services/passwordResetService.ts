@@ -218,7 +218,7 @@ export const PasswordResetService = {
     companyCode: string,
     code: string,
     newPassword: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; adminUsername?: string }> {
     const cleanCompany = (companyCode || 'POLATLAR').trim().toUpperCase();
     const cleanCode = (code || '').trim();
     const cleanPass = (newPassword || '').trim();
@@ -254,11 +254,14 @@ export const PasswordResetService = {
 
     // 1. Update user password in UserService
     const users = await UserService.fetchUsersFromCloud();
-    let adminAccount = users.find(
-      (u) =>
-        (u.companyCode || 'POLATLAR').toUpperCase() === cleanCompany &&
-        (u.id === matchingRequest.adminId || u.username === matchingRequest.adminUsername || u.role === 'admin')
-    );
+    let adminAccount = users.find((u) => {
+      const uComp = (u.companyCode || 'POLATLAR').toUpperCase();
+      if (uComp !== cleanCompany) return false;
+      if (matchingRequest.adminId && u.id === matchingRequest.adminId) return true;
+      if (matchingRequest.adminEmail && u.email?.toLowerCase() === matchingRequest.adminEmail.toLowerCase()) return true;
+      if (matchingRequest.adminUsername && u.username.toLowerCase() === matchingRequest.adminUsername.toLowerCase()) return true;
+      return false;
+    });
 
     if (!adminAccount) {
       // Fallback: search by admin email
@@ -267,6 +270,16 @@ export const PasswordResetService = {
           (u.companyCode || 'POLATLAR').toUpperCase() === cleanCompany &&
           u.email?.toLowerCase() === matchingRequest.adminEmail.toLowerCase()
       );
+    }
+
+    if (!adminAccount) {
+      // Fallback: if single admin in this company
+      const companyAdmins = users.filter(
+        (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanCompany && u.role === 'admin'
+      );
+      if (companyAdmins.length === 1) {
+        adminAccount = companyAdmins[0];
+      }
     }
 
     if (adminAccount) {
@@ -282,6 +295,9 @@ export const PasswordResetService = {
     matchingRequest.used = true;
     await this.saveResetRequests(allRequests);
 
-    return { success: true };
+    return {
+      success: true,
+      adminUsername: adminAccount.username || matchingRequest.adminUsername || 'admin',
+    };
   },
 };

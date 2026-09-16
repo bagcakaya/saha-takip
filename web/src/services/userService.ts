@@ -336,8 +336,17 @@ export const UserService = {
       password?: string;
     }
   ): Promise<{ success: boolean; error?: string }> {
-    const users = this.getUsers();
-    const userIndex = users.findIndex((u) => u.id === id);
+    let users = this.getUsers();
+    let userIndex = users.findIndex((u) => u.id === id);
+
+    if (userIndex === -1) {
+      try {
+        users = await this.fetchUsersFromCloud();
+        userIndex = users.findIndex((u) => u.id === id);
+      } catch {
+        // ignore
+      }
+    }
 
     if (userIndex === -1) {
       return { success: false, error: 'Kullanıcı bulunamadı.' };
@@ -377,7 +386,7 @@ export const UserService = {
         cloudUsername = `${cloudUsername}#${updatedUser.email}`;
       }
 
-      await supabase.from('app_users').upsert([
+      const { error: upsertErr } = await supabase.from('app_users').upsert([
         {
           id: updatedUser.id,
           username: cloudUsername,
@@ -387,6 +396,18 @@ export const UserService = {
           created_at: updatedUser.createdAt,
         },
       ]);
+
+      if (upsertErr) {
+        console.warn('Supabase app_users upsert hatası, update deneniyor:', upsertErr);
+        await supabase
+          .from('app_users')
+          .update({
+            password: updatedUser.password,
+            name: updatedUser.name,
+            role: updatedUser.role,
+          })
+          .eq('id', updatedUser.id);
+      }
     } catch (err) {
       console.warn('Supabase kullanıcı güncelleme hatası:', err);
     }
@@ -484,19 +505,18 @@ export const UserService = {
       });
     };
 
-    // 1. Try local list first
-    let users = this.getUsers();
-    let account = findMatch(users);
-
-    // 2. If not found locally, try fetching latest users from Supabase cloud
-    if (!account) {
-      try {
-        const cloudUsers = await this.fetchUsersFromCloud();
-        account = findMatch(cloudUsers);
-      } catch {
-        // ignore
-      }
+    // 1. Always fetch latest users from Supabase cloud first to ensure changed passwords take effect immediately
+    let users: UserAccount[] = [];
+    try {
+      users = await this.fetchUsersFromCloud();
+    } catch {
+      users = this.getUsers();
     }
+    if (!users || users.length === 0) {
+      users = this.getUsers();
+    }
+
+    let account = findMatch(users);
 
     if (!account) {
       return {

@@ -1,3 +1,5 @@
+import nodemailer from 'nodemailer';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -103,7 +105,47 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    // 1. Check for Resend API Key
+    // 1. Corporate SMTP via info@polatlaryazilim.com
+    const smtpPass = process.env.SMTP_PASS || process.env.POLATLAR_MAIL_PASS;
+    const smtpUser = process.env.SMTP_USER || 'info@polatlaryazilim.com';
+    const smtpHost = process.env.SMTP_HOST || 'mail.kurumsaleposta.com';
+    const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+
+    if (smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+          tls: {
+            rejectUnauthorized: false,
+          },
+        });
+
+        const sendResult = await transporter.sendMail({
+          from: `"Polatlar Yazılım" <${smtpUser}>`,
+          to: to,
+          subject: subject,
+          html: htmlContent,
+        });
+
+        res.status(200).json({
+          success: true,
+          provider: 'corporate_smtp',
+          from: smtpUser,
+          messageId: sendResult.messageId,
+        });
+        return;
+      } catch (smtpErr) {
+        console.warn('Corporate SMTP send error:', smtpErr);
+      }
+    }
+
+    // 2. Check for Resend API Key
     const resendKey = process.env.RESEND_API_KEY;
     if (resendKey) {
       try {
@@ -114,7 +156,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'Saha Takip Raporu <onboarding@resend.dev>',
+            from: `Polatlar Yazılım <${smtpUser || 'onboarding@resend.dev'}>`,
             to: [to],
             subject,
             html: htmlContent,
@@ -128,7 +170,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Check for Brevo API Key
+    // 3. Check for Brevo API Key
     const brevoKey = process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
     if (brevoKey) {
       try {
@@ -139,7 +181,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            sender: { name: 'Saha Takip Raporu', email: 'no-reply@sahatakip.com' },
+            sender: { name: 'Polatlar Yazılım', email: smtpUser || 'info@polatlaryazilim.com' },
             to: [{ email: to, name: adminName || 'Yönetici' }],
             subject,
             htmlContent,
@@ -153,12 +195,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. Fallback / Test Mode confirmation
+    // 4. Fallback: Saved to Supabase Slot 99
     res.status(200).json({
       success: true,
       provider: 'cloud_slot',
-      message: 'Sıfırlama kodu oluşturuldu ve kaydedildi.',
-      info: 'Canlı mail gönderimi için Vercel paneline RESEND_API_KEY veya BREVO_API_KEY ekleyebilirsiniz.',
+      from: 'info@polatlaryazilim.com',
+      message: 'Sıfırlama kodu oluşturuldu ve güvenlik yuvasına kaydedildi.',
+      info: 'Canlı mail gönderimi için Vercel paneline SMTP_PASS (info@polatlaryazilim.com şifresi) eklenmelidir.',
     });
   } catch (error) {
     console.error('Password reset email error:', error);

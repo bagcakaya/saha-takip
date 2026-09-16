@@ -20,7 +20,7 @@ interface ForgotPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialCompanyCode?: string;
-  onSuccess: (companyCode: string, newPassword?: string) => void;
+  onSuccess: (companyCode: string, newPassword?: string, username?: string) => void;
 }
 
 export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
@@ -36,6 +36,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [resolvedUsername, setResolvedUsername] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -179,6 +180,9 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
         cleanPass
       );
       if (res.success) {
+        if (res.adminUsername) {
+          setResolvedUsername(res.adminUsername);
+        }
         setStep('success');
       } else {
         setErrorMsg(res.error || 'Şifre güncellenemedi.');
@@ -444,7 +448,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <button
               type="button"
               onClick={() => {
-                onSuccess(companyCode, newPassword);
+                onSuccess(companyCode, newPassword, resolvedUsername);
                 onClose();
               }}
               className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-sm shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
