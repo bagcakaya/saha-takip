@@ -26,6 +26,18 @@ interface AuthContextType {
     adminEmail: string;
     password: string;
   }) => Promise<{ success: boolean; error?: string }>;
+  createCompanyByAdmin: (params: {
+    name: string;
+    code: string;
+    adminName: string;
+    adminEmail: string;
+    password: string;
+  }) => Promise<{
+    success: boolean;
+    error?: string;
+    company?: Company;
+    adminUser?: User;
+  }>;
   addUser: (params: {
     username: string;
     password: string;
@@ -279,6 +291,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return login(newCompany.code, adminRes.user.username, params.password, true);
   };
 
+  const createCompanyByAdmin = async (params: {
+    name: string;
+    code: string;
+    adminName: string;
+    adminEmail: string;
+    password: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    company?: Company;
+    adminUser?: User;
+  }> => {
+    if (!params.password || params.password.length < 3) {
+      return { success: false, error: 'Şifre en az 3 karakter olmalıdır.' };
+    }
+
+    // 1. Register Company
+    const compRes = await CompanyService.registerCompany({
+      name: params.name,
+      code: params.code,
+      adminName: params.adminName,
+      adminEmail: params.adminEmail,
+    });
+
+    if (!compRes.success || !compRes.company) {
+      return { success: false, error: compRes.error || 'Kurum kaydı oluşturulamadı.' };
+    }
+
+    const newCompany = compRes.company;
+
+    // 2. Create Admin Account for Company
+    const adminRes = await UserService.createAdminForCompany(newCompany, params.password);
+    if (!adminRes.success || !adminRes.user) {
+      return { success: false, error: adminRes.error || 'Yönetici hesabı oluşturulamadı.' };
+    }
+
+    // Update users in memory without logging out the current admin
+    setUsers(UserService.getUsers());
+
+    return {
+      success: true,
+      company: newCompany,
+      adminUser: adminRes.user,
+    };
+  };
+
   const logout = () => {
     OneSignalService.logoutUser();
     setUser(null);
@@ -351,6 +409,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         registerCompany,
+        createCompanyByAdmin,
         addUser,
         updateUser,
         deleteUser,

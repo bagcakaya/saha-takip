@@ -20,6 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
 import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
+import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
@@ -487,6 +489,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 </span>
               </button>
             )}
+
+            {/* 5. Yeni Kurum / Firma Ekle (Sadece Polatlar / Kurum Yöneticileri) */}
+            {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
+              <button
+                type="button"
+                onClick={() => setIsCreateCompanyOpen(true)}
+                className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/40 hover:bg-blue-100/80 dark:hover:bg-blue-900/50 border border-blue-200/80 dark:border-blue-900/50 transition-all duration-150 mt-1.5 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>Yeni Kurum Ekle</span>
+                </div>
+                <span className="p-1 rounded-md bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 text-[10px] font-extrabold">
+                  Firma
+                </span>
+              </button>
+            )}
           </nav>
         </div>
 
@@ -589,6 +608,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         <UserManagementModal
           isOpen={isUserModalOpen}
           onClose={() => setIsUserModalOpen(false)}
+        />
+      )}
+
+      {/* Create Company Modal (Only for Polatlar Admins) */}
+      {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
+        <CreateCompanyModal
+          isOpen={isCreateCompanyOpen}
+          onClose={() => setIsCreateCompanyOpen(false)}
         />
       )}
 

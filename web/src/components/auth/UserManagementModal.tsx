@@ -11,12 +11,14 @@ import {
   CheckCircle2,
   Unlock,
   Smartphone,
+  Building2,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types/auth';
 import { DeviceService } from '../../services/deviceService';
 import { UserDeviceBinding } from '../../types/storage';
+import { CreateCompanyModal } from './CreateCompanyModal';
 
 interface UserManagementModalProps {
   isOpen: boolean;
@@ -36,6 +38,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     deleteUser,
     suggestUsername,
   } = useAuth();
+
+  const isPolatlarAdmin =
+    currentUser?.role === 'admin' &&
+    (currentUser?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
+  const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
 
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'add'>('list');
 
@@ -186,9 +193,22 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               🏢 {company?.name || currentUser?.companyCode || 'POLATLAR'}
             </span>
           </div>
-          <span className="px-2 py-0.5 rounded-md font-black bg-blue-600 text-white text-[10px] tracking-wider">
-            KURUM KODU: {(currentUser?.companyCode || 'POLATLAR').toUpperCase()}
-          </span>
+          <div className="flex items-center gap-2">
+            {isPolatlarAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsCreateCompanyOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer"
+                title="Yeni bir müşteri firması/kurumu oluşturun"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>+ Yeni Kurum Ekle</span>
+              </button>
+            )}
+            <span className="px-2 py-0.5 rounded-md font-black bg-blue-600 text-white text-[10px] tracking-wider">
+              KURUM KODU: {(currentUser?.companyCode || 'POLATLAR').toUpperCase()}
+            </span>
+          </div>
         </div>
 
         {/* Sub Tabs */}
@@ -482,6 +502,14 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
           </form>
         )}
       </div>
+
+      {/* Create Company Modal (For Polatlar / Master Admins) */}
+      {isPolatlarAdmin && (
+        <CreateCompanyModal
+          isOpen={isCreateCompanyOpen}
+          onClose={() => setIsCreateCompanyOpen(false)}
+        />
+      )}
     </Modal>
   );
 };

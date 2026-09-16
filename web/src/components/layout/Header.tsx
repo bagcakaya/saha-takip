@@ -3,6 +3,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserManagementModal } from '../auth/UserManagementModal';
+import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { useStorage } from '../../context/StorageContext';
@@ -27,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { user, logout } = useAuth();
   const { allNotes, allServices, allLocations } = useStorage();
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -305,6 +307,19 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {/* Admin-only Create Company Button (For Polatlar Admins) */}
+            {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
+              <button
+                type="button"
+                onClick={() => setIsCreateCompanyOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition-all active:scale-95 shadow-xs cursor-pointer"
+                title="Yeni Kurum / Firma Ekle"
+              >
+                <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span className="hidden sm:inline">Yeni Kurum</span>
+              </button>
+            )}
+
             {/* User Profile Badge */}
             {user && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -373,6 +388,14 @@ export const Header: React.FC<HeaderProps> = ({
         <UserManagementModal
           isOpen={isUserModalOpen}
           onClose={() => setIsUserModalOpen(false)}
+        />
+      )}
+
+      {/* Create Company Modal (For Polatlar Admins) */}
+      {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
+        <CreateCompanyModal
+          isOpen={isCreateCompanyOpen}
+          onClose={() => setIsCreateCompanyOpen(false)}
         />
       )}
 
