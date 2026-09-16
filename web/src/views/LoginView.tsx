@@ -7,14 +7,16 @@ import {
   ArrowRight,
   Loader2,
   MapPin,
-  MessageCircle,
   Building2,
+  KeyRound,
+  MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { WeatherService } from '../services/weatherService';
 import { TimeOfDay, WeatherCondition, WeatherData } from '../types/auth';
 import { WeatherBackground } from '../components/auth/WeatherBackground';
 import { ContactModal } from '../components/auth/ContactModal';
+import { ForgotPasswordModal } from '../components/auth/ForgotPasswordModal';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -29,6 +31,7 @@ export const LoginView: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   // Live weather & ambience (100% automatically detected from user's location & time)
   const [liveWeather, setLiveWeather] = useState<WeatherData>({
@@ -213,7 +216,7 @@ export const LoginView: React.FC = () => {
             </div>
           </div>
 
-          {/* Remember Me Toggle */}
+          {/* Remember Me Toggle & Forgot Password */}
           <div className="flex items-center justify-between pt-1">
             <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 hover:text-white transition-colors">
               <input
@@ -224,6 +227,15 @@ export const LoginView: React.FC = () => {
               />
               <span>Beni Hatırla</span>
             </label>
+
+            <button
+              type="button"
+              onClick={() => setIsForgotPasswordOpen(true)}
+              className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer flex items-center gap-1.5 hover:underline"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Şifremi Unuttum?</span>
+            </button>
           </div>
 
           {/* Submit Button */}
@@ -255,6 +267,17 @@ export const LoginView: React.FC = () => {
       <ContactModal
         isOpen={isContactOpen}
         onClose={() => setIsContactOpen(false)}
+      />
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        initialCompanyCode={companyCode}
+        onSuccess={(compCode, newPass) => {
+          if (compCode) setCompanyCode(compCode);
+          if (newPass) setPassword(newPass);
+        }}
       />
     </div>
   );

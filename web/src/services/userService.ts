@@ -371,8 +371,11 @@ export const UserService = {
 
     // Sync to Supabase
     try {
-      const cloudUsername =
+      let cloudUsername =
         companyCode === 'POLATLAR' ? updatedUser.username : `${companyCode}:${updatedUser.username}`;
+      if (updatedUser.email) {
+        cloudUsername = `${cloudUsername}#${updatedUser.email}`;
+      }
 
       await supabase.from('app_users').upsert([
         {
