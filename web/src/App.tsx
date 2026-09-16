@@ -254,12 +254,12 @@ const MainApp: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex w-full transition-colors overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex w-full transition-colors overflow-x-hidden max-w-[100vw]">
       {/* 1. Left Sidebar (Desktop lg/xl/2xl) */}
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* 2. Center Content Area (Fluid full width) */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden w-full max-w-full">
         {/* Mobile / Tablet Header (< lg screens) */}
         <Header
           activeTab={activeTab}
@@ -270,7 +270,7 @@ const MainApp: React.FC = () => {
 
         {/* Main Content */}
         <main
-          className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-5 lg:py-6"
+          className="flex-1 w-full max-w-full px-3.5 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6 overflow-x-hidden"
           style={{
             paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)',
           }}

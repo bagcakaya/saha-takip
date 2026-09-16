@@ -65,20 +65,20 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 transition-colors shadow-xs"
+        className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3.5 sm:px-6 transition-colors shadow-xs w-full max-w-full overflow-hidden"
         style={{
           paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
           paddingBottom: '12px',
         }}
       >
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
           {/* Left side: In 'home', show Logo + Title. In subpages, show prominent [ ← Ana Menü ] button + Page Title */}
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             {activeTab !== 'home' ? (
               <button
                 type="button"
                 onClick={() => setActiveTab('home')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
                 title="Ana Menüye Dön"
               >
                 <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
@@ -95,11 +95,11 @@ export const Header: React.FC<HeaderProps> = ({
               />
             )}
 
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] sm:text-[11px] font-extrabold tracking-widest uppercase text-blue-600 dark:text-blue-400 block truncate">
                 {subtitle}
               </span>
-              <h1 className="text-base sm:text-2xl font-black text-slate-900 dark:text-slate-50 tracking-tight truncate leading-tight">
+              <h1 className="text-sm sm:text-2xl font-black text-slate-900 dark:text-slate-50 tracking-tight truncate leading-tight">
                 {title}
               </h1>
             </div>

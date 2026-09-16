@@ -96,25 +96,25 @@ export const LocationCard: React.FC<LocationCardProps> = ({
   return (
     <div
       onClick={onClick}
-      className="bg-white dark:bg-slate-800/95 rounded-2xl p-5 shadow-xs hover:shadow-lg border border-slate-200/80 dark:border-slate-700/80 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99] group flex flex-col justify-between"
+      className="bg-white dark:bg-slate-800/95 rounded-2xl p-5 shadow-xs hover:shadow-lg border border-slate-200/80 dark:border-slate-700/80 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99] group flex flex-col justify-between max-w-full overflow-hidden"
     >
       {/* Top Section */}
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0 w-full">
         {/* Header with Name and Status Badge */}
-        <div className="flex items-start justify-between gap-2.5">
+        <div className="flex items-start justify-between gap-2.5 min-w-0 w-full">
           <div className="flex-1 min-w-0">
             <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-50 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {location.name}
             </h3>
-            <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 dark:text-slate-500 font-medium">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>{formattedDate}</span>
+            <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 dark:text-slate-500 font-medium truncate min-w-0">
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <span className="shrink-0">{formattedDate}</span>
               {isAdmin && location.createdByName && (
                 <>
                   <span>•</span>
-                  <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold">
-                    <UserIcon className="w-3 h-3" />
-                    {location.createdByName}
+                  <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold truncate min-w-0">
+                    <UserIcon className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{location.createdByName}</span>
                   </span>
                 </>
               )}
@@ -126,9 +126,9 @@ export const LocationCard: React.FC<LocationCardProps> = ({
 
         {/* Address or Location Snippet */}
         {location.address ? (
-          <p className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1.5 truncate">
+          <p className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1.5 truncate min-w-0 max-w-full">
             <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span className="truncate">{location.address}</span>
+            <span className="truncate min-w-0 flex-1">{location.address}</span>
           </p>
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500 italic flex items-center gap-1.5">
