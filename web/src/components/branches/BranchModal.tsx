@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { Branch } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
-import { LocationService, AddressSearchResult } from '../../services/locationService';
+import { LocationService } from '../../services/locationService';
+import { MapPickerModal } from '../common/MapPickerModal';
 
 interface BranchModalProps {
   isOpen: boolean;
@@ -39,11 +40,12 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [phone, setPhone] = useState('');
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
 
+  // Map picker modal state
+  const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
+  const [mapPickerAutoSearch, setMapPickerAutoSearch] = useState(false);
+
   // Geocoding & GPS states
   const [isGettingGps, setIsGettingGps] = useState(false);
-  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
-  const [searchResults, setSearchResults] = useState<AddressSearchResult[]>([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -74,11 +76,25 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setAssignedUserIds([]);
     }
     setErrorMsg('');
-    setSearchResults([]);
-    setShowSearchResults(false);
   }, [branchToEdit, isOpen]);
 
   if (!isOpen) return null;
+
+  // Open interactive map picker modal
+  const handleOpenMapPicker = (autoSearch: boolean = false) => {
+    setMapPickerAutoSearch(autoSearch);
+    setIsMapPickerOpen(true);
+  };
+
+  // Callback when a location is picked on the map
+  const handleLocationPicked = (lat: number, lon: number, resolvedAddr?: string) => {
+    setLatitude(lat);
+    setLongitude(lon);
+    if (resolvedAddr && (!address || address.trim().length < 5)) {
+      setAddress(resolvedAddr);
+    }
+    setErrorMsg('');
+  };
 
   // Handle GPS location acquisition
   const handleGetGpsLocation = async () => {
@@ -96,38 +112,6 @@ export const BranchModal: React.FC<BranchModalProps> = ({
     } finally {
       setIsGettingGps(false);
     }
-  };
-
-  // Handle Address Search via Nominatim
-  const handleSearchAddress = async () => {
-    if (!address || address.trim().length < 2) {
-      setErrorMsg('Lütfen aramak için önce bir adres veya semt adı girin.');
-      return;
-    }
-    try {
-      setIsSearchingAddress(true);
-      setErrorMsg('');
-      const results = await LocationService.searchAddress(address);
-      if (results.length === 0) {
-        setErrorMsg('Bu adres için harita koordinatı bulunamadı. Lütfen semt veya ilçe adını ekleyerek tekrar deneyin.');
-      } else {
-        setSearchResults(results);
-        setShowSearchResults(true);
-      }
-    } catch {
-      setErrorMsg('Adres arama servisine ulaşılamadı.');
-    } finally {
-      setIsSearchingAddress(false);
-    }
-  };
-
-  const handleSelectSearchResult = (result: AddressSearchResult) => {
-    setLatitude(result.latitude);
-    setLongitude(result.longitude);
-    if (!address || address.trim().length < 10) {
-      setAddress(result.displayName);
-    }
-    setShowSearchResults(false);
   };
 
   // Toggle user assignment
@@ -236,58 +220,41 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleOpenMapPicker(true);
+                    }
+                  }}
                   placeholder="Cadde, sokak, mahalle, ilçe, il..."
                   className="w-full pl-4 pr-24 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden transition-all"
                 />
                 <button
                   type="button"
-                  onClick={handleSearchAddress}
-                  disabled={isSearchingAddress}
-                  className="absolute right-2 top-2 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Yazılan adresten koordinat bul"
+                  onClick={() => handleOpenMapPicker(true)}
+                  className="absolute right-2 top-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Google Haritada Aç ve Pinle"
                 >
-                  {isSearchingAddress ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Search className="w-3.5 h-3.5" />
-                  )}
+                  <Search className="w-3.5 h-3.5" />
                   <span>Ara</span>
                 </button>
               </div>
 
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                💡 <strong>Örnek Format:</strong> Kongre Caddesi, Yakutiye, Erzurum (veya Cadde/Sokak, İlçe, İl). No/Kat bilgileri arama esnasında otomatik çözümlenir.
+                💡 <strong>Google Harita ile Pinleme:</strong> Adres yazıp <strong>Ara</strong>'ya bastığınızda veya <strong>Haritada Seç ve Pinle</strong> butonuna tıkladığınızda interaktif Google Maps haritası açılır; binanın girişini tıklayarak enlem ve boylamı anında kaydedebilirsiniz.
               </p>
 
-              {/* Search Results Dropdown */}
-              {showSearchResults && searchResults.length > 0 && (
-                <div className="p-2 rounded-2xl bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 shadow-xl space-y-1 animate-in fade-in zoom-in-95">
-                  <div className="px-2 py-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 flex items-center justify-between">
-                    <span>Eşleşen Adresler ({searchResults.length}):</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowSearchResults(false)}
-                      className="text-slate-400 hover:text-slate-600"
-                    >
-                      Kapat
-                    </button>
-                  </div>
-                  {searchResults.map((res, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectSearchResult(res)}
-                      className="w-full text-left p-2.5 rounded-xl hover:bg-blue-50 dark:hover:bg-slate-700/60 transition-colors text-xs text-slate-800 dark:text-slate-200 flex items-start gap-2 cursor-pointer"
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                      <span className="line-clamp-2 leading-relaxed">{res.displayName}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Quick Action: Current GPS Pin Button */}
+              {/* Quick Action Buttons: Google Maps Pin & GPS */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleOpenMapPicker(Boolean(address && address.trim().length > 2))}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all active:scale-95 shadow-xs cursor-pointer"
+                >
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  <span>🗺️ Haritada Seç ve Pinle (Google Maps)</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleGetGpsLocation}
@@ -299,14 +266,14 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                   ) : (
                     <Compass className="w-4 h-4 text-emerald-600" />
                   )}
-                  <span>Mevcut Konumumu Pinle (GPS)</span>
+                  <span>🧭 Mevcut Konumumu Pinle (GPS)</span>
                 </button>
 
                 {latitude !== '' && longitude !== '' && (
                   <button
                     type="button"
                     onClick={() => LocationService.openInGoogleMaps(address, Number(latitude), Number(longitude))}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition-all"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>Haritada Aç</span>
@@ -358,6 +325,21 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                 />
               </div>
             </div>
+
+            {/* Koordinat Belirlendi Bildirimi */}
+            {latitude !== '' && longitude !== '' && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold">
+                    Konum İşaretlendi: <span className="font-mono">{latitude}, {longitude}</span>
+                  </span>
+                </div>
+                <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
+                  20 Metre Mesai Alanı Aktif
+                </span>
+              </div>
+            )}
 
             <div className="flex items-start gap-2 pt-1 text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
               <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -483,6 +465,19 @@ export const BranchModal: React.FC<BranchModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Google Maps Interactive Picker Modal */}
+      {isMapPickerOpen && (
+        <MapPickerModal
+          isOpen={isMapPickerOpen}
+          onClose={() => setIsMapPickerOpen(false)}
+          initialLat={latitude}
+          initialLon={longitude}
+          initialAddress={address}
+          autoSearchOnOpen={mapPickerAutoSearch}
+          onSelectLocation={handleLocationPicked}
+        />
+      )}
     </div>
   );
 };
