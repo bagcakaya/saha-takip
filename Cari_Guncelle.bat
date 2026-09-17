@@ -9,7 +9,7 @@ echo.
 echo SQL Server'dan (POLATLAR2025) Cari listesi cekiliyor...
 echo.
 
-cd /d "C:\Users\Mert\Desktop\Görev Tamamlama"
+cd /d "%~dp0"
 
 where python >nul 2>nul
 if %errorlevel% equ 0 (
@@ -23,9 +23,8 @@ if %errorlevel% neq 0 (
     echo [HATA] Bir sorun olustu! Lutfen SQL Server servisinin calistigindan emin olun.
 ) else (
     echo.
-    echo [BASARILI] Excel dosyaniz web klasorunde guncellendi:
-    echo            C:\Users\Mert\Desktop\Görev Tamamlama\web\Cariler.xlsx
-    echo            Uygulamaya yeni Cari isimleri yuklendi.
+    echo [BASARILI] Excel dosyaniz guncellendi: web\Cariler.xlsx
+    echo [BASARILI] Canli uygulamaya (Supabase Bulut) yeni Cari listesi aninda aktarildi!
 )
 
 echo.

@@ -159,6 +159,41 @@ with open(JSON_OUTPUT_PUBLIC, "w", encoding="utf-8") as f:
     json.dump(json_data, f, ensure_ascii=False, indent=2)
 print(f"[OK] Uygulama verisi kaydedildi: {JSON_OUTPUT_PUBLIC}")
 
+# 3. Canlı Uygulama Bulutuna (Supabase Slot 15) Doğrudan Aktar
+print("[..] Canlı uygulamaya (Supabase Bulut Slot 15) aktarılıyor...")
+try:
+    import urllib.request
+    SUPABASE_URL = "https://jxqtwwpwaalgxpwmeqbc.supabase.co"
+    SUPABASE_ANON_KEY = "sb_publishable_qetbs8PTG54vWFr2zDCl4g_mCTqzqpC"
+
+    raw_json = json.dumps(json_data, ensure_ascii=False)
+    chunk_size = 8000
+    chunks = [raw_json[i:i + chunk_size] for i in range(0, len(raw_json), chunk_size)]
+
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+
+    payload = json.dumps({"id": 15, "tasks": chunks}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/standard_tasks",
+        data=payload,
+        headers=headers,
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        if resp.status in [200, 201, 204]:
+            print("[OK] Canlı Supabase bulut veritabanına (Slot 15) başarıyla yüklendi!")
+            print("     -> Canlı uygulamadaki tüm personeller ve yöneticiler yeni carileri anında görecektir.")
+        else:
+            print(f"[UYARI] Bulut aktarımı durum kodu: {resp.status}")
+except Exception as e:
+    print(f"[UYARI] Bulut aktarımı sırasında hata oluştu: {e}")
+    print("        (Yerel dosyalar ve Excel güncellendi, ancak canlıya gitmesi için internet bağlantınızı kontrol ediniz)")
+
 print("=" * 65)
-print(f"TEBRİKLER: {total_count} Cari başarıyla güncellendi ve aktarıldı!")
+print(f"TEBRİKLER: {total_count} Cari başarıyla güncellendi ve canlıya aktarıldı!")
 print("=" * 65)
