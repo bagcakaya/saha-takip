@@ -21,6 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationStatusModal } from '../components/common/NotificationStatusModal';
+import { TimedFollowUpsSection } from '../components/timedFollowUps/TimedFollowUpsSection';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -197,6 +198,9 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           </button>
         </div>
       )}
+
+      {/* Süreli Cari Takipleri & Alarmlar (Sadece Yöneticilere Özel) */}
+      {isAdmin && <TimedFollowUpsSection />}
 
       {/* Section Title */}
       <div className="flex items-center justify-between px-1">

@@ -20,6 +20,7 @@ import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
+import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
 import { isUserAdmin } from './types/auth';
 
 const MainApp: React.FC = () => {
@@ -397,6 +398,9 @@ const MainApp: React.FC = () => {
           <option key={name} value={name} />
         ))}
       </datalist>
+
+      {/* Global Ringing Alarm Modal for Managers */}
+      {isAdmin && <CariAlarmRingingModal />}
     </div>
   );
 };

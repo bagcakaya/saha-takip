@@ -12,6 +12,7 @@ import {
   CariData,
   LeaveRequest,
   SecurityLogItem,
+  TimedFollowUp,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -30,6 +31,7 @@ const ADMIN_REMINDERS_KEY = '@saha_takip_admin_reminders';
 const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
+const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 
 function resolveCompanyId(code: string, currentId?: number): number {
   const clean = (code || 'POLATLAR').trim().toUpperCase();
@@ -1345,6 +1347,35 @@ export const StorageService = {
     XLSX.writeFile(wb, fileName);
   },
 
+  /**
+   * Retrieves timed follow ups for current company (cloud slot 16 + IndexedDB cache)
+   */
+  async getTimedFollowUps(): Promise<TimedFollowUp[]> {
+    const localKey = this.getStorageKey(TIMED_FOLLOW_UPS_KEY);
+    const slotId = this.getSlotId(16);
+    const { data: cloudData, notFound } = await loadChunkedSlot<TimedFollowUp[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<TimedFollowUp[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves timed follow ups to cloud slot 16 and local cache
+   */
+  async saveTimedFollowUps(items: TimedFollowUp[]): Promise<void> {
+    const localKey = this.getStorageKey(TIMED_FOLLOW_UPS_KEY);
+    await saveItem(localKey, items);
+    await saveChunkedSlot(this.getSlotId(16), items);
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -1358,6 +1389,7 @@ export const StorageService = {
     const leaveRequests = await this.getLeaveRequests();
     const securityLogs = await this.getSecurityLogs();
     const cariData = await this.getCarilerData();
+    const timedFollowUps = await this.getTimedFollowUps();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -1371,6 +1403,7 @@ export const StorageService = {
       leaveRequests,
       securityLogs,
       cariler: cariData.cariler,
+      timedFollowUps,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -1416,6 +1449,9 @@ export const StorageService = {
         total: backupData.cariler.length,
         cariler: backupData.cariler,
       });
+    }
+    if (backupData.timedFollowUps && Array.isArray(backupData.timedFollowUps)) {
+      await this.saveTimedFollowUps(backupData.timedFollowUps);
     }
   },
 };

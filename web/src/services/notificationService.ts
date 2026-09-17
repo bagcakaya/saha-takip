@@ -1,3 +1,6 @@
+let activeAlarmInterval: any = null;
+let activeAudioCtx: any = null;
+
 export const NotificationService = {
   /**
    * Requests browser notification permission
@@ -67,6 +70,89 @@ export const NotificationService = {
       osc2.stop(now + 0.55);
     } catch (e) {
       console.warn('Audio chime playback failed:', e);
+    }
+  },
+
+  /**
+   * Plays a repeating alarm sound pattern until stopAlarmSound is called
+   */
+  playAlarmSound(): void {
+    this.stopAlarmSound();
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([400, 150, 400, 150, 600]);
+      }
+    } catch {
+      // ignore
+    }
+
+    const playBeepPattern = () => {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!activeAudioCtx || activeAudioCtx.state === 'closed') {
+          activeAudioCtx = new AudioCtx();
+        }
+        const ctx = activeAudioCtx;
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+
+        const now = ctx.currentTime;
+        const freqs = [880, 1046.5, 880, 1174.66]; // High-priority alarm pattern
+        freqs.forEach((f, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(f, now + idx * 0.15);
+          gain.gain.setValueAtTime(0.4, now + idx * 0.15);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.15 + 0.12);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + idx * 0.15);
+          osc.stop(now + idx * 0.15 + 0.12);
+        });
+      } catch (e) {
+        console.warn('Alarm beep pattern failed:', e);
+      }
+    };
+
+    playBeepPattern();
+    activeAlarmInterval = setInterval(() => {
+      playBeepPattern();
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([300, 100, 300]);
+        }
+      } catch {
+        // ignore
+      }
+    }, 1800);
+  },
+
+  /**
+   * Stops the active repeating alarm
+   */
+  stopAlarmSound(): void {
+    if (activeAlarmInterval) {
+      clearInterval(activeAlarmInterval);
+      activeAlarmInterval = null;
+    }
+    if (activeAudioCtx) {
+      try {
+        activeAudioCtx.close();
+      } catch {
+        // ignore
+      }
+      activeAudioCtx = null;
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(0);
+      }
+    } catch {
+      // ignore
     }
   },
 

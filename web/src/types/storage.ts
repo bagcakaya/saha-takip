@@ -220,6 +220,7 @@ export interface BackupData {
   cariler?: string[];
   leaveRequests?: LeaveRequest[];
   securityLogs?: SecurityLogItem[];
+  timedFollowUps?: TimedFollowUp[];
 }
 
 export interface CariData {
@@ -291,5 +292,24 @@ export interface SecurityLogItem {
   message: string;
   status: 'warning' | 'danger';
   read: boolean;
+}
+
+export interface TimedFollowUp {
+  id: string;
+  companyCode: string;
+  cariName: string;
+  title?: string;
+  description: string;
+  dueDate: string; // 'YYYY-MM-DDTHH:mm' or ISO string
+  status: 'pending' | 'completed' | 'dismissed';
+  notified?: boolean; // true when alarm has triggered
+  soundAlarm?: boolean; // play sound when due (default true)
+  sendPush?: boolean; // hardware push notification via OneSignal (default true)
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+  completedAt?: number;
+  completedByName?: string;
+  snoozedUntil?: string;
 }
 

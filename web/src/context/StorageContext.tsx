@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -178,6 +178,20 @@ interface StorageContextType {
   importCarilerFromExcelFile: (file: File) => Promise<number>;
   exportCarilerToExcelFile: () => void;
   refreshCariler: () => Promise<void>;
+  timedFollowUps: TimedFollowUp[];
+  activeRingingAlarm: TimedFollowUp | null;
+  addTimedFollowUp: (data: {
+    cariName: string;
+    description: string;
+    dueDate: string;
+    soundAlarm?: boolean;
+    sendPush?: boolean;
+  }) => Promise<void>;
+  updateTimedFollowUp: (id: string, updates: Partial<TimedFollowUp>) => Promise<void>;
+  deleteTimedFollowUp: (id: string) => Promise<void>;
+  completeTimedFollowUp: (id: string) => Promise<void>;
+  snoozeTimedFollowUp: (id: string, minutes?: number) => Promise<void>;
+  dismissAlarm: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -236,6 +250,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [cariler, setCariler] = useState<string[]>([]);
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
+  const [timedFollowUps, setTimedFollowUps] = useState<TimedFollowUp[]>([]);
+  const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
   const [activeToast, setActiveToast] = useState<{
@@ -264,6 +280,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCariler([]);
       setCarilerUpdatedAt(null);
       setCarilerTotal(0);
+      setTimedFollowUps([]);
+      setActiveRingingAlarm(null);
       setIsLoading(false);
       setDataCompanyCode('');
       return;
@@ -287,6 +305,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCariler([]);
     setCarilerUpdatedAt(null);
     setCarilerTotal(0);
+    setTimedFollowUps([]);
+    setActiveRingingAlarm(null);
     setIsLoading(true);
     setDataCompanyCode('');
 
@@ -297,7 +317,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initData = async () => {
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -310,6 +330,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getCarilerData(),
           StorageService.getLeaveRequests(),
           StorageService.getSecurityLogs(),
+          StorageService.getTimedFollowUps(),
         ]);
         if (!isMounted) return;
 
@@ -448,6 +469,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCariler(cariData.cariler);
         setCarilerUpdatedAt(cariData.updatedAt);
         setCarilerTotal(cariData.total);
+        setTimedFollowUps(followUps || []);
         setDataCompanyCode(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
@@ -489,7 +511,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
           if (!isMounted) return;
-          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs, cariData] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs, cariData, followUps] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
@@ -502,6 +524,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getSecurityLogs(),
             StorageService.getLocations(),
             StorageService.getCarilerData(),
+            StorageService.getTimedFollowUps(),
           ]);
           if (!isMounted) return;
           setStandardTasks(tasks);
@@ -523,6 +546,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setCariler(cariData.cariler);
           setCarilerUpdatedAt(cariData.updatedAt);
           setCarilerTotal(cariData.total);
+          setTimedFollowUps(followUps || []);
         }
       )
       .on(
@@ -3522,6 +3546,157 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveSecurityLogs([]);
   };
 
+  // Active alarm checker for managers (Only admins hear/see timed follow-up alarms)
+  useEffect(() => {
+    if (!user || !isUserAdmin(user)) {
+      if (activeRingingAlarm) {
+        NotificationService.stopAlarmSound();
+        setActiveRingingAlarm(null);
+      }
+      return;
+    }
+
+    const checkAlarms = () => {
+      const now = Date.now();
+      const dueAlarm = timedFollowUps.find((item) => {
+        if (item.status !== 'pending') return false;
+        const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
+        return targetTime <= now && !item.notified;
+      });
+
+      if (dueAlarm) {
+        if (!activeRingingAlarm || activeRingingAlarm.id !== dueAlarm.id) {
+          setActiveRingingAlarm(dueAlarm);
+
+          if (dueAlarm.soundAlarm !== false) {
+            NotificationService.playAlarmSound();
+          }
+
+          const title = `⏰ Süreli Takip: ${dueAlarm.cariName}`;
+          const body = dueAlarm.description || 'Vakti gelen cari takip hatırlatması!';
+          NotificationService.sendNotification(title, body);
+
+          if (dueAlarm.sendPush !== false) {
+            OneSignalService.sendPushNotification({
+              title,
+              message: body,
+              targetMode: 'admin',
+              companyCode: user.companyCode || 'POLATLAR',
+            }).catch(() => {});
+          }
+        }
+      }
+    };
+
+    checkAlarms();
+    const timer = setInterval(checkAlarms, 8000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [timedFollowUps, user, activeRingingAlarm]);
+
+  const addTimedFollowUp = async (data: {
+    cariName: string;
+    description: string;
+    dueDate: string;
+    soundAlarm?: boolean;
+    sendPush?: boolean;
+  }) => {
+    const newItem: TimedFollowUp = {
+      id: generateId(),
+      companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
+      cariName: data.cariName.trim(),
+      description: data.description.trim(),
+      dueDate: data.dueDate,
+      status: 'pending',
+      notified: false,
+      soundAlarm: data.soundAlarm ?? true,
+      sendPush: data.sendPush ?? true,
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name || 'Yönetici',
+    };
+    const updated = [newItem, ...timedFollowUps];
+    setTimedFollowUps(updated);
+    await StorageService.saveTimedFollowUps(updated);
+  };
+
+  const updateTimedFollowUp = async (id: string, updates: Partial<TimedFollowUp>) => {
+    const updated = timedFollowUps.map((item) => {
+      if (item.id === id) {
+        const res = { ...item, ...updates };
+        if (updates.dueDate && updates.dueDate !== item.dueDate) {
+          res.notified = false;
+          res.snoozedUntil = undefined;
+        }
+        return res;
+      }
+      return item;
+    });
+    setTimedFollowUps(updated);
+    await StorageService.saveTimedFollowUps(updated);
+  };
+
+  const deleteTimedFollowUp = async (id: string) => {
+    if (activeRingingAlarm?.id === id) {
+      NotificationService.stopAlarmSound();
+      setActiveRingingAlarm(null);
+    }
+    const updated = timedFollowUps.filter((item) => item.id !== id);
+    setTimedFollowUps(updated);
+    await StorageService.saveTimedFollowUps(updated);
+  };
+
+  const completeTimedFollowUp = async (id: string) => {
+    if (activeRingingAlarm?.id === id) {
+      NotificationService.stopAlarmSound();
+      setActiveRingingAlarm(null);
+    }
+    const updated = timedFollowUps.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            status: 'completed' as const,
+            completedAt: Date.now(),
+            completedByName: user?.name || 'Yönetici',
+            notified: true,
+          }
+        : item
+    );
+    setTimedFollowUps(updated);
+    await StorageService.saveTimedFollowUps(updated);
+  };
+
+  const snoozeTimedFollowUp = async (id: string, minutes: number = 15) => {
+    NotificationService.stopAlarmSound();
+    setActiveRingingAlarm(null);
+    const newDueDate = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+    const updated = timedFollowUps.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            snoozedUntil: newDueDate,
+            notified: false,
+          }
+        : item
+    );
+    setTimedFollowUps(updated);
+    await StorageService.saveTimedFollowUps(updated);
+  };
+
+  const dismissAlarm = async () => {
+    NotificationService.stopAlarmSound();
+    if (activeRingingAlarm) {
+      const alarmId = activeRingingAlarm.id;
+      setActiveRingingAlarm(null);
+      const updated = timedFollowUps.map((item) =>
+        item.id === alarmId ? { ...item, notified: true } : item
+      );
+      setTimedFollowUps(updated);
+      await StorageService.saveTimedFollowUps(updated);
+    }
+  };
+
   const [lastReadTime, setLastReadTime] = useState<number>(() => {
     if (typeof window !== 'undefined' && user?.id) {
       const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
@@ -3611,6 +3786,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         a.checkInTime > lastReadTime ||
         (a.checkOutTime && a.checkOutTime > lastReadTime)
       ).length;
+
+      // 9. Timed follow-up alarms due
+      count += timedFollowUps.filter((item) => {
+        if (item.status !== 'pending') return false;
+        const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
+        return targetTime <= Date.now();
+      }).length;
     } else {
       // Staff
       // 1. Targeted notes newer than lastReadTime
@@ -3710,6 +3892,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     leaveRequests,
     attendanceRecords,
     adminReminders,
+    timedFollowUps,
     user,
     lastReadTime,
   ]);
@@ -3735,6 +3918,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         importCarilerFromExcelFile,
         exportCarilerToExcelFile,
         refreshCariler,
+        timedFollowUps,
+        activeRingingAlarm,
+        addTimedFollowUp,
+        updateTimedFollowUp,
+        deleteTimedFollowUp,
+        completeTimedFollowUp,
+        snoozeTimedFollowUp,
+        dismissAlarm,
         isLoading,
         activeToast,
         dismissToast,
