@@ -37,7 +37,7 @@ interface StorageContextType {
   isLoading: boolean;
   activeToast: { title: string; body: string; tab?: TabType; filter?: string } | null;
   dismissToast: () => void;
-  addLocation: (name: string) => Promise<void>;
+  addLocation: (name: string, cariName?: string) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
   updateTaskStatus: (locationId: string, taskId: string, status: TaskStatus) => Promise<void>;
   addCustomTaskToLocation: (locationId: string, taskName: string) => Promise<void>;
@@ -489,7 +489,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         { event: '*', schema: 'public', table: 'standard_tasks' },
         async () => {
           if (!isMounted) return;
-          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs] = await Promise.all([
+          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs, cariData] = await Promise.all([
             StorageService.getStandardTasks(),
             StorageService.getReturnWarrantyItems(),
             StorageService.getServices(),
@@ -501,6 +501,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             StorageService.getLeaveRequests(),
             StorageService.getSecurityLogs(),
             StorageService.getLocations(),
+            StorageService.getCarilerData(),
           ]);
           if (!isMounted) return;
           setStandardTasks(tasks);
@@ -519,6 +520,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setAdminReminders(reminders);
           setLeaveRequests(leaveReqs);
           setSecurityLogs(secLogs);
+          setCariler(cariData.cariler);
+          setCarilerUpdatedAt(cariData.updatedAt);
+          setCarilerTotal(cariData.total);
         }
       )
       .on(
@@ -1181,11 +1185,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Add location with creator tracking & Admin notification
-  const addLocation = async (name: string) => {
+  const addLocation = async (name: string, cariName?: string) => {
     if (!name.trim()) return;
     const newLocation: LocationItem = {
       id: generateId(),
       name: name.trim(),
+      cariName: cariName?.trim() || undefined,
       createdAt: Date.now(),
       createdBy: user?.id,
       createdByName: user?.name || user?.username || 'Yetkili',

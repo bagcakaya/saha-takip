@@ -96,6 +96,17 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   return (
     <>
       <div className={`bg-white dark:bg-slate-900 border rounded-3xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 group max-w-full overflow-hidden ${cardBorderClass()}`}>
+        {/* Cari / Müşteri Header Banner if available */}
+        {service.cariName && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-200/80 dark:border-blue-800/60 text-xs font-black text-blue-900 dark:text-blue-200">
+            <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span className="truncate">{service.cariName}</span>
+            <span className="ml-auto text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider shrink-0 bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 rounded-md">
+              Cari
+            </span>
+          </div>
+        )}
+
         {/* Top Row: Company Name & Badges */}
         <div className="flex items-start justify-between gap-2.5 min-w-0 w-full">
           <div className="min-w-0 flex-1 space-y-1">

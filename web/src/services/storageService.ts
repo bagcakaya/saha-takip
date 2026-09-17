@@ -1140,11 +1140,34 @@ export const StorageService = {
   },
 
   /**
-   * Retrieves Cari list data
+   * Retrieves Cari list data (Supabase cloud slot 15 + local IndexedDB cache)
    */
   async getCarilerData(): Promise<CariData> {
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
+    const slotId = this.getSlotId(15);
 
+    // 1. Try loading from cloud slot 15 (available for ALL companies)
+    try {
+      const { data: cloudData, notFound } = await loadChunkedSlot<CariData>(slotId);
+      if (cloudData && Array.isArray(cloudData.cariler) && cloudData.cariler.length > 0) {
+        await saveItem(localKey, cloudData);
+        return cloudData;
+      }
+      if (activeCompanyCode !== 'POLATLAR' && notFound) {
+        const emptyCari: CariData = {
+          updatedAt: null,
+          database: `${activeCompanyCode} Cariler`,
+          total: 0,
+          cariler: [],
+        };
+        await saveItem(localKey, emptyCari);
+        return emptyCari;
+      }
+    } catch (e) {
+      console.warn('Cloud cariler load error, falling back to cache:', e);
+    }
+
+    // 2. Check local cache (IndexedDB)
     if (activeCompanyCode !== 'POLATLAR') {
       try {
         const cached = await loadItem<CariData>(localKey);
@@ -1169,6 +1192,7 @@ export const StorageService = {
       return emptyCari;
     }
 
+    // 3. Fallback for POLATLAR (defaultCarilerData / cariler.json)
     const fallback: CariData = {
       updatedAt: (defaultCarilerData as any).updatedAt || new Date().toISOString(),
       database: 'POLATLAR2025',
@@ -1206,15 +1230,16 @@ export const StorageService = {
   },
 
   /**
-   * Saves updated Cari data to local cache
+   * Saves updated Cari data to local cache and cloud slot 15
    */
   async saveCarilerData(data: CariData): Promise<void> {
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
     await saveItem(localKey, data);
+    await saveChunkedSlot(this.getSlotId(15), data);
   },
 
   /**
-   * Parses an uploaded Excel (.xlsx) file and extracts Cari names
+   * Parses an uploaded Excel (.xlsx) file and extracts Cari names, saving to cloud slot 15
    */
   async importCarilerFromExcel(file: File): Promise<CariData> {
     const arrayBuffer = await file.arrayBuffer();
@@ -1255,13 +1280,14 @@ export const StorageService = {
     const sortedCariler = Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
     const result: CariData = {
       updatedAt: new Date().toISOString(),
-      database: 'Excel Yüklemesi',
+      database: activeCompanyCode === 'POLATLAR' ? 'POLATLAR2025 & Excel' : `${activeCompanyCode} Excel Yüklemesi`,
       total: sortedCariler.length,
       cariler: sortedCariler,
     };
 
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
     await saveItem(localKey, result);
+    await saveChunkedSlot(this.getSlotId(15), result);
     return result;
   },
 

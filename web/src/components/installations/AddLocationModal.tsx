@@ -3,12 +3,12 @@ import { Modal } from '../common/Modal';
 import { MessageCircle, Building2 } from 'lucide-react';
 import { WhatsappService } from '../../services/whatsappService';
 import { useAuth } from '../../context/AuthContext';
-import { CariListModal } from '../common/CariListModal';
+import { CariSelect } from '../common/CariSelect';
 
 interface AddLocationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (name: string) => Promise<void>;
+  onAdd: (name: string, cariName?: string) => Promise<void>;
 }
 
 export const AddLocationModal: React.FC<AddLocationModalProps> = ({
@@ -18,18 +18,18 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
 }) => {
   const { user } = useAuth();
   const [name, setName] = useState('');
-  const [isCariModalOpen, setIsCariModalOpen] = useState(false);
+  const [cariName, setCariName] = useState('');
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const locName = name.trim();
+    const locName = name.trim() || cariName.trim();
     if (!locName) return;
 
     try {
       setIsSubmitting(true);
-      await onAdd(locName);
+      await onAdd(locName, cariName.trim() || undefined);
       if (notifyWhatsapp) {
         WhatsappService.shareLocation({
           locationName: locName,
@@ -37,6 +37,7 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
         });
       }
       setName('');
+      setCariName('');
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -44,33 +45,44 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
   };
 
   return (
-    <>
-      <Modal isOpen={isOpen} onClose={onClose} title="Yeni Kurulum Yeri">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Firma / Lokasyon Adı
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsCariModalOpen(true)}
-                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Building2 className="w-3 h-3" />
-                <span>Cari Listesinden Seç</span>
-              </button>
-            </div>
-            <input
-              type="text"
-              list="cari-names-list"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Örn: 12 YAZILIM, ADA CAFE..."
-              autoFocus
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-            />
-          </div>
+    <Modal isOpen={isOpen} onClose={onClose} title="Yeni Kurulum Yeri">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Cari Selection (Optional) with Integrated Search in Dropdown - Görsel 2 */}
+        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-2">
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Building2 className="w-3.5 h-3.5 text-blue-500" />
+            <span>İlgili Cari / Müşteri (İsteğe Bağlı)</span>
+          </label>
+
+          <CariSelect
+            value={cariName}
+            onChange={(val) => {
+              setCariName(val);
+              if (!name.trim() || name === cariName) {
+                setName(val);
+              }
+            }}
+            placeholder="Açılan listeden cari seçin veya arayın..."
+          />
+
+          <span className="block text-[11px] text-slate-400">
+            💡 İsteğe bağlıdır. Cari seçilmezse boş geçilir; seçilirse personele en üstte gösterilir.
+          </span>
+        </div>
+
+        {/* Firma / Lokasyon Adı */}
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+            Firma / Lokasyon Adı *
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Örn: 12 YAZILIM, ADA CAFE..."
+            className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+          />
+        </div>
 
         {/* WhatsApp Notification Option */}
         <label className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer transition-colors hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40">
@@ -96,7 +108,7 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
           </button>
           <button
             type="submit"
-            disabled={!name.trim() || isSubmitting}
+            disabled={(!name.trim() && !cariName.trim()) || isSubmitting}
             className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
           >
             {isSubmitting ? (
@@ -111,13 +123,5 @@ export const AddLocationModal: React.FC<AddLocationModalProps> = ({
         </div>
       </form>
     </Modal>
-
-    {/* Cari Listesi Seçim Modalı */}
-    <CariListModal
-      isOpen={isCariModalOpen}
-      onClose={() => setIsCariModalOpen(false)}
-      onSelectCari={(selectedCari) => setName(selectedCari)}
-    />
-  </>
-);
+  );
 };

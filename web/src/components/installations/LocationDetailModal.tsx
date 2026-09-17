@@ -13,6 +13,7 @@ import {
   Check,
   X,
   RotateCcw,
+  Building2,
 } from 'lucide-react';
 import { LocationItem, TaskStatus } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
@@ -117,9 +118,16 @@ export const LocationDetailModal: React.FC<LocationDetailModalProps> = ({
                 <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
                   {location.name}
                 </h2>
-                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 block truncate">
-                  Lokasyon Detayları
-                </span>
+                {location.cariName ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 truncate">
+                    <Building2 className="w-3 h-3 shrink-0" />
+                    <span>{location.cariName}</span>
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 block truncate">
+                    Lokasyon Detayları
+                  </span>
+                )}
               </div>
             </div>
 

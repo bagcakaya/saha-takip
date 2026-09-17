@@ -1,9 +1,11 @@
 import React, { useRef, useState } from 'react';
 import { Building2, Download, Upload, Eye, CheckCircle2, Database } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
+import { useAuth } from '../../context/AuthContext';
 import { CariListModal } from '../common/CariListModal';
 
 export const CariSection: React.FC = () => {
+  const { user, company } = useAuth();
   const {
     cariler,
     carilerUpdatedAt,
@@ -11,6 +13,10 @@ export const CariSection: React.FC = () => {
     importCarilerFromExcelFile,
     exportCarilerToExcelFile,
   } = useStorage();
+
+  const compCode = (user?.companyCode || 'POLATLAR').toUpperCase();
+  const isPolatlar = compCode === 'POLATLAR';
+  const compName = company?.name || user?.companyName || compCode;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -25,7 +31,7 @@ export const CariSection: React.FC = () => {
       setIsUploading(true);
       setUploadMessage(null);
       const count = await importCarilerFromExcelFile(file);
-      setUploadMessage(`${count} Cari başarıyla içe aktarıldı!`);
+      setUploadMessage(`${count} Cari başarıyla içe aktarıldı ve buluta kaydedildi!`);
       setTimeout(() => setUploadMessage(null), 4000);
     } catch (err: any) {
       alert('Excel dosyası yüklenirken hata oluştu: ' + (err?.message || 'Bilinmeyen hata'));
@@ -61,7 +67,7 @@ export const CariSection: React.FC = () => {
                 Cari Hesap Veritabanı
               </h3>
               <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                POLATLAR2025 & Excel Entegrasyonu
+                {isPolatlar ? 'POLATLAR2025 & Excel Entegrasyonu' : `${compName} Excel Cari Entegrasyonu`}
               </span>
             </div>
           </div>
@@ -72,8 +78,16 @@ export const CariSection: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-          SSMS üzerindeki <strong className="text-slate-700 dark:text-slate-300">POLATLAR2025</strong> veritabanından çekilen cari listesi. Masaüstünüzdeki{' '}
-          <strong className="text-blue-600 dark:text-blue-400">Cari_Guncelle.bat</strong> dosyasını çalıştırarak veritabanındaki yeni carileri Excel'e ve uygulamaya tek tıkla senkronize edebilirsiniz.
+          {isPolatlar ? (
+            <>
+              SSMS üzerindeki <strong className="text-slate-700 dark:text-slate-300">POLATLAR2025</strong> veritabanından çekilen cari listesi. Masaüstünüzdeki{' '}
+              <strong className="text-blue-600 dark:text-blue-400">Cari_Guncelle.bat</strong> dosyasını çalıştırarak veya Excel yükleyerek veritabanındaki yeni carileri uygulamaya tek tıkla senkronize edebilirsiniz.
+            </>
+          ) : (
+            <>
+              <strong className="text-slate-700 dark:text-slate-300">{compName}</strong> firmasına ait cari hesap listesi. Muhasebe veya ERP programınızdan aldığınız cari excel dosyasını (.xlsx) yükleyerek İş Emirleri, Servisler, Kurulumlar ve İade/Garanti modüllerinde carilerinizi anında kullanabilirsiniz.
+            </>
+          )}
         </p>
 
         {formattedDate && (
@@ -83,12 +97,12 @@ export const CariSection: React.FC = () => {
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+        {/* Action Buttons (Görsel-1 Layout) */}
+        <div className="space-y-2 pt-1">
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
           >
             <Eye className="w-4 h-4" />
             <span>Listeyi İncele / Ara</span>
@@ -97,10 +111,20 @@ export const CariSection: React.FC = () => {
           <button
             type="button"
             onClick={exportCarilerToExcelFile}
-            className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-700/70 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
           >
             <Download className="w-4 h-4 text-emerald-500" />
             <span>Excel İndir (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Upload className="w-3.5 h-3.5 text-blue-500" />
+            <span>{isUploading ? 'Yükleniyor...' : 'Farklı Bir Excel Dosyası Yükle (.xlsx)'}</span>
           </button>
         </div>
 
@@ -112,16 +136,6 @@ export const CariSection: React.FC = () => {
           accept=".xlsx,.xls"
           className="hidden"
         />
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-400 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <Upload className="w-3.5 h-3.5 text-blue-500" />
-          <span>{isUploading ? 'Yükleniyor...' : "Farklı Bir Excel Dosyası Yükle (.xlsx)"}</span>
-        </button>
 
         {uploadMessage && (
           <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2 animate-in fade-in">

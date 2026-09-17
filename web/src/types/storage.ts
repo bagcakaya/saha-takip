@@ -10,6 +10,7 @@ export interface Task {
 export interface LocationItem {
   id: string;
   name: string;
+  cariName?: string; // İlgili Cari / Müşteri Adı (İsteğe bağlı)
   address?: string;
   notes?: string;
   photos?: string[]; // base64 / data URLs
@@ -112,6 +113,7 @@ export interface ReturnWarrantyItem {
 export interface ServiceItem {
   id: string;
   companyName: string; // Firma / Müşteri Adı
+  cariName?: string;   // İlgili Cari / Müşteri Adı (İsteğe bağlı)
   location?: string;   // Lokasyon / Adres
   latitude?: number;   // Coğrafi Enlem
   longitude?: number;  // Coğrafi Boylam

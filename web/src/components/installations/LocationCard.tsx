@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Clock,
   AlertCircle,
+  Building2,
 } from 'lucide-react';
 import { LocationItem } from '../../types/storage';
 import { ProgressBar } from '../common/ProgressBar';
@@ -139,6 +140,17 @@ export const LocationCard: React.FC<LocationCardProps> = ({
     >
       {/* Top Section */}
       <div className="space-y-3 min-w-0 w-full">
+        {/* Cari / Müşteri Header Banner if available */}
+        {location.cariName && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-200/80 dark:border-blue-800/60 text-xs font-black text-blue-900 dark:text-blue-200">
+            <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span className="truncate">{location.cariName}</span>
+            <span className="ml-auto text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider shrink-0 bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 rounded-md">
+              Cari
+            </span>
+          </div>
+        )}
+
         {/* Header with Name and Status Badge */}
         <div className="flex items-start justify-between gap-2.5 min-w-0 w-full">
           <div className="flex-1 min-w-0">

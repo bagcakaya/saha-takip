@@ -115,10 +115,11 @@ export const ServicesView: React.FC = () => {
 
     return list.filter((srv) => {
       const matchCompany = srv.companyName.toLowerCase().includes(q);
+      const matchCari = srv.cariName ? srv.cariName.toLowerCase().includes(q) : false;
       const matchLocation = srv.location ? srv.location.toLowerCase().includes(q) : false;
       const matchWork = srv.workDone.toLowerCase().includes(q);
       const matchStaff = srv.createdByName ? srv.createdByName.toLowerCase().includes(q) : false;
-      return matchCompany || matchLocation || matchWork || matchStaff;
+      return matchCompany || matchCari || matchLocation || matchWork || matchStaff;
     });
   }, [sortedServices, activeFilter, searchQuery]);
 
@@ -134,6 +135,7 @@ export const ServicesView: React.FC = () => {
 
   const handleSaveService = async (data: {
     companyName: string;
+    cariName?: string;
     location?: string;
     latitude?: number;
     longitude?: number;

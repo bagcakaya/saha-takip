@@ -158,6 +158,7 @@ export const InstallationsView: React.FC = () => {
       // 2. Search Query
       const matchesSearch =
         loc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (loc.cariName && loc.cariName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (loc.address && loc.address.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (loc.createdByName && loc.createdByName.toLowerCase().includes(searchQuery.toLowerCase()));
 
