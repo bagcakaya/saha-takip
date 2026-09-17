@@ -522,7 +522,13 @@ export const OneSignalService = {
   },
 
   /**
+   * Memory cache to debounce duplicate push requests within 4 seconds
+   */
+  recentPushRequests: new Map<string, number>(),
+
+  /**
    * Sends a hardware push notification via OneSignal REST API directly to locked phones
+   * Features: Single Canonical Dispatch, APNs collapse_id deduplication, and memory debouncing
    */
   async sendPushNotification(params: {
     title: string;
@@ -534,6 +540,7 @@ export const OneSignalService = {
     url?: string;
     sendAfter?: string;
     delaySeconds?: number;
+    collapseId?: string;
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     const {
       title,
@@ -545,6 +552,7 @@ export const OneSignalService = {
       url,
       sendAfter,
       delaySeconds,
+      collapseId: rawCollapseId,
     } = params;
 
     const targetCompanyCode = (
@@ -573,6 +581,21 @@ export const OneSignalService = {
       ? targetSubscriptionIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
+    // Short-term deduplication cache (4-second window) to block rapid repeated clicks / double-calls
+    const dedupKey = `${title}__${message}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}`;
+    const now = Date.now();
+    const lastSent = this.recentPushRequests.get(dedupKey);
+    if (lastSent && now - lastSent < 4000) {
+      console.log('Skipping duplicate push notification within 4s debounce window:', dedupKey);
+      return { success: true, data: { deduped: true } };
+    }
+    this.recentPushRequests.set(dedupKey, now);
+    if (this.recentPushRequests.size > 100) {
+      for (const [k, v] of this.recentPushRequests.entries()) {
+        if (now - v > 30000) this.recentPushRequests.delete(k);
+      }
+    }
+
     // Collect any cached hardware player IDs for target user IDs
     const cachedSubIds: string[] = [];
     if (typeof localStorage !== 'undefined') {
@@ -600,6 +623,17 @@ export const OneSignalService = {
       // ignore
     }
 
+    // Format APNs-compliant collapse_id (max 60 chars, alphanumeric + underscores)
+    // Ensures iOS APNs collapses identical lock-screen notifications into 1
+    let collapseId = rawCollapseId;
+    if (!collapseId) {
+      const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
+      const minuteBucket = Math.floor(Date.now() / 60000);
+      collapseId = `${safeTitle}_${minuteBucket}`;
+    } else {
+      collapseId = collapseId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+    }
+
     const basePayload: Record<string, any> = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
       headings: { en: title, tr: title },
@@ -618,6 +652,8 @@ export const OneSignalService = {
       priority: 10,
       ttl: 259200,
       ios_sound: 'default',
+      collapse_id: collapseId,
+      web_push_topic: collapseId,
     };
 
     if (sendAfter) {
@@ -628,28 +664,7 @@ export const OneSignalService = {
     }
 
     try {
-      let finalResult: any = null;
-
-      // 1. Direct Hardware Subscription Targeting (Guaranteed delivery to locked phones)
-      if (allHardwareSubIds.length > 0) {
-        const subPayload = {
-          ...basePayload,
-          include_player_ids: allHardwareSubIds,
-        };
-        const subRes = await this._postNotification(subPayload).catch((e) => {
-          console.warn('Direct subscription push warning:', e);
-          return null;
-        });
-        if (subRes && subRes.id) {
-          finalResult = subRes;
-          // If only specific hardware target was requested, return early
-          if (cleanIds.length === 0) {
-            return { success: true, data: subRes };
-          }
-        }
-      }
-
-      // 2. All subscribers (Filtered strictly by company_code)
+      // 1. Target: All subscribers of this company (Single blast by company_code)
       if (targetMode === 'all') {
         const payload = {
           ...basePayload,
@@ -661,7 +676,7 @@ export const OneSignalService = {
         return { success: true, data: res };
       }
 
-      // 3. Admin role targeting (Filtered strictly by company_code + role=admin)
+      // 2. Target: All admins of this company (Single blast by role=admin)
       if (targetMode === 'admin') {
         const payload = {
           ...basePayload,
@@ -674,46 +689,88 @@ export const OneSignalService = {
         return { success: true, data: res };
       }
 
-      // 4. Custom users: Dual Routing (external_id alias + tag fallback)
-      if (cleanIds.length > 0) {
-        const aliasPayload = {
+      // 3. Target: Explicit Hardware Player IDs ONLY (e.g. specific device test)
+      if (cleanSubIds.length > 0 && cleanIds.length === 0) {
+        const subPayload = {
           ...basePayload,
-          include_aliases: { external_id: cleanIds },
-          target_channel: 'push',
+          include_player_ids: cleanSubIds,
         };
-        const aliasRes = await this._postNotification(aliasPayload).catch((e) => {
-          console.warn('Alias push warning:', e);
-          return null;
-        });
-        if (aliasRes && aliasRes.id) {
-          finalResult = aliasRes;
+        const subRes = await this._postNotification(subPayload);
+        return { success: true, data: subRes };
+      }
+
+      // 4. Target: Specific Users (Single-channel with waterfall fallback)
+      if (cleanIds.length > 0) {
+        // Step 4A: OneSignal external_id alias (Primary official method)
+        try {
+          const aliasPayload = {
+            ...basePayload,
+            include_aliases: { external_id: cleanIds },
+            target_channel: 'push',
+          };
+          const aliasRes = await this._postNotification(aliasPayload);
+          if (aliasRes && aliasRes.id) {
+            // Successfully sent via alias! Return immediately to prevent duplicates.
+            return { success: true, data: aliasRes };
+          }
+        } catch (aliasErr) {
+          console.warn('OneSignal alias push failed, falling back to tag:', aliasErr);
         }
 
-        // Tag fallback
+        // Step 4B: Tag fallback (ONLY if alias request failed)
         try {
+          let tagPayload: Record<string, any>;
           if (cleanIds.length === 1) {
-            const tagPayload = {
+            tagPayload = {
               ...basePayload,
               filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
             };
-            const tagRes = await this._postNotification(tagPayload);
-            if (!finalResult && tagRes?.id) finalResult = tagRes;
-          } else if (cleanIds.length > 1) {
+          } else {
             const filterArr: any[] = [];
             cleanIds.forEach((id, idx) => {
               if (idx > 0) filterArr.push({ operator: 'OR' });
               filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
             });
-            const tagPayload = { ...basePayload, filters: filterArr };
-            const tagRes = await this._postNotification(tagPayload);
-            if (!finalResult && tagRes?.id) finalResult = tagRes;
+            tagPayload = { ...basePayload, filters: filterArr };
+          }
+          const tagRes = await this._postNotification(tagPayload);
+          if (tagRes && tagRes.id) {
+            return { success: true, data: tagRes };
           }
         } catch (tagErr) {
-          console.warn('Tag fallback push warning:', tagErr);
+          console.warn('OneSignal tag push failed, falling back to cached hardware ID:', tagErr);
         }
+
+        // Step 4C: Cached Hardware Subscription fallback (ONLY if alias AND tag failed)
+        if (allHardwareSubIds.length > 0) {
+          try {
+            const subPayload = {
+              ...basePayload,
+              include_player_ids: allHardwareSubIds,
+            };
+            const subRes = await this._postNotification(subPayload);
+            if (subRes && subRes.id) {
+              return { success: true, data: subRes };
+            }
+          } catch (subErr) {
+            console.warn('OneSignal hardware fallback failed:', subErr);
+          }
+        }
+
+        return { success: false, error: 'Kullanıcıya bildirim iletilemedi.' };
       }
 
-      return { success: true, data: finalResult || { ok: true } };
+      // 5. Fallback: Any cached hardware ID
+      if (allHardwareSubIds.length > 0) {
+        const subPayload = {
+          ...basePayload,
+          include_player_ids: allHardwareSubIds,
+        };
+        const subRes = await this._postNotification(subPayload);
+        return { success: true, data: subRes };
+      }
+
+      return { success: false, error: 'Hedef kullanıcı veya cihaz bulunamadı.' };
     } catch (err: any) {
       console.warn('OneSignal push gönderim hatası:', err);
       return { success: false, error: err?.message || 'Bildirim iletilemedi.' };

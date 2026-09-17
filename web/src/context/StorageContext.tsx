@@ -1627,13 +1627,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetMode: 'custom',
       targetUserIds: adminIds,
       url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
-    });
-
-    await OneSignalService.sendPushNotification({
-      title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
-      targetMode: 'admin',
-      url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+      collapseId: `loc_comp_${targetLocation.id}`,
     });
   };
 
@@ -1645,7 +1639,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetLoc = allLocations.find((l) => l.id === id);
-    if (!targetLoc) return;
+    if (!targetLoc || targetLoc.status === 'approved') return;
 
     const approvedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -1687,6 +1681,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
+        collapseId: `loc_app_${id}`,
       });
     }
   };
@@ -1699,7 +1694,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetLoc = allLocations.find((l) => l.id === id);
-    if (!targetLoc) return;
+    if (!targetLoc || targetLoc.status === 'rejected') return;
 
     const rejectedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -1743,6 +1738,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
+        collapseId: `loc_rej_${id}`,
       });
     }
   };
@@ -1924,21 +1920,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
     const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
 
-    // 1. Direct hardware push to admin user IDs
     await OneSignalService.sendPushNotification({
       title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
       message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
       targetMode: 'custom',
       targetUserIds: adminIds,
       url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-    });
-
-    // 2. Broadcast to admin role devices
-    await OneSignalService.sendPushNotification({
-      title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
-      targetMode: 'admin',
-      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+      collapseId: `note_comp_${targetNote.id}`,
     });
   };
 
@@ -1950,7 +1938,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetNote = allNotes.find((n) => n.id === id);
-    if (!targetNote) return;
+    if (!targetNote || targetNote.status === 'approved') return;
 
     const approvedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -2001,6 +1989,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
+        collapseId: `note_app_${id}`,
       });
     }
   };
@@ -2013,7 +2002,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetNote = allNotes.find((n) => n.id === id);
-    if (!targetNote) return;
+    if (!targetNote || targetNote.status === 'rejected') return;
 
     const rejectedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -2066,6 +2055,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
+        collapseId: `note_rej_${id}`,
       });
     }
   };
@@ -2116,6 +2106,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'all',
         companyCode: compCode,
         url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
+        collapseId: `admin_rem_${newReminder.id}`,
       }).catch((err) => console.warn('OneSignal push error:', err));
     }
   };
@@ -2165,6 +2156,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds: [targetReminder.createdBy],
         companyCode: compCode,
         url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
+        collapseId: `rem_read_${id}_${user.id}`,
       }).catch((err) => console.warn('OneSignal read push error:', err));
     }
   };
@@ -2255,21 +2247,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const staffName = user?.name || user?.username || 'Saha Personeli';
       const locText = newService.location ? ` (${newService.location})` : '';
 
-      // 1. Direct hardware push to all Admin User IDs
+      // Direct hardware push to all Admin User IDs
       await OneSignalService.sendPushNotification({
         title: '🔧 Yeni Servis Kaydı!',
         message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
         targetMode: 'custom',
         targetUserIds: adminIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=services',
-      });
-
-      // 2. Broadcast to any admin device by role tag
-      await OneSignalService.sendPushNotification({
-        title: '🔧 Yeni Servis Kaydı!',
-        message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
-        targetMode: 'admin',
-        url: 'https://saha-takip-beige.vercel.app/?tab=services',
+        collapseId: `srv_new_${newService.id}`,
       });
     }
   };
@@ -2362,13 +2347,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetMode: 'custom',
       targetUserIds: adminIds,
       url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=pending_approval',
-    });
-
-    await OneSignalService.sendPushNotification({
-      title: '🔧 Servis Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, "${srvSnippet}" servis kaydını tamamladı ve onayınıza sundu.${srvExplanation}`,
-      targetMode: 'admin',
-      url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=pending_approval',
+      collapseId: `srv_comp_${targetService.id}`,
     });
   };
 
@@ -2380,7 +2359,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetService = allServices.find((s) => s.id === id);
-    if (!targetService) return;
+    if (!targetService || targetService.status === 'approved') return;
 
     const approvedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -2422,6 +2401,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=approved',
+        collapseId: `srv_app_${id}`,
       });
     }
   };
@@ -2434,7 +2414,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const targetService = allServices.find((s) => s.id === id);
-    if (!targetService) return;
+    if (!targetService || targetService.status === 'rejected') return;
 
     const rejectedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
@@ -2478,6 +2458,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode: 'custom',
         targetUserIds: targetRecipientIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=rejected',
+        collapseId: `srv_rej_${id}`,
       });
     }
   };

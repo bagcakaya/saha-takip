@@ -168,6 +168,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         targetUserIds: [user.id],
         targetSubscriptionIds: targetSubIds,
         url: 'https://saha-takip-beige.vercel.app',
+        collapseId: `test_self_${Date.now()}`,
       });
 
       console.log('Test push notification response:', res);
@@ -236,6 +237,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         targetSubscriptionIds: targetSubIds,
         url: 'https://saha-takip-beige.vercel.app',
         delaySeconds: 5,
+        collapseId: `test_lock_${Date.now()}`,
       });
 
       if (res && res.success) {
@@ -277,9 +279,10 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         title: '📱 Cihaza Özel Test Bildirimi',
         message: `Merhaba! Bu bildirim "${dev.deviceName}" (${dev.deviceId}) cihazına özel olarak iletildi.`,
         targetMode: 'custom',
-        targetUserIds: dev.userId ? [dev.userId] : undefined,
+        targetUserIds: dev.pushSubscriptionId ? undefined : dev.userId ? [dev.userId] : undefined,
         targetSubscriptionIds: dev.pushSubscriptionId ? [dev.pushSubscriptionId] : undefined,
         url: 'https://saha-takip-beige.vercel.app',
+        collapseId: `test_dev_${dev.deviceId}`,
       });
 
       if (res && res.success) {

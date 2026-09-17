@@ -60,6 +60,15 @@ export default async function handler(req, res) {
     payload.priority = 10;
     payload.ios_sound = 'default';
 
+    // APNs deduplication via collapse_id & web_push_topic
+    if (payload.collapse_id) {
+      const cleanCollapse = String(payload.collapse_id)
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .slice(0, 60);
+      payload.collapse_id = cleanCollapse;
+      payload.web_push_topic = cleanCollapse;
+    }
+
     if (delaySeconds > 0 && delaySeconds <= 30) {
       await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
     }
