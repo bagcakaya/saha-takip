@@ -16,6 +16,7 @@ import {
   Megaphone,
   ShieldAlert,
   Store,
+  Clock,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -50,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     lastReadTime,
     markAllAsRead,
     badgeCount,
+    timedFollowUps,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -121,7 +123,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const unreadRemindersCount = React.useMemo(() => {
     if (!user?.id || isAdmin) return 0;
     return adminReminders.filter((r) => !r.readBy?.includes(user.id)).length;
-  }, [adminReminders, user, isAdmin]);
+  }, [adminReminders, user?.id, isAdmin]);
+
+  const dueTimedFollowUpsCount = React.useMemo(() => {
+    const now = Date.now();
+    return timedFollowUps.filter(
+      (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() <= now
+    ).length;
+  }, [timedFollowUps]);
+
+  const pendingTimedFollowUpsCount = React.useMemo(() => {
+    const now = Date.now();
+    return timedFollowUps.filter(
+      (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() > now
+    ).length;
+  }, [timedFollowUps]);
 
   return (
     <>
@@ -309,6 +325,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 )}
               </div>
             </button>
+
+            {/* 4.5. Süreli Takipler (Yalnızca Yönetici) */}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('timed_follow_ups')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
+                  activeTab === 'timed_follow_ups'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Clock className="w-4 h-4" />
+                  <span>Süreli Takipler</span>
+                </div>
+                {dueTimedFollowUpsCount > 0 ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-red-600 text-white animate-pulse">
+                    {dueTimedFollowUpsCount} Alarm
+                  </span>
+                ) : pendingTimedFollowUpsCount > 0 ? (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                      activeTab === 'timed_follow_ups'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    {pendingTimedFollowUpsCount}
+                  </span>
+                ) : null}
+              </button>
+            )}
 
             {/* 5. Hatırlatmalar (Yönetici Talimatları) */}
             <button

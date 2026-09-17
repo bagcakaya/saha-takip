@@ -9,7 +9,7 @@ import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { useStorage } from '../../context/StorageContext';
 
-export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'reminders' | 'returns' | 'logs' | 'template';
+export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template';
 
 interface HeaderProps {
   activeTab: TabType;

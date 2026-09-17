@@ -15,6 +15,7 @@ import { HomeDashboardView } from './views/HomeDashboardView';
 import { StaffTrackingView } from './views/StaffTrackingView';
 import { RemindersView } from './views/RemindersView';
 import { BranchesView } from './views/BranchesView';
+import { TimedFollowUpsView } from './views/TimedFollowUpsView';
 import { LoginView } from './views/LoginView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
@@ -33,6 +34,7 @@ const MainApp: React.FC = () => {
     'services',
     'notes',
     'staff_tracking',
+    'timed_follow_ups',
     'reminders',
     'returns',
     'logs',
@@ -233,6 +235,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Giriş & Çıkış Takibi',
           title: 'Personel Takibi',
         };
+      case 'timed_follow_ups':
+        return {
+          subtitle: 'Zaman Ayarlı Cari Alarmları',
+          title: 'Süreli Takipler',
+        };
       case 'reminders':
         return {
           subtitle: 'Yönetici Talimat & Prosedürleri',
@@ -296,6 +303,12 @@ const MainApp: React.FC = () => {
           {activeTab === 'services' && <ServicesView />}
           {activeTab === 'notes' && <NotesView />}
           {activeTab === 'staff_tracking' && <StaffTrackingView />}
+          {activeTab === 'timed_follow_ups' &&
+            (isAdmin ? (
+              <TimedFollowUpsView />
+            ) : (
+              <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+            ))}
           {activeTab === 'reminders' && <RemindersView />}
           {activeTab === 'returns' && <ReturnWarrantyView />}
           {activeTab === 'logs' && <SecurityLogsView />}

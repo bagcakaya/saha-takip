@@ -13,6 +13,7 @@ import {
   Megaphone,
   ShieldAlert,
   Store,
+  Clock,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin } from '../types/auth';
@@ -21,7 +22,6 @@ import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationStatusModal } from '../components/common/NotificationStatusModal';
-import { TimedFollowUpsSection } from '../components/timedFollowUps/TimedFollowUpsSection';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -40,6 +40,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     adminReminders,
     securityLogs,
     unreadLogsCount,
+    timedFollowUps,
   } = useStorage();
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
@@ -124,6 +125,14 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     (r) => !r.readBy || !r.readBy.includes(user?.id || '')
   ).length;
 
+  const now = Date.now();
+  const dueTimedFollowUpsCount = timedFollowUps.filter(
+    (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() <= now
+  ).length;
+  const pendingTimedFollowUpsCount = timedFollowUps.filter(
+    (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() > now
+  ).length;
+
   const todayStr = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
     day: 'numeric',
@@ -199,9 +208,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         </div>
       )}
 
-      {/* Süreli Cari Takipleri & Alarmlar (Sadece Yöneticilere Özel) */}
-      {isAdmin && <TimedFollowUpsSection />}
-
       {/* Section Title */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
@@ -211,7 +217,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           </h3>
         </div>
         <span className="text-xs font-semibold text-slate-400">
-          {isAdmin ? '10 Ana Bölüm' : '8 Ana Bölüm'}
+          {isAdmin ? '11 Ana Bölüm' : '8 Ana Bölüm'}
         </span>
       </div>
 
@@ -470,6 +476,46 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
           <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
         </button>
+
+        {/* 4.5. Süreli Takipler (Yalnızca Yönetici) - Amber / Orange Gradient Square Card */}
+        {isAdmin && (
+          <button
+            onClick={() => onNavigate('timed_follow_ups')}
+            className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-amber-600 via-orange-700 to-amber-900 text-white border border-amber-400/30 cursor-pointer"
+          >
+            {/* Top Row */}
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner group-hover:rotate-6 transition-transform">
+                <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-amber-200" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                {dueTimedFollowUpsCount > 0 ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-red-500 text-white border border-red-300 shadow-md flex items-center gap-1 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                    {dueTimedFollowUpsCount} Alarm
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-white/20 text-white border border-white/30 backdrop-blur-xs">
+                    {pendingTimedFollowUpsCount} Bekleyen
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Content */}
+            <div className="space-y-1 z-10">
+              <h4 className="text-sm sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+                <span>Süreli Takipler</span>
+                <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+              </h4>
+              <p className="text-[10px] sm:text-xs text-amber-100/90 font-medium line-clamp-2 leading-relaxed">
+                Cari bazlı alarmlar, randevu ve zaman ayarlı iş hatırlatıcıları
+              </p>
+            </div>
+
+            <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
+          </button>
+        )}
 
         {/* 5. Hatırlatmalar - Indigo / Purple Gradient Square Card */}
         <button
