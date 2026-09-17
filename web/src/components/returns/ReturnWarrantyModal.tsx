@@ -46,6 +46,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
   const [serialNumberPhoto, setSerialNumberPhoto] = useState<string>('');
   const [trackingCodePhoto, setTrackingCodePhoto] = useState<string>('');
   const [notes, setNotes] = useState('');
+  const [followUpNote, setFollowUpNote] = useState('');
   const [status, setStatus] = useState<ReturnWarrantyStatus>('pending');
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [hasCustomReminder, setHasCustomReminder] = useState(false);
@@ -70,6 +71,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       setSerialNumberPhoto(editingItem.serialNumberPhoto || '');
       setTrackingCodePhoto(editingItem.trackingCodePhoto || '');
       setNotes(editingItem.notes || '');
+      setFollowUpNote(editingItem.followUpNote || '');
       setStatus(editingItem.status);
 
       const d = new Date(editingItem.sentDate);
@@ -104,6 +106,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
       setSerialNumberPhoto('');
       setTrackingCodePhoto('');
       setNotes('');
+      setFollowUpNote('');
       setStatus('pending');
       setDefaultDateTime();
       initDefaultReminder();
@@ -234,6 +237,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
 
     try {
       setIsSubmitting(true);
+      const isNewFollowUp = followUpNote.trim() && followUpNote.trim() !== (editingItem?.followUpNote || '');
       await onSave({
         type,
         companyName: companyName.trim(),
@@ -247,6 +251,9 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
         status,
         reminderDate,
         reminderActive,
+        followUpNote: followUpNote.trim() || undefined,
+        followUpDate: isNewFollowUp ? new Date().toISOString() : editingItem?.followUpDate,
+        followUpByName: isNewFollowUp ? (user?.name || user?.username || 'Yetkili') : editingItem?.followUpByName,
       });
 
       if (notifyWhatsapp) {
@@ -258,6 +265,7 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
           serialNumber: serialNumber.trim() || undefined,
           trackingCode: trackingCode.trim() || undefined,
           notes: notes.trim() || undefined,
+          followUpNote: followUpNote.trim() || undefined,
           staffName: user?.name || user?.username || 'Yetkili',
         });
       }
@@ -609,6 +617,24 @@ export const ReturnWarrantyModal: React.FC<ReturnWarrantyModalProps> = ({
             placeholder="Arıza nedeni, ürün modeli veya diğer detaylar..."
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium resize-none"
           />
+        </div>
+
+        {/* Follow-up / 7-Day Stage Explanation */}
+        <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-900/50 space-y-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span>Süreç Takip / Aşama Açıklaması (7 Gün Sonu Durumu)</span>
+          </label>
+          <textarea
+            rows={2}
+            value={followUpNote}
+            onChange={(e) => setFollowUpNote(e.target.value)}
+            placeholder="Takibin ne aşamada olduğuna dair açıklama (örn: Servisle görüşüldü, parça bekleniyor / kargoya verildi...)"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-800/80 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs sm:text-sm font-medium resize-none"
+          />
+          <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 font-medium">
+            💡 7 günlük takip süresi dolduğunda servisten veya firmadan aldığınız son aşama durumunu buraya kaydedebilirsiniz.
+          </p>
         </div>
 
         {/* Status Toggle if Editing */}

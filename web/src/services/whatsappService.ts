@@ -103,10 +103,11 @@ export const WhatsappService = {
     serialNumber?: string;
     trackingCode?: string;
     notes?: string;
+    followUpNote?: string;
     staffName: string;
     targetPhone?: string;
   }): void {
-    const { type, companyName, cariName, sentDate, serialNumber, trackingCode, notes, staffName, targetPhone } = params;
+    const { type, companyName, cariName, sentDate, serialNumber, trackingCode, notes, followUpNote, staffName, targetPhone } = params;
 
     const isWarranty = type === 'warranty';
     const typeTitle = isWarranty ? '🛡️ *GARANTİ GÖNDERİM BİLDİRİMİ*' : '🔄 *İADE GÖNDERİM BİLDİRİMİ*';
@@ -125,7 +126,8 @@ export const WhatsappService = {
       serialNumber ? `🔢 *Seri No:* ${serialNumber}` : '',
       trackingCode ? `📦 *Kargo Takip Kodu:* ${trackingCode}` : '',
       notes ? `📝 *Açıklama:* ${notes}` : '',
-      isWarranty ? '⏰ *Garanti Takip:* 20 gün sonra durum sorgulanacaktır.' : '',
+      followUpNote ? `⏳ *Süreç Takip / Aşama Durumu:* ${followUpNote}` : '',
+      '⏰ *Süreç Takip:* 7 gün sonra durum sorgulanacaktır.',
       `👤 *İşlemi Yapan:* ${staffName}`,
       '━━━━━━━━━━━━━━━━━━━',
       '🔗 *Saha Takip Paneli:*',

@@ -108,6 +108,10 @@ export interface ReturnWarrantyItem {
   createdAt: number;
   createdBy?: string;
   createdByName?: string;
+  // 7 gün sonu / Süreç Takip Aşama Açıklaması
+  followUpNote?: string;
+  followUpDate?: string; // ISO string
+  followUpByName?: string;
 }
 
 export interface ServiceItem {

@@ -10,11 +10,13 @@ import {
   Boxes,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
+import { useAuth } from '../context/AuthContext';
 import { ReturnWarrantyCard } from '../components/returns/ReturnWarrantyCard';
 import { ReturnWarrantyModal } from '../components/returns/ReturnWarrantyModal';
 import { ReturnWarrantyItem } from '../types/storage';
 
 export const ReturnWarrantyView: React.FC = () => {
+  const { user } = useAuth();
   const {
     returnWarrantyItems,
     isLoading,
@@ -68,7 +70,8 @@ export const ReturnWarrantyView: React.FC = () => {
         (item.serialNumber && item.serialNumber.toLowerCase().includes(q)) ||
         (item.trackingCode && item.trackingCode.toLowerCase().includes(q)) ||
         (item.createdByName && item.createdByName.toLowerCase().includes(q)) ||
-        (item.notes && item.notes.toLowerCase().includes(q));
+        (item.notes && item.notes.toLowerCase().includes(q)) ||
+        (item.followUpNote && item.followUpNote.toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
 
@@ -260,6 +263,13 @@ export const ReturnWarrantyView: React.FC = () => {
               onToggleStatus={() => {
                 const newStatus = item.status === 'completed' ? 'pending' : 'completed';
                 updateReturnWarrantyItem(item.id, { status: newStatus });
+              }}
+              onUpdateFollowUp={async (note: string) => {
+                await updateReturnWarrantyItem(item.id, {
+                  followUpNote: note.trim() || undefined,
+                  followUpDate: note.trim() ? new Date().toISOString() : undefined,
+                  followUpByName: note.trim() ? (user?.name || user?.username || 'Yetkili') : undefined,
+                });
               }}
             />
           ))}

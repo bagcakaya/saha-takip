@@ -656,6 +656,9 @@ export const StorageService = {
               createdAt: Number(row.created_at) || Date.now(),
               createdBy: row.created_by || undefined,
               createdByName: row.created_by_name || undefined,
+              followUpNote: (row as any).follow_up_note || fb?.followUpNote || undefined,
+              followUpDate: (row as any).follow_up_date || fb?.followUpDate || undefined,
+              followUpByName: (row as any).follow_up_by_name || fb?.followUpByName || undefined,
             };
           });
 
@@ -718,6 +721,9 @@ export const StorageService = {
           created_at: item.createdAt,
           created_by: item.createdBy || null,
           created_by_name: item.createdByName || null,
+          follow_up_note: item.followUpNote || null,
+          follow_up_date: item.followUpDate || null,
+          follow_up_by_name: item.followUpByName || null,
         }));
 
         if (fullRows.length > 0) {
