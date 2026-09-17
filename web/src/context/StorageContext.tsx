@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem } from '../types/storage';
-import { isUserAdmin } from '../types/auth';
+import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -114,7 +114,7 @@ interface StorageContextType {
     radiusMeters?: number
   ) => Promise<void>;
   addBranch: (
-    branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'>
+    branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }
   ) => Promise<Branch>;
   updateBranch: (id: string, updates: Partial<Branch>) => Promise<void>;
   deleteBranch: (id: string) => Promise<void>;
@@ -2373,12 +2373,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Branch CRUD operations
   const addBranch = async (
-    branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'>
+    branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }
   ): Promise<Branch> => {
-    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!canUserAddBranch(user)) {
+      alert('Şube ekleme yetkisi sadece ve sadece POLATLAR firmasının yöneticileri olan admin ve murat kullanıcılarına aittir.');
+      throw new Error('Unauthorized');
+    }
+
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetCompCode = (branchData.companyCode || currentCompCode).trim().toUpperCase();
+
     const newBranch: Branch = {
       id: generateId(),
-      companyCode: compCode,
+      companyCode: targetCompCode,
       name: branchData.name.trim(),
       address: branchData.address.trim(),
       latitude: branchData.latitude,
@@ -2389,24 +2396,64 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    const updated = [newBranch, ...branches];
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+
+    if (targetCompCode === currentCompCode) {
+      const updated = [newBranch, ...branches];
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      // Save directly to the target company's cloud slot 14
+      const targetExisting = await StorageService.getBranchesForCompany(targetCompCode);
+      const targetUpdated = [newBranch, ...targetExisting];
+      await StorageService.saveBranchesForCompany(targetCompCode, targetUpdated);
+      alert(`"${targetCompCode}" firmasına "${newBranch.name}" şubesi başarıyla eklendi ve buluta kaydedildi.`);
+    }
+
     return newBranch;
   };
 
   const updateBranch = async (id: string, updates: Partial<Branch>) => {
-    const updated = branches.map((b) =>
-      b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
-    );
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+    if (!canUserAddBranch(user)) {
+      alert('Şube düzenleme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
+      return;
+    }
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetBranch = branches.find((b) => b.id === id);
+    const branchCompCode = (targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.map((b) =>
+        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+      );
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.map((b) =>
+        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+      );
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
   };
 
   const deleteBranch = async (id: string) => {
-    const updated = branches.filter((b) => b.id !== id);
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+    if (!canUserAddBranch(user)) {
+      alert('Şube silme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
+      return;
+    }
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetBranch = branches.find((b) => b.id === id);
+    const branchCompCode = (targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.filter((b) => b.id !== id);
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.filter((b) => b.id !== id);
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
   };
 
   const assignStaffToBranch = async (branchId: string, userIds: string[]) => {

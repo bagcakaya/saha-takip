@@ -186,6 +186,18 @@ export const StorageService = {
   },
 
   /**
+   * Calculates cloud standard_tasks slot ID for an explicit company
+   */
+  getSlotIdForCompany(moduleId: number, companyCode: string, companyId?: number): number {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    if (cleanCode === 'POLATLAR') {
+      return moduleId;
+    }
+    const resolvedId = resolveCompanyId(cleanCode, companyId && companyId > 1 ? companyId : 0);
+    return (resolvedId - 1) * 20 + moduleId;
+  },
+
+  /**
    * Scopes local storage key to active company
    */
   getStorageKey(baseKey: string): string {
@@ -1100,6 +1112,36 @@ export const StorageService = {
     const localKey = this.getStorageKey(BRANCHES_KEY);
     await saveItem(localKey, branches);
     await saveChunkedSlot(this.getSlotId(14), branches);
+  },
+
+  /**
+   * Retrieves branches for a specific company (cloud slot 14)
+   */
+  async getBranchesForCompany(companyCode: string, companyId?: number): Promise<Branch[]> {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = cleanCode === 'POLATLAR' ? BRANCHES_KEY : `${BRANCHES_KEY}_${cleanCode}`;
+    const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
+    const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+    if (cleanCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+    return (await loadItem<Branch[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves branches for a specific company (cloud slot 14)
+   */
+  async saveBranchesForCompany(companyCode: string, branches: Branch[], companyId?: number): Promise<void> {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = cleanCode === 'POLATLAR' ? BRANCHES_KEY : `${BRANCHES_KEY}_${cleanCode}`;
+    const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
+    await saveItem(localKey, branches);
+    await saveChunkedSlot(slotId, branches);
   },
 
   /**

@@ -71,3 +71,18 @@ export function isUserAdmin(
   }
   return false;
 }
+
+/**
+ * Checks if a user is permitted to create/add/delete branches.
+ * Strictly restricted to POLATLAR company managers with username 'admin' or 'murat'.
+ * Managers of other companies can only view their branches.
+ */
+export function canUserAddBranch(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}

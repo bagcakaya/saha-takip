@@ -10,12 +10,15 @@ import {
   Trash2,
   Phone,
   Compass,
+  Loader2,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
-import { isUserAdmin } from '../types/auth';
+import { isUserAdmin, canUserAddBranch, Company } from '../types/auth';
 import { Branch } from '../types/storage';
 import { LocationService } from '../services/locationService';
+import { CompanyService } from '../services/companyService';
+import { StorageService } from '../services/storageService';
 import { BranchModal } from '../components/branches/BranchModal';
 import { BranchStaffModal } from '../components/branches/BranchStaffModal';
 
@@ -31,10 +34,44 @@ export const BranchesView: React.FC = () => {
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
+  const canAddBranch = canUserAddBranch(user);
+  const currentCompCode = useMemo(() => (user?.companyCode || 'POLATLAR').trim().toUpperCase(), [user]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [assigningBranch, setAssigningBranch] = useState<Branch | null>(null);
+
+  // For POLATLAR admin/murat: Multi-company branch inspection and management
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>(currentCompCode);
+  const [availableCompanies, setAvailableCompanies] = useState<Company[]>([]);
+  const [otherBranches, setOtherBranches] = useState<Branch[]>([]);
+  const [isLoadingOther, setIsLoadingOther] = useState(false);
+
+  useEffect(() => {
+    if (canAddBranch) {
+      CompanyService.fetchCompanies().then(setAvailableCompanies).catch(() => {});
+    }
+  }, [canAddBranch]);
+
+  useEffect(() => {
+    if (canAddBranch && selectedCompanyFilter !== currentCompCode) {
+      setIsLoadingOther(true);
+      StorageService.getBranchesForCompany(selectedCompanyFilter)
+        .then((list) => setOtherBranches(list))
+        .catch(() => setOtherBranches([]))
+        .finally(() => setIsLoadingOther(false));
+    } else {
+      setOtherBranches([]);
+    }
+  }, [canAddBranch, selectedCompanyFilter, currentCompCode]);
+
+  const activeBranchesList = useMemo(() => {
+    if (canAddBranch && selectedCompanyFilter !== currentCompCode) {
+      return otherBranches;
+    }
+    return branches;
+  }, [canAddBranch, selectedCompanyFilter, currentCompCode, otherBranches, branches]);
 
   // User's current GPS position for live distance calculation to all branches
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -67,17 +104,17 @@ export const BranchesView: React.FC = () => {
   // Total assigned staff across all branches
   const totalAssignedStaffCount = useMemo(() => {
     const set = new Set<string>();
-    branches.forEach((b) => {
+    activeBranchesList.forEach((b) => {
       (b.assignedUserIds || []).forEach((uid) => set.add(uid));
     });
     return set.size;
-  }, [branches]);
+  }, [activeBranchesList]);
 
   // Filtered branches
   const filteredBranches = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return branches;
-    return branches.filter((b) => {
+    if (!q) return activeBranchesList;
+    return activeBranchesList.filter((b) => {
       const matchName = b.name.toLowerCase().includes(q);
       const matchAddress = (b.address || '').toLowerCase().includes(q);
       const matchStaff = (b.assignedUserIds || []).some((uid) =>
@@ -85,9 +122,13 @@ export const BranchesView: React.FC = () => {
       );
       return matchName || matchAddress || matchStaff;
     });
-  }, [branches, searchQuery, usersMap]);
+  }, [activeBranchesList, searchQuery, usersMap]);
 
   const handleDelete = async (b: Branch) => {
+    if (!canAddBranch) {
+      alert('Şube silme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
+      return;
+    }
     if (
       !window.confirm(
         `"${b.name}" şubesini silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`
@@ -97,6 +138,9 @@ export const BranchesView: React.FC = () => {
     }
     try {
       await deleteBranch(b.id);
+      if (selectedCompanyFilter !== currentCompCode) {
+        setOtherBranches((prev) => prev.filter((item) => item.id !== b.id));
+      }
     } catch (e) {
       console.error('Şube silinirken hata oluştu:', e);
     }
@@ -126,20 +170,27 @@ export const BranchesView: React.FC = () => {
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-blue-800/50">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-blue-500/25 text-blue-300 border border-blue-400/30 backdrop-blur-xs flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5" />
-                Şube Yönetim Sistemi
+                {canAddBranch ? 'Şube Yönetim Sistemi' : 'Şube Görüntüleme & Atama'}
               </span>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/10 text-slate-300">
                 20m Mesai Yarıçapı
               </span>
+              {!canAddBranch && (
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                  Görüntüleme Modu
+                </span>
+              )}
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
               Firma Şubeleri & Personel Atamaları
             </h1>
             <p className="text-xs sm:text-sm text-blue-200/90 max-w-xl leading-relaxed">
-              Her şubenin konumunu belirleyebilir, personelleri kendi şubesine atayabilir ve personelin sadece kendi şubesinin 20 metre çapında mesaiye başlamasını sağlayabilirsiniz.
+              {canAddBranch
+                ? 'Her şubenin konumunu belirleyebilir, personelleri kendi şubesine atayabilir ve personelin sadece kendi şubesinin 20 metre çapında mesaiye başlamasını sağlayabilirsiniz.'
+                : 'Firmanıza ait şubeleri ve konumlarını görüntüleyebilir, personellerinizi şubelere atayabilirsiniz. (Yeni şube ekleme ve koordinat tanımlamaları POLATLAR yöneticileri tarafından yapılmaktadır.)'}
             </p>
           </div>
 
@@ -147,7 +198,7 @@ export const BranchesView: React.FC = () => {
           <div className="flex items-center gap-3 shrink-0 flex-wrap">
             <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center min-w-[95px]">
               <span className="text-[10px] font-bold text-blue-200 block uppercase">Toplam Şube</span>
-              <span className="text-2xl font-black text-white">{branches.length}</span>
+              <span className="text-2xl font-black text-white">{activeBranchesList.length}</span>
             </div>
             <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center min-w-[95px]">
               <span className="text-[10px] font-bold text-indigo-200 block uppercase">Atanmış Personel</span>
@@ -179,8 +230,26 @@ export const BranchesView: React.FC = () => {
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
         </div>
 
-        {/* Add Branch Button (Admins) */}
-        {isAdmin && (
+        {/* Company filter for POLATLAR admin/murat */}
+        {canAddBranch && availableCompanies.length > 1 && (
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedCompanyFilter}
+              onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+              className="px-3.5 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
+            >
+              {availableCompanies.map((c) => (
+                <option key={c.code} value={c.code}>
+                  🏢 {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
+            {isLoadingOther && <Loader2 className="w-4 h-4 animate-spin text-blue-500 shrink-0" />}
+          </div>
+        )}
+
+        {/* Add Branch Button (Restricted strictly to POLATLAR admin and murat) */}
+        {canAddBranch && (
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-black shadow-lg shadow-blue-500/25 transition-all active:scale-95 cursor-pointer shrink-0"
@@ -204,10 +273,12 @@ export const BranchesView: React.FC = () => {
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
               {searchQuery
                 ? 'Farklı bir arama terimi deneyin veya filtreyi temizleyin.'
-                : 'Firmanızın şubelerini tanımlayarak personelleri şubelere atayabilir ve 20 metre yarıçapında mesai doğrulaması başlatabilirsiniz.'}
+                : canAddBranch
+                ? 'Firmanızın şubelerini tanımlayarak personelleri şubelere atayabilir ve 20 metre yarıçapında mesai doğrulaması başlatabilirsiniz.'
+                : 'Firmanıza ait henüz tanımlanmış bir şube bulunmamaktadır. Şube tanımlamaları sistem yöneticisi (POLATLAR) tarafından yapılmaktadır.'}
             </p>
           </div>
-          {isAdmin && !searchQuery && (
+          {canAddBranch && !searchQuery ? (
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-md shadow-blue-500/25 transition-all cursor-pointer"
@@ -215,7 +286,11 @@ export const BranchesView: React.FC = () => {
               <Plus className="w-4 h-4" />
               <span>İlk Şubeyi Ekle</span>
             </button>
-          )}
+          ) : !canAddBranch && !searchQuery ? (
+            <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold">
+              <span>ℹ️ Şube tanımlamaları sistem yöneticisi (POLATLAR) tarafından yapılmaktadır.</span>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
@@ -361,17 +436,22 @@ export const BranchesView: React.FC = () => {
                   </button>
 
                   <div className="flex items-center gap-1.5">
+                    {/* Personel Ata: Tüm yöneticilere açık */}
                     {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setAssigningBranch(branch)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-xs font-bold transition-all cursor-pointer"
+                        title="Personel Ata"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Personel</span>
+                      </button>
+                    )}
+
+                    {/* Şubeyi Düzenle ve Sil: Sadece POLATLAR admin ve murat yöneticilerine açık */}
+                    {canAddBranch && (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => setAssigningBranch(branch)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-xs font-bold transition-all cursor-pointer"
-                          title="Personel Ata"
-                        >
-                          <Users className="w-3.5 h-3.5" />
-                          <span>Personel</span>
-                        </button>
                         <button
                           type="button"
                           onClick={() => setEditingBranch(branch)}
@@ -410,8 +490,18 @@ export const BranchesView: React.FC = () => {
         onSave={async (data) => {
           if (editingBranch) {
             await updateBranch(editingBranch.id, data);
+            if (selectedCompanyFilter !== currentCompCode) {
+              setOtherBranches((prev) =>
+                prev.map((b) => (b.id === editingBranch.id ? { ...b, ...data, updatedAt: Date.now() } : b))
+              );
+            }
           } else {
-            await addBranch(data);
+            const created = await addBranch(data);
+            if (data.companyCode && data.companyCode !== currentCompCode) {
+              if (selectedCompanyFilter === data.companyCode) {
+                setOtherBranches((prev) => [created, ...prev]);
+              }
+            }
           }
         }}
       />

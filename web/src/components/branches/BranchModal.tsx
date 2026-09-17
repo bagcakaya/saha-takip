@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { Branch } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
+import { Company } from '../../types/auth';
+import { CompanyService } from '../../services/companyService';
 import { LocationService } from '../../services/locationService';
 import { MapPickerModal } from '../common/MapPickerModal';
 
@@ -21,7 +23,7 @@ interface BranchModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchToEdit?: Branch | null;
-  onSave: (branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'>) => Promise<void>;
+  onSave: (branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }) => Promise<void>;
 }
 
 export const BranchModal: React.FC<BranchModalProps> = ({
@@ -39,6 +41,10 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [radiusMeters, setRadiusMeters] = useState<number>(20);
   const [phone, setPhone] = useState('');
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
+  const [targetCompanyCode, setTargetCompanyCode] = useState<string>(
+    () => branchToEdit?.companyCode || currentUser?.companyCode || 'POLATLAR'
+  );
+  const [companies, setCompanies] = useState<Company[]>([]);
 
   // Map picker modal state
   const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
@@ -49,16 +55,21 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Filter company users
+  useEffect(() => {
+    CompanyService.fetchCompanies().then(setCompanies).catch(() => {});
+  }, []);
+
+  // Filter users for the target company
   const companyUsers = React.useMemo(() => {
-    const currentCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
+    const code = (targetCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
     return users.filter(
-      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === currentCode
+      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === code
     );
-  }, [users, currentUser]);
+  }, [users, targetCompanyCode, currentUser]);
 
   useEffect(() => {
     if (branchToEdit) {
+      setTargetCompanyCode(branchToEdit.companyCode || currentUser?.companyCode || 'POLATLAR');
       setName(branchToEdit.name || '');
       setAddress(branchToEdit.address || '');
       setLatitude(branchToEdit.latitude ?? '');
@@ -67,6 +78,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setPhone(branchToEdit.phone || '');
       setAssignedUserIds(branchToEdit.assignedUserIds || []);
     } else {
+      setTargetCompanyCode(currentUser?.companyCode || 'POLATLAR');
       setName('');
       setAddress('');
       setLatitude('');
@@ -76,7 +88,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setAssignedUserIds([]);
     }
     setErrorMsg('');
-  }, [branchToEdit, isOpen]);
+  }, [branchToEdit, isOpen, currentUser?.companyCode]);
 
   if (!isOpen) return null;
 
@@ -144,6 +156,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
         radiusMeters: Number(radiusMeters) || 20,
         phone: phone.trim() || undefined,
         assignedUserIds,
+        companyCode: targetCompanyCode,
       });
       onClose();
     } catch (err: any) {
@@ -185,6 +198,31 @@ export const BranchModal: React.FC<BranchModalProps> = ({
             <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
               <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {/* 0. Firma / Kurum Seçimi (POLATLAR Yöneticileri için) */}
+          {companies.length > 1 && (
+            <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 space-y-1.5">
+              <label className="text-xs font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Şubenin Tanımlanacağı Firma / Kurum</span>
+              </label>
+              <select
+                value={targetCompanyCode}
+                onChange={(e) => setTargetCompanyCode(e.target.value)}
+                disabled={!!branchToEdit}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-900 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+              >
+                {companies.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name} ({c.code})
+                  </option>
+                ))}
+              </select>
+              <span className="block text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+                💡 POLATLAR yöneticisi (admin / murat) olarak diğer firmalar adına da şube tanımlayabilirsiniz.
+              </span>
             </div>
           )}
 
