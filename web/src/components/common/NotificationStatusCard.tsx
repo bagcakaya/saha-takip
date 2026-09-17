@@ -145,7 +145,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         try {
           const reg = await navigator.serviceWorker.ready;
           if (reg && reg.showNotification) {
-            reg.showNotification('🔔 Saha Takip Test Bildirimi', {
+            reg.showNotification('🔔 İş Takip Test Bildirimi', {
               body: `${user.name}, bildirim sisteminiz telefonunuzda başarıyla aktif!`,
               icon: '/icon.png',
               badge: '/icon.png',
@@ -162,7 +162,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
       const targetSubIds = details?.subscriptionId ? [details.subscriptionId] : undefined;
 
       const res = await OneSignalService.sendPushNotification({
-        title: '🔔 Saha Takip Test Bildirimi',
+        title: '🔔 İş Takip Test Bildirimi',
         message: `${user.name}, bildirim sisteminiz aktif! Telefonunuz kilitliyken de donanım bildirimleri almaya devam edeceksiniz.`,
         targetMode: 'custom',
         targetUserIds: [user.id],
@@ -230,7 +230,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
       // 3. Send delayed push through serverless API proxy (Server waits 5s so device locking won't freeze it)
       const res = await OneSignalService.sendPushNotification({
-        title: '🔒 Saha Takip Kilitli Ekran Testi',
+        title: '🔒 İş Takip Kilitli Ekran Testi',
         message: `${user.name}, telefonunuz kilitliyken donanım push bildirimi başarıyla ulaştı!`,
         targetMode: 'custom',
         targetUserIds: [user.id],
@@ -857,7 +857,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
             <div className="flex items-start gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <strong>2. iOS Bildirim İzinleri:</strong> iPhone Ayarları &gt; <em>Bildirimler</em> &gt; <em>Saha Takip</em> içerisinde <strong>"Kilitli Ekran"</strong>, <strong>"Bildirim Merkezi"</strong> ve <strong>"Sesler"</strong> seçeneklerinin işaretli olduğundan emin olun.
+                <strong>2. iOS Bildirim İzinleri:</strong> iPhone Ayarları &gt; <em>Bildirimler</em> &gt; <em>İş Takip</em> içerisinde <strong>"Kilitli Ekran"</strong>, <strong>"Bildirim Merkezi"</strong> ve <strong>"Sesler"</strong> seçeneklerinin işaretli olduğundan emin olun.
               </div>
             </div>
 
@@ -885,7 +885,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
                   1. "Uyg. kullanılmıyorsa izinleri kaldır" Ayarını KAPATIN:
                 </strong>
                 <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  👉 <em>Ayarlar &gt; Uygulamalar &gt; Saha Takip &gt; <strong>"Uyg. kullanılmıyorsa izinleri kaldır" anahtarını KAPATIN</strong>.</em>
+                  👉 <em>Ayarlar &gt; Uygulamalar &gt; İş Takip &gt; <strong>"Uyg. kullanılmıyorsa izinleri kaldır" anahtarını KAPATIN</strong>.</em>
                 </p>
               </div>
             </div>
@@ -897,7 +897,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
                   2. Pil Kısıtlaması & Uyku Modu:
                 </strong>
                 <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  Saha Takip pil ayarının <strong>"Kısıtlanmamış"</strong> olduğundan emin olun.
+                  İş Takip pil ayarının <strong>"Kısıtlanmamış"</strong> olduğundan emin olun.
                 </p>
               </div>
             </div>

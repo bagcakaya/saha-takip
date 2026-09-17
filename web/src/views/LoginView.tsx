@@ -111,17 +111,17 @@ export const LoginView: React.FC = () => {
             <div className="absolute inset-0 rounded-2xl bg-blue-500/30 blur-lg animate-pulse" />
             <img
               src="/icon.png"
-              alt="Saha Takip Sistemi"
+              alt="İş Takip Sistemi"
               className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain mx-auto shadow-xl border border-white/30 bg-white/95 p-1"
             />
           </div>
 
           <div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-md">
-              Saha Takip Sistemi
+              İş Takip Sistemi
             </h1>
             <p className="text-xs sm:text-sm font-medium text-slate-300/90 mt-1">
-              Saha Görev, Kurulum & Tutanak Portalı
+              İş Takip, Görev & Tutanak Portalı
             </p>
           </div>
 

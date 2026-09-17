@@ -37,7 +37,7 @@ export const BackupSection: React.FC = () => {
         const parsed: BackupData = JSON.parse(content);
 
         if (!parsed.locations || !parsed.standardTasks) {
-          alert('Hata: Seçilen dosya geçerli bir Saha Takip Sistemi yedek dosyası değil.');
+          alert('Hata: Seçilen dosya geçerli bir İş Takip Sistemi yedek dosyası değil.');
           return;
         }
 

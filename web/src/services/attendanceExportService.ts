@@ -586,7 +586,7 @@ export const exportAttendanceToPdf = async ({
         </div>
 
         <div class="footer-note">
-          Bu mesai takip dökümü Saha Takip Sistemi web uygulaması tarafından elektronik olarak üretilmiştir.
+          Bu mesai takip dökümü İş Takip Sistemi web uygulaması tarafından elektronik olarak üretilmiştir.
         </div>
       </body>
     </html>

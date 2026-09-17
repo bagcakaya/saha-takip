@@ -148,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             <div className="relative">
               <img
                 src="/icon.png"
-                alt="Saha Takip Logo"
+                alt="İş Takip Logo"
                 className="w-11 h-11 rounded-2xl object-contain shadow-xs border border-slate-200 dark:border-slate-700 bg-white p-0.5"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
@@ -159,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
             <div className="min-w-0">
               <span className="text-[10px] font-black tracking-widest uppercase text-blue-600 dark:text-blue-400 block">
-                Saha Takip
+                İş Takip
               </span>
               <h2 className="text-base font-black text-slate-900 dark:text-slate-50 tracking-tight leading-tight truncate">
                 Rapor Portalı

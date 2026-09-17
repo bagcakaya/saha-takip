@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title GitHub'a Yukle - Saha Takip
+title GitHub'a Yukle - Is Takip
 cd /d "%~dp0"
 echo ====================================================
-echo   Saha Takip Projesi GitHub'a Yukleniyor...
+echo   Is Takip Projesi GitHub'a Yukleniyor...
 echo   Hedef: https://github.com/bagcakaya/saha-takip
 echo ====================================================
 echo.

@@ -1,7 +1,7 @@
 {
-  "name": "Saha Takip Sistemi",
-  "short_name": "Saha Takip",
-  "description": "Saha Görev, Kurulum, Kontrol Listesi ve Tutanak Portalı",
+  "name": "İş Takip Sistemi",
+  "short_name": "İş Takip",
+  "description": "İş Takip, Görev, Kurulum, Kontrol Listesi ve Tutanak Portalı",
   "start_url": "/",
   "id": "/",
   "display": "standalone",

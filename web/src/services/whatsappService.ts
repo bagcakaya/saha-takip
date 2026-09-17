@@ -52,7 +52,7 @@ export const WhatsappService = {
       `👤 *Saha Yetkilisi:* ${staffName}`,
       `📅 *Tarih:* ${dateStr} ${timeStr}`,
       '━━━━━━━━━━━━━━━━━━━',
-      '🔗 *Saha Takip Paneli:*',
+      '🔗 *İş Takip Paneli:*',
       'https://saha-takip-beige.vercel.app',
     ].join('\n');
 
@@ -80,7 +80,7 @@ export const WhatsappService = {
       targetUserName ? `🎯 *Kime:* ${targetUserName}` : '',
       `📝 *İş Emri:* ${content}`,
       '━━━━━━━━━━━━━━━━━━━',
-      '🔗 *Saha Takip Paneli:*',
+      '🔗 *İş Takip Paneli:*',
       'https://saha-takip-beige.vercel.app',
     ]
       .filter(Boolean)
@@ -130,7 +130,7 @@ export const WhatsappService = {
       '⏰ *Süreç Takip:* 7 gün sonra durum sorgulanacaktır.',
       `👤 *İşlemi Yapan:* ${staffName}`,
       '━━━━━━━━━━━━━━━━━━━',
-      '🔗 *Saha Takip Paneli:*',
+      '🔗 *İş Takip Paneli:*',
       'https://saha-takip-beige.vercel.app',
     ]
       .filter(Boolean)
@@ -177,7 +177,7 @@ export const WhatsappService = {
       dateFormatted ? `📅 *Tarih:* ${dateFormatted}` : '',
       `👤 *Saha Personeli:* ${staffName}`,
       '━━━━━━━━━━━━━━━━━━━',
-      '🔗 *Saha Takip Paneli:*',
+      '🔗 *İş Takip Paneli:*',
       'https://saha-takip-beige.vercel.app',
     ]
       .filter(Boolean)

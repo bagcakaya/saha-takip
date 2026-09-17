@@ -87,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
             ) : (
               <img
                 src="/icon.png"
-                alt="Saha Takip Logo"
+                alt="İş Takip Logo"
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain shadow-xs border border-slate-200/80 dark:border-slate-700 bg-white shrink-0"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';

@@ -207,7 +207,7 @@ const MainApp: React.FC = () => {
     switch (activeTab) {
       case 'home':
         return {
-          subtitle: 'Saha Takip Portalı',
+          subtitle: 'İş Takip Portalı',
           title: 'Ana Menü',
         };
       case 'branches':
@@ -217,7 +217,7 @@ const MainApp: React.FC = () => {
         };
       case 'installations':
         return {
-          subtitle: 'Saha Takip Sistemi',
+          subtitle: 'İş Takip Sistemi',
           title: 'Kurulumlar',
         };
       case 'services':

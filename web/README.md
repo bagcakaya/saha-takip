@@ -1,6 +1,6 @@
-# Saha Takip Sistemi - Web Uygulaması
+# İş Takip Sistemi - Web Uygulaması
 
-Bu proje, **Saha Takip Sistemi** mobil uygulamasının tüm özelliklerini, şablonlarını, veri modellerini ve PDF teslim tutanağı üretim yeteneklerini barındıran; hem mobil cihazlarda (telefon/tablet) hem de masaüstü tarayıcılarda kusursuz çalışan **Mobil Uyumlu (Responsive) Web Sitesi** sürümüdür.
+Bu proje, **İş Takip Sistemi** uygulamasının tüm özelliklerini, şablonlarını, veri modellerini ve PDF teslim tutanağı üretim yeteneklerini barındıran; hem mobil cihazlarda (telefon/tablet) hem de masaüstü tarayıcılarda kusursuz çalışan **Mobil Uyumlu (Responsive) Web Sitesi** sürümüdür.
 
 ## 🚀 Hızlı Başlangıç
 
