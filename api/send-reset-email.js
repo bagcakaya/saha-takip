@@ -28,7 +28,20 @@ export default async function handler(req, res) {
       return;
     }
 
-    const subject = `🔐 ${code} - İş Takip Yönetici Şifre Sıfırlama Kodu (${companyCode || 'Kurum'})`;
+    const subject = `[İş Takip] ${code} Doğrulama Kodu - Yönetici Şifre Sıfırlama (${companyCode || 'Kurum'})`;
+
+    const textContent = `Merhaba ${adminName || 'Yönetici'},
+
+${companyName || companyCode} (${companyCode}) kurumu için yönetici hesabınıza ait şifre sıfırlama talebinde bulunuldu.
+
+6 Haneli Doğrulama Kodunuz: ${code}
+(Bu kod 15 dakika boyunca geçerlidir)
+
+Uygulamanın şifre sıfırlama ekranına yukarıdaki kodu girerek yeni yönetici şifrenizi anında belirleyebilirsiniz.
+
+Güvenlik Uyarısı: Eğer bu talebi siz yapmadıysanız, hesabınız güvendedir. Bu e-postayı dikkate almayınız ve güvenlik kodunuzu kimseyle paylaşmayınız.
+
+İş Takip Sistemi - Polatlar Yazılım`;
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -131,8 +144,14 @@ export default async function handler(req, res) {
         const sendResult = await transporter.sendMail({
           from: `"İş Takip Sistemi" <${smtpUser}>`,
           to: to,
+          replyTo: smtpUser,
           subject: subject,
+          text: textContent,
           html: htmlContent,
+          headers: {
+            'X-Priority': '3',
+            'X-Mailer': 'IsTakipMailer/1.0',
+          },
         });
 
         res.status(200).json({
@@ -158,9 +177,11 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: `Polatlar Yazılım <${smtpUser || 'onboarding@resend.dev'}>`,
+            from: `İş Takip Sistemi <${smtpUser || 'onboarding@resend.dev'}>`,
             to: [to],
+            reply_to: smtpUser,
             subject,
+            text: textContent,
             html: htmlContent,
           }),
         });
@@ -183,9 +204,11 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            sender: { name: 'Polatlar Yazılım', email: smtpUser || 'info@polatlaryazilim.com' },
+            sender: { name: 'İş Takip Sistemi', email: smtpUser || 'info@polatlaryazilim.com' },
             to: [{ email: to, name: adminName || 'Yönetici' }],
+            replyTo: { email: smtpUser || 'info@polatlaryazilim.com', name: 'İş Takip Sistemi' },
             subject,
+            textContent,
             htmlContent,
           }),
         });

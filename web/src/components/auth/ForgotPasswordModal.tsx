@@ -9,6 +9,7 @@ import {
   EyeOff,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Loader2,
   Building2,
   Clock,
@@ -279,6 +280,10 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm font-medium transition-all"
                 />
               </div>
+              <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-0.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>E-posta gelmezse <strong>Spam / Gereksiz</strong> klasörünüzü kontrol ediniz.</span>
+              </p>
             </div>
 
             {/* Submit Button */}
@@ -319,6 +324,19 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   }`}
                 >
                   {formatTime(timeLeft)}
+                </span>
+              </div>
+            </div>
+
+            {/* Spam / Junk Folder Alert */}
+            <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-xs leading-relaxed animate-in fade-in duration-200">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="text-white font-bold block mb-0.5">E-posta Gelen Kutusunda Görünmüyor mu?</span>
+                <span>
+                  Doğrulama kodu ilk gönderimlerde e-posta sağlayıcınız tarafından{' '}
+                  <strong className="text-amber-300 font-extrabold underline">Spam / Gereksiz (Junk)</strong>{' '}
+                  klasörüne aktarılmış olabilir. Lütfen gelen kutusunda yoksa Spam klasörünüzü kontrol ediniz.
                 </span>
               </div>
             </div>
