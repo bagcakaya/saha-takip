@@ -185,8 +185,9 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
         {/* Bottom Row: Read status & Actions */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap gap-2">
           {/* Read Status / Confirmation */}
-          <div className="flex items-center gap-2">
-            {!isAdmin ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 1. Mark as Read Confirmation (If user is not the creator) */}
+            {reminder.createdBy !== user?.id && (
               hasRead ? (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold">
                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -202,13 +203,15 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
                   <span>Okudum / Anladım</span>
                 </button>
               )
-            ) : (
-              /* Admin view of who read */
+            )}
+
+            {/* 2. Admin & Creator View: Who read the reminder (Görsel-2) */}
+            {(isAdmin || reminder.createdBy === user?.id) && (
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setShowReadList(!showReadList)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
                 >
                   <Users className="w-3.5 h-3.5" />
                   <span>
@@ -219,22 +222,33 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
                 </button>
 
                 {showReadList && readUserNames.length > 0 && (
-                  <div className="absolute left-0 bottom-full mb-2 w-56 p-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl z-20 space-y-1 text-xs">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-1">
-                      Okuyan Personeller
-                    </span>
-                    <ul className="space-y-1">
-                      {readUserNames.map((name, i) => (
-                        <li
-                          key={i}
-                          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200"
-                        >
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                          <span>{name}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowReadList(false)}
+                    />
+                    <div className="absolute left-0 bottom-full mb-2 w-56 p-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl z-20 space-y-1.5 text-xs animate-in fade-in zoom-in-95 duration-150">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Okuyan Personeller
+                        </span>
+                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">
+                          {readUserNames.length}
+                        </span>
+                      </div>
+                      <ul className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                        {readUserNames.map((name, i) => (
+                          <li
+                            key={i}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span className="truncate">{name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
                 )}
               </div>
             )}

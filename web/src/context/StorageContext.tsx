@@ -213,6 +213,8 @@ const SEEN_APPROVAL_NOTES_KEY = (userId: string, compCode?: string) => `@seen_ap
 const SEEN_COMPLETED_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_completed_services_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_APPROVAL_SERVICES_KEY = (userId: string, compCode?: string) => `@seen_approval_services_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_APPROVAL_LOCATIONS_KEY = (userId: string, compCode?: string) => `@seen_approval_locations_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_ADMIN_REMINDERS_KEY = (userId: string, compCode?: string) => `@seen_admin_reminders_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_REMINDER_READS_KEY = (userId: string, compCode?: string) => `@seen_reminder_reads_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
@@ -446,6 +448,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           });
           saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovalLocations);
+
+          // 12. Admin Reminders (Talimatlar)
+          const seenAdminReminders = getStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode));
+          reminders.forEach((r) => seenAdminReminders.add(r.id));
+          saveStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode), seenAdminReminders);
+
+          // 13. Reminder Reads (Okundu Bildirimleri)
+          const seenReminderReads = getStoredSet(SEEN_REMINDER_READS_KEY(user.id, compCode));
+          reminders.forEach((r) => {
+            if (r.readBy && Array.isArray(r.readBy)) {
+              r.readBy.forEach((readerId) => seenReminderReads.add(`${r.id}_${readerId}`));
+            }
+          });
+          saveStoredSet(SEEN_REMINDER_READS_KEY(user.id, compCode), seenReminderReads);
 
           localStorage.setItem(initKey, 'true');
         }
@@ -805,6 +821,95 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(storageKey, seenWarrantyReminders);
     }
   }, [returnWarrantyItems, user, dataCompanyCode]);
+
+  // Check incoming admin reminders / talimatlar for all personnel
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
+
+    const storageKey = SEEN_ADMIN_REMINDERS_KEY(user.id, compCode);
+    if (localStorage.getItem(storageKey) === null) {
+      const seenReminders = getStoredSet(storageKey);
+      adminReminders.forEach((r) => seenReminders.add(r.id));
+      saveStoredSet(storageKey, seenReminders);
+      return;
+    }
+
+    const seenReminders = getStoredSet(storageKey);
+    let seenChanged = false;
+
+    adminReminders.forEach((r) => {
+      // If created by someone else and user hasn't seen it yet
+      if (r.createdBy && r.createdBy !== user.id) {
+        if (!seenReminders.has(r.id)) {
+          seenReminders.add(r.id);
+          seenChanged = true;
+
+          const author = r.createdByName || 'Yönetici';
+          const title = `📢 Yeni Yönetici Talimatı: ${r.title}`;
+          const body = `${author}: "${r.content.slice(0, 90)}"`;
+          NotificationService.sendNotification(title, body);
+          setActiveToast({ title, body, tab: 'reminders' });
+        }
+      } else if (r.createdBy === user.id) {
+        if (!seenReminders.has(r.id)) {
+          seenReminders.add(r.id);
+          seenChanged = true;
+        }
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(storageKey, seenReminders);
+    }
+  }, [adminReminders, user, dataCompanyCode]);
+
+  // Check read receipts for reminders created by the current user
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
+
+    const storageKey = SEEN_REMINDER_READS_KEY(user.id, compCode);
+    if (localStorage.getItem(storageKey) === null) {
+      const seenReads = getStoredSet(storageKey);
+      adminReminders.forEach((r) => {
+        if (r.readBy && Array.isArray(r.readBy)) {
+          r.readBy.forEach((readerId) => seenReads.add(`${r.id}_${readerId}`));
+        }
+      });
+      saveStoredSet(storageKey, seenReads);
+      return;
+    }
+
+    const seenReads = getStoredSet(storageKey);
+    let seenChanged = false;
+
+    adminReminders.forEach((r) => {
+      // Only check reminders created by the current user
+      if (r.createdBy === user.id && r.readBy && Array.isArray(r.readBy)) {
+        r.readBy.forEach((readerId) => {
+          if (readerId !== user.id) {
+            const readKey = `${r.id}_${readerId}`;
+            if (!seenReads.has(readKey)) {
+              seenReads.add(readKey);
+              seenChanged = true;
+
+              const readerUser = users.find((u) => u.id === readerId);
+              const readerName = readerUser?.name || readerUser?.username || 'Personel';
+              const title = `👁️ Talimat Okundu: ${r.title}`;
+              const body = `${readerName}, "${r.title}" talimatınızı okudu ve onayladı.`;
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'reminders' });
+            }
+          }
+        });
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(storageKey, seenReads);
+    }
+  }, [adminReminders, user, users, dataCompanyCode]);
 
   // Check incoming locations from staff members (Admin notification)
   useEffect(() => {
@@ -1993,14 +2098,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAdminReminders(updated);
     await StorageService.saveAdminReminders(updated);
 
+    // Mark as seen on creator's own device immediately
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenReminders = getStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode));
+      seenReminders.add(newReminder.id);
+      saveStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode), seenReminders);
+    }
+
     if (data.sendPush !== false) {
+      const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+      const creator = newReminder.createdByName || 'Yönetici';
       // Send push notification to all personnel
       OneSignalService.sendPushNotification({
-        title: `📢 Yönetici Hatırlatması: ${newReminder.title}`,
-        message: newReminder.content.slice(0, 100),
+        title: `📢 Yeni Yönetici Talimatı: ${newReminder.title}`,
+        message: `${creator}: "${newReminder.content.slice(0, 100)}"`,
         targetMode: 'all',
+        companyCode: compCode,
         url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
-      }).catch(() => {});
+      }).catch((err) => console.warn('OneSignal push error:', err));
     }
   };
 
@@ -2020,17 +2136,37 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const markReminderAsRead = async (id: string) => {
     if (!user?.id) return;
+    const targetReminder = adminReminders.find((r) => r.id === id);
+    if (!targetReminder) return;
+
+    const currentRead = targetReminder.readBy || [];
+    if (currentRead.includes(user.id)) return;
+
     const updated = adminReminders.map((r) => {
       if (r.id === id) {
-        const currentRead = r.readBy || [];
-        if (!currentRead.includes(user.id)) {
-          return { ...r, readBy: [...currentRead, user.id] };
-        }
+        return { ...r, readBy: [...currentRead, user.id] };
       }
       return r;
     });
     setAdminReminders(updated);
     await StorageService.saveAdminReminders(updated);
+
+    // Send read confirmation to the creator of the reminder
+    if (targetReminder.createdBy && targetReminder.createdBy !== user.id) {
+      const readerName = user.name || user.username || 'Bir personel';
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const title = `👁️ Talimat Okundu: ${targetReminder.title}`;
+      const message = `${readerName}, "${targetReminder.title}" talimatınızı okudu ve onayladı.`;
+
+      OneSignalService.sendPushNotification({
+        title,
+        message,
+        targetMode: 'custom',
+        targetUserIds: [targetReminder.createdBy],
+        companyCode: compCode,
+        url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
+      }).catch((err) => console.warn('OneSignal read push error:', err));
+    }
   };
 
   // Add return / warranty item
