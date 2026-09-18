@@ -705,65 +705,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .subscribe();
 
-    // Gentle safety heartbeat (every 60 seconds, only when tab is visible in foreground)
-    const syncInterval = setInterval(async () => {
-      if (!isMounted || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
-      try {
-        const [locs, nts, returns, srvs, attRecs] = await Promise.all([
-          StorageService.getLocations(),
-          StorageService.getNotes(),
-          StorageService.getReturnWarrantyItems(),
-          StorageService.getServices(),
-          StorageService.getAttendanceRecords(),
-        ]);
-        if (!isMounted) return;
-        setAllLocations((prev) => (JSON.stringify(prev) !== JSON.stringify(locs) ? locs : prev));
-        setAllNotes((prev) => (JSON.stringify(prev) !== JSON.stringify(nts) ? nts : prev));
-        setReturnWarrantyItems((prev) => (JSON.stringify(prev) !== JSON.stringify(returns) ? returns : prev));
-        setAllServices((prev) => (JSON.stringify(prev) !== JSON.stringify(srvs) ? srvs : prev));
-        setAttendanceRecords((prev) => (JSON.stringify(prev) !== JSON.stringify(attRecs) ? attRecs : prev));
-      } catch {
-        // ignore
-      }
-    }, 60000);
-
-    // Fast refresh immediately when switching back to tab/app
-    const handleVisibilityOrFocus = async () => {
-      if (!isMounted || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
-      try {
-        const [locs, nts, returns, srvs, attRecs] = await Promise.all([
-          StorageService.getLocations(),
-          StorageService.getNotes(),
-          StorageService.getReturnWarrantyItems(),
-          StorageService.getServices(),
-          StorageService.getAttendanceRecords(),
-        ]);
-        if (!isMounted) return;
-        setAllLocations((prev) => (JSON.stringify(prev) !== JSON.stringify(locs) ? locs : prev));
-        setAllNotes((prev) => (JSON.stringify(prev) !== JSON.stringify(nts) ? nts : prev));
-        setReturnWarrantyItems((prev) => (JSON.stringify(prev) !== JSON.stringify(returns) ? returns : prev));
-        setAllServices((prev) => (JSON.stringify(prev) !== JSON.stringify(srvs) ? srvs : prev));
-        setAttendanceRecords((prev) => (JSON.stringify(prev) !== JSON.stringify(attRecs) ? attRecs : prev));
-      } catch {}
-    };
-
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-    }
-    if (typeof window !== 'undefined') {
-      window.addEventListener('focus', handleVisibilityOrFocus);
-    }
-
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
-      clearInterval(syncInterval);
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-      }
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('focus', handleVisibilityOrFocus);
-      }
     };
   }, [user?.id, user?.companyCode, company?.id]);
 
