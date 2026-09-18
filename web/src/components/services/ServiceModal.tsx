@@ -15,8 +15,9 @@ import {
 import { WhatsappService } from '../../services/whatsappService';
 import { LocationService } from '../../services/locationService';
 import { useAuth } from '../../context/AuthContext';
+import { isUserAdmin } from '../../types/auth';
 import { useStorage } from '../../context/StorageContext';
-import { ServiceItem } from '../../types/storage';
+import { ServiceItem, ApprovalStatus } from '../../types/storage';
 import { compressImage } from '../../utils/imageUtils';
 import { CariSelect } from '../common/CariSelect';
 
@@ -32,6 +33,7 @@ interface ServiceModalProps {
     workDone: string;
     date?: string;
     photos?: string[];
+    status?: ApprovalStatus;
   }) => Promise<void>;
   editingService?: ServiceItem | null;
 }
@@ -43,6 +45,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   editingService,
 }) => {
   const { user } = useAuth();
+  const isAdmin = isUserAdmin(user);
   const { locations } = useStorage();
   const [companyName, setCompanyName] = useState('');
   const [cariName, setCariName] = useState('');
@@ -54,6 +57,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   const [photos, setPhotos] = useState<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(true);
+  const [directApprove, setDirectApprove] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -66,6 +70,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setWorkDone(editingService.workDone || '');
       setPhotos(editingService.photos || []);
       setNotifyWhatsapp(false);
+      setDirectApprove(editingService.status === 'approved');
     } else {
       setCompanyName('');
       setCariName('');
@@ -75,6 +80,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setWorkDone('');
       setPhotos([]);
       setNotifyWhatsapp(true);
+      setDirectApprove(false);
     }
   }, [editingService, isOpen]);
 
@@ -107,20 +113,26 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     }
   };
 
+  // Image Upload handler with Compression
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    setIsProcessingPhoto(true);
     try {
-      const newPhotos: string[] = [];
+      setIsProcessingPhoto(true);
+      const compressedPhotos: string[] = [];
+
       for (let i = 0; i < files.length; i++) {
-        const compressed = await compressImage(files[i]);
-        newPhotos.push(compressed);
+        const file = files[i];
+        if (!file.type.startsWith('image/')) continue;
+        const compressed = await compressImage(file, 1200, 0.75);
+        compressedPhotos.push(compressed);
       }
-      setPhotos((prev) => [...prev, ...newPhotos]);
-    } catch (err: any) {
-      alert(err?.message || 'Fotoğraf işlenirken hata oluştu.');
+
+      setPhotos((prev) => [...prev, ...compressedPhotos]);
+    } catch (err) {
+      console.error('Fotoğraf işleme hatası:', err);
+      alert('Fotoğraflar işlenirken bir hata oluştu.');
     } finally {
       setIsProcessingPhoto(false);
       e.target.value = '';
@@ -128,7 +140,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   };
 
   const handleRemovePhoto = (index: number) => {
-    setPhotos((prev) => prev.filter((_, idx) => idx !== index));
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -157,6 +169,11 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
         workDone: wDone,
         date: editingService?.date || new Date().toISOString(),
         photos,
+        status: editingService
+          ? editingService.status
+          : directApprove
+          ? 'approved'
+          : 'pending_approval',
       });
 
       // Optional WhatsApp Share
@@ -388,6 +405,21 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           </label>
         )}
 
+        {/* Yönetici Doğrudan Onay Checkbox (Yalnızca Yönetici için) */}
+        {isAdmin && !editingService && (
+          <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={directApprove}
+              onChange={(e) => setDirectApprove(e.target.checked)}
+              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
+            <span className="text-xs font-bold">
+              Yönetici Yetkisi: Direkt Onaylandı olarak kaydet (Onay beklemeden)
+            </span>
+          </label>
+        )}
+
         {/* Alt Butonlar */}
         <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
           <button
@@ -400,9 +432,26 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           <button
             type="submit"
             disabled={isSubmitting || !companyName.trim() || !workDone.trim()}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
           >
-            {isSubmitting ? 'Kaydediliyor...' : editingService ? 'Güncelle' : 'Kaydet'}
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Kaydediliyor...</span>
+              </>
+            ) : editingService ? (
+              <span>Güncelle</span>
+            ) : directApprove ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Kaydet ve Onayla</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Kaydet ve Onaya Gönder</span>
+              </>
+            )}
           </button>
         </div>
       </form>

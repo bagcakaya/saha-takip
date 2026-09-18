@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, ApprovalStatus, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -2408,16 +2408,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveReturnWarrantyItems(updated);
   };
 
-  // Add service record
+  // Add service record (automatically submitted for Admin Approval)
   const addService = async (
     serviceData: Omit<ServiceItem, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>
   ) => {
+    const completedAt = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Personeli';
+    const targetStatus: ApprovalStatus = serviceData.status || 'pending_approval';
+    const isApproved = targetStatus === 'approved';
+
     const newService: ServiceItem = {
       ...serviceData,
       id: generateId(),
-      createdAt: Date.now(),
+      createdAt: completedAt,
       createdBy: user?.id,
-      createdByName: user?.name || user?.username || 'Saha Yetkilisi',
+      createdByName: staffName,
+      status: targetStatus,
+      completedAt,
+      completedBy: user?.id,
+      completedByName: staffName,
+      completionNote: serviceData.workDone,
+      completionPhotos: serviceData.photos || [],
+      approvedAt: isApproved ? completedAt : undefined,
+      approvedBy: isApproved ? user?.id : undefined,
+      approvedByName: isApproved ? staffName : undefined,
     };
 
     // Mark as seen on creator's device immediately
@@ -2426,14 +2440,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id, compCode));
       seenServices.add(newService.id);
       saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
+
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode));
+      seenCompleted.add(`${newService.id}_${completedAt}`);
+      saveStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode), seenCompleted);
     }
 
     const updated = [newService, ...allServices];
     setAllServices(updated);
     await StorageService.saveServices(updated);
 
-    // If added by Field Staff, send hardware push notification directly to all Admins!
-    if (!isUserAdmin(user)) {
+    // If submitted for approval, send instant hardware push notification directly to all Admins!
+    if (targetStatus === 'pending_approval') {
       let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
       if (adminIds.length === 0) {
         try {
@@ -2447,18 +2465,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         adminIds = ['admin-1'];
       }
 
-      const staffName = user?.name || user?.username || 'Saha Personeli';
       const locText = newService.location ? ` (${newService.location})` : '';
+      const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
+      const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
 
       // Direct hardware push to all Admin User IDs
-      await OneSignalService.sendPushNotification({
-        title: '🔧 Yeni Servis Kaydı!',
-        message: `${staffName}, "${newService.companyName}"${locText} için yeni bir servis kaydı ekledi: ${newService.workDone.slice(0, 80)}`,
-        targetMode: 'custom',
-        targetUserIds: adminIds,
-        url: 'https://saha-takip-beige.vercel.app/?tab=services',
-        collapseId: `srv_new_${newService.id}`,
-      });
+      try {
+        await OneSignalService.sendPushNotification({
+          title: '🔧 Yeni Servis (Onay Bekliyor)',
+          message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi ve onayınıza sundu: ${newService.workDone.slice(0, 80)}`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          companyCode: compCode,
+          url: 'https://saha-takip-beige.vercel.app/?tab=services&filter=pending_approval',
+          collapseId: `srv_pend_${newService.id}`,
+        });
+      } catch (err) {
+        console.warn('OneSignal new service push error:', err);
+      }
     }
   };
 
@@ -2469,8 +2493,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       alert('Bu servis kaydını düzenleme yetkiniz bulunmuyor.');
       return;
     }
+
+    const finalUpdates = { ...updates };
+    // If a rejected service is edited by creator, automatically resubmit for approval
+    if (target?.status === 'rejected' && !isUserAdmin(user)) {
+      finalUpdates.status = 'pending_approval';
+      finalUpdates.completedAt = Date.now();
+      finalUpdates.completedBy = user?.id;
+      finalUpdates.completedByName = user?.name || user?.username || 'Saha Personeli';
+      finalUpdates.rejectedAt = undefined;
+      finalUpdates.rejectedBy = undefined;
+      finalUpdates.rejectedByName = undefined;
+      finalUpdates.rejectionReason = undefined;
+    }
+
     const updated = allServices.map((item) =>
-      item.id === id ? { ...item, ...updates } : item
+      item.id === id ? { ...item, ...finalUpdates } : item
     );
     setAllServices(updated);
     await StorageService.saveServices(updated);

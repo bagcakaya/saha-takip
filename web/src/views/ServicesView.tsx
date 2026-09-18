@@ -12,7 +12,7 @@ import {
 import { useStorage } from '../context/StorageContext';
 import { ServiceCard } from '../components/services/ServiceCard';
 import { ServiceModal } from '../components/services/ServiceModal';
-import { ServiceItem } from '../types/storage';
+import { ServiceItem, ApprovalStatus } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
 
 export type ServiceFilterType = 'all' | 'pending' | 'pending_approval' | 'approved' | 'rejected';
@@ -142,6 +142,7 @@ export const ServicesView: React.FC = () => {
     workDone: string;
     date?: string;
     photos?: string[];
+    status?: ApprovalStatus;
   }) => {
     if (editingService) {
       await updateService(editingService.id, data);
