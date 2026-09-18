@@ -163,8 +163,8 @@ print(f"[OK] Uygulama verisi kaydedildi: {JSON_OUTPUT_PUBLIC}")
 print("[..] Canlı uygulamaya (Supabase Bulut Slot 15) aktarılıyor...")
 try:
     import urllib.request
-    SUPABASE_URL = "https://jxqtwwpwaalgxpwmeqbc.supabase.co"
-    SUPABASE_ANON_KEY = "sb_publishable_qetbs8PTG54vWFr2zDCl4g_mCTqzqpC"
+    SUPABASE_URL = "https://tftzengmncgyuhccacrh.supabase.co"
+    SUPABASE_ANON_KEY = "sb_publishable_25IlzAkxESu2kVJhUQ15zQ_vw5nx265"
 
     raw_json = json.dumps(json_data, ensure_ascii=False)
     chunk_size = 8000
