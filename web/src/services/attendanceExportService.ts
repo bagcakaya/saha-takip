@@ -32,6 +32,7 @@ export const formatMinutesToDuration = (minutes: number): string => {
  * Calculates work duration in minutes for a record
  */
 export const calculateRecordDurationMinutes = (record: AttendanceRecord): number => {
+  if (record.status === 'on_leave') return 0;
   if (record.workDurationMinutes && record.workDurationMinutes > 0) {
     return record.workDurationMinutes;
   }
@@ -183,24 +184,35 @@ export const exportAttendanceToExcel = ({
     const durationMin = calculateRecordDurationMinutes(r);
 
     let statusText = 'Tamamlandı';
-    if (r.status === 'checked_in') statusText = 'Mesaide';
+    if (r.status === 'on_leave') statusText = 'İzinli';
+    else if (r.status === 'checked_in') statusText = 'Mesaide';
     else if (r.status === 'pending_checkin_approval') statusText = 'Giriş Onayı Bekliyor';
     else if (r.status === 'pending_checkout_approval') statusText = 'Çıkış Onayı Bekliyor';
 
-    const checkInDistanceStr = r.checkInDistance !== undefined ? `${Math.round(r.checkInDistance)} m` : '-';
-    const checkOutDistanceStr = r.checkOutDistance !== undefined ? `${Math.round(r.checkOutDistance)} m` : '-';
+    const checkInTimeStr = r.status === 'on_leave' || !checkInDate ? '-' : checkInDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const checkOutTimeStr = r.status === 'on_leave' || !checkOutDate ? '-' : checkOutDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const checkInDistanceStr = r.status === 'on_leave' || r.checkInDistance === undefined ? '-' : `${Math.round(r.checkInDistance)} m`;
+    const checkOutDistanceStr = r.status === 'on_leave' || r.checkOutDistance === undefined ? '-' : `${Math.round(r.checkOutDistance)} m`;
 
-    const checkInApprovalStr = r.checkInOutside
+    const checkInApprovalStr = r.status === 'on_leave'
+      ? '-'
+      : r.checkInOutside
       ? r.checkInApprovalStatus === 'pending'
         ? 'Dış Giriş (Onay Bekliyor)'
         : 'Dış Giriş (Onaylandı)'
       : 'Normal';
 
-    const checkOutApprovalStr = r.checkOutOutside
+    const checkOutApprovalStr = r.status === 'on_leave'
+      ? '-'
+      : r.checkOutOutside
       ? r.checkOutApprovalStatus === 'pending'
         ? 'Dış Çıkış (Onay Bekliyor)'
         : 'Dış Çıkış (Onaylandı)'
       : r.checkOutTime ? 'Normal' : '-';
+
+    const notesStr = r.status === 'on_leave'
+      ? (r.approvalNote ? `İzinli (${r.approvalNote})` : 'İzinli')
+      : (r.notes || r.approvalNote || '-');
 
     detailsAoa.push([
       r.date,
@@ -208,15 +220,15 @@ export const exportAttendanceToExcel = ({
       r.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi',
       r.branchName || 'Merkez',
       statusText,
-      checkInDate ? checkInDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-',
+      checkInTimeStr,
       checkInDistanceStr,
       checkInApprovalStr,
-      checkOutDate ? checkOutDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-',
+      checkOutTimeStr,
       checkOutDistanceStr,
       checkOutApprovalStr,
-      formatMinutesToDuration(durationMin),
-      durationMin,
-      r.notes || r.approvalNote || '',
+      r.status === 'on_leave' ? '-' : formatMinutesToDuration(durationMin),
+      r.status === 'on_leave' ? '-' : durationMin,
+      notesStr,
     ]);
   });
 
@@ -333,13 +345,22 @@ export const exportAttendanceToPdf = async ({
       const durationMin = calculateRecordDurationMinutes(r);
 
       let statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #f1f5f9; color: #475569;">Çıkış Yaptı</span>`;
-      if (r.status === 'checked_in') {
+      if (r.status === 'on_leave') {
+        statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">İzinli</span>`;
+      } else if (r.status === 'checked_in') {
         statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #dcfce7; color: #15803d;">Mesaide</span>`;
       } else if (r.status === 'pending_checkin_approval') {
         statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #fef3c7; color: #b45309;">Giriş Onayı</span>`;
       } else if (r.status === 'pending_checkout_approval') {
         statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #fef3c7; color: #b45309;">Çıkış Onayı</span>`;
       }
+
+      const checkInStr = r.status === 'on_leave' || !checkInDate ? '-' : checkInDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      const checkOutStr = r.status === 'on_leave' || !checkOutDate ? '-' : checkOutDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      const durationStr = r.status === 'on_leave' ? '-' : formatMinutesToDuration(durationMin);
+      const noteStr = r.status === 'on_leave'
+        ? `<span style="color: #059669; font-weight: bold;">İzinli</span>${r.approvalNote ? ` (${r.approvalNote})` : ''}`
+        : (r.notes || r.approvalNote || '-');
 
       return `
         <tr>
@@ -353,19 +374,19 @@ export const exportAttendanceToPdf = async ({
             ${r.branchName || 'Merkez'}
           </td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; text-align: center;">
-            ${checkInDate ? checkInDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+            ${checkInStr}
           </td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; text-align: center;">
-            ${checkOutDate ? checkOutDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+            ${checkOutStr}
           </td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; font-weight: bold; text-align: right; color: #0284c7;">
-            ${formatMinutesToDuration(durationMin)}
+            ${durationStr}
           </td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center;">
             ${statusBadge}
           </td>
           <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 10px; color: #64748b;">
-            ${r.notes || r.approvalNote || '-'}
+            ${noteStr}
           </td>
         </tr>
       `;

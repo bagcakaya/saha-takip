@@ -30,6 +30,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
+import { AttendanceRecord, LeaveRequest } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import {
   exportAttendanceToExcel,
@@ -534,9 +535,103 @@ export const StaffTrackingView: React.FC = () => {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [companyUsers, companyUserIds, attendanceRecords]);
 
-  // Filtered records based on company, date range, selected staff, and user role
+// Helper to generate all dates between startDate and endDate (inclusive)
+const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] => {
+  if (!endDateStr || endDateStr === startDateStr) {
+    return [startDateStr];
+  }
+  const dates: string[] = [];
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  if (!sy || !sm || !sd || !ey || !em || !ed) return [startDateStr];
+
+  const curr = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+
+  let safety = 0;
+  while (curr <= end && safety < 90) {
+    const y = curr.getFullYear();
+    const m = String(curr.getMonth() + 1).padStart(2, '0');
+    const d = String(curr.getDate()).padStart(2, '0');
+    dates.push(`${y}-${m}-${d}`);
+    curr.setDate(curr.getDate() + 1);
+    safety++;
+  }
+  return dates.length > 0 ? dates : [startDateStr];
+};
+
+  // Filtered records based on company, date range, selected staff, user role, and approved leaves
   const filteredRecords = useMemo(() => {
-    let list = attendanceRecords;
+    let list: AttendanceRecord[] = [...attendanceRecords];
+
+    // Find all approved leave requests
+    const approvedLeaves = leaveRequests.filter((l) => l.status === 'approved');
+
+    // Map: key `${userId}_${date}` -> LeaveRequest
+    const userLeaveMap = new Map<string, LeaveRequest>();
+    approvedLeaves.forEach((leave) => {
+      const dates = getDatesInRange(leave.date, leave.endDate);
+      dates.forEach((d) => {
+        userLeaveMap.set(`${leave.userId}_${d}`, leave);
+      });
+    });
+
+    const processedLeaveKeys = new Set<string>();
+    const updatedList: AttendanceRecord[] = [];
+
+    // 1. Process existing attendance records
+    list.forEach((record) => {
+      const leaveKey = `${record.userId}_${record.date}`;
+      const matchingLeave = userLeaveMap.get(leaveKey);
+
+      if (matchingLeave) {
+        // If there's an approved leave for this user on this date:
+        // Deduplicate: only keep ONE record for this user on this leave date
+        if (!processedLeaveKeys.has(leaveKey)) {
+          processedLeaveKeys.add(leaveKey);
+          updatedList.push({
+            ...record,
+            status: 'on_leave',
+            checkInTime: 0,
+            checkOutTime: undefined,
+            checkInDistance: undefined,
+            checkOutDistance: undefined,
+            workDurationMinutes: 0,
+            notes: 'İzinli',
+            approvalNote: matchingLeave.reason || record.approvalNote,
+          });
+        }
+      } else {
+        updatedList.push(record);
+      }
+    });
+
+    // 2. Synthesize on_leave records for approved leaves where staff didn't clock in
+    userLeaveMap.forEach((leave, leaveKey) => {
+      if (!processedLeaveKeys.has(leaveKey)) {
+        processedLeaveKeys.add(leaveKey);
+        const [userId, dateStr] = leaveKey.split('_');
+        const targetUser = companyUsers.find((u) => u.id === userId);
+        const userRole = leave.userRole || targetUser?.role || 'staff';
+        const branchName = targetUser?.branchName || 'Merkez';
+
+        updatedList.push({
+          id: `leave_${leave.id}_${dateStr}`,
+          userId,
+          userName: leave.userName,
+          userRole,
+          date: dateStr,
+          checkInTime: 0,
+          status: 'on_leave',
+          branchName,
+          notes: 'İzinli',
+          approvalNote: leave.reason,
+        });
+      }
+    });
+
+    list = updatedList;
+
     if (companyUserIds.size > 0) {
       list = list.filter((r) => companyUserIds.has(r.userId));
     }
@@ -553,8 +648,15 @@ export const StaffTrackingView: React.FC = () => {
     if (!isAdmin && user) {
       list = list.filter((r) => r.userId === user.id);
     }
+
+    // Sort descending by date, then checkInTime
+    list.sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return (b.checkInTime || 0) - (a.checkInTime || 0);
+    });
+
     return list;
-  }, [attendanceRecords, companyUserIds, startDate, endDate, selectedStaffIds, isAdmin, user]);
+  }, [attendanceRecords, leaveRequests, companyUsers, companyUserIds, startDate, endDate, selectedStaffIds, isAdmin, user]);
 
   // Staff Attendance Summaries (for the selected date range, strictly current company)
   const staffSummaries = useMemo<StaffAttendanceSummary[]>(() => {
@@ -587,6 +689,7 @@ export const StaffTrackingView: React.FC = () => {
     >();
 
     rangeRecords.forEach((r) => {
+      if (r.status === 'on_leave') return;
       if (!staffMap.has(r.userId)) {
         staffMap.set(r.userId, {
           userName: r.userName,
@@ -2201,7 +2304,12 @@ export const StaffTrackingView: React.FC = () => {
 
                           {/* Durum */}
                           <td className="py-3 px-3">
-                            {record.status === 'pending_checkin_approval' ? (
+                            {record.status === 'on_leave' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                İzinli
+                              </span>
+                            ) : record.status === 'pending_checkin_approval' ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
                                 <Clock className="w-3 h-3 text-amber-600" />
                                 Giriş Onayı Bekliyor
@@ -2225,15 +2333,21 @@ export const StaffTrackingView: React.FC = () => {
 
                           {/* Giriş Saati */}
                           <td className="py-3 px-3 font-bold">
-                            {checkInDate.toLocaleTimeString('tr-TR', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            {record.status === 'on_leave' || !record.checkInTime ? (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            ) : (
+                              checkInDate.toLocaleTimeString('tr-TR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            )}
                           </td>
 
                           {/* Giriş Mesafesi */}
                           <td className="py-3 px-3">
-                            {record.checkInDistance !== undefined ? (
+                            {record.status === 'on_leave' ? (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            ) : record.checkInDistance !== undefined ? (
                               <div className="flex flex-col">
                                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                                   {LocationService.formatDistance(record.checkInDistance)}
@@ -2253,19 +2367,21 @@ export const StaffTrackingView: React.FC = () => {
 
                           {/* Çıkış Saati */}
                           <td className="py-3 px-3 font-bold">
-                            {checkOutDate ? (
+                            {record.status === 'on_leave' || !checkOutDate ? (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            ) : (
                               checkOutDate.toLocaleTimeString('tr-TR', {
                                 hour: '2-digit',
                                 minute: '2-digit',
                               })
-                            ) : (
-                              <span className="text-slate-400 italic font-normal">-</span>
                             )}
                           </td>
 
                           {/* Çıkış Mesafesi */}
                           <td className="py-3 px-3">
-                            {record.checkOutDistance !== undefined ? (
+                            {record.status === 'on_leave' || record.checkOutDistance === undefined ? (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            ) : (
                               <div className="flex flex-col">
                                 <span className="text-rose-600 dark:text-rose-400 font-bold">
                                   {LocationService.formatDistance(record.checkOutDistance)}
@@ -2278,14 +2394,14 @@ export const StaffTrackingView: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                            ) : (
-                              <span className="text-slate-400 italic font-normal">-</span>
                             )}
                           </td>
 
                           {/* Toplam Süre */}
                           <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                            {durationMinutes > 0 ? (
+                            {record.status === 'on_leave' ? (
+                              <span className="text-slate-400 italic font-normal">-</span>
+                            ) : durationMinutes > 0 ? (
                               <span>{formatMinutesToDuration(durationMinutes)}</span>
                             ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
                               <span className="text-emerald-600 font-semibold">Devam ediyor</span>
@@ -2297,71 +2413,101 @@ export const StaffTrackingView: React.FC = () => {
                           </td>
 
                           {/* Not / Açıklama */}
-                          <td className="py-3 px-3 text-slate-500 text-[11px] max-w-[150px] truncate" title={record.notes || record.approvalNote || ''}>
-                            {record.notes || record.approvalNote || '-'}
+                          <td className="py-3 px-3">
+                            {record.status === 'on_leave' ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 font-black text-emerald-600 dark:text-emerald-400 text-xs bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/60">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                  <span>İzinli</span>
+                                </span>
+                                {record.approvalNote && (
+                                  <span
+                                    className="text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[140px] hidden sm:inline"
+                                    title={record.approvalNote}
+                                  >
+                                    ({record.approvalNote})
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span
+                                className="text-slate-500 text-[11px] max-w-[150px] truncate block"
+                                title={record.notes || record.approvalNote || ''}
+                              >
+                                {record.notes || record.approvalNote || '-'}
+                              </span>
+                            )}
                           </td>
 
                           {/* İşlem (Admin Only) */}
                           {isAdmin && (
                             <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {record.status === 'pending_checkin_approval' && (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={processingApprovalId === record.id}
-                                  onClick={() => handleApprove(record.id, 'checkin')}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
-                                >
-                                  Onayla
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={processingApprovalId === record.id}
-                                  onClick={() => handleReject(record.id, 'checkin')}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                                >
-                                  Reddet
-                                </button>
-                              </>
-                            )}
+                              {record.status === 'on_leave' ? (
+                                <div className="flex items-center justify-end">
+                                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                                    Onaylı İzin
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {record.status === 'pending_checkin_approval' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={processingApprovalId === record.id}
+                                        onClick={() => handleApprove(record.id, 'checkin')}
+                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                      >
+                                        Onayla
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={processingApprovalId === record.id}
+                                        onClick={() => handleReject(record.id, 'checkin')}
+                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                      >
+                                        Reddet
+                                      </button>
+                                    </>
+                                  )}
 
-                            {record.status === 'pending_checkout_approval' && (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={processingApprovalId === record.id}
-                                  onClick={() => handleApprove(record.id, 'checkout')}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
-                                >
-                                  Onayla
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={processingApprovalId === record.id}
-                                  onClick={() => handleReject(record.id, 'checkout')}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                                >
-                                  Reddet
-                                </button>
-                              </>
-                            )}
+                                  {record.status === 'pending_checkout_approval' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={processingApprovalId === record.id}
+                                        onClick={() => handleApprove(record.id, 'checkout')}
+                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                      >
+                                        Onayla
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={processingApprovalId === record.id}
+                                        onClick={() => handleReject(record.id, 'checkout')}
+                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                      >
+                                        Reddet
+                                      </button>
+                                    </>
+                                  )}
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
-                                  deleteAttendanceRecord(record.id);
-                                }
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                              title="Kaydı Sil"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
+                                        deleteAttendanceRecord(record.id);
+                                      }
+                                    }}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                                    title="Kaydı Sil"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          )}
                     </tr>
                   );
                 })}

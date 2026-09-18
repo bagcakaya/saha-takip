@@ -175,7 +175,8 @@ export type AttendanceStatus =
   | 'checked_in'
   | 'completed'
   | 'pending_checkin_approval'
-  | 'pending_checkout_approval';
+  | 'pending_checkout_approval'
+  | 'on_leave';
 
 export interface AttendanceRecord {
   id: string;
