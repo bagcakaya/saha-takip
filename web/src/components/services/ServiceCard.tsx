@@ -10,22 +10,14 @@ import {
   Pencil,
   Trash2,
   Camera,
-  CheckCircle2,
-  AlertCircle,
-  Check,
-  X,
-  RotateCcw,
   CheckSquare,
 } from 'lucide-react';
 import { ServiceItem } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin } from '../../types/auth';
-import { useStorage } from '../../context/StorageContext';
 import { WhatsappService } from '../../services/whatsappService';
 import { LocationService } from '../../services/locationService';
 import { ImageLightboxModal } from '../common/ImageLightboxModal';
-import { CompleteServiceModal } from './CompleteServiceModal';
-import { RejectServiceModal } from './RejectServiceModal';
 
 interface ServiceCardProps {
   service: ServiceItem;
@@ -39,7 +31,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
-  const { completeService, approveService, rejectService } = useStorage();
   const isAdmin = isUserAdmin(user);
   const isCreator = user?.id === service.createdBy;
   const canModify = isAdmin || isCreator;
@@ -48,8 +39,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     initialIndex: number;
     title: string;
   } | null>(null);
-  const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
   // Format date
   const dateObj = service.date ? new Date(service.date) : new Date(service.createdAt);
@@ -79,23 +68,9 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     });
   };
 
-  // Card border highlight based on status
-  const cardBorderClass = () => {
-    if (service.status === 'approved') {
-      return 'border-emerald-300/80 dark:border-emerald-800/80 ring-1 ring-emerald-500/20';
-    }
-    if (service.status === 'pending_approval') {
-      return 'border-amber-300/80 dark:border-amber-800/80 ring-1 ring-amber-500/20';
-    }
-    if (service.status === 'rejected') {
-      return 'border-rose-300/80 dark:border-rose-800/80 ring-1 ring-rose-500/20';
-    }
-    return 'border-slate-200/80 dark:border-slate-800';
-  };
-
   return (
     <>
-      <div className={`bg-white dark:bg-slate-900 border rounded-3xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 group max-w-full overflow-hidden ${cardBorderClass()}`}>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 group max-w-full overflow-hidden">
         {/* Cari / Müşteri Header Banner if available */}
         {service.cariName && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-200/80 dark:border-blue-800/60 text-xs font-black text-blue-900 dark:text-blue-200">
@@ -107,7 +82,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           </div>
         )}
 
-        {/* Top Row: Company Name & Badges */}
+        {/* Top Row: Company Name & Date */}
         <div className="flex items-start justify-between gap-2.5 min-w-0 w-full">
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -117,35 +92,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
               <h3 className="text-base font-black text-slate-900 dark:text-slate-100 tracking-tight truncate min-w-0">
                 {service.companyName}
               </h3>
-
-              {/* Status Badge */}
-              {service.status === 'approved' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                  <span>Onaylandı</span>
-                </span>
-              )}
-
-              {service.status === 'pending_approval' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
-                  <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                  <span>Onay Bekliyor</span>
-                </span>
-              )}
-
-              {service.status === 'rejected' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
-                  <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                  <span>Reddedildi</span>
-                </span>
-              )}
-
-              {(!service.status || service.status === 'pending') && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                  <Clock className="w-3 h-3 text-slate-400" />
-                  <span>Beklemede</span>
-                </span>
-              )}
             </div>
 
             {service.location && (
@@ -283,134 +229,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           </div>
         )}
 
-        {/* Approved Details Box */}
-        {service.status === 'approved' && service.approvedByName && (
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-xs text-emerald-800 dark:text-emerald-300">
-            <div className="flex items-center gap-1.5 font-bold">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Onaylayan: {service.approvedByName}</span>
-            </div>
-            {service.approvedAt && (
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                {new Date(service.approvedAt).toLocaleDateString('tr-TR', {
-                  day: 'numeric',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Rejection Alert Box */}
-        {service.status === 'rejected' && (
-          <div className="p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 space-y-1.5 text-xs text-rose-800 dark:text-rose-300">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 font-bold text-rose-700 dark:text-rose-300">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
-                <span>Reddeden: {service.rejectedByName || 'Yönetici'}</span>
-              </div>
-              {service.rejectedAt && (
-                <span className="text-[11px] text-rose-500 dark:text-rose-400">
-                  {new Date(service.rejectedAt).toLocaleDateString('tr-TR', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              )}
-            </div>
-            {service.rejectionReason && (
-              <div className="font-medium bg-white/90 dark:bg-slate-900/70 p-2.5 rounded-lg border border-rose-200/60 dark:border-rose-900/40 whitespace-pre-wrap">
-                <span className="font-bold text-rose-900 dark:text-rose-200">Red Gerekçesi: </span>
-                {service.rejectionReason}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Workflow Action Buttons */}
-        {isAdmin ? (
-          <>
-            {service.status === 'pending_approval' && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-2">
-                <button
-                  onClick={() => approveService(service.id)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Onayla</span>
-                </button>
-                <button
-                  onClick={() => setIsRejectModalOpen(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/50 active:scale-95 font-extrabold text-xs transition-all cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                  <span>Reddet</span>
-                </button>
-              </div>
-            )}
-
-            {service.status === 'rejected' && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-end">
-                <button
-                  onClick={() => approveService(service.id)}
-                  className="flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-bold text-xs transition-all cursor-pointer"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Yine de Onayla</span>
-                </button>
-              </div>
-            )}
-          </>
-        ) : (
-          /* Field Staff Actions */
-          <>
-            {(!service.status || service.status === 'pending') && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
-                <button
-                  onClick={() => setIsCompleteModalOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>✓ Servisi Tamamla (Onaya Gönder)</span>
-                </button>
-              </div>
-            )}
-
-            {service.status === 'rejected' && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
-                <button
-                  onClick={() => setIsCompleteModalOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>↻ Eksikleri Giderdim / Tekrar Onaya Gönder</span>
-                </button>
-              </div>
-            )}
-
-            {service.status === 'pending_approval' && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-center py-1">
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 animate-spin" />
-                  <span>Yöneticinin Onayı Bekleniyor</span>
-                </span>
-              </div>
-            )}
-
-            {service.status === 'approved' && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-center py-1">
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Yönetici Tarafından Onaylandı</span>
-                </span>
-              </div>
-            )}
-          </>
-        )}
 
         {/* Bottom Row: Staff Name & Actions */}
         <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/60 min-w-0 w-full gap-2">
@@ -474,25 +292,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         onClose={() => setLightboxData(null)}
       />
 
-      {/* Complete Service Modal */}
-      <CompleteServiceModal
-        isOpen={isCompleteModalOpen}
-        service={service}
-        onClose={() => setIsCompleteModalOpen(false)}
-        onConfirm={async (note, photos) => {
-          await completeService(service.id, note, photos);
-        }}
-      />
-
-      {/* Reject Service Modal */}
-      <RejectServiceModal
-        isOpen={isRejectModalOpen}
-        service={service}
-        onClose={() => setIsRejectModalOpen(false)}
-        onConfirm={async (reason) => {
-          await rejectService(service.id, reason);
-        }}
-      />
     </>
   );
 };
