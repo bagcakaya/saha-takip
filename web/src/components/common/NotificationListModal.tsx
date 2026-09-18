@@ -14,6 +14,7 @@ import {
   Calendar,
   UserCheck,
   UserX,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin } from '../../types/auth';
@@ -45,7 +46,8 @@ export interface AppNotification {
     | 'attendance_rejected'
     | 'attendance_checked_in'
     | 'attendance_checked_out'
-    | 'security_log';
+    | 'security_log'
+    | 'return_completed';
   title: string;
   senderName: string;
   senderRole?: string;
@@ -78,6 +80,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     attendanceRecords,
     leaveRequests,
     securityLogs,
+    returnWarrantyItems,
   } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
@@ -282,6 +285,25 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           createdAt: new Date(n.reminderDate).getTime(),
           tab: 'notes',
           filter: 'reminders',
+        });
+      }
+    });
+
+    // 9. İade / Garanti "Ürün Döndü" Bildirimleri
+    returnWarrantyItems.forEach((item) => {
+      if (item.status === 'completed' && item.completedAt) {
+        const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+        const cariText = item.cariName ? `[${item.cariName}] ` : '';
+        const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
+        notifications.push({
+          id: `ret_comp_${item.id}_${item.completedAt}`,
+          type: 'return_completed',
+          title: `📦 ${typeLabel} Ürünü Geri Döndü`,
+          senderName: item.completedByName || 'Yetkili',
+          senderRole: `${typeLabel} Takibi`,
+          content: `${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürünü "Geri Döndü" olarak tamamlandı.${serialText}`,
+          createdAt: item.completedAt,
+          tab: 'returns',
         });
       }
     });
@@ -527,6 +549,25 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         }
       }
     });
+
+    // 9. İade / Garanti "Ürün Döndü" Bildirimleri (Personelin eklediği veya ilgilendiği ürünler)
+    returnWarrantyItems.forEach((item) => {
+      if (item.status === 'completed' && item.completedAt && (item.createdBy === user.id || item.completedBy === user.id)) {
+        const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+        const cariText = item.cariName ? `[${item.cariName}] ` : '';
+        const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
+        notifications.push({
+          id: `ret_comp_staff_${item.id}_${item.completedAt}`,
+          type: 'return_completed',
+          title: `📦 ${typeLabel} Ürünü Geri Döndü`,
+          senderName: item.completedByName || 'Yetkili',
+          senderRole: `${typeLabel} Takibi`,
+          content: `${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürününün işlemi tamamlandı.${serialText}`,
+          createdAt: item.completedAt,
+          tab: 'returns',
+        });
+      }
+    });
   }
 
   // Sort newest first
@@ -550,6 +591,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
   const getIcon = (type: AppNotification['type']) => {
     switch (type) {
+      case 'return_completed':
+        return <RotateCcw className="w-4 h-4 text-emerald-500" />;
       case 'note_pending_approval':
       case 'service_pending_approval':
       case 'location_pending_approval':

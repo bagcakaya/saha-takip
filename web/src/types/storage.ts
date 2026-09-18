@@ -112,6 +112,10 @@ export interface ReturnWarrantyItem {
   followUpNote?: string;
   followUpDate?: string; // ISO string
   followUpByName?: string;
+  // Geri Dönüş / Tamamlanma Bilgileri
+  completedAt?: number;
+  completedBy?: string;
+  completedByName?: string;
 }
 
 export interface ServiceItem {

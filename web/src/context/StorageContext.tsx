@@ -215,6 +215,7 @@ const SEEN_APPROVAL_SERVICES_KEY = (userId: string, compCode?: string) => `@seen
 const SEEN_APPROVAL_LOCATIONS_KEY = (userId: string, compCode?: string) => `@seen_approval_locations_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_ADMIN_REMINDERS_KEY = (userId: string, compCode?: string) => `@seen_admin_reminders_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_REMINDER_READS_KEY = (userId: string, compCode?: string) => `@seen_reminder_reads_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_COMPLETED_RETURNS_KEY = (userId: string, compCode?: string) => `@seen_completed_returns_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
 const getStoredSet = (key: string): Set<string> => {
@@ -499,6 +500,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           });
           saveStoredSet(SEEN_REMINDER_READS_KEY(user.id, compCode), seenReminderReads);
+
+          // 14. Completed Returns / Warranty items (Ürün Döndü)
+          const seenCompletedReturns = getStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode));
+          returns.forEach((r) => {
+            if (r.status === 'completed' && r.completedAt) {
+              seenCompletedReturns.add(`${r.id}_${r.completedAt}`);
+            }
+          });
+          saveStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode), seenCompletedReturns);
 
           localStorage.setItem(initKey, 'true');
         }
@@ -917,6 +927,45 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (seenWarrantyChanged) {
       saveStoredSet(storageKey, seenWarrantyReminders);
+    }
+  }, [returnWarrantyItems, user, dataCompanyCode]);
+
+  // Check incoming return & warranty completed ("Ürün Döndü") alerts for Admin
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
+
+    if (isUserAdmin(user)) {
+      const storageKey = SEEN_COMPLETED_RETURNS_KEY(user.id, compCode);
+      const seenCompletedReturns = getStoredSet(storageKey);
+      let seenChanged = false;
+
+      returnWarrantyItems.forEach((item) => {
+        if (item.status === 'completed' && item.completedAt) {
+          const key = `${item.id}_${item.completedAt}`;
+          if (!seenCompletedReturns.has(key)) {
+            seenCompletedReturns.add(key);
+            seenChanged = true;
+
+            // Only notify if completed by someone else (avoids duplicate toast on device of person who clicked it)
+            if (item.completedBy !== user.id) {
+              const staff = item.completedByName || 'Yetkili';
+              const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+              const cariText = item.cariName ? `[${item.cariName}] ` : '';
+              const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
+              const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
+              const body = `${staff}, ${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText}`;
+
+              NotificationService.sendNotification(title, body);
+              setActiveToast({ title, body, tab: 'returns' });
+            }
+          }
+        }
+      });
+
+      if (seenChanged) {
+        saveStoredSet(storageKey, seenCompletedReturns);
+      }
     }
   }, [returnWarrantyItems, user, dataCompanyCode]);
 
@@ -2289,11 +2338,67 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Update return / warranty item
   const updateReturnWarrantyItem = async (id: string, updates: Partial<ReturnWarrantyItem>) => {
+    const existingItem = returnWarrantyItems.find((item) => item.id === id);
+    const isNowCompleted = updates.status === 'completed' && existingItem?.status !== 'completed';
+
+    const finalUpdates: Partial<ReturnWarrantyItem> = { ...updates };
+    if (isNowCompleted) {
+      finalUpdates.completedAt = Date.now();
+      finalUpdates.completedBy = user?.id;
+      finalUpdates.completedByName = user?.name || user?.username || 'Yetkili';
+    } else if (updates.status === 'pending' && existingItem?.status === 'completed') {
+      finalUpdates.completedAt = undefined;
+      finalUpdates.completedBy = undefined;
+      finalUpdates.completedByName = undefined;
+    }
+
     const updated = returnWarrantyItems.map((item) =>
-      item.id === id ? { ...item, ...updates } : item
+      item.id === id ? { ...item, ...finalUpdates } : item
     );
     setReturnWarrantyItems(updated);
     await StorageService.saveReturnWarrantyItems(updated);
+
+    // If marked as completed ("Ürün Döndü"), notify all Admins immediately!
+    if (isNowCompleted && existingItem) {
+      const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+
+      // Mark as seen on current user's device immediately to avoid duplicate in-app toast
+      if (user?.id) {
+        const seenCompleted = getStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode));
+        if (finalUpdates.completedAt) {
+          seenCompleted.add(`${id}_${finalUpdates.completedAt}`);
+        }
+        saveStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode), seenCompleted);
+      }
+
+      const updaterName = user?.name || user?.username || 'Yetkili';
+      const typeLabel = existingItem.type === 'warranty' ? 'Garanti' : 'İade';
+      const cariText = existingItem.cariName ? `[${existingItem.cariName}] ` : '';
+      const serialText = existingItem.serialNumber ? ` (Seri No: ${existingItem.serialNumber})` : '';
+      const trackingText = existingItem.trackingCode ? ` (Takip No: ${existingItem.trackingCode})` : '';
+
+      const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
+      const message = `${updaterName}, ${cariText}${existingItem.companyName} firmasına gönderilen ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText || trackingText}`;
+
+      // 1. OneSignal hardware push notification directly to all Admins
+      try {
+        await OneSignalService.sendPushNotification({
+          title,
+          message,
+          targetMode: 'admin',
+          companyCode: compCode,
+          url: 'https://saha-takip-beige.vercel.app/?tab=returns',
+          collapseId: `ret_comp_${id}`,
+        });
+      } catch (err) {
+        console.warn('OneSignal return completed push error:', err);
+      }
+
+      // 2. In-App Toast for current user if admin
+      if (isUserAdmin(user)) {
+        setActiveToast({ title, body: message, tab: 'returns' });
+      }
+    }
   };
 
   // Delete return / warranty item

@@ -507,8 +507,8 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
           ) : (
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60">
               <span className="flex items-center gap-1.5 text-xs font-black text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Ürün Döndü (İşlem Tamamlandı)</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Ürün Döndü {item.completedByName ? `(${item.completedByName})` : '(İşlem Tamamlandı)'}</span>
               </span>
               <button
                 type="button"
