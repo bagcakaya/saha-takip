@@ -10,6 +10,9 @@ export interface AddressSearchResult {
   displayName: string;
 }
 
+// Memory cache for reverse-geocoded addresses to avoid repeat network requests
+const geocodeCache = new Map<string, string>();
+
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
@@ -27,9 +30,10 @@ export const LocationService = {
           const { latitude, longitude } = position.coords;
           let address = '';
           try {
+            // Non-blocking fast reverse geocoding with strict 1.5s timeout
             address = await LocationService.reverseGeocode(latitude, longitude);
           } catch (e) {
-            console.warn('Reverse geocoding failed:', e);
+            console.warn('Reverse geocoding failed/skipped:', e);
             address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           }
 
@@ -55,8 +59,8 @@ export const LocationService = {
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
+          timeout: 8000,
+          maximumAge: 15000, // Reuse fresh location (<15s) for instant response
           ...options,
         }
       );
@@ -65,19 +69,33 @@ export const LocationService = {
 
   /**
    * Reverse geocodes coordinates to street address using OpenStreetMap Nominatim
+   * Includes 1.5-second hard timeout and in-memory cache to prevent blocking UI
    */
   async reverseGeocode(lat: number, lon: number): Promise<string> {
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    if (geocodeCache.has(key)) {
+      return geocodeCache.get(key)!;
+    }
+
+    const fallbackCoord = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1500); // 1.5s strict timeout
+
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`,
         {
+          signal: controller.signal,
           headers: {
             'Accept-Language': 'tr',
           },
         }
       );
+      clearTimeout(timer);
+
       if (!response.ok) {
-        throw new Error('Geocoding servisine ulaşılamadı');
+        return fallbackCoord;
       }
       const data = await response.json();
       if (data && data.address) {
@@ -88,14 +106,13 @@ export const LocationService = {
         const city = addr.city || addr.province || addr.state || '';
 
         const parts = [road, suburb, district, city].filter(Boolean);
-        if (parts.length > 0) {
-          return parts.join(', ');
-        }
-        return data.display_name || `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        const resolved = parts.length > 0 ? parts.join(', ') : (data.display_name || fallbackCoord);
+        geocodeCache.set(key, resolved);
+        return resolved;
       }
-      return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      return fallbackCoord;
     } catch {
-      return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      return fallbackCoord;
     }
   },
 

@@ -318,6 +318,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const isPolatlar = compCode === 'POLATLAR';
 
     const initData = async () => {
+      // 1. FAST CACHE HYDRATION (Stale-While-Revalidate: ~20ms)
+      try {
+        const cached = await StorageService.getCachedData();
+        if (isMounted) {
+          if (cached.locations && cached.locations.length > 0) setAllLocations(cached.locations);
+          if (cached.standardTasks && cached.standardTasks.length > 0) setStandardTasks(cached.standardTasks);
+          if (cached.notes && cached.notes.length > 0) setAllNotes(cached.notes);
+          if (cached.returnWarranty && cached.returnWarranty.length > 0) setReturnWarrantyItems(cached.returnWarranty);
+          if (cached.services && cached.services.length > 0) setAllServices(cached.services);
+          if (cached.workplaceLocation) setWorkplaceLocation(cached.workplaceLocation);
+          if (cached.branches && cached.branches.length > 0) setBranches(cached.branches);
+          if (cached.attendanceRecords && cached.attendanceRecords.length > 0) setAttendanceRecords(cached.attendanceRecords);
+          if (cached.adminReminders && cached.adminReminders.length > 0) setAdminReminders(cached.adminReminders);
+          if (cached.leaveRequests && cached.leaveRequests.length > 0) setLeaveRequests(cached.leaveRequests);
+          if (cached.securityLogs && cached.securityLogs.length > 0) setSecurityLogs(cached.securityLogs);
+          if (cached.timedFollowUps && cached.timedFollowUps.length > 0) setTimedFollowUps(cached.timedFollowUps);
+          if (cached.carilerData && cached.carilerData.cariler && cached.carilerData.cariler.length > 0) {
+            setCariler(cached.carilerData.cariler);
+            setCarilerUpdatedAt(cached.carilerData.updatedAt);
+            setCarilerTotal(cached.carilerData.total);
+          }
+          // If cached data was loaded, unlock the UI immediately
+          if (
+            (cached.locations && cached.locations.length > 0) ||
+            (cached.notes && cached.notes.length > 0) ||
+            (cached.services && cached.services.length > 0) ||
+            (cached.carilerData && cached.carilerData.cariler.length > 0)
+          ) {
+            setIsLoading(false);
+            setDataCompanyCode(compCode);
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('Initial cache hydration error:', cacheErr);
+      }
+
+      // 2. NETWORK FETCH (Background synchronization)
       try {
         const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps] = await Promise.all([
           StorageService.getLocations(),
@@ -525,44 +562,113 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'standard_tasks' },
-        async () => {
+        async (payload: any) => {
           if (!isMounted) return;
-          const [tasks, returns, srvs, nts, wpLoc, branchList, attRecs, reminders, leaveReqs, secLogs, locs, cariData, followUps] = await Promise.all([
-            StorageService.getStandardTasks(),
-            StorageService.getReturnWarrantyItems(),
-            StorageService.getServices(),
-            StorageService.getNotes(),
-            StorageService.getWorkplaceLocation(),
-            StorageService.getBranches(),
-            StorageService.getAttendanceRecords(),
-            StorageService.getAdminReminders(),
-            StorageService.getLeaveRequests(),
-            StorageService.getSecurityLogs(),
-            StorageService.getLocations(),
-            StorageService.getCarilerData(),
-            StorageService.getTimedFollowUps(),
-          ]);
-          if (!isMounted) return;
-          setStandardTasks(tasks);
-          setReturnWarrantyItems(returns);
-          setAllServices(srvs);
-          setAllNotes(nts);
-          setAllLocations(locs);
-          if (wpLoc) {
-            const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
-            setWorkplaceLocation(finalWp);
-          } else {
-            setWorkplaceLocation(null);
+          const changedSlotId = payload?.new?.id ?? payload?.old?.id;
+          let moduleId = 0;
+          if (typeof changedSlotId === 'number') {
+            moduleId = isPolatlar ? changedSlotId : ((changedSlotId - 1) % 20) + 1;
           }
-          setBranches(branchList);
-          setAttendanceRecords(attRecs);
-          setAdminReminders(reminders);
-          setLeaveRequests(leaveReqs);
-          setSecurityLogs(secLogs);
-          setCariler(cariData.cariler);
-          setCarilerUpdatedAt(cariData.updatedAt);
-          setCarilerTotal(cariData.total);
-          setTimedFollowUps(followUps || []);
+
+          try {
+            // Targeted update: Only refresh the specific module that changed!
+            if (moduleId === 8) {
+              const attRecs = await StorageService.getAttendanceRecords();
+              if (isMounted) setAttendanceRecords(attRecs);
+              return;
+            }
+            if (moduleId === 4) {
+              const nts = await StorageService.getNotes();
+              if (isMounted) setAllNotes(nts);
+              return;
+            }
+            if (moduleId === 3) {
+              const srvs = await StorageService.getServices();
+              if (isMounted) setAllServices(srvs);
+              return;
+            }
+            if (moduleId === 11) {
+              const locs = await StorageService.getLocations();
+              if (isMounted) setAllLocations(locs);
+              return;
+            }
+            if (moduleId === 2) {
+              const returns = await StorageService.getReturnWarrantyItems();
+              if (isMounted) setReturnWarrantyItems(returns);
+              return;
+            }
+            if (moduleId === 5) {
+              const wpLoc = await StorageService.getWorkplaceLocation();
+              if (isMounted) {
+                if (wpLoc) {
+                  const finalWp = {
+                    ...wpLoc,
+                    radiusMeters: !wpLoc.radiusMeters || wpLoc.radiusMeters === 10 ? 20 : wpLoc.radiusMeters,
+                  };
+                  setWorkplaceLocation(finalWp);
+                } else {
+                  setWorkplaceLocation(null);
+                }
+              }
+              return;
+            }
+            if (moduleId === 6) {
+              const branchList = await StorageService.getBranches();
+              if (isMounted) setBranches(branchList);
+              return;
+            }
+            if (moduleId === 9) {
+              const reminders = await StorageService.getAdminReminders();
+              if (isMounted) setAdminReminders(reminders);
+              return;
+            }
+            if (moduleId === 12) {
+              const leaveReqs = await StorageService.getLeaveRequests();
+              if (isMounted) setLeaveRequests(leaveReqs);
+              return;
+            }
+            if (moduleId === 13) {
+              const secLogs = await StorageService.getSecurityLogs();
+              if (isMounted) setSecurityLogs(secLogs);
+              return;
+            }
+            if (moduleId === 14) {
+              const followUps = await StorageService.getTimedFollowUps();
+              if (isMounted) setTimedFollowUps(followUps || []);
+              return;
+            }
+            if (moduleId === 15) {
+              const cariData = await StorageService.getCarilerData();
+              if (isMounted) {
+                setCariler(cariData.cariler);
+                setCarilerUpdatedAt(cariData.updatedAt);
+                setCarilerTotal(cariData.total);
+              }
+              return;
+            }
+            if (moduleId === 1) {
+              const tasks = await StorageService.getStandardTasks();
+              if (isMounted) setStandardTasks(tasks);
+              return;
+            }
+
+            // Fallback: If slot unknown, refresh only light dynamic modules (never heavy cariler)
+            const [tasks, returns, srvs, nts, attRecs] = await Promise.all([
+              StorageService.getStandardTasks(),
+              StorageService.getReturnWarrantyItems(),
+              StorageService.getServices(),
+              StorageService.getNotes(),
+              StorageService.getAttendanceRecords(),
+            ]);
+            if (!isMounted) return;
+            setStandardTasks(tasks);
+            setReturnWarrantyItems(returns);
+            setAllServices(srvs);
+            setAllNotes(nts);
+            setAttendanceRecords(attRecs);
+          } catch (e) {
+            console.warn('Realtime update error:', e);
+          }
         }
       )
       .on(
@@ -589,73 +695,65 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .subscribe();
 
-    // High-frequency background sync for mobile devices
+    // Gentle safety heartbeat (every 60 seconds, only when tab is visible in foreground)
     const syncInterval = setInterval(async () => {
-      if (!isMounted) return;
+      if (!isMounted || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
       try {
-        const [locs, nts, returns, srvs, wpLoc, branchList, attRecs] = await Promise.all([
+        const [locs, nts, returns, srvs, attRecs] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getNotes(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getServices(),
-          StorageService.getWorkplaceLocation(),
-          StorageService.getBranches(),
           StorageService.getAttendanceRecords(),
         ]);
         if (!isMounted) return;
-        setAllLocations((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(locs)) {
-            return locs;
-          }
-          return prev;
-        });
-        setAllNotes((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(nts)) {
-            return nts;
-          }
-          return prev;
-        });
-        setReturnWarrantyItems((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(returns)) {
-            return returns;
-          }
-          return prev;
-        });
-        setAllServices((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(srvs)) {
-            return srvs;
-          }
-          return prev;
-        });
-        if (wpLoc) {
-          setWorkplaceLocation((prev) => {
-            if (JSON.stringify(prev) !== JSON.stringify(wpLoc)) {
-              return wpLoc;
-            }
-            return prev;
-          });
-        }
-        setBranches((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(branchList)) {
-            return branchList;
-          }
-          return prev;
-        });
-        setAttendanceRecords((prev) => {
-          if (JSON.stringify(prev) !== JSON.stringify(attRecs)) {
-            return attRecs;
-          }
-          return prev;
-        });
+        setAllLocations((prev) => (JSON.stringify(prev) !== JSON.stringify(locs) ? locs : prev));
+        setAllNotes((prev) => (JSON.stringify(prev) !== JSON.stringify(nts) ? nts : prev));
+        setReturnWarrantyItems((prev) => (JSON.stringify(prev) !== JSON.stringify(returns) ? returns : prev));
+        setAllServices((prev) => (JSON.stringify(prev) !== JSON.stringify(srvs) ? srvs : prev));
+        setAttendanceRecords((prev) => (JSON.stringify(prev) !== JSON.stringify(attRecs) ? attRecs : prev));
       } catch {
         // ignore
       }
-    }, 3000);
+    }, 60000);
+
+    // Fast refresh immediately when switching back to tab/app
+    const handleVisibilityOrFocus = async () => {
+      if (!isMounted || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      try {
+        const [locs, nts, returns, srvs, attRecs] = await Promise.all([
+          StorageService.getLocations(),
+          StorageService.getNotes(),
+          StorageService.getReturnWarrantyItems(),
+          StorageService.getServices(),
+          StorageService.getAttendanceRecords(),
+        ]);
+        if (!isMounted) return;
+        setAllLocations((prev) => (JSON.stringify(prev) !== JSON.stringify(locs) ? locs : prev));
+        setAllNotes((prev) => (JSON.stringify(prev) !== JSON.stringify(nts) ? nts : prev));
+        setReturnWarrantyItems((prev) => (JSON.stringify(prev) !== JSON.stringify(returns) ? returns : prev));
+        setAllServices((prev) => (JSON.stringify(prev) !== JSON.stringify(srvs) ? srvs : prev));
+        setAttendanceRecords((prev) => (JSON.stringify(prev) !== JSON.stringify(attRecs) ? attRecs : prev));
+      } catch {}
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilityOrFocus);
+    }
 
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
       clearInterval(syncInterval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilityOrFocus);
+      }
     };
   }, [user?.id, user?.companyCode, company?.id]);
 

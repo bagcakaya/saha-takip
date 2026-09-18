@@ -210,6 +210,72 @@ export const StorageService = {
   },
 
   /**
+   * Fast Stale-While-Revalidate: Loads all locally cached data from IndexedDB/localStorage
+   * in milliseconds so the UI can hydrate instantly without waiting for network requests.
+   */
+  async getCachedData(): Promise<{
+    locations: LocationItem[] | null;
+    standardTasks: string[] | null;
+    notes: GeneralNote[] | null;
+    returnWarranty: ReturnWarrantyItem[] | null;
+    services: ServiceItem[] | null;
+    workplaceLocation: WorkplaceLocation | null;
+    branches: Branch[] | null;
+    attendanceRecords: AttendanceRecord[] | null;
+    adminReminders: AdminReminder[] | null;
+    carilerData: CariData | null;
+    leaveRequests: LeaveRequest[] | null;
+    securityLogs: SecurityLogItem[] | null;
+    timedFollowUps: TimedFollowUp[] | null;
+  }> {
+    const [
+      locations,
+      standardTasks,
+      notes,
+      returnWarranty,
+      services,
+      workplaceLocation,
+      branches,
+      attendanceRecords,
+      adminReminders,
+      carilerData,
+      leaveRequests,
+      securityLogs,
+      timedFollowUps,
+    ] = await Promise.all([
+      loadItem<LocationItem[]>(this.getStorageKey(LOCATIONS_KEY)),
+      loadItem<string[]>(this.getStorageKey(STANDARD_TASKS_KEY)),
+      loadItem<GeneralNote[]>(this.getStorageKey(NOTES_KEY)),
+      loadItem<ReturnWarrantyItem[]>(this.getStorageKey(RETURN_WARRANTY_KEY)),
+      loadItem<ServiceItem[]>(this.getStorageKey(SERVICES_KEY)),
+      loadItem<WorkplaceLocation>(this.getStorageKey(WORKPLACE_LOCATION_KEY)),
+      loadItem<Branch[]>(this.getStorageKey(BRANCHES_KEY)),
+      loadItem<AttendanceRecord[]>(this.getStorageKey(ATTENDANCE_RECORDS_KEY)),
+      loadItem<AdminReminder[]>(this.getStorageKey(ADMIN_REMINDERS_KEY)),
+      loadItem<CariData>(this.getStorageKey(CARILER_DATA_KEY)),
+      loadItem<LeaveRequest[]>(this.getStorageKey(LEAVE_REQUESTS_KEY)),
+      loadItem<SecurityLogItem[]>(this.getStorageKey(SECURITY_LOGS_KEY)),
+      loadItem<TimedFollowUp[]>(this.getStorageKey(TIMED_FOLLOW_UPS_KEY)),
+    ]);
+
+    return {
+      locations,
+      standardTasks,
+      notes,
+      returnWarranty,
+      services,
+      workplaceLocation,
+      branches,
+      attendanceRecords,
+      adminReminders,
+      carilerData,
+      leaveRequests,
+      securityLogs,
+      timedFollowUps,
+    };
+  },
+
+  /**
    * Retrieves locations (Supabase cloud + local IndexedDB cache)
    */
   async getLocations(): Promise<LocationItem[]> {
@@ -1196,7 +1262,23 @@ export const StorageService = {
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
     const slotId = this.getSlotId(15);
 
-    // 1. Try loading from cloud slot 15 (available for ALL companies)
+    // 1. Check local cache (IndexedDB) FIRST for instant UI response (0ms wait)
+    const cached = await loadItem<CariData>(localKey);
+    if (cached && Array.isArray(cached.cariler) && cached.cariler.length > 0) {
+      // Non-blocking background sync from cloud slot 15
+      loadChunkedSlot<CariData>(slotId)
+        .then(({ data: cloudData }) => {
+          if (cloudData && Array.isArray(cloudData.cariler) && cloudData.cariler.length > 0) {
+            if (!cached.updatedAt || (cloudData.updatedAt && new Date(cloudData.updatedAt) > new Date(cached.updatedAt))) {
+              saveItem(localKey, cloudData);
+            }
+          }
+        })
+        .catch(() => {});
+      return cached;
+    }
+
+    // 2. If no cache, load from cloud slot 15
     try {
       const { data: cloudData, notFound } = await loadChunkedSlot<CariData>(slotId);
       if (cloudData && Array.isArray(cloudData.cariler) && cloudData.cariler.length > 0) {
@@ -1214,32 +1296,7 @@ export const StorageService = {
         return emptyCari;
       }
     } catch (e) {
-      console.warn('Cloud cariler load error, falling back to cache:', e);
-    }
-
-    // 2. Check local cache (IndexedDB)
-    if (activeCompanyCode !== 'POLATLAR') {
-      try {
-        const cached = await loadItem<CariData>(localKey);
-        if (
-          cached &&
-          Array.isArray(cached.cariler) &&
-          cached.database !== 'POLATLAR2025' &&
-          cached.cariler.length !== 370
-        ) {
-          return cached;
-        }
-      } catch {
-        // ignore
-      }
-      const emptyCari: CariData = {
-        updatedAt: null,
-        database: `${activeCompanyCode} Cariler`,
-        total: 0,
-        cariler: [],
-      };
-      await saveItem(localKey, emptyCari);
-      return emptyCari;
+      console.warn('Cloud cariler load error, checking fallback:', e);
     }
 
     // 3. Fallback for POLATLAR (defaultCarilerData / cariler.json)
@@ -1250,33 +1307,19 @@ export const StorageService = {
       cariler: (defaultCarilerData as any).cariler || [],
     };
 
-    try {
-      const cached = await loadItem<CariData>(localKey);
-      if (cached?.cariler && cached.cariler.length > 0) {
-        if (
-          !fallback.updatedAt ||
-          (cached.updatedAt && new Date(cached.updatedAt) >= new Date(fallback.updatedAt))
-        ) {
-          return cached;
-        }
-      }
-    } catch {
-      // ignore
+    if (activeCompanyCode === 'POLATLAR') {
+      await saveItem(localKey, fallback);
+      return fallback;
     }
 
-    // Non-blocking background fetch check for default POLATLAR cariler
-    if (typeof window !== 'undefined') {
-      fetch(`/cariler.json?t=${Date.now()}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((fresh) => {
-          if (fresh?.cariler && Array.isArray(fresh.cariler) && fresh.cariler.length > 0) {
-            saveItem(localKey, fresh);
-          }
-        })
-        .catch(() => {});
-    }
-
-    return fallback;
+    const emptyCari: CariData = {
+      updatedAt: null,
+      database: `${activeCompanyCode} Cariler`,
+      total: 0,
+      cariler: [],
+    };
+    await saveItem(localKey, emptyCari);
+    return emptyCari;
   },
 
   /**
