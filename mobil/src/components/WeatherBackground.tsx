@@ -95,7 +95,7 @@ export const WeatherBackground: React.FC<Props> = ({ weather }) => {
           <View style={styles.crescentMoonWrapper}>
             <Svg width={110} height={110} viewBox="0 0 100 100">
               <Defs>
-                <RadialGradient id="moonGrad" cx="35%" cy="35%" r="65%">
+                <RadialGradient id="moonGrad" cx="35" cy="35" r="65">
                   <Stop offset="0%" stopColor="#fffde7" />
                   <Stop offset="50%" stopColor="#fef08a" />
                   <Stop offset="100%" stopColor="#facc15" />

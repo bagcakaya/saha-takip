@@ -49,7 +49,7 @@ function withBuildConfig(config) {
 
   // 3. Fix MainActivity.kt:
   // - Add explicit import of BuildConfig
-  // - Replace BuildConfig.IS_NEW_ARCHITECTURE_ENABLED with fabricEnabled (already imported)
+  // - Keep BuildConfig.IS_NEW_ARCHITECTURE_ENABLED intact so New Architecture / Fabric is enabled
   config = withMainActivity(config, (modConfig) => {
     let contents = modConfig.modResults.contents;
     const packageName = config.android?.package || 'com.sahatakip.app';
@@ -58,13 +58,6 @@ function withBuildConfig(config) {
       contents = contents.replace(
         /package\s+[\w\.]+/,
         `$&\n\nimport ${packageName}.BuildConfig`
-      );
-    }
-
-    if (contents.includes('BuildConfig.IS_NEW_ARCHITECTURE_ENABLED')) {
-      contents = contents.replace(
-        'BuildConfig.IS_NEW_ARCHITECTURE_ENABLED',
-        'fabricEnabled'
       );
     }
 

@@ -12,6 +12,7 @@ import {
   useColorScheme,
   Image,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { WeatherService, MobileWeatherData } from '../services/weatherService';
 import { WeatherBackground } from '../components/WeatherBackground';
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react-native';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const { login } = useAuth();
   const [companyCode, setCompanyCode] = useState('POLATLAR');
   const [username, setUsername] = useState('');
@@ -73,6 +75,8 @@ export default function LoginScreen() {
       const res = await login(companyCode, username, password);
       if (!res.success) {
         setErrorMsg(res.error || 'Giriş yapılamadı.');
+      } else {
+        router.replace('/(tabs)');
       }
     } catch (e: any) {
       setErrorMsg(e?.message || 'Giriş sırasında bir hata oluştu.');

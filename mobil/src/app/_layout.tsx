@@ -1,34 +1,29 @@
-import React from 'react';
-import { Stack } from 'expo-router';
+import 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { StorageProvider } from '../context/StorageContext';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
-import LoginScreen from './login';
 
 function RootNavigator() {
   const { isAuthenticated, isLoading } = useAuth();
   const { isDark } = useAppTheme();
+  const segments = useSegments();
+  const router = useRouter();
 
-  if (isLoading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: isDark ? '#020617' : '#f8fafc',
-        }}
-      >
-        <ActivityIndicator size="large" color="#059669" />
-      </View>
-    );
-  }
+  useEffect(() => {
+    if (isLoading) return;
 
-  if (!isAuthenticated) {
-    return <LoginScreen />;
-  }
+    const inLogin = segments[0] === 'login';
+
+    if (!isAuthenticated && !inLogin) {
+      router.replace('/login');
+    } else if (isAuthenticated && inLogin) {
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, isLoading, segments]);
 
   return (
     <>
@@ -47,6 +42,7 @@ function RootNavigator() {
           },
         }}
       >
+        <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="new-task"
@@ -81,6 +77,24 @@ function RootNavigator() {
           }}
         />
       </Stack>
+
+      {isLoading && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: isDark ? '#020617' : '#f8fafc',
+            zIndex: 9999,
+          }}
+        >
+          <ActivityIndicator size="large" color="#059669" />
+        </View>
+      )}
     </>
   );
 }
