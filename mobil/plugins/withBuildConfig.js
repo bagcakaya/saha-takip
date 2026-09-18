@@ -3,6 +3,7 @@ const {
   withGradleProperties,
   withMainActivity,
   withMainApplication,
+  withStringsXml,
 } = require('@expo/config-plugins');
 
 function withBuildConfig(config) {
@@ -48,16 +49,20 @@ function withBuildConfig(config) {
   });
 
   // 3. Fix MainActivity.kt:
+  // - Enforce package name matches config.android.package (com.sahatakip.app)
   // - Add explicit import of BuildConfig
   // - Keep BuildConfig.IS_NEW_ARCHITECTURE_ENABLED intact so New Architecture / Fabric is enabled
   config = withMainActivity(config, (modConfig) => {
     let contents = modConfig.modResults.contents;
     const packageName = config.android?.package || 'com.sahatakip.app';
 
+    // Replace any erroneous package name (e.g. com.itakipsistemi or com.istakipsistemi)
+    contents = contents.replace(/package\s+[\w\.]+/, `package ${packageName}`);
+
     if (!contents.includes(`import ${packageName}.BuildConfig`)) {
       contents = contents.replace(
-        /package\s+[\w\.]+/,
-        `$&\n\nimport ${packageName}.BuildConfig`
+        `package ${packageName}`,
+        `package ${packageName}\n\nimport ${packageName}.BuildConfig`
       );
     }
 
@@ -66,16 +71,20 @@ function withBuildConfig(config) {
   });
 
   // 4. Fix MainApplication.kt:
+  // - Enforce package name matches config.android.package (com.sahatakip.app)
   // - Add explicit import of BuildConfig
   // - Replace BuildConfig.REACT_NATIVE_RELEASE_LEVEL with ReleaseLevel.STABLE
   config = withMainApplication(config, (modConfig) => {
     let contents = modConfig.modResults.contents;
     const packageName = config.android?.package || 'com.sahatakip.app';
 
+    // Replace any erroneous package name (e.g. com.itakipsistemi or com.istakipsistemi)
+    contents = contents.replace(/package\s+[\w\.]+/, `package ${packageName}`);
+
     if (!contents.includes(`import ${packageName}.BuildConfig`)) {
       contents = contents.replace(
-        /package\s+[\w\.]+/,
-        `$&\n\nimport ${packageName}.BuildConfig`
+        `package ${packageName}`,
+        `package ${packageName}\n\nimport ${packageName}.BuildConfig`
       );
     }
 
@@ -93,6 +102,19 @@ function withBuildConfig(config) {
     }
 
     modConfig.modResults.contents = contents;
+    return modConfig;
+  });
+
+  // 5. Ensure Android launcher app name displays 'İş Takip Sistemi'
+  config = withStringsXml(config, (modConfig) => {
+    const strings = modConfig.modResults.resources.string || [];
+    const appNameItem = strings.find((item) => item.$.name === 'app_name');
+    if (appNameItem) {
+      appNameItem._ = 'İş Takip Sistemi';
+    } else {
+      strings.push({ $: { name: 'app_name' }, _: 'İş Takip Sistemi' });
+    }
+    modConfig.modResults.resources.string = strings;
     return modConfig;
   });
 
