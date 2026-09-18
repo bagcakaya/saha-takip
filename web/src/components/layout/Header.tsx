@@ -67,8 +67,8 @@ export const Header: React.FC<HeaderProps> = ({
       <header
         className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3.5 sm:px-6 transition-colors shadow-xs w-full max-w-full overflow-hidden"
         style={{
-          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-          paddingBottom: '12px',
+          paddingTop: 'max(calc(env(safe-area-inset-top, 0px) + 24px), 64px)',
+          paddingBottom: '14px',
         }}
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">

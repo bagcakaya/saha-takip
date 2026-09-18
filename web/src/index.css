@@ -52,7 +52,7 @@
 
 /* Safe area padding helpers for modern mobile devices (iPhone notch/Dynamic Island/home bar) */
 .pt-safe {
-  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  padding-top: max(calc(env(safe-area-inset-top, 0px) + 1.25rem), 56px);
 }
 
 .pb-safe {

@@ -91,7 +91,7 @@ export const LoginView: React.FC = () => {
       {/* Top Right Floating "İletişim" Button */}
       <div
         className="absolute right-4 sm:right-6 z-20"
-        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        style={{ top: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 56px)' }}
       >
         <button
           type="button"
