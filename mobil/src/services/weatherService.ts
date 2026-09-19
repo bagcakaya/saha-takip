@@ -45,13 +45,17 @@ export const WeatherService = {
         lat = pos.coords.latitude;
         lon = pos.coords.longitude;
 
-        try {
-          const rev = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
-          if (rev && rev.length > 0) {
-            city = rev[0].city || rev[0].subregion || rev[0].region || 'Konumunuz';
+        if (lat >= 39.15 && lat <= 40.75 && lon >= 40.20 && lon <= 42.60) {
+          city = 'Erzurum';
+        } else {
+          try {
+            const rev = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
+            if (rev && rev.length > 0) {
+              city = rev[0].city || rev[0].subregion || rev[0].region || 'Konumunuz';
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
       }
     } catch {

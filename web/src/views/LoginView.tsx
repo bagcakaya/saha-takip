@@ -33,18 +33,23 @@ export const LoginView: React.FC = () => {
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
-  // Live weather & ambience (100% automatically detected from user's location & time)
-  const [liveWeather, setLiveWeather] = useState<WeatherData>({
-    timeOfDay: 'night',
-    condition: 'clear',
-    temperature: 22,
-    weatherText: 'Yıldızlı Gece',
-    locationName: 'Konumunuz Belirleniyor...',
-    isDay: false,
+  // Live weather & ambience (100% automatically detected from user's GPS location & time)
+  const [liveWeather, setLiveWeather] = useState<WeatherData>(() => {
+    return (
+      WeatherService.getCachedWeather() || {
+        timeOfDay: WeatherService.getTimeOfDay(),
+        condition: 'clear',
+        temperature: 20,
+        weatherText: 'Parçalı Bulutlu',
+        locationName: WeatherService.getLastKnownLocation().city,
+        isDay: WeatherService.getTimeOfDay() !== 'night',
+      }
+    );
   });
 
-  const [activeTimeOfDay, setActiveTimeOfDay] = useState<TimeOfDay>('night');
-  const [activeCondition, setActiveCondition] = useState<WeatherCondition>('clear');
+  const [activeTimeOfDay, setActiveTimeOfDay] = useState<TimeOfDay>(liveWeather.timeOfDay);
+  const [activeCondition, setActiveCondition] = useState<WeatherCondition>(liveWeather.condition);
+  const [isRefreshingWeather, setIsRefreshingWeather] = useState(false);
 
   // Load 100% automatic live weather on mount based on user's location & time
   useEffect(() => {
@@ -62,6 +67,21 @@ export const LoginView: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  const handleRefreshLocation = async () => {
+    if (isRefreshingWeather) return;
+    setIsRefreshingWeather(true);
+    try {
+      const weather = await WeatherService.getCurrentWeather(true);
+      setLiveWeather(weather);
+      setActiveTimeOfDay(weather.timeOfDay);
+      setActiveCondition(weather.condition);
+    } catch {
+      // ignore
+    } finally {
+      setIsRefreshingWeather(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,15 +145,27 @@ export const LoginView: React.FC = () => {
             </p>
           </div>
 
-          {/* Live Auto Weather Indicator Pill */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-xs font-semibold text-white/90 shadow-xs">
-            <MapPin className="w-3.5 h-3.5 text-blue-300 shrink-0" />
+          {/* Live Auto Weather Indicator Pill (Click/tap to refresh GPS location) */}
+          <button
+            type="button"
+            onClick={handleRefreshLocation}
+            title="Konumu ve hava durumunu güncellemek için dokunun"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md border border-white/15 text-xs font-semibold text-white/90 shadow-xs transition-all cursor-pointer"
+          >
+            <MapPin
+              className={`w-3.5 h-3.5 text-blue-300 shrink-0 ${
+                isRefreshingWeather ? 'animate-bounce text-amber-300' : ''
+              }`}
+            />
             <span className="truncate max-w-[130px]">{liveWeather.locationName}</span>
             <span className="text-white/40">•</span>
             <span>{liveWeather.temperature}°C</span>
             <span className="text-white/40">•</span>
             <span className="capitalize">{liveWeather.weatherText}</span>
-          </div>
+            {isRefreshingWeather && (
+              <Loader2 className="w-3 h-3 text-white/80 animate-spin ml-0.5" />
+            )}
+          </button>
         </div>
 
         {/* Error Message */}

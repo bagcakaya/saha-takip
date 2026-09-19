@@ -61,13 +61,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const isAdmin = isUserAdmin(user);
 
   // Live weather state for sidebar
-  const [weather, setWeather] = useState<WeatherData>({
-    timeOfDay: 'day',
-    condition: 'clear',
-    temperature: 24,
-    weatherText: 'Açık Gökyüzü',
-    locationName: 'Konum',
-    isDay: true,
+  const [weather, setWeather] = useState<WeatherData>(() => {
+    return (
+      WeatherService.getCachedWeather() || {
+        timeOfDay: WeatherService.getTimeOfDay(),
+        condition: 'clear',
+        temperature: 20,
+        weatherText: 'Parçalı Bulutlu',
+        locationName: WeatherService.getLastKnownLocation().city,
+        isDay: WeatherService.getTimeOfDay() !== 'night',
+      }
+    );
   });
 
   useEffect(() => {
