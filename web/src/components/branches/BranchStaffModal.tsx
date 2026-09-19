@@ -28,13 +28,13 @@ export const BranchStaffModal: React.FC<BranchStaffModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Filter company users
+  // Filter company users based on the branch's company
+  const branchCompanyCode = (branch?.companyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
   const companyUsers = React.useMemo(() => {
-    const currentCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
     return users.filter(
-      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === currentCode
+      (u) => (u.companyCode || 'POLATLAR').toUpperCase() === branchCompanyCode
     );
-  }, [users, currentUser]);
+  }, [users, branchCompanyCode]);
 
   useEffect(() => {
     if (branch) {

@@ -220,8 +220,8 @@ const MainApp: React.FC = () => {
         };
       case 'branches':
         return {
-          subtitle: 'Şube & Personel Yönetimi',
-          title: 'Şubeler',
+          subtitle: 'Kurum, Şube & Personel Yönetimi',
+          title: 'Kurum ve Şubeler',
         };
       case 'installations':
         return {

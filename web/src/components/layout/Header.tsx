@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           <Store className="w-4 h-4" />
-          <span>Şubeler</span>
+          <span>Kurum ve Şubeler</span>
         </button>
       )}
       <button
@@ -204,19 +204,6 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
           <span className="hidden sm:inline">Kullanıcılar</span>
-        </button>
-      )}
-
-      {/* Admin-only Create Company Button (For Polatlar Admins) */}
-      {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
-        <button
-          type="button"
-          onClick={() => setIsCreateCompanyOpen(true)}
-          className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition-all active:scale-95 shadow-xs cursor-pointer"
-          title="Yeni Kurum / Firma Ekle"
-        >
-          <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span className="hidden sm:inline">Yeni Kurum</span>
         </button>
       )}
 

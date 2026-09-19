@@ -23,6 +23,7 @@ interface BranchModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchToEdit?: Branch | null;
+  defaultCompanyCode?: string;
   onSave: (branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }) => Promise<void>;
 }
 
@@ -30,6 +31,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   isOpen,
   onClose,
   branchToEdit,
+  defaultCompanyCode,
   onSave,
 }) => {
   const { users, user: currentUser } = useAuth();
@@ -78,7 +80,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setPhone(branchToEdit.phone || '');
       setAssignedUserIds(branchToEdit.assignedUserIds || []);
     } else {
-      setTargetCompanyCode(currentUser?.companyCode || 'POLATLAR');
+      setTargetCompanyCode(defaultCompanyCode || currentUser?.companyCode || 'POLATLAR');
       setName('');
       setAddress('');
       setLatitude('');

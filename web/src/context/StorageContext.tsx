@@ -121,7 +121,7 @@ interface StorageContextType {
   ) => Promise<Branch>;
   updateBranch: (id: string, updates: Partial<Branch>) => Promise<void>;
   deleteBranch: (id: string) => Promise<void>;
-  assignStaffToBranch: (branchId: string, userIds: string[]) => Promise<void>;
+  assignStaffToBranch: (branchId: string, userIds: string[], targetCompanyCode?: string) => Promise<void>;
   checkInStaff: (options?: {
     allowOutside?: boolean;
     note?: string;
@@ -2719,20 +2719,46 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const assignStaffToBranch = async (branchId: string, userIds: string[]) => {
-    const updated = branches.map((b) => {
-      if (b.id === branchId) {
-        return { ...b, assignedUserIds: userIds, updatedAt: Date.now() };
-      } else {
-        return {
-          ...b,
-          assignedUserIds: (b.assignedUserIds || []).filter((uid) => !userIds.includes(uid)),
-          updatedAt: Date.now(),
-        };
+  const assignStaffToBranch = async (branchId: string, userIds: string[], targetCompanyCode?: string) => {
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    let branchCompCode = targetCompanyCode ? targetCompanyCode.trim().toUpperCase() : currentCompCode;
+
+    if (!targetCompanyCode) {
+      const foundInCurrent = branches.find((b) => b.id === branchId);
+      if (foundInCurrent?.companyCode) {
+        branchCompCode = foundInCurrent.companyCode.trim().toUpperCase();
       }
-    });
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+    }
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.map((b) => {
+        if (b.id === branchId) {
+          return { ...b, assignedUserIds: userIds, updatedAt: Date.now() };
+        } else {
+          return {
+            ...b,
+            assignedUserIds: (b.assignedUserIds || []).filter((uid) => !userIds.includes(uid)),
+            updatedAt: Date.now(),
+          };
+        }
+      });
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.map((b) => {
+        if (b.id === branchId) {
+          return { ...b, assignedUserIds: userIds, updatedAt: Date.now() };
+        } else {
+          return {
+            ...b,
+            assignedUserIds: (b.assignedUserIds || []).filter((uid) => !userIds.includes(uid)),
+            updatedAt: Date.now(),
+          };
+        }
+      });
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
   };
 
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)

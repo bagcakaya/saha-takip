@@ -224,7 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               >
                 <div className="flex items-center gap-3">
                   <Store className="w-4 h-4" />
-                  <span>Şubeler</span>
+                  <span>Kurum ve Şubeler</span>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${

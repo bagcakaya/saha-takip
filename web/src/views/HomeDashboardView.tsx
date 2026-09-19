@@ -245,11 +245,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
             {/* Bottom Content */}
             <div className="space-y-1 z-10">
               <h4 className="text-sm sm:text-lg font-black tracking-tight flex items-center gap-1.5">
-                <span>Şubeler</span>
+                <span>Kurum ve Şubeler</span>
                 <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
               </h4>
               <p className="text-[10px] sm:text-xs text-cyan-100/90 font-medium line-clamp-2 leading-relaxed">
-                Şube lokasyonları, 20m mesai alanı ve personel atamaları
+                Kurumlar, şubeler, konumlar ve personel atamaları
               </p>
             </div>
 

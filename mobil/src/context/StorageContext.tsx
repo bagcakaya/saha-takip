@@ -103,9 +103,11 @@ interface StorageContextType {
     phone?: string;
     headquarterId?: string;
     headquarterName?: string;
+    companyCode?: string;
   }) => Promise<{ success: boolean; message: string }>;
-  deleteBranch: (id: string) => Promise<{ success: boolean; message: string }>;
-  assignStaffToBranch: (branchId: string, userIds: string[]) => Promise<{ success: boolean; message?: string }>;
+  updateBranch: (id: string, updates: Partial<Branch>, targetCompanyCode?: string) => Promise<{ success: boolean; message: string }>;
+  deleteBranch: (id: string, targetCompanyCode?: string) => Promise<{ success: boolean; message: string }>;
+  assignStaffToBranch: (branchId: string, userIds: string[], targetCompanyCode?: string) => Promise<{ success: boolean; message?: string }>;
   addHeadquarter: (params: {
     name: string;
     phone?: string;
@@ -671,12 +673,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     phone?: string;
     headquarterId?: string;
     headquarterName?: string;
+    companyCode?: string;
   }) => {
     if (!user) return { success: false, message: 'Oturum açılmadı.' };
+    const currentCompCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetCompCode = (params.companyCode || currentCompCode).trim().toUpperCase();
     const defaultHq = headquarters && headquarters.length > 0 ? headquarters[0] : undefined;
     const newBranch: Branch = {
       id: 'br_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      companyCode: user.companyCode || 'POLATLAR',
+      companyCode: targetCompCode,
       headquarterId: params.headquarterId || defaultHq?.id,
       headquarterName: params.headquarterName || defaultHq?.name || 'Merkez Firma',
       name: params.name.trim(),
@@ -689,25 +694,79 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    const updated = [...branches, newBranch];
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+
+    if (targetCompCode === currentCompCode) {
+      const updated = [...branches, newBranch];
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(targetCompCode);
+      const targetUpdated = [...targetExisting, newBranch];
+      await StorageService.saveBranchesForCompany(targetCompCode, targetUpdated);
+    }
     return { success: true, message: 'Şube başarıyla eklendi.' };
   };
 
-  const deleteBranch = async (id: string) => {
-    const updated = branches.filter((b) => b.id !== id);
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+  const updateBranch = async (id: string, updates: Partial<Branch>, targetCompanyCode?: string) => {
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const branchCompCode = (targetCompanyCode || currentCompCode).trim().toUpperCase();
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.map((b) =>
+        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+      );
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.map((b) =>
+        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+      );
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
+    return { success: true, message: 'Şube güncellendi.' };
+  };
+
+  const deleteBranch = async (id: string, targetCompanyCode?: string) => {
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const branchCompCode = (targetCompanyCode || currentCompCode).trim().toUpperCase();
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.filter((b) => b.id !== id);
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.filter((b) => b.id !== id);
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
     return { success: true, message: 'Şube silindi.' };
   };
 
-  const assignStaffToBranch = async (branchId: string, userIds: string[]) => {
-    const updated = branches.map((b) =>
-      b.id === branchId ? { ...b, assignedUserIds: userIds, updatedAt: Date.now() } : b
-    );
-    setBranches(updated);
-    await StorageService.saveBranches(updated);
+  const assignStaffToBranch = async (branchId: string, userIds: string[], targetCompanyCode?: string) => {
+    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    let branchCompCode = targetCompanyCode ? targetCompanyCode.trim().toUpperCase() : currentCompCode;
+
+    if (!targetCompanyCode) {
+      const found = branches.find((b) => b.id === branchId);
+      if (found?.companyCode) {
+        branchCompCode = found.companyCode.trim().toUpperCase();
+      }
+    }
+
+    if (branchCompCode === currentCompCode) {
+      const updated = branches.map((b) =>
+        b.id === branchId ? { ...b, assignedUserIds: userIds, updatedAt: Date.now() } : b
+      );
+      setBranches(updated);
+      await StorageService.saveBranches(updated);
+    } else {
+      const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
+      const targetUpdated = targetExisting.map((b) =>
+        b.id === branchId ? { ...b, assignedUserIds: userIds, updatedAt: Date.now() } : b
+      );
+      await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+    }
     return { success: true, message: 'Personel şubeye atandı.' };
   };
 
@@ -1083,6 +1142,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteNote,
         updateNoteStatus,
         addBranch,
+        updateBranch,
         deleteBranch,
         assignStaffToBranch,
         addHeadquarter,

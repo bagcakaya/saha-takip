@@ -163,6 +163,13 @@ export const StorageService = {
     return (compId - 1) * 20 + baseModuleId;
   },
 
+  getSlotIdForCompany(baseModuleId: number, companyCode: string, companyId?: number): number {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    if (cleanCode === 'POLATLAR') return baseModuleId;
+    const compId = companyId || 2;
+    return (compId - 1) * 20 + baseModuleId;
+  },
+
   // 1. LOCATIONS (İş Emirleri / Keşif & Montaj)
   async getLocations(): Promise<LocationItem[]> {
     const localKey = `@locations_${activeCompanyCode}`;
@@ -556,6 +563,34 @@ export const StorageService = {
     const localKey = `@branches_${activeCompanyCode}`;
     await setLocal(localKey, branches);
     await saveChunkedSlot(this.getSlotId(14), branches);
+  },
+
+  async getBranchesForCompany(companyCode: string, companyId?: number): Promise<Branch[]> {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = cleanCode === 'POLATLAR' ? '@branches_POLATLAR' : `@branches_${cleanCode}`;
+    const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
+    try {
+      const slot = await loadChunkedSlot<Branch[]>(slotId);
+      if (slot.data && Array.isArray(slot.data)) {
+        await setLocal(localKey, slot.data);
+        return slot.data;
+      }
+      if (cleanCode !== 'POLATLAR' && slot.notFound) {
+        await setLocal(localKey, []);
+        return [];
+      }
+    } catch (e) {
+      console.warn('getBranchesForCompany error:', e);
+    }
+    return (await getLocal<Branch[]>(localKey)) || [];
+  },
+
+  async saveBranchesForCompany(companyCode: string, branches: Branch[], companyId?: number): Promise<void> {
+    const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = cleanCode === 'POLATLAR' ? '@branches_POLATLAR' : `@branches_${cleanCode}`;
+    const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
+    await setLocal(localKey, branches);
+    await saveChunkedSlot(slotId, branches);
   },
 
   // 5b. HEADQUARTERS (Merkez Firmalar)

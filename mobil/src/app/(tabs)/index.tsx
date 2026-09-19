@@ -140,16 +140,6 @@ export default function HomeDashboardScreen() {
               </TouchableOpacity>
             )}
 
-            {isAdmin && (
-              <TouchableOpacity
-                style={styles.topIconBtnBranch}
-                onPress={() => setIsCreateCompanyOpen(true)}
-                activeOpacity={0.7}
-              >
-                <Building2 size={17} color="#3b82f6" />
-              </TouchableOpacity>
-            )}
-
             <TouchableOpacity
               style={styles.topIconBtnNotif}
               onPress={() => setIsNotifModalOpen(true)}
@@ -267,7 +257,7 @@ export default function HomeDashboardScreen() {
 
         {/* 4. 2-Column Square Module Cards Grid (Exact Matches for Görsel 1) */}
         <View style={styles.gridContainer}>
-          {/* Card 1: Şubeler (Cyan / Teal) */}
+          {/* Card 1: Kurum ve Şubeler (Cyan / Teal) */}
           {isAdmin && (
             <TouchableOpacity
               style={[styles.moduleCard, { backgroundColor: '#0d9488', borderColor: 'rgba(45, 212, 191, 0.4)' }]}
@@ -276,7 +266,7 @@ export default function HomeDashboardScreen() {
             >
               <View style={styles.cardTop}>
                 <View style={styles.cardIconCircle}>
-                  <Store size={20} color="#ffffff" />
+                  <Building2 size={20} color="#ffffff" />
                 </View>
                 <View style={styles.badgeColumn}>
                   <View style={styles.solidPillBadge}>
@@ -286,11 +276,11 @@ export default function HomeDashboardScreen() {
               </View>
               <View style={styles.cardBottom}>
                 <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardTitle}>Şubeler</Text>
+                  <Text style={styles.cardTitle}>Kurum ve Şubeler</Text>
                   <ArrowRight size={15} color="#ffffff" />
                 </View>
                 <Text style={styles.cardDesc} numberOfLines={2}>
-                  Şube lokasyonları, 20m mesai alanı ve personel...
+                  Kurumlar, şubeler, konumlar ve personel atamaları
                 </Text>
               </View>
             </TouchableOpacity>
