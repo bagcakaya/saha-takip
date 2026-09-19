@@ -78,6 +78,18 @@ export default async function handler(req, res) {
       filter: payload.data?.filter || targetFilter,
     };
 
+    if (payload.title && !payload.headings) {
+      payload.headings = { en: payload.title, tr: payload.title };
+    }
+    if (payload.message && !payload.contents) {
+      payload.contents = { en: payload.message, tr: payload.message };
+    }
+
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases) {
+      payload.include_aliases = { external_id: payload.targetUserIds };
+      payload.target_channel = 'push';
+    }
+
     const delaySeconds = Number(payload.delaySeconds) || 0;
     delete payload.delaySeconds;
 

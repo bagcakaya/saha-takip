@@ -87,4 +87,37 @@ export const MobileOneSignalService = {
       console.warn('OneSignal logout error:', err);
     }
   },
+
+  /**
+   * Sends a real push notification via Vercel proxy / OneSignal cloud API
+   */
+  async sendTestPushNotification(params: {
+    userId: string;
+    title?: string;
+    message?: string;
+    delaySeconds?: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: params.title || '🔔 Donanım Bildirim Testi',
+          message: params.message || 'Bildirim sisteminiz telefonunuzda başarıyla aktif!',
+          targetUserIds: [params.userId],
+          delaySeconds: params.delaySeconds || 0,
+          data: { tab: 'reminders' },
+        }),
+      });
+
+      const data = await response.json();
+      if (data && data.id) {
+        return { success: true };
+      }
+      return { success: false, error: data?.errors?.[0] || 'Bildirim gönderilemedi' };
+    } catch (err: any) {
+      console.warn('sendTestPushNotification error:', err);
+      return { success: false, error: err?.message };
+    }
+  },
 };

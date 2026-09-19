@@ -32,6 +32,7 @@ import {
   BatteryCharging,
 } from 'lucide-react-native';
 import { DeviceService } from '../services/deviceService';
+import { MobileOneSignalService } from '../services/oneSignalService';
 import { RegisteredDevice, UserDeviceBinding } from '../types/storage';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../context/ThemeContext';
@@ -138,24 +139,73 @@ export const NotificationStatusModal: React.FC<NotificationStatusModalProps> = (
     setTimeout(() => setTestSentMessage(null), 4000);
   };
 
-  const handleSendInstantTest = () => {
-    setTestSentMessage(null);
-    Alert.alert(
-      '🔔 Test Bildirimi Başarılı',
-      `"${currentDeviceName}" cihazına anlık donanım push bildirimi gönderildi!`
-    );
+  const handleSendInstantTest = async () => {
+    if (!user?.id) {
+      Alert.alert('Hata', 'Giriş yapmış kullanıcı bulunamadı.');
+      return;
+    }
+    setTestSentMessage('⏳ Anlık bildirim gönderiliyor...');
+    const res = await MobileOneSignalService.sendTestPushNotification({
+      userId: user.id,
+      title: '🔔 Donanım Bildirim Testi',
+      message: `${user.name || 'Personel'}, anlık bildirim sistemi telefonunuzda başarıyla aktif!`,
+    });
+    if (res.success) {
+      setTestSentMessage('🔔 Anlık donanım push bildirimi telefonunuza başarıyla iletildi!');
+      setTimeout(() => setTestSentMessage(null), 5000);
+      Alert.alert(
+        '🔔 Bildirim Gönderildi',
+        `"${currentDeviceName}" cihazına anlık push bildirimi gönderildi! Telefonunuzun bildirim çubuğunu kontrol ediniz.`
+      );
+    } else {
+      setTestSentMessage(`⚠️ Bildirim iletilemedi: ${res.error}`);
+      Alert.alert('Bildirim Uyarısı', `Bildirim gönderilemedi: ${res.error}`);
+    }
   };
 
-  const handleStartLockScreenTest = () => {
+  const handleStartLockScreenTest = async () => {
+    if (!user?.id) {
+      Alert.alert('Hata', 'Giriş yapmış kullanıcı bulunamadı.');
+      return;
+    }
     setTestSentMessage(null);
     setCountdown(5);
+    // Sunucu 5 saniye bekleyip gönderecektir; bu sırada ekranı kilitleyebilirsiniz
+    MobileOneSignalService.sendTestPushNotification({
+      userId: user.id,
+      title: '🔒 Kilitli Ekran Donanım Testi',
+      message: `${user.name || 'Personel'}, kilitli ekran bildirimi başarıyla çalışıyor!`,
+      delaySeconds: 5,
+    }).then((res) => {
+      if (!res.success) {
+        setTestSentMessage(`⚠️ Kilitli ekran bildirimi hatası: ${res.error}`);
+      }
+    });
   };
 
-  const handleSendTestToDevice = (dev: RegisteredDevice) => {
-    Alert.alert(
-      '✈ Test Bildirimi Gönderildi',
-      `"${dev.deviceName}" (${dev.deviceId}) cihazına test bildirimi başarıyla iletildi.`
-    );
+  const handleSendTestToDevice = async (dev: RegisteredDevice) => {
+    const targetId = dev.userId || user?.id;
+    if (!targetId) {
+      Alert.alert('Hata', 'Hedef kullanıcı ID bulunamadı.');
+      return;
+    }
+    setTestSentMessage(`⏳ "${dev.deviceName}" cihazına bildirim iletiliyor...`);
+    const res = await MobileOneSignalService.sendTestPushNotification({
+      userId: targetId,
+      title: '✈ Cihaz Bildirim Testi',
+      message: `"${dev.deviceName}" donanımına doğrudan test bildirimi gönderildi.`,
+    });
+    if (res.success) {
+      Alert.alert(
+        '✈ Test Bildirimi Gönderildi',
+        `"${dev.deviceName}" (${dev.deviceId}) cihazına test bildirimi başarıyla iletildi.`
+      );
+      setTestSentMessage(`✅ "${dev.deviceName}" cihazına bildirim başarıyla iletildi.`);
+      setTimeout(() => setTestSentMessage(null), 4000);
+    } else {
+      Alert.alert('Bildirim Uyarısı', `Bildirim gönderilemedi: ${res.error}`);
+      setTestSentMessage(`⚠️ Hata: ${res.error}`);
+    }
   };
 
   const handleDeleteDevice = (deviceId: string, devName: string) => {
