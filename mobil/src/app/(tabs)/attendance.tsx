@@ -42,6 +42,7 @@ import {
   UserCheck,
   Building2,
   UserX,
+  Trash2,
 } from 'lucide-react-native';
 import { AttendanceRecord, WorkplaceLocation } from '../../types/storage';
 import { UserManagementModal } from '../../components/UserManagementModal';
@@ -89,9 +90,46 @@ export default function AttendanceScreen() {
     refreshData,
     updateWorkplaceLocation,
   } = useStorage();
-  const { user, logout, deleteUser } = useAuth();
+  const { user, users, logout, deleteUser } = useAuth();
   const { isDark, toggleTheme } = useAppTheme();
   const router = useRouter();
+
+  const isAdmin = user?.role === 'admin';
+
+  const deletableStaffList = useMemo(() => {
+    if (!user) return [];
+    const compCode = (user.companyCode || 'POLATLAR').toUpperCase();
+    return users.filter(
+      (u) =>
+        (u.companyCode || 'POLATLAR').toUpperCase() === compCode &&
+        u.id !== user.id &&
+        u.username.toLowerCase() !== 'admin'
+    );
+  }, [users, user]);
+
+  const [isDeleteStaffModalOpen, setIsDeleteStaffModalOpen] = useState(false);
+
+  const handleDeleteStaff = (staffId: string, staffName: string) => {
+    Alert.alert(
+      'Personel Hesabını Sil',
+      `"${staffName}" personeli işten ayrıldığı için hesabı sistemden kalıcı olarak silinecektir.\n\nGiriş yetkileri, şifresi ve telefon cihaz kilidi tamamen iptal edilir. Bu işlem geri alınamaz.\n\nOnaylıyor musunuz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Hesabı Sil',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await deleteUser(staffId);
+            if (res.success) {
+              Alert.alert('Başarılı', `"${staffName}" kullanıcısının hesabı silindi.`);
+            } else {
+              Alert.alert('İşlem Başarısız', res.error || 'Personel silinemedi.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleDeleteAccount = () => {
     if (!user) return;
@@ -116,8 +154,6 @@ export default function AttendanceScreen() {
       ]
     );
   };
-
-  const isAdmin = user?.role === 'admin';
 
   // Live GPS
   const [currentPos, setCurrentPos] = useState<GeolocationResult | null>(null);
@@ -1427,19 +1463,33 @@ export default function AttendanceScreen() {
           </View>
         </View>
 
-        {/* En Alt: Kalıcı Hesabı Sil Butonu */}
+        {/* En Alt: Kalıcı Hesabı Sil Butonları */}
         {user && (
           <View style={styles.deleteAccountContainer}>
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.deleteStaffAdminBtn}
+                onPress={() => setIsDeleteStaffModalOpen(true)}
+                activeOpacity={0.8}
+              >
+                <UserX size={16} color="#ffffff" />
+                <Text style={styles.deleteStaffAdminBtnText}>Personel Hesabı Sil (Yönetici)</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.deleteAccountBtn}
               onPress={handleDeleteAccount}
               activeOpacity={0.8}
             >
-              <UserX size={16} color="#ef4444" />
-              <Text style={styles.deleteAccountBtnText}>Hesabı Sil</Text>
+              <UserX size={15} color="#ef4444" />
+              <Text style={styles.deleteAccountBtnText}>Kendi Hesabımı Sil</Text>
             </TouchableOpacity>
+
             <Text style={[styles.deleteAccountSubtext, { color: isDark ? '#94a3b8' : '#64748b' }]}>
-              İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde kalıcı olarak silebilirsiniz.
+              {isAdmin
+                ? 'İşten ayrılan personellerin hesaplarını silebilir veya kendi hesabınızı kapatabilirsiniz.'
+                : 'İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde kalıcı olarak silebilirsiniz.'}
             </Text>
           </View>
         )}
@@ -1493,6 +1543,99 @@ export default function AttendanceScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Staff Modal for Admin */}
+      {isAdmin && (
+        <Modal
+          visible={isDeleteStaffModalOpen}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setIsDeleteStaffModalOpen(false)}
+        >
+          <View style={styles.pickerBackdrop}>
+            <View style={[styles.pickerCard, { backgroundColor: isDark ? '#0f172a' : '#ffffff', maxHeight: '80%' }]}>
+              <View style={styles.pickerHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <UserX size={18} color="#ef4444" />
+                  <Text style={[styles.pickerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    Personel Hesabını Sil
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsDeleteStaffModalOpen(false)}>
+                  <X size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', marginBottom: 12, lineHeight: 17 }}>
+                İşten ayrılan personelin hesabını kalıcı olarak silebilirsiniz. Telefon cihaz kilidi ve sisteme giriş izinleri anında iptal edilir.
+              </Text>
+
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
+                {deletableStaffList.length === 0 ? (
+                  <Text style={{ textAlign: 'center', padding: 20, color: '#94a3b8', fontSize: 12 }}>
+                    Silinebilecek kayıtlı personel bulunamadı.
+                  </Text>
+                ) : (
+                  deletableStaffList.map((st) => (
+                    <View
+                      key={st.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderBottomWidth: 1,
+                        borderBottomColor: isDark ? '#1e293b' : '#f1f5f9',
+                      }}
+                    >
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#ffffff' : '#0f172a' }}>
+                          {st.name}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#94a3b8', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                          @{st.username} • {st.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          backgroundColor: '#fee2e2',
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 8,
+                        }}
+                        onPress={() => handleDeleteStaff(st.id, st.name)}
+                      >
+                        <Trash2 size={12} color="#dc2626" />
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: '#dc2626' }}>Sil</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={{
+                  marginTop: 14,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+                  alignItems: 'center',
+                }}
+                onPress={() => setIsDeleteStaffModalOpen(false)}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#cbd5e1' : '#475569' }}>
+                  Kapat
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Top Bar Modals */}
       <UserManagementModal
@@ -2477,6 +2620,23 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(148, 163, 184, 0.2)',
     gap: 8,
+  },
+  deleteStaffAdminBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#dc2626',
+    marginBottom: 4,
+  },
+  deleteStaffAdminBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   deleteAccountBtn: {
     flexDirection: 'row',

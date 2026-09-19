@@ -997,6 +997,34 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return leaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length;
   }, [leaveRequests, isAdmin, user]);
 
+  const deletableStaffList = useMemo(() => {
+    if (!user) return [];
+    const compCode = (user.companyCode || 'POLATLAR').toUpperCase();
+    return users.filter(
+      (u) =>
+        (u.companyCode || 'POLATLAR').toUpperCase() === compCode &&
+        u.id !== user.id &&
+        u.username.toLowerCase() !== 'admin'
+    );
+  }, [users, user]);
+
+  const [isDeleteStaffModalOpen, setIsDeleteStaffModalOpen] = useState(false);
+
+  const handleDeleteStaff = async (staffId: string, staffName: string) => {
+    if (
+      window.confirm(
+        `"${staffName}" personeli işten ayrıldığı için hesabı sistemden kalıcı olarak silinecektir.\n\nGiriş yetkileri, şifresi ve telefon cihaz kilidi tamamen iptal edilir. Bu işlem geri alınamaz.\n\nOnaylıyor musunuz?`
+      )
+    ) {
+      const res = await deleteUser(staffId);
+      if (res.success) {
+        alert(`"${staffName}" kullanıcısının hesabı başarıyla silindi.`);
+      } else {
+        alert('İşlem Başarısız: ' + (res.error || 'Personel silinemedi.'));
+      }
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (!user) return;
     if (
@@ -2766,23 +2794,118 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       </div>
     )}
 
-    {/* En Alt: Kalıcı Hesabı Sil Butonu */}
+    {/* En Alt: Kalıcı Hesabı Sil Bölümü */}
     {user && (
-      <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2 border-t border-slate-200/80 dark:border-slate-800 mt-6">
-        <button
-          type="button"
-          onClick={handleDeleteAccount}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black text-red-600 dark:text-red-400 bg-red-50/80 dark:bg-red-950/40 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white border border-red-200 dark:border-red-900/60 shadow-xs transition-all cursor-pointer group"
-        >
-          <UserX className="w-4 h-4 text-red-600 dark:text-red-400 group-hover:text-white transition-colors" />
-          <span>Hesabı Sil</span>
-        </button>
-        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-sm">
-          İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde hesabınızı kalıcı olarak silebilirsiniz.
+      <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-3 border-t border-slate-200/80 dark:border-slate-800 mt-6">
+        <div className="flex items-center gap-3 flex-wrap justify-center">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsDeleteStaffModalOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black text-white bg-red-600 hover:bg-red-700 shadow-md shadow-red-600/25 transition-all cursor-pointer active:scale-95"
+              title="İşten ayrılan personelin hesabını kalıcı olarak sil"
+            >
+              <UserX className="w-4 h-4" />
+              <span>Personel Hesabı Sil (Yönetici)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleDeleteAccount}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 bg-red-50/80 dark:bg-red-950/40 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white border border-red-200 dark:border-red-900/60 shadow-xs transition-all cursor-pointer group"
+            title="Kendi oturum açtığınız hesabı kalıcı olarak silin"
+          >
+            <UserX className="w-4 h-4 text-red-600 dark:text-red-400 group-hover:text-white transition-colors" />
+            <span>Kendi Hesabımı Sil</span>
+          </button>
+        </div>
+
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-md">
+          {isAdmin
+            ? 'İşten ayrılan personellerin hesaplarını silebilir veya kendi hesabınızı tamamen kapatabilirsiniz.'
+            : 'İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde hesabınızı kalıcı olarak silebilirsiniz.'}
         </p>
       </div>
     )}
   </div>
+
+      {/* --- MODAL: YÖNETİCİ İÇİN İŞTEN AYRILAN PERSONEL HESABINI SİLME MODALI --- */}
+      {isAdmin && isDeleteStaffModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-red-200 dark:border-red-900/60 space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-950/60 border border-red-200 dark:border-red-800 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+                  <UserX className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                    Personel Hesabını Kalıcı Olarak Sil
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    İşten ayrılan personeli sistemden ve cihazlardan tamamen kaldırın.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeleteStaffModalOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              İşten ayrılan personelin hesabı silindiğinde şifresi iptal edilir, kayıtlı telefonu sistemden çıkarılır ve uygulamaya bir daha asla giriş yapamaz.
+            </p>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {deletableStaffList.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  Silinebilecek kayıtlı personel bulunamadı.
+                </div>
+              ) : (
+                deletableStaffList.map((st) => (
+                  <div
+                    key={st.id}
+                    className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
+                        {st.name}
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        @{st.username} • {st.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteStaff(st.id, st.name)}
+                      className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-600 text-red-600 hover:text-white dark:bg-red-950/50 dark:hover:bg-red-600 dark:text-red-400 dark:hover:text-white border border-red-200 dark:border-red-900/60 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Hesabı Sil</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsDeleteStaffModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (
