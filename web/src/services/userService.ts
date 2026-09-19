@@ -4,6 +4,7 @@ import { CompanyService } from './companyService';
 import { PasswordSecurity } from './passwordSecurity';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
+const USERS_SLOT_ID = 101;
 
 const DEFAULT_ADMIN: UserAccount = {
   id: 'admin-root',
@@ -70,6 +71,166 @@ export const UserService = {
   },
 
   /**
+   * Syncs user list to standard_tasks slot 101 for mobile app parity
+   */
+  async syncToSlot101(userList: UserAccount[]): Promise<void> {
+    try {
+      let existingList: UserAccount[] = [];
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', USERS_SLOT_ID)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        try {
+          existingList = JSON.parse(data.tasks.join(''));
+        } catch {
+          existingList = [];
+        }
+      }
+
+      // Merge existing with userList (keyed by companyCode:username)
+      const userMap = new Map<string, UserAccount>();
+      existingList.forEach((u) => {
+        const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+        userMap.set(key, u);
+      });
+      userList.forEach((u) => {
+        const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+        userMap.set(key, u);
+      });
+
+      const merged = Array.from(userMap.values());
+      const json = JSON.stringify(merged);
+      const chunkSize = 3000;
+      const chunks: string[] = [];
+      for (let i = 0; i < json.length; i += chunkSize) {
+        chunks.push(json.substring(i, i + chunkSize));
+      }
+
+      await supabase.from('standard_tasks').upsert({
+        id: USERS_SLOT_ID,
+        tasks: chunks,
+      });
+    } catch (err) {
+      console.warn('Slot 101 kullanıcı senkronizasyon hatası:', err);
+    }
+  },
+
+  /**
+   * Removes specific user from Slot 101
+   */
+  async removeFromSlot101(userId?: string, username?: string, companyCode?: string): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', USERS_SLOT_ID)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        let existingList: UserAccount[] = [];
+        try {
+          existingList = JSON.parse(data.tasks.join(''));
+        } catch {
+          return;
+        }
+
+        const cleanComp = (companyCode || 'POLATLAR').toUpperCase();
+        const cleanUser = (username || '').toLowerCase();
+
+        const filtered = existingList.filter((u) => {
+          if (userId && u.id === userId) return false;
+          if (cleanUser && (u.companyCode || 'POLATLAR').toUpperCase() === cleanComp && (u.username || '').toLowerCase() === cleanUser) return false;
+          return true;
+        });
+
+        const json = JSON.stringify(filtered);
+        const chunkSize = 3000;
+        const chunks: string[] = [];
+        for (let i = 0; i < json.length; i += chunkSize) {
+          chunks.push(json.substring(i, i + chunkSize));
+        }
+
+        await supabase.from('standard_tasks').upsert({
+          id: USERS_SLOT_ID,
+          tasks: chunks,
+        });
+      }
+    } catch (err) {
+      console.warn('Slot 101 kullanıcı çıkarma hatası:', err);
+    }
+  },
+
+  /**
+   * Removes all users of a deleted company from Slot 101
+   */
+  async removeCompanyFromSlot101(companyCode: string): Promise<void> {
+    try {
+      const clean = (companyCode || '').trim().toUpperCase();
+      if (!clean || clean === 'POLATLAR') return;
+
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', USERS_SLOT_ID)
+        .single();
+
+      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        let existingList: UserAccount[] = [];
+        try {
+          existingList = JSON.parse(data.tasks.join(''));
+        } catch {
+          return;
+        }
+
+        const filtered = existingList.filter(
+          (u) => (u.companyCode || 'POLATLAR').toUpperCase() !== clean
+        );
+
+        const json = JSON.stringify(filtered);
+        const chunkSize = 3000;
+        const chunks: string[] = [];
+        for (let i = 0; i < json.length; i += chunkSize) {
+          chunks.push(json.substring(i, i + chunkSize));
+        }
+
+        await supabase.from('standard_tasks').upsert({
+          id: USERS_SLOT_ID,
+          tasks: chunks,
+        });
+      }
+    } catch (err) {
+      console.warn('Slot 101 kurum kullanıcıları çıkarma hatası:', err);
+    }
+  },
+
+  /**
+   * Updates user password hash in both local storage, app_users table, and Slot 101
+   */
+  async updateUserPasswordHash(userId: string, newHash: string): Promise<void> {
+    const users = this.getUsers();
+    const idx = users.findIndex((u) => u.id === userId);
+    if (idx === -1) return;
+
+    users[idx].password = newHash;
+    this.saveUsers(users);
+
+    try {
+      await supabase
+        .from('app_users')
+        .update({ password: newHash })
+        .eq('id', userId);
+    } catch (err) {
+      console.warn('Supabase password hash update error:', err);
+    }
+
+    // Sync to Slot 101 for mobile parity
+    await this.syncToSlot101(users);
+  },
+
+  /**
    * Converts Turkish Full Name into clean suggested username:
    * "Ahmet Yılmaz" -> "ahmetyilmaz", if exists -> "ahmetyilmaz01", "ahmetyilmaz02"
    */
@@ -111,10 +272,12 @@ export const UserService = {
     }
   },
 
+
+
   /**
-   * Fetches latest users from Supabase cloud database and syncs both ways
+   * Fetches latest users from Supabase cloud database with company isolation scoping
    */
-  async fetchUsersFromCloud(): Promise<UserAccount[]> {
+  async fetchUsersFromCloud(companyCodeFilter?: string): Promise<UserAccount[]> {
     const localUsers = this.getUsers();
 
     try {
@@ -131,10 +294,21 @@ export const UserService = {
         // ignore
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('app_users')
         .select('*')
         .order('created_at', { ascending: true });
+
+      if (companyCodeFilter) {
+        const cleanFilter = companyCodeFilter.trim().toUpperCase();
+        if (cleanFilter === 'POLATLAR') {
+          query = query.or('username.not.like.%:%,username.ilike.POLATLAR:%');
+        } else {
+          query = query.ilike('username', `${cleanFilter}:%`);
+        }
+      }
+
+      const { data, error } = await query;
 
       if (!error && data && data.length > 0) {
         const cloudUsers: UserAccount[] = data.map((row) => {
@@ -311,6 +485,13 @@ export const UserService = {
       console.warn('Supabase kullanıcı kaydı buluta gönderilemedi:', err);
     }
 
+    // Also mirror to Slot 101 for mobile app parity
+    try {
+      await this.syncToSlot101(updated);
+    } catch (err) {
+      console.warn('Slot 101 sync error in addUser:', err);
+    }
+
     return {
       success: true,
       user: {
@@ -437,6 +618,13 @@ export const UserService = {
       console.warn('Supabase kullanıcı güncelleme hatası:', err);
     }
 
+    // Also mirror to Slot 101 for mobile app parity
+    try {
+      await this.syncToSlot101(users);
+    } catch (err) {
+      console.warn('Slot 101 sync error in updateUser:', err);
+    }
+
     return { success: true };
   },
 
@@ -476,6 +664,13 @@ export const UserService = {
       console.warn('Supabase kullanıcı silme hatası:', err);
     }
 
+    // Also remove from Slot 101 for mobile app parity
+    try {
+      await this.removeFromSlot101(id, target.username, target.companyCode);
+    } catch (err) {
+      console.warn('Slot 101 removeFromSlot101 error:', err);
+    }
+
     return { success: true };
   },
 
@@ -496,22 +691,11 @@ export const UserService = {
         // ignore
       }
     }
-  },
-
-  /**
-   * Directly updates password hash in local storage and cloud for lazy migration
-   */
-  async updateUserPasswordHash(id: string, newHash: string): Promise<void> {
-    const users = this.getUsers();
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx !== -1) {
-      users[idx].password = newHash;
-      this.saveUsers(users);
-      try {
-        await supabase.from('app_users').update({ password: newHash }).eq('id', id);
-      } catch (err) {
-        console.warn('updateUserPasswordHash error:', err);
-      }
+    // Also remove company users from Slot 101 for mobile app parity
+    try {
+      await this.removeCompanyFromSlot101(clean);
+    } catch (err) {
+      console.warn('Slot 101 removeCompanyFromSlot101 error:', err);
     }
   },
 
@@ -572,10 +756,10 @@ export const UserService = {
       return null;
     };
 
-    // 1. Always fetch latest users from Supabase cloud first to ensure changed passwords take effect immediately
+    // 1. Always fetch latest users from Supabase cloud first scoped to target company
     let users: UserAccount[] = [];
     try {
-      users = await this.fetchUsersFromCloud();
+      users = await this.fetchUsersFromCloud(cleanCompany);
     } catch {
       users = this.getUsers();
     }

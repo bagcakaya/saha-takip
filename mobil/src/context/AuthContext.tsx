@@ -83,12 +83,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: USERS_SLOT_ID,
         tasks: chunks,
       });
+
+      // Mirror to app_users table for full cloud parity
+      try {
+        const appUserRows = usersList.map((u) => {
+          const compCode = (u.companyCode || 'POLATLAR').toUpperCase();
+          let cloudUsername = compCode === 'POLATLAR' ? u.username : `${compCode}:${u.username}`;
+          if (u.email) {
+            cloudUsername = `${cloudUsername}#${u.email}`;
+          }
+          return {
+            id: u.id,
+            username: cloudUsername,
+            password: u.password,
+            name: u.name,
+            role: u.role,
+            created_at: u.createdAt || Date.now(),
+          };
+        });
+        await supabase.from('app_users').upsert(appUserRows);
+      } catch (err) {
+        console.warn('Mobil app_users aynalama uyarısı:', err);
+      }
     } catch (err) {
       console.warn('Bulut kullanıcı listesi kaydedilemedi:', err);
     }
   };
 
-  const fetchUsersFromCloud = async (): Promise<UserAccount[]> => {
+  const fetchUsersFromCloud = async (companyCodeFilter?: string): Promise<UserAccount[]> => {
     let currentLocal: UserAccount[] = [];
     try {
       const saved = await AsyncStorage.getItem(USERS_STORAGE_KEY);
@@ -103,6 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      // 1. Fetch from standard_tasks (Slot 101)
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
@@ -111,8 +134,78 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       let cloudUsers: UserAccount[] = [];
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        cloudUsers = JSON.parse(rawJson);
+        try {
+          const rawJson = data.tasks.join('');
+          cloudUsers = JSON.parse(rawJson);
+        } catch {
+          cloudUsers = [];
+        }
+      }
+
+      // 2. Also fetch from app_users table for full cloud sync & parity
+      try {
+        let appUsersQuery = supabase.from('app_users').select('*');
+        if (companyCodeFilter) {
+          const cleanFilter = companyCodeFilter.trim().toUpperCase();
+          if (cleanFilter === 'POLATLAR') {
+            appUsersQuery = appUsersQuery.or('username.not.like.%:%,username.ilike.POLATLAR:%');
+          } else {
+            appUsersQuery = appUsersQuery.ilike('username', `${cleanFilter}:%`);
+          }
+        }
+        const { data: appUsersData, error: appUsersError } = await appUsersQuery;
+        if (!appUsersError && appUsersData && appUsersData.length > 0) {
+          const mappedAppUsers: UserAccount[] = appUsersData.map((row: any) => {
+            let companyCode = 'POLATLAR';
+            let username = row.username;
+            let email: string | undefined = undefined;
+
+            if (row.username && row.username.includes('#')) {
+              const hashParts = row.username.split('#');
+              username = hashParts[0];
+              email = hashParts[1]?.toLowerCase();
+            }
+
+            if (username && username.includes(':')) {
+              const parts = username.split(':');
+              companyCode = parts[0].toUpperCase();
+              username = parts.slice(1).join(':');
+            }
+
+            return {
+              id: row.id,
+              username,
+              password: row.password,
+              name: row.name,
+              role: row.role as any,
+              createdAt: Number(row.created_at) || Date.now(),
+              companyCode,
+              email,
+            };
+          });
+
+          // Merge mappedAppUsers into cloudUsers
+          const cloudMap = new Map<string, UserAccount>();
+          cloudUsers.forEach((u) => {
+            const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+            cloudMap.set(key, u);
+          });
+          mappedAppUsers.forEach((u) => {
+            const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+            if (!cloudMap.has(key)) {
+              cloudMap.set(key, u);
+            } else {
+              // Prefer one with hashed password if existing is plaintext
+              const existing = cloudMap.get(key)!;
+              if (u.password && u.password.startsWith('$s256$') && !existing.password.startsWith('$s256$')) {
+                cloudMap.set(key, { ...existing, password: u.password });
+              }
+            }
+          });
+          cloudUsers = Array.from(cloudMap.values());
+        }
+      } catch (e) {
+        // ignore app_users fallback errors
       }
 
       let merged: UserAccount[] = [];
@@ -243,7 +336,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Fetch fresh users or check current users
     let currentUsers = users;
     try {
-      const fresh = await fetchUsersFromCloud();
+      const fresh = await fetchUsersFromCloud(cleanComp);
       if (fresh && fresh.length > 0) {
         currentUsers = fresh;
       }
