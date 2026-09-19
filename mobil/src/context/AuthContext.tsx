@@ -5,6 +5,7 @@ import { StorageService } from '../services/storageService';
 import { supabase } from '../api/supabaseClient';
 import { CompanyService } from '../services/companyService';
 import { MobileOneSignalService } from '../services/oneSignalService';
+import { PasswordSecurity } from '../services/passwordSecurity';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -250,14 +251,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
 
-    const matched = currentUsers.find(
-      (a) =>
+    let matched: UserAccount | undefined;
+    let matchedNeedsRehash = false;
+
+    for (const a of currentUsers) {
+      if (
         (a.companyCode || 'POLATLAR').toUpperCase() === cleanComp &&
-        a.username.toLowerCase() === cleanUser &&
-        a.password === cleanPass
-    );
+        a.username.toLowerCase() === cleanUser
+      ) {
+        const verify = await PasswordSecurity.verifyPassword(cleanPass, a.password);
+        if (verify.valid) {
+          matched = a;
+          matchedNeedsRehash = verify.needsRehash;
+          break;
+        }
+      }
+    }
 
     if (matched) {
+      // Lazy migration: If password was plaintext, immediately hash and save in background
+      if (matchedNeedsRehash) {
+        (async () => {
+          try {
+            const newHash = await PasswordSecurity.hashPassword(cleanPass);
+            matched!.password = newHash;
+            const updated = currentUsers.map((u) => (u.id === matched!.id ? { ...u, password: newHash } : u));
+            setUsers(updated);
+            await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
+            await saveUsersToCloud(updated);
+          } catch (e) {
+            console.warn('Mobil lazy password rehash hatası:', e);
+          }
+        })();
+      }
+
       const loggedUser: User = {
         id: matched.id,
         username: matched.username,
@@ -362,11 +389,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const adminId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const createdAt = Date.now();
     const adminUsername = 'admin';
+    const hashedPassword = await PasswordSecurity.hashPassword(params.password);
 
     const adminAccount: UserAccount = {
       id: adminId,
       username: adminUsername,
-      password: params.password.trim(),
+      password: hashedPassword,
       name: params.adminName.trim() || `${newCompany.name} Yöneticisi`,
       role: 'admin',
       companyCode: newCompany.code,
@@ -421,10 +449,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: `"${cleanUser}" kullanıcı adı bu kurumda zaten kullanılıyor.` };
       }
 
+      const hashedPassword = await PasswordSecurity.hashPassword(params.password);
+
       const newAccount: UserAccount = {
         id: newId,
         username: cleanUser,
-        password: params.password.trim(),
+        password: hashedPassword,
         name: params.name.trim(),
         role: params.role,
         companyCode: currentComp,
@@ -447,13 +477,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean }
   ) => {
     try {
+      let hashedPassword: string | undefined = undefined;
+      if (updates.password && updates.password.trim()) {
+        hashedPassword = await PasswordSecurity.hashPassword(updates.password.trim());
+      }
+
       const updated = users.map((u) => {
         if (u.id === id) {
           return {
             ...u,
             ...(updates.name ? { name: updates.name.trim() } : {}),
             ...(updates.role ? { role: updates.role } : {}),
-            ...(updates.password ? { password: updates.password.trim() } : {}),
+            ...(hashedPassword ? { password: hashedPassword } : {}),
             ...(updates.canChangePassword !== undefined ? { canChangePassword: updates.canChangePassword } : {}),
           };
         }

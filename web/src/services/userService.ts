@@ -1,6 +1,7 @@
 import { UserAccount, UserRole, User, Company, isUserAdmin } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { CompanyService } from './companyService';
+import { PasswordSecurity } from './passwordSecurity';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 
@@ -273,10 +274,11 @@ export const UserService = {
       return { success: false, error: `Bu kullanıcı adı "${cleanCompanyCode}" kurumu içinde zaten kullanılmaktadır.` };
     }
 
+    const hashedPassword = await PasswordSecurity.hashPassword(cleanPassword);
     const newUser: UserAccount = {
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 7),
       username: cleanUsername,
-      password: cleanPassword,
+      password: hashedPassword,
       name: cleanName,
       role: params.role,
       createdAt: Date.now(),
@@ -386,11 +388,16 @@ export const UserService = {
       }
     }
 
+    let newPassword = current.password;
+    if (updates.password !== undefined && updates.password.trim()) {
+      newPassword = await PasswordSecurity.hashPassword(updates.password.trim());
+    }
+
     const updatedUser = {
       ...current,
       name: updates.name !== undefined && updates.name.trim() ? updates.name.trim() : current.name,
       role: updates.role !== undefined ? updates.role : current.role,
-      password: updates.password !== undefined && updates.password.trim() ? updates.password.trim() : current.password,
+      password: newPassword,
     };
 
     users[userIndex] = updatedUser;
@@ -492,6 +499,23 @@ export const UserService = {
   },
 
   /**
+   * Directly updates password hash in local storage and cloud for lazy migration
+   */
+  async updateUserPasswordHash(id: string, newHash: string): Promise<void> {
+    const users = this.getUsers();
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx !== -1) {
+      users[idx].password = newHash;
+      this.saveUsers(users);
+      try {
+        await supabase.from('app_users').update({ password: newHash }).eq('id', id);
+      } catch (err) {
+        console.warn('updateUserPasswordHash error:', err);
+      }
+    }
+  },
+
+  /**
    * Authenticates user against registered accounts within a specific company
    */
   async authenticate(
@@ -527,19 +551,25 @@ export const UserService = {
 
     const companyAdminEmail = company?.adminEmail?.trim().toLowerCase();
 
-    // Helper to find match
-    const findMatch = (userList: UserAccount[]) => {
-      return userList.find((u) => {
+    // Helper to find match with async password verification
+    const findMatch = async (userList: UserAccount[]) => {
+      for (const u of userList) {
         const uComp = (u.companyCode || 'POLATLAR').toUpperCase();
-        if (uComp !== cleanCompany) return false;
+        if (uComp !== cleanCompany) continue;
 
         const isUserMatch = u.username.toLowerCase() === cleanIdentifier;
         const isEmailMatch =
           (u.email && u.email.toLowerCase() === cleanIdentifier) ||
           (u.role === 'admin' && companyAdminEmail && companyAdminEmail === cleanIdentifier);
 
-        return (isUserMatch || isEmailMatch) && u.password === cleanPass;
-      });
+        if (isUserMatch || isEmailMatch) {
+          const verification = await PasswordSecurity.verifyPassword(cleanPass, u.password);
+          if (verification.valid) {
+            return { account: u, needsRehash: verification.needsRehash };
+          }
+        }
+      }
+      return null;
     };
 
     // 1. Always fetch latest users from Supabase cloud first to ensure changed passwords take effect immediately
@@ -553,13 +583,22 @@ export const UserService = {
       users = this.getUsers();
     }
 
-    let account = findMatch(users);
+    const matchResult = await findMatch(users);
 
-    if (!account) {
+    if (!matchResult) {
       return {
         success: false,
         error: `"${cleanCompany}" kurumu için kullanıcı adı veya şifre hatalı.`,
       };
+    }
+
+    const { account, needsRehash } = matchResult;
+
+    // LAZY MIGRATION: If password was verified as legacy plaintext, immediately rehash and save
+    if (needsRehash) {
+      PasswordSecurity.hashPassword(cleanPass)
+        .then((newHash) => this.updateUserPasswordHash(account.id, newHash))
+        .catch((err) => console.warn('Lazy password migration error:', err));
     }
 
     if (!account.email && companyAdminEmail) {
@@ -577,7 +616,6 @@ export const UserService = {
         role: finalRole,
         createdAt: account.createdAt,
         companyCode: account.companyCode || cleanCompany,
-        companyName: account.companyName,
         email: account.email,
       },
     };
