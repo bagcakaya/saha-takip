@@ -41,6 +41,7 @@ import {
   CalendarDays,
   UserCheck,
   Building2,
+  UserX,
 } from 'lucide-react-native';
 import { AttendanceRecord, WorkplaceLocation } from '../../types/storage';
 import { UserManagementModal } from '../../components/UserManagementModal';
@@ -88,9 +89,33 @@ export default function AttendanceScreen() {
     refreshData,
     updateWorkplaceLocation,
   } = useStorage();
-  const { user, logout } = useAuth();
+  const { user, logout, deleteUser } = useAuth();
   const { isDark, toggleTheme } = useAppTheme();
   const router = useRouter();
+
+  const handleDeleteAccount = () => {
+    if (!user) return;
+    Alert.alert(
+      'Hesabınızı Silmek İstiyor Musunuz?',
+      'Bu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.\n\nDevam etmek istediğinize emin misiniz?',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Hesabımı Sil',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await deleteUser(user.id);
+            if (res.success) {
+              logout();
+              Alert.alert('Hesap Silindi', 'Hesabınız başarıyla silindi ve oturumunuz kapatıldı.');
+            } else {
+              Alert.alert('İşlem Başarısız', res.error || 'Hesap silinirken bir hata oluştu.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const isAdmin = user?.role === 'admin';
 
@@ -1401,6 +1426,23 @@ export default function AttendanceScreen() {
             </ScrollView>
           </View>
         </View>
+
+        {/* En Alt: Kalıcı Hesabı Sil Butonu */}
+        {user && (
+          <View style={styles.deleteAccountContainer}>
+            <TouchableOpacity
+              style={styles.deleteAccountBtn}
+              onPress={handleDeleteAccount}
+              activeOpacity={0.8}
+            >
+              <UserX size={16} color="#ef4444" />
+              <Text style={styles.deleteAccountBtnText}>Hesabı Sil</Text>
+            </TouchableOpacity>
+            <Text style={[styles.deleteAccountSubtext, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+              İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde kalıcı olarak silebilirsiniz.
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Staff Picker Modal */}
@@ -2425,5 +2467,39 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
+  },
+  deleteAccountContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    marginTop: 14,
+    marginBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(148, 163, 184, 0.2)',
+    gap: 8,
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
+  deleteAccountBtnText: {
+    color: '#ef4444',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  deleteAccountSubtext: {
+    fontSize: 11,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    lineHeight: 16,
   },
 });

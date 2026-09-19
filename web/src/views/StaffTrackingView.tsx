@@ -42,7 +42,7 @@ import {
 import { StaffMultiSelect } from '../components/common/StaffMultiSelect';
 
 export const StaffTrackingView: React.FC = () => {
-  const { user, users, company } = useAuth();
+  const { user, users, company, deleteUser, logout } = useAuth();
   const {
     workplaceLocation,
     branches,
@@ -996,6 +996,23 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
     return leaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length;
   }, [leaveRequests, isAdmin, user]);
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (
+      window.confirm(
+        'Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.'
+      )
+    ) {
+      const res = await deleteUser(user.id);
+      if (res.success) {
+        alert('Hesabınız başarıyla silindi.');
+        logout();
+      } else {
+        alert('İşlem Başarısız: ' + (res.error || 'Hesap silinemedi.'));
+      }
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -2746,6 +2763,23 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </table>
           </div>
         )}
+      </div>
+    )}
+
+    {/* En Alt: Kalıcı Hesabı Sil Butonu */}
+    {user && (
+      <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2 border-t border-slate-200/80 dark:border-slate-800 mt-6">
+        <button
+          type="button"
+          onClick={handleDeleteAccount}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black text-red-600 dark:text-red-400 bg-red-50/80 dark:bg-red-950/40 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white border border-red-200 dark:border-red-900/60 shadow-xs transition-all cursor-pointer group"
+        >
+          <UserX className="w-4 h-4 text-red-600 dark:text-red-400 group-hover:text-white transition-colors" />
+          <span>Hesabı Sil</span>
+        </button>
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-sm">
+          İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde hesabınızı kalıcı olarak silebilirsiniz.
+        </p>
       </div>
     )}
   </div>
