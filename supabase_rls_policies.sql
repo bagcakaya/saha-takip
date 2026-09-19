@@ -7,9 +7,18 @@
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 1. app_users Tablosu Güvenlik Kalkanı
+-- 1. app_users Tablosu Oluşturma & Güvenlik Kalkanı
 -- ------------------------------------------------------------------------------
-ALTER TABLE IF EXISTS public.app_users ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS public.app_users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  name TEXT,
+  role TEXT DEFAULT 'staff',
+  created_at BIGINT
+);
+
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 
 -- Eski politikaları temizle (idempotent)
 DROP POLICY IF EXISTS "app_users_select_policy" ON public.app_users;
