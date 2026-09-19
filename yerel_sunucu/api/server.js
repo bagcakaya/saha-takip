@@ -7,7 +7,7 @@ const { sql, getPool } = require('./db');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
@@ -111,9 +111,9 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
 });
 
 // =========================================================================
-// 3. GENEL TABLOLAR (locations, notes, services, return_warranty)
+// 3. GENEL TABLOLAR (locations, notes, services, return_warranty, app_users)
 // =========================================================================
-const ALLOWED_TABLES = ['locations', 'notes', 'services', 'return_warranty'];
+const ALLOWED_TABLES = ['locations', 'notes', 'services', 'return_warranty', 'app_users'];
 
 function validateTable(tableName) {
   if (!ALLOWED_TABLES.includes(tableName)) {
@@ -314,6 +314,25 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             WHEN NOT MATCHED THEN
               INSERT (id, [type], company_name, sent_date, serial_number, tracking_code, serial_number_photo, tracking_code_photo, notes, status, reminder_date, reminder_active, notified, created_at, created_by, created_by_name, cari_name, updated_at)
               VALUES (@id, @type, @company_name, @sent_date, @serial_number, @tracking_code, @serial_number_photo, @tracking_code_photo, @notes, @status, @reminder_date, @reminder_active, @notified, @created_at, @created_by, @created_by_name, @cari_name, SYSUTCDATETIME());
+          `);
+      } else if (tableName === 'app_users') {
+        await pool
+          .request()
+          .input('id', sql.NVarChar(100), String(row.id))
+          .input('username', sql.NVarChar(255), row.username || '')
+          .input('password', sql.NVarChar(255), row.password || '')
+          .input('name', sql.NVarChar(255), row.name || '')
+          .input('role', sql.NVarChar(50), row.role || 'user')
+          .input('created_at', sql.BigInt, row.created_at || Date.now())
+          .query(`
+            MERGE dbo.app_users AS target
+            USING (SELECT @id AS id) AS source
+            ON (target.id = source.id)
+            WHEN MATCHED THEN
+              UPDATE SET username=@username, password=@password, name=@name, role=@role, created_at=@created_at, updated_at=SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+              INSERT (id, username, password, name, role, created_at, updated_at)
+              VALUES (@id, @username, @password, @name, @role, @created_at, SYSUTCDATETIME());
           `);
       }
     }

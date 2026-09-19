@@ -16,6 +16,7 @@ import {
 } from '../types/storage';
 import carilerData from '../data/cariler.json';
 import * as XLSX from 'xlsx';
+import { MobileServerConfigService } from './serverConfigService';
 
 export interface CariData {
   updatedAt: string;
@@ -28,6 +29,51 @@ let activeCompanyCode = 'POLATLAR';
 let activeCompanyId: number | undefined = 1;
 
 async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; notFound: boolean }> {
+  // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+  if (MobileServerConfigService.isLocalMode()) {
+    const apiUrl = MobileServerConfigService.getActiveApiUrl();
+    if (apiUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' },
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json && !json.notFound && json.tasks) {
+            let parsed: any = json.tasks;
+            if (Array.isArray(json.tasks) && json.tasks.length > 0 && typeof json.tasks[0] === 'string' && json.tasks[0].startsWith('[')) {
+              try {
+                parsed = JSON.parse(json.tasks.join(''));
+              } catch {
+                parsed = json.tasks;
+              }
+            } else if (typeof json.tasks === 'string') {
+              try {
+                parsed = JSON.parse(json.tasks);
+              } catch {
+                parsed = json.tasks;
+              }
+            }
+            return { data: parsed as T, notFound: false };
+          }
+          if (json && json.notFound) {
+            return { data: null, notFound: true };
+          }
+        } else if (res.status === 404) {
+          return { data: null, notFound: true };
+        }
+      } catch (err) {
+        console.warn(`[Yerel Sunucu - Mobil] Slot ${slotId} yüklenemedi, buluta geçiliyor:`, err);
+      }
+    }
+  }
+
+  // 2. Bulut (Supabase Cloud)
   try {
     const { data, error } = await supabase
       .from('standard_tasks')
@@ -46,13 +92,38 @@ async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; not
 }
 
 async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
-  try {
-    const rawJson = JSON.stringify(data);
-    const chunks: string[] = [];
-    const chunkSize = 8000;
-    for (let i = 0; i < rawJson.length; i += chunkSize) {
-      chunks.push(rawJson.slice(i, i + chunkSize));
+  const rawJson = JSON.stringify(data);
+  const chunks: string[] = [];
+  const chunkSize = 8000;
+  for (let i = 0; i < rawJson.length; i += chunkSize) {
+    chunks.push(rawJson.slice(i, i + chunkSize));
+  }
+
+  // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+  if (MobileServerConfigService.isLocalMode()) {
+    const apiUrl = MobileServerConfigService.getActiveApiUrl();
+    if (apiUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tasks: chunks }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          return;
+        }
+      } catch (err) {
+        console.warn(`[Yerel Sunucu - Mobil] Slot ${slotId} kaydedilemedi, buluta aktarılıyor:`, err);
+      }
     }
+  }
+
+  // 2. Bulut (Supabase Cloud)
+  try {
     await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
   } catch (err) {
     console.warn(`Cloud save error for slot ${slotId}:`, err);

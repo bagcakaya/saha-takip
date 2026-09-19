@@ -155,6 +155,23 @@ BEGIN
 END
 GO
 
+-- 7. APP_USERS TABLOSU (Kullanıcı Hesapları, Şifreler ve Yetkiler)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'app_users')
+BEGIN
+    CREATE TABLE dbo.app_users (
+        id NVARCHAR(100) PRIMARY KEY,
+        username NVARCHAR(255) NOT NULL,
+        password NVARCHAR(255) NOT NULL,
+        name NVARCHAR(255) NOT NULL,
+        role NVARCHAR(50) DEFAULT 'user',
+        created_at BIGINT NULL,
+        updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+    );
+    CREATE INDEX IX_app_users_username ON dbo.app_users(username);
+    PRINT '>> [app_users] tablosu oluşturuldu.';
+END
+GO
+
 PRINT '==================================================================================';
 PRINT '>> TEBRİKLER: SahaTakipDB veritabanı ve tüm tablolar eksiksiz oluşturuldu!';
 PRINT '==================================================================================';

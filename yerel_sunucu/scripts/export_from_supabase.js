@@ -4,9 +4,15 @@
  * tek tıkla çalıştırabileceğiniz '02_mevcut_veriler_yedek.sql' dosyasını oluşturur.
  */
 
-const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
+
+let createClient;
+try {
+  createClient = require('@supabase/supabase-js').createClient;
+} catch {
+  createClient = require(path.join(__dirname, '../../web/node_modules/@supabase/supabase-js')).createClient;
+}
 
 const SUPABASE_URL = 'https://tftzengmncgyuhccacrh.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_25IlzAkxESu2kVJhUQ15zQ_vw5nx265';
@@ -28,12 +34,13 @@ async function exportAll() {
   console.log('>> Supabase veritabanına bağlanılıyor...');
 
   // 1. Verileri Çek
-  const [stRes, locRes, notesRes, srvRes, rwRes] = await Promise.all([
+  const [stRes, locRes, notesRes, srvRes, rwRes, usersRes] = await Promise.all([
     supabase.from('standard_tasks').select('*'),
     supabase.from('locations').select('*'),
     supabase.from('notes').select('*'),
     supabase.from('services').select('*'),
     supabase.from('return_warranty').select('*'),
+    supabase.from('app_users').select('*'),
   ]);
 
   if (stRes.error) console.warn('standard_tasks uyarısı:', stRes.error.message);
@@ -41,12 +48,14 @@ async function exportAll() {
   if (notesRes.error) console.warn('notes uyarısı:', notesRes.error.message);
   if (srvRes.error) console.warn('services uyarısı:', srvRes.error.message);
   if (rwRes.error) console.warn('return_warranty uyarısı:', rwRes.error.message);
+  if (usersRes.error) console.warn('app_users uyarısı:', usersRes.error.message);
 
   const standardTasks = stRes.data || [];
   const locations = locRes.data || [];
   const notes = notesRes.data || [];
   const services = srvRes.data || [];
   const returnWarranty = rwRes.data || [];
+  const appUsers = usersRes.data || [];
 
   console.log(`>> Çekilen Kayıt Sayıları:`);
   console.log(`   - standard_tasks: ${standardTasks.length} adet (kullanıcılar, ayarlar, modül slotları)`);
@@ -54,6 +63,7 @@ async function exportAll() {
   console.log(`   - notes: ${notes.length} adet`);
   console.log(`   - services: ${services.length} adet`);
   console.log(`   - return_warranty: ${returnWarranty.length} adet`);
+  console.log(`   - app_users: ${appUsers.length} adet`);
 
   // Raw JSON yedeği de saklayalım
   const fullBackup = {
@@ -63,6 +73,7 @@ async function exportAll() {
     notes,
     services,
     returnWarranty,
+    appUsers,
   };
   const jsonPath = path.join(__dirname, '..', 'data_backup.json');
   fs.writeFileSync(jsonPath, JSON.stringify(fullBackup, null, 2), 'utf-8');
@@ -212,6 +223,24 @@ async function exportAll() {
       sql += `    VALUES (${id}, ${typeVal}, ${companyName}, ${sentDate}, ${serialNumber}, ${trackingCode}, ${serialNumberPhoto}, ${trackingCodePhoto}, ${notesVal}, ${status}, ${reminderDate}, ${reminderActive}, ${notified}, ${createdAt}, ${createdBy}, ${createdByName}, ${cariName});\n`;
     }
     sql += `PRINT '>> [return_warranty] verileri başarıyla aktarıldı.';\nGO\n\n`;
+  }
+
+  // App Users
+  if (appUsers.length > 0) {
+    sql += `-- 6. APP_USERS AKTARIMI (${appUsers.length} kayıt)\n`;
+    for (const r of appUsers) {
+      const id = escapeSql(r.id);
+      const username = escapeSql(r.username);
+      const password = escapeSql(r.password);
+      const name = escapeSql(r.name);
+      const role = escapeSql(r.role || 'user');
+      const createdAt = escapeSql(r.created_at);
+
+      sql += `IF NOT EXISTS (SELECT 1 FROM dbo.app_users WHERE id = ${id})\n`;
+      sql += `    INSERT INTO dbo.app_users (id, username, password, name, role, created_at)\n`;
+      sql += `    VALUES (${id}, ${username}, ${password}, ${name}, ${role}, ${createdAt});\n`;
+    }
+    sql += `PRINT '>> [app_users] verileri başarıyla aktarıldı.';\nGO\n\n`;
   }
 
   sql += `PRINT '==================================================================================';\n`;
