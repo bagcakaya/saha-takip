@@ -63,7 +63,19 @@ const ALL_STAFF = [
   { id: 'usr_soner', name: 'Soner ISIYEL', role: 'Saha Yetkilisi' },
 ];
 
-type PeriodFilter = 'bu_ay' | 'gecen_ay' | 'bu_hafta' | 'bugun' | 'dun' | 'tumu';
+type PeriodFilter = 'bugun' | 'bu_hafta' | 'bu_ay' | 'gecen_ay' | 'dun' | 'tumu';
+
+const formatToDDMMYYYY = (iso: string) => {
+  const p = iso.split('-');
+  if (p.length === 3) return `${p[2]}.${p[1]}.${p[0]}`;
+  return iso;
+};
+
+const getTodayIsoDate = () => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
 
 export default function AttendanceScreen() {
   const {
@@ -103,11 +115,11 @@ export default function AttendanceScreen() {
   const [savingWp, setSavingWp] = useState(false);
 
   // Filters (Görsel-2)
-  const [activePeriod, setActivePeriod] = useState<PeriodFilter>('bu_ay');
+  const [activePeriod, setActivePeriod] = useState<PeriodFilter>('bugun');
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all');
   const [isStaffPickerOpen, setIsStaffPickerOpen] = useState(false);
-  const [startDateStr, setStartDateStr] = useState('01.09.2026');
-  const [endDateStr, setEndDateStr] = useState('18.09.2026');
+  const [startDateStr, setStartDateStr] = useState(() => formatToDDMMYYYY(getTodayIsoDate()));
+  const [endDateStr, setEndDateStr] = useState(() => formatToDDMMYYYY(getTodayIsoDate()));
   const [isExporting, setIsExporting] = useState(false);
 
   const fetchGps = async () => {
@@ -186,7 +198,7 @@ export default function AttendanceScreen() {
   const isWithinGeofence = currentDistanceKm <= 0.02; // 20m
 
   // Today's attendance state
-  const todayStr = '2026-09-18';
+  const todayStr = useMemo(() => getTodayIsoDate(), []);
   const todayRecord = useMemo(() => {
     if (!user) return null;
     return attendanceRecords.find(
@@ -196,6 +208,51 @@ export default function AttendanceScreen() {
 
   const isCheckedIn = Boolean(todayRecord && todayRecord.checkInTime && !todayRecord.checkOutTime);
   const isCheckedOut = Boolean(todayRecord && todayRecord.checkOutTime);
+
+  const handlePeriodChange = (period: PeriodFilter) => {
+    setActivePeriod(period);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const d = now.getDate();
+
+    if (period === 'bugun') {
+      const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
+      setStartDateStr(formatToDDMMYYYY(iso));
+      setEndDateStr(formatToDDMMYYYY(iso));
+    } else if (period === 'dun') {
+      const prev = new Date(now);
+      prev.setDate(d - 1);
+      const iso = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-${pad(prev.getDate())}`;
+      setStartDateStr(formatToDDMMYYYY(iso));
+      setEndDateStr(formatToDDMMYYYY(iso));
+    } else if (period === 'bu_hafta') {
+      const day = now.getDay();
+      const diffToMonday = day === 0 ? 6 : day - 1;
+      const monday = new Date(now);
+      monday.setDate(d - diffToMonday);
+      const monIso = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+      const todayIso = `${y}-${pad(m + 1)}-${pad(d)}`;
+      setStartDateStr(formatToDDMMYYYY(monIso));
+      setEndDateStr(formatToDDMMYYYY(todayIso));
+    } else if (period === 'bu_ay') {
+      const startIso = `${y}-${pad(m + 1)}-01`;
+      const todayIso = `${y}-${pad(m + 1)}-${pad(d)}`;
+      setStartDateStr(formatToDDMMYYYY(startIso));
+      setEndDateStr(formatToDDMMYYYY(todayIso));
+    } else if (period === 'gecen_ay') {
+      const firstDay = new Date(y, m - 1, 1);
+      const lastDay = new Date(y, m, 0);
+      const sIso = `${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-01`;
+      const eIso = `${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`;
+      setStartDateStr(formatToDDMMYYYY(sIso));
+      setEndDateStr(formatToDDMMYYYY(eIso));
+    } else if (period === 'tumu') {
+      setStartDateStr('Tümü');
+      setEndDateStr('Tümü');
+    }
+  };
 
   const handleCheckIn = async () => {
     setActionLoading(true);
@@ -229,6 +286,27 @@ export default function AttendanceScreen() {
 
   // Filtered records for table & summary
   const filteredRecords = useMemo(() => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    const prev = new Date(now);
+    prev.setDate(now.getDate() - 1);
+    const yesterdayIso = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-${pad(prev.getDate())}`;
+
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - diffToMonday);
+    const mondayIso = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+
+    const firstDayMonthIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+
+    const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    const firstDayLastMonthIso = `${firstDayLastMonth.getFullYear()}-${pad(firstDayLastMonth.getMonth() + 1)}-01`;
+    const lastDayLastMonthIso = `${lastDayLastMonth.getFullYear()}-${pad(lastDayLastMonth.getMonth() + 1)}-${pad(lastDayLastMonth.getDate())}`;
+
     return attendanceRecords.filter((r) => {
       // Staff filter
       if (selectedStaffFilter !== 'all') {
@@ -237,9 +315,21 @@ export default function AttendanceScreen() {
       }
 
       // Period filter
-      if (activePeriod === 'bugun' && r.date !== '2026-09-18') return false;
-      if (activePeriod === 'dun' && r.date !== '2026-09-17') return false;
-      if (activePeriod === 'bu_hafta' && r.date < '2026-09-15') return false;
+      if (activePeriod === 'bugun') {
+        return r.date === todayIso;
+      }
+      if (activePeriod === 'dun') {
+        return r.date === yesterdayIso;
+      }
+      if (activePeriod === 'bu_hafta') {
+        return r.date >= mondayIso && r.date <= todayIso;
+      }
+      if (activePeriod === 'bu_ay') {
+        return r.date >= firstDayMonthIso && r.date <= todayIso;
+      }
+      if (activePeriod === 'gecen_ay') {
+        return r.date >= firstDayLastMonthIso && r.date <= lastDayLastMonthIso;
+      }
 
       return true;
     });
@@ -265,21 +355,21 @@ export default function AttendanceScreen() {
 
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
-    const daysCount = uniqueDays.size || 5;
+    const daysCount = uniqueDays.size;
     const avgMinsPerDay = daysCount > 0 ? Math.round(totalMinutes / daysCount) : 0;
     const avgH = Math.floor(avgMinsPerDay / 60);
     const avgM = avgMinsPerDay % 60;
 
     return {
       totalFormatted: `${hours} sa ${mins} dk`,
-      totalMinutes: totalMinutes || 2714,
+      totalMinutes,
       daysCount,
       avgPerDayFormatted: `Ort: ${avgH} sa ${avgM} dk / gün`,
-      checkInCount: checkInCount || 12,
-      completedCount: completedCount || 11,
-      inWorkCount: inWorkCount || 0,
-      activeStaffCount: staffSet.size || 2,
-      totalRegisteredStaff: 5,
+      checkInCount,
+      completedCount,
+      inWorkCount,
+      activeStaffCount: staffSet.size,
+      totalRegisteredStaff: ALL_STAFF.length,
     };
   }, [filteredRecords]);
 
@@ -381,10 +471,8 @@ export default function AttendanceScreen() {
   };
 
   const resetFilters = () => {
-    setActivePeriod('bu_ay');
+    handlePeriodChange('bugun');
     setSelectedStaffFilter('all');
-    setStartDateStr('01.09.2026');
-    setEndDateStr('18.09.2026');
   };
 
   const formatDistance = (meters?: number, isOutside?: boolean, isApproved?: boolean) => {
@@ -884,10 +972,10 @@ export default function AttendanceScreen() {
               <Text style={styles.periodLabel}>Dönem:</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                 {[
+                  { id: 'bugun', label: 'Bugün' },
+                  { id: 'bu_hafta', label: 'Bu Hafta' },
                   { id: 'bu_ay', label: 'Bu Ay' },
                   { id: 'gecen_ay', label: 'Geçen Ay' },
-                  { id: 'bu_hafta', label: 'Bu Hafta' },
-                  { id: 'bugun', label: 'Bugün' },
                   { id: 'dun', label: 'Dün' },
                   { id: 'tumu', label: 'Tümü' },
                 ].map((item) => (
@@ -897,7 +985,7 @@ export default function AttendanceScreen() {
                       styles.periodPill,
                       activePeriod === item.id ? styles.periodPillActive : styles.periodPillInactive,
                     ]}
-                    onPress={() => setActivePeriod(item.id as PeriodFilter)}
+                    onPress={() => handlePeriodChange(item.id as PeriodFilter)}
                     activeOpacity={0.8}
                   >
                     <Text
@@ -912,6 +1000,42 @@ export default function AttendanceScreen() {
                 ))}
               </ScrollView>
             </View>
+
+            {/* Bilgilendirme Rozeti (Bugün modu) */}
+            {activePeriod === 'bugun' && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : '#a7f3d0',
+                }}
+              >
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: '#10b981',
+                  }}
+                />
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: isDark ? '#6ee7b7' : '#047857',
+                    fontWeight: '600',
+                    flex: 1,
+                  }}
+                >
+                  Sadece Bugünün ({startDateStr}) kayıtları gösteriliyor. Geçmiş için Dönem butonlarını kullanabilirsiniz.
+                </Text>
+              </View>
+            )}
 
             {/* Personel Seçici Dropdown (Görsel-2) */}
             <TouchableOpacity
@@ -952,7 +1076,7 @@ export default function AttendanceScreen() {
               style={{ alignSelf: 'flex-end', marginTop: 4 }}
               activeOpacity={0.7}
             >
-              <Text style={styles.resetFiltersText}>Filtreleri Sıfırla</Text>
+              <Text style={styles.resetFiltersText}>Filtreleri Sıfırla (Bugün)</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -463,19 +463,12 @@ export const StaffTrackingView: React.FC = () => {
   }, [attendanceRecords, companyUserIds]);
 
   // --- 5. Date Range & Staff Filters for Table & Analytics ---
-  const defaultStartDate = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}-01`;
-  }, []);
-
-  const [startDate, setStartDate] = useState<string>(defaultStartDate);
+  const [startDate, setStartDate] = useState<string>(todayStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [activePreset, setActivePreset] = useState<
     'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all' | 'custom'
-  >('this_month');
+  >('today');
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -1953,10 +1946,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     <span>Dönem:</span>
                   </span>
                   {[
+                    { id: 'today', label: 'Bugün' },
+                    { id: 'this_week', label: 'Bu Hafta' },
                     { id: 'this_month', label: 'Bu Ay' },
                     { id: 'last_month', label: 'Geçen Ay' },
-                    { id: 'this_week', label: 'Bu Hafta' },
-                    { id: 'today', label: 'Bugün' },
                     { id: 'yesterday', label: 'Dün' },
                     { id: 'all', label: 'Tümü' },
                   ].map((p) => (
@@ -1986,6 +1979,14 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 )}
               </div>
 
+              {/* Bilgilendirme Rozeti (Bugün modu) */}
+              {activePreset === 'today' && (
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Sadece Bugünün ({new Date().toLocaleDateString('tr-TR')}) Mesai Kayıtları Görüntüleniyor. Geçmiş için Dönem butonlarını veya Tarih Aralığını kullanabilirsiniz.</span>
+                </div>
+              )}
+
               {/* Özel Tarih Aralığı Seçicileri */}
               <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
                 <div className="flex items-center gap-2">
@@ -2014,16 +2015,16 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   />
                 </div>
 
-                {(startDate || endDate || selectedStaffIds.length > 0) && (
+                {(startDate !== todayStr || endDate !== todayStr || activePreset !== 'today' || selectedStaffIds.length > 0) && (
                   <button
                     type="button"
                     onClick={() => {
-                      applyPreset('this_month');
+                      applyPreset('today');
                       setSelectedStaffIds([]);
                     }}
                     className="text-xs text-rose-500 hover:text-rose-600 font-semibold underline ml-auto cursor-pointer"
                   >
-                    Filtreleri Sıfırla
+                    Filtreleri Sıfırla (Bugün)
                   </button>
                 )}
               </div>
