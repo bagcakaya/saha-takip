@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone, Store } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone, Store, UserX } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   title,
   actionButton,
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteUser } = useAuth();
   const {
     unreadLogsCount,
     lastReadTime,
@@ -59,6 +59,23 @@ export const Header: React.FC<HeaderProps> = ({
     }
     if ('Notification' in window) {
       setPermission(Notification.permission);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (
+      window.confirm(
+        'Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.'
+      )
+    ) {
+      const res = await deleteUser(user.id);
+      if (res.success) {
+        alert('Hesabınız başarıyla silindi.');
+        logout();
+      } else {
+        alert('İşlem Başarısız: ' + (res.error || 'Hesap silinemedi.'));
+      }
     }
   };
 
@@ -304,6 +321,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Logout Button */}
             {user && (
               <button
+                type="button"
                 onClick={() => {
                   if (window.confirm('Oturumu kapatmak istediğinize emin misiniz?')) {
                     logout();
@@ -314,6 +332,19 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-label="Çıkış Yap"
               >
                 <LogOut className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Delete Account Button */}
+            {user && (
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                className="p-2.5 rounded-xl text-slate-400 hover:text-red-600 bg-slate-50 dark:bg-slate-800/80 hover:bg-red-50 dark:hover:bg-red-950/40 border border-transparent hover:border-red-200 dark:hover:border-red-900/50 transition-colors cursor-pointer"
+                title="Hesabımı Sil"
+                aria-label="Hesabımı Sil"
+              >
+                <UserX className="w-4 h-4" />
               </button>
             )}
           </div>

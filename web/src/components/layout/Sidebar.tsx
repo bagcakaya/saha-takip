@@ -18,6 +18,7 @@ import {
   Store,
   Clock,
   Server,
+  UserX,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -39,7 +40,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteUser } = useAuth();
   const {
     branches,
     locations,
@@ -148,6 +149,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() > now
     ).length;
   }, [timedFollowUps]);
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (
+      window.confirm(
+        'Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.'
+      )
+    ) {
+      const res = await deleteUser(user.id);
+      if (res.success) {
+        alert('Hesabınız başarıyla silindi.');
+        logout();
+      } else {
+        alert('İşlem Başarısız: ' + (res.error || 'Hesap silinemedi.'));
+      }
+    }
+  };
 
   return (
     <>
@@ -617,19 +635,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             </div>
           )}
 
-          {/* Logout Button */}
+          {/* Logout & Delete Account */}
           {user && (
-            <button
-              onClick={() => {
-                if (window.confirm('Oturumu kapatmak istediğinize emin misiniz?')) {
-                  logout();
-                }
-              }}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-100 dark:border-red-950/50 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Güvenli Çıkış</span>
-            </button>
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  if (window.confirm('Oturumu kapatmak istediğinize emin misiniz?')) {
+                    logout();
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-100 dark:border-red-950/50 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Güvenli Çıkış</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-500 hover:underline transition-colors cursor-pointer"
+                title="Hesabınızı kalıcı olarak silin"
+              >
+                <UserX className="w-3.5 h-3.5" />
+                <span>Hesabımı Sil</span>
+              </button>
+            </div>
           )}
         </div>
       </aside>

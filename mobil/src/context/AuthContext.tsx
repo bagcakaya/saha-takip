@@ -451,6 +451,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (id: string) => {
     try {
+      const target = users.find((u) => u.id === id);
+      if (!target) {
+        return { success: false, error: 'Kullanıcı bulunamadı.' };
+      }
+      const comp = target.companyCode || 'POLATLAR';
+      if (target.role === 'admin') {
+        const adminCount = users.filter(
+          (u) => (u.companyCode || 'POLATLAR').toUpperCase() === comp.toUpperCase() && u.role === 'admin'
+        ).length;
+        if (adminCount <= 1) {
+          return {
+            success: false,
+            error: 'Bu kurumdaki son Yönetici (Admin) hesabı silinemez.',
+          };
+        }
+      }
+
       const updated = users.filter((u) => u.id !== id);
       setUsers(updated);
       await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));

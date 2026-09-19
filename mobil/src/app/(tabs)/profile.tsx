@@ -28,12 +28,13 @@ import {
   Lock,
   CheckCircle2,
   Server,
+  UserX,
 } from 'lucide-react-native';
 import { ServerSettingsModal } from '../../components/ServerSettingsModal';
 import { MobileServerConfigService, ServerConfig } from '../../services/serverConfigService';
 
 export default function ProfileScreen() {
-  const { user, company, logout, updateUser, refreshUsers } = useAuth();
+  const { user, company, logout, updateUser, refreshUsers, deleteUser } = useAuth();
   const { cariler, notes, addNote } = useStorage();
   const isDark = useColorScheme() === 'dark';
 
@@ -116,6 +117,30 @@ export default function ProfileScreen() {
         onPress: () => logout(),
       },
     ]);
+  };
+
+  const handleDeleteAccount = () => {
+    if (!user) return;
+    Alert.alert(
+      'Hesabınızı Silmek İstiyor Musunuz?',
+      'Bu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.\n\nDevam etmek istediğinize emin misiniz?',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Hesabımı Sil',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await deleteUser(user.id);
+            if (res.success) {
+              logout();
+              Alert.alert('Hesap Silindi', 'Hesabınız başarıyla silindi ve oturumunuz kapatıldı.');
+            } else {
+              Alert.alert('İşlem Başarısız', res.error || 'Hesap silinirken bir hata oluştu.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -460,10 +485,19 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      {/* 4. Logout */}
+      {/* 4. Logout & Delete Account */}
       <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
         <LogOut size={18} color="#dc2626" />
         <Text style={styles.logoutBtnText}>Oturumu Kapat</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.deleteAccountBtn}
+        onPress={handleDeleteAccount}
+        activeOpacity={0.7}
+      >
+        <UserX size={15} color="#ef4444" />
+        <Text style={styles.deleteAccountBtnText}>Hesabımı Kalıcı Olarak Sil</Text>
       </TouchableOpacity>
 
       <Text style={styles.versionText}>İş Takip Sistemi Mobil v1.0.0 (Expo SDK 57)</Text>
@@ -639,6 +673,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#dc2626',
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 6,
+  },
+  deleteAccountBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ef4444',
+    textDecorationLine: 'underline',
   },
   passInputGroup: {
     gap: 4,
