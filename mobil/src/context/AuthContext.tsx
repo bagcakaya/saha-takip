@@ -46,6 +46,7 @@ interface AuthContextType {
     updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean }
   ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
+  deleteUsersForCompany: (companyCode: string) => Promise<{ success: boolean; error?: string }>;
   suggestUsername: (name: string) => string;
 }
 
@@ -502,6 +503,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const deleteUsersForCompany = async (companyCode: string) => {
+    try {
+      const clean = (companyCode || '').trim().toUpperCase();
+      if (clean === 'POLATLAR') return { success: false, error: 'POLATLAR kullanıcıları silinemez.' };
+      const updated = users.filter((u) => (u.companyCode || '').toUpperCase() !== clean);
+      setUsers(updated);
+      await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
+      await saveUsersToCloud(updated);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Kurum personelleri silinemedi.' };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -519,6 +534,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addUser,
         updateUser,
         deleteUser,
+        deleteUsersForCompany,
         suggestUsername,
       }}
     >

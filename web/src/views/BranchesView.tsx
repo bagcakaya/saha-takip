@@ -27,6 +27,7 @@ import { LocationService } from '../services/locationService';
 import { CompanyService } from '../services/companyService';
 import { StorageService } from '../services/storageService';
 import { DeviceService } from '../services/deviceService';
+import { UserService } from '../services/userService';
 import { BranchModal } from '../components/branches/BranchModal';
 import { BranchStaffModal } from '../components/branches/BranchStaffModal';
 import { CreateCompanyModal } from '../components/auth/CreateCompanyModal';
@@ -222,13 +223,53 @@ export const BranchesView: React.FC = () => {
       return;
     }
     try {
-      await deleteBranch(b.id);
+      await deleteBranch(b.id, companyCode);
       setCompanyBranchesMap((prev) => ({
         ...prev,
         [companyCode]: (prev[companyCode] || []).filter((item) => item.id !== b.id),
       }));
     } catch (e) {
       console.error('Şube silinirken hata oluştu:', e);
+    }
+  };
+
+  const handleDeleteCompany = async (comp: Company) => {
+    if (!canUserManageInstitutionsAndBranches(user)) {
+      alert('Kurum silme yetkisi sadece POLATLAR ana yöneticilerine (admin ve murat) aittir.');
+      return;
+    }
+    const cleanCode = comp.code.toUpperCase();
+    if (cleanCode === 'POLATLAR') {
+      alert('Ana sistem kurumu (POLATLAR) silinemez.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `"${comp.name}" (${comp.code}) kurumunu silmek istediğinize emin misiniz?\n\n⚠️ DİKKAT: Bu işlem geri alınamaz! Kurum, bağlı tüm şubeleri ve personelleri sistemden tamamen silinecektir.`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await CompanyService.deleteCompany(cleanCode);
+      if (res.success) {
+        // Clear branches in cloud slot 14
+        await StorageService.saveBranchesForCompany(cleanCode, []);
+        // Delete users associated with this company
+        await UserService.deleteUsersForCompany(cleanCode);
+        // Refresh local states
+        setAvailableCompanies((prev) => prev.filter((c) => c.code.toUpperCase() !== cleanCode));
+        setCompanyBranchesMap((prev) => {
+          const next = { ...prev };
+          delete next[cleanCode];
+          return next;
+        });
+        alert(`✅ "${comp.name}" kurumu ve tüm şubeleri başarıyla silindi.`);
+      } else {
+        alert('Hata: ' + (res.error || 'Kurum silinemedi.'));
+      }
+    } catch (e: any) {
+      alert('Hata: ' + (e?.message || 'Kurum silinirken bir hata oluştu.'));
     }
   };
 
@@ -440,6 +481,22 @@ export const BranchesView: React.FC = () => {
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Şube Ekle</span>
+                      </button>
+                    )}
+
+                    {/* Kurumu Sil Butonu (Yalnızca POLATLAR dışındaki kurumlar için) */}
+                    {!isPolatlar && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCompany(comp);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/60 text-red-600 dark:text-red-400 text-xs font-black shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Kurumu ve Tüm Şubelerini Sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Kurumu Sil</span>
                       </button>
                     )}
 

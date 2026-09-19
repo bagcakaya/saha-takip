@@ -58,7 +58,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
   onClose,
 }) => {
   const { isDark } = useAppTheme();
-  const { user: currentUser, users, updateUser } = useAuth();
+  const { user: currentUser, users, updateUser, deleteUsersForCompany } = useAuth();
   const {
     branches: polatlarBranches,
     addBranch,
@@ -334,6 +334,13 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
 
   // Delete Branch
   const handleDeleteBranch = (branch: Branch, companyCode: string) => {
+    if (!isSuperAdmin) {
+      Alert.alert(
+        'Yetkisiz İşlem',
+        'Şube silme yetkisi sadece POLATLAR yöneticilerine (admin ve murat) aittir.'
+      );
+      return;
+    }
     Alert.alert(
       'Şubeyi Sil',
       `"${branch.name}" şubesini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
@@ -352,6 +359,59 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
               Alert.alert('Başarılı', `"${branch.name}" şubesi silindi.`);
             } catch (e: any) {
               Alert.alert('Hata', e?.message || 'Şube silinemedi.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Delete Company
+  const handleDeleteCompany = (comp: Company) => {
+    if (!isSuperAdmin) {
+      Alert.alert(
+        'Yetkisiz İşlem',
+        'Kurum silme yetkisi sadece POLATLAR ana yöneticilerine (admin ve murat) aittir.'
+      );
+      return;
+    }
+    const cleanCode = (comp.code || '').trim().toUpperCase();
+    if (cleanCode === 'POLATLAR') {
+      Alert.alert('Uyarı', 'Ana sistem kurumu (POLATLAR) silinemez.');
+      return;
+    }
+
+    Alert.alert(
+      'Kurumu Sil',
+      `"${comp.name}" (${comp.code}) kurumunu silmek istediğinize emin misiniz?\n\n⚠️ DİKKAT: Bu işlem geri alınamaz! Kurum, bağlı tüm şubeleri ve personelleri sistemden tamamen silinecektir.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Kurumu ve Verilerini Sil',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await CompanyService.deleteCompany(cleanCode);
+              if (res.success) {
+                // Clear branches in cloud slot 14
+                await StorageService.saveBranchesForCompany(cleanCode, []);
+                // Delete users associated with this company
+                await deleteUsersForCompany(cleanCode);
+                // Refresh local states
+                setAvailableCompanies((prev) =>
+                  prev.filter((c) => c.code.trim().toUpperCase() !== cleanCode)
+                );
+                setCompanyBranchesMap((prev) => {
+                  const next = { ...prev };
+                  delete next[cleanCode];
+                  return next;
+                });
+                Alert.alert('Başarılı', `"${comp.name}" kurumu ve tüm şubeleri başarıyla silindi.`);
+              } else {
+                Alert.alert('Hata', res.error || 'Kurum silinemedi.');
+              }
+            } catch (e: any) {
+              Alert.alert('Hata', e?.message || 'Kurum silinirken bir hata oluştu.');
             }
           },
         },
@@ -735,7 +795,22 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
                       </View>
 
                       {/* Right Action buttons */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {/* Kurumu Sil Button (Sadece SuperAdmin ve POLATLAR hariç) */}
+                        {isSuperAdmin && !isPolatlar && (
+                          <TouchableOpacity
+                            style={styles.quickDeleteCompanyBtn}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCompany(comp);
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <Trash2 size={13} color="#ef4444" />
+                            <Text style={styles.quickDeleteCompanyText}>Sil</Text>
+                          </TouchableOpacity>
+                        )}
+
                         {/* + Şube Ekle Button */}
                         <TouchableOpacity
                           style={styles.quickAddBranchBtn}
@@ -856,13 +931,15 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
                                   </View>
 
                                   {/* Delete Branch Button */}
-                                  <TouchableOpacity
-                                    style={styles.branchDeleteBtn}
-                                    onPress={() => handleDeleteBranch(branch, code)}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Trash2 size={15} color="#ef4444" />
-                                  </TouchableOpacity>
+                                  {isSuperAdmin && (
+                                    <TouchableOpacity
+                                      style={styles.branchDeleteBtn}
+                                      onPress={() => handleDeleteBranch(branch, code)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <Trash2 size={15} color="#ef4444" />
+                                    </TouchableOpacity>
+                                  )}
                                 </View>
 
                                 {/* Branch Badges Row */}
@@ -2009,6 +2086,22 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '800',
     color: '#0d9488',
+  },
+  quickDeleteCompanyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  quickDeleteCompanyText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#ef4444',
   },
   chevronCircle: {
     width: 28,

@@ -473,6 +473,25 @@ export const UserService = {
   },
 
   /**
+   * Deletes all users belonging to a company (except POLATLAR)
+   */
+  async deleteUsersForCompany(companyCode: string): Promise<void> {
+    const clean = (companyCode || '').trim().toUpperCase();
+    if (clean === 'POLATLAR') return;
+    const users = this.getUsers();
+    const toDelete = users.filter((u) => (u.companyCode || '').toUpperCase() === clean);
+    const filtered = users.filter((u) => (u.companyCode || '').toUpperCase() !== clean);
+    this.saveUsers(filtered);
+    for (const u of toDelete) {
+      try {
+        await supabase.from('app_users').delete().eq('id', u.id);
+      } catch (err) {
+        // ignore
+      }
+    }
+  },
+
+  /**
    * Authenticates user against registered accounts within a specific company
    */
   async authenticate(

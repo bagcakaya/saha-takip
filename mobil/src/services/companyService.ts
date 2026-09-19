@@ -337,5 +337,23 @@ export const CompanyService = {
       freezeReason: isFrozen ? (freezeReason || 'Hizmet geçici olarak durdurulmuştur.') : undefined,
     });
   },
+
+  /**
+   * Deletes a company by code (Strictly disallowed for POLATLAR)
+   */
+  async deleteCompany(companyCode: string): Promise<{ success: boolean; error?: string }> {
+    const cleanCode = (companyCode || '').trim().toUpperCase();
+    if (cleanCode === 'POLATLAR') {
+      return { success: false, error: 'Ana sistem kurumu (POLATLAR) silinemez.' };
+    }
+    const list = await this.fetchCompanies();
+    const filtered = list.filter((c) => c.code.toUpperCase() !== cleanCode);
+    if (filtered.length === list.length) {
+      return { success: false, error: 'Kurum bulunamadı.' };
+    }
+    await this.saveCompaniesLocal(filtered);
+    await this.syncToCloud(filtered);
+    return { success: true };
+  },
 };
 

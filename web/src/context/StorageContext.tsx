@@ -120,7 +120,7 @@ interface StorageContextType {
     branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }
   ) => Promise<Branch>;
   updateBranch: (id: string, updates: Partial<Branch>) => Promise<void>;
-  deleteBranch: (id: string) => Promise<void>;
+  deleteBranch: (id: string, targetCompanyCode?: string) => Promise<void>;
   assignStaffToBranch: (branchId: string, userIds: string[], targetCompanyCode?: string) => Promise<void>;
   checkInStaff: (options?: {
     allowOutside?: boolean;
@@ -2699,14 +2699,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const deleteBranch = async (id: string) => {
+  const deleteBranch = async (id: string, targetCompanyCode?: string) => {
     if (!canUserAddBranch(user)) {
       alert('Şube silme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
       return;
     }
     const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const targetBranch = branches.find((b) => b.id === id);
-    const branchCompCode = (targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
+    const branchCompCode = (targetCompanyCode || targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
 
     if (branchCompCode === currentCompCode) {
       const updated = branches.filter((b) => b.id !== id);
