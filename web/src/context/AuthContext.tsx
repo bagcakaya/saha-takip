@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, UserAccount, UserRole, Company, isUserAdmin } from '../types/auth';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import { User, UserAccount, UserRole, Company, isUserAdmin, LicenseInfo, getCompanyLicenseInfo } from '../types/auth';
 import { UserService } from '../services/userService';
 import { CompanyService } from '../services/companyService';
 import { StorageService } from '../services/storageService';
@@ -11,7 +11,9 @@ interface AuthContextType {
   user: User | null;
   users: UserAccount[];
   company: Company | null;
+  licenseInfo: LicenseInfo;
   isAuthenticated: boolean;
+  refreshCompany: () => Promise<void>;
   login: (
     companyCode: string,
     usernameOrEmail: string,
@@ -83,6 +85,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(user));
+
+  // Calculate real-time SaaS license status
+  const licenseInfo = useMemo(() => getCompanyLicenseInfo(company), [company]);
+
+  const refreshCompany = async () => {
+    if (user?.companyCode) {
+      const comp = await CompanyService.getCompanyByCode(user.companyCode);
+      if (comp) {
+        setCompany(comp);
+        StorageService.setCompany(comp.code, comp.id);
+      }
+    }
+  };
 
   // Load company metadata whenever user changes
   useEffect(() => {
@@ -448,7 +463,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         users,
         company,
+        licenseInfo,
         isAuthenticated,
+        refreshCompany,
         login,
         logout,
         registerCompany,

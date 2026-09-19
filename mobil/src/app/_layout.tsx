@@ -7,9 +7,10 @@ import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { MobileOneSignalService } from '../services/oneSignalService';
+import { LicenseLockedView } from '../components/LicenseLockedView';
 
 function RootNavigator() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, licenseInfo } = useAuth();
   const { isDark } = useAppTheme();
   const segments = useSegments();
   const router = useRouter();
@@ -29,6 +30,16 @@ function RootNavigator() {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, segments]);
+
+  // If company license is expired or suspended, intercept with LicenseLockedView
+  if (!isLoading && isAuthenticated && !licenseInfo.active) {
+    return (
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <LicenseLockedView />
+      </>
+    );
+  }
 
   return (
     <>

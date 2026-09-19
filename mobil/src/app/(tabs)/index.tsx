@@ -41,6 +41,8 @@ import { CreateCompanyModal } from '../../components/CreateCompanyModal';
 import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
 import { NotificationStatusModal } from '../../components/NotificationStatusModal';
+import { LicenseManagementModal } from '../../components/LicenseManagementModal';
+import { canUserManageLicenses } from '../../types/auth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = 12;
@@ -69,7 +71,9 @@ export default function HomeDashboardScreen() {
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
 
+  const canManageLicenses = canUserManageLicenses(user);
   const isAdmin = user?.role === 'admin';
   const todayStr = new Date().toISOString().split('T')[0];
   const activeReturnsCount = returnWarrantyItems.filter((i) => i.status === 'pending').length;
@@ -569,6 +573,33 @@ export default function HomeDashboardScreen() {
               </Text>
             </View>
           </TouchableOpacity>
+
+          {/* Card 12: Lisanslama (Super Admin Only: admin & murat) */}
+          {canManageLicenses && (
+            <TouchableOpacity
+              style={[styles.moduleCard, { backgroundColor: '#1e1b4b', borderColor: 'rgba(99, 102, 241, 0.45)' }]}
+              onPress={() => setIsLicenseModalOpen(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.cardTop}>
+                <View style={styles.cardIconCircle}>
+                  <Building2 size={20} color="#818cf8" />
+                </View>
+                <View style={[styles.solidPillBadge, { backgroundColor: 'rgba(99, 102, 241, 0.25)' }]}>
+                  <Text style={[styles.solidPillText, { color: '#a5b4fc' }]}>SaaS Masası</Text>
+                </View>
+              </View>
+              <View style={styles.cardBottom}>
+                <View style={styles.cardTitleRow}>
+                  <Text style={styles.cardTitle}>Lisanslama</Text>
+                  <ArrowRight size={15} color="#ffffff" />
+                </View>
+                <Text style={styles.cardDesc} numberOfLines={2}>
+                  Kurum lisans süreleri, dondurma ve abonelik kontrolü
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -601,9 +632,17 @@ export default function HomeDashboardScreen() {
         visible={isNotificationSettingsOpen}
         onClose={() => setIsNotificationSettingsOpen(false)}
       />
+
+      {/* SaaS License Management Modal (Super Admin: admin & murat) */}
+      {canManageLicenses && (
+        <LicenseManagementModal
+          visible={isLicenseModalOpen}
+          onClose={() => setIsLicenseModalOpen(false)}
+        />
+      )}
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {

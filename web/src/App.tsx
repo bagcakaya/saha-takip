@@ -17,6 +17,7 @@ import { RemindersView } from './views/RemindersView';
 import { BranchesView } from './views/BranchesView';
 import { TimedFollowUpsView } from './views/TimedFollowUpsView';
 import { LoginView } from './views/LoginView';
+import { LicenseLockedView } from './components/licensing/LicenseLockedView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
@@ -29,7 +30,7 @@ import {
 } from './utils/navigationUtils';
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, licenseInfo } = useAuth();
   const isAdmin = isUserAdmin(user);
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -195,6 +196,16 @@ const MainApp: React.FC = () => {
     return (
       <>
         <LoginView />
+        <PwaInstallPrompt />
+      </>
+    );
+  }
+
+  // If company license is expired or suspended, show License Locked Paywall (POLATLAR is always exempt)
+  if (!licenseInfo.active) {
+    return (
+      <>
+        <LicenseLockedView />
         <PwaInstallPrompt />
       </>
     );

@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, UserAccount, Company, UserRole } from '../types/auth';
+import { User, UserAccount, Company, UserRole, LicenseInfo, getCompanyLicenseInfo } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { supabase } from '../api/supabaseClient';
 import { CompanyService } from '../services/companyService';
@@ -15,8 +15,10 @@ interface AuthContextType {
   user: User | null;
   users: UserAccount[];
   company: Company | null;
+  licenseInfo: LicenseInfo;
   isAuthenticated: boolean;
   isLoading: boolean;
+  refreshCompany: () => Promise<void>;
   login: (companyCode: string, username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshUsers: () => Promise<void>;
@@ -159,6 +161,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const licenseInfo = useMemo(() => getCompanyLicenseInfo(company), [company]);
+
+  const refreshCompany = async () => {
+    if (user?.companyCode) {
+      const comp = await CompanyService.getCompanyByCode(user.companyCode);
+      if (comp) {
+        setCompany(comp);
+        StorageService.setCompany(comp.code, comp.id);
+        await AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(comp));
+      }
+    }
+  };
+
   useEffect(() => {
     const loadSession = async () => {
       try {
@@ -179,6 +194,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(u);
           StorageService.setCompany(u.companyCode || 'POLATLAR');
           MobileOneSignalService.login(u);
+          CompanyService.getCompanyByCode(u.companyCode || 'POLATLAR').then((c) => {
+            if (c) {
+              setCompany(c);
+              AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(c));
+            }
+          });
         }
         if (savedCompany) {
           setCompany(JSON.parse(savedCompany));
@@ -228,13 +249,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: matched.createdAt || Date.now(),
         canChangePassword: matched.canChangePassword !== undefined ? matched.canChangePassword : (matched.role === 'admin'),
       };
-      const compObj: Company = {
+
+      const realComp = await CompanyService.getCompanyByCode(cleanComp);
+      const compObj: Company = realComp || {
         id: cleanComp === 'POLATLAR' ? 1 : 2,
         code: cleanComp,
         name: cleanComp === 'POLATLAR' ? 'Polatlar' : cleanComp,
         adminEmail: 'admin@' + cleanComp.toLowerCase() + '.com',
         adminName: 'Yönetici',
         createdAt: Date.now(),
+        licenseType: cleanComp === 'POLATLAR' ? 'lifetime' : 'annual',
       };
 
       setUser(loggedUser);
@@ -484,8 +508,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         users,
         company,
+        licenseInfo,
         isAuthenticated: !!user,
         isLoading,
+        refreshCompany,
         login,
         logout,
         refreshUsers,
