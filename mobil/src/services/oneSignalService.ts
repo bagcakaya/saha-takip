@@ -71,6 +71,10 @@ export const MobileOneSignalService = {
         platform: Platform.OS,
       };
       OneSignal.User.addTags(tags);
+      OneSignal.User.addAlias('user_id', user.id);
+      if ((user as any).username) {
+        OneSignal.User.addAlias('username', (user as any).username);
+      }
     } catch (err) {
       console.warn('OneSignal login error:', err);
     }
@@ -92,19 +96,28 @@ export const MobileOneSignalService = {
    * Sends a real push notification via Vercel proxy / OneSignal cloud API
    */
   async sendTestPushNotification(params: {
-    userId: string;
+    userId?: string;
+    targetUserIds?: string[];
     title?: string;
     message?: string;
     delaySeconds?: number;
   }): Promise<{ success: boolean; error?: string }> {
     try {
+      const targets = new Set<string>();
+      if (params.userId) targets.add(params.userId);
+      if (params.targetUserIds) {
+        params.targetUserIds.forEach((t) => {
+          if (t && t.trim()) targets.add(t.trim());
+        });
+      }
+
       const response = await fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: params.title || '🔔 Donanım Bildirim Testi',
           message: params.message || 'Bildirim sisteminiz telefonunuzda başarıyla aktif!',
-          targetUserIds: [params.userId],
+          targetUserIds: Array.from(targets),
           delaySeconds: params.delaySeconds || 0,
           data: { tab: 'reminders' },
         }),

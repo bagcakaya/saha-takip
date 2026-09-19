@@ -275,12 +275,19 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
   const handleSendTestToSpecificDevice = async (dev: RegisteredDevice) => {
     setTestingDeviceId(dev.deviceId);
     try {
+      const binding = userBindings.find((b) => b.boundDeviceId === dev.deviceId);
+      const targetIds: string[] = [];
+      if (binding?.userId) targetIds.push(binding.userId);
+      if (dev.userId && !dev.userId.startsWith('u_')) targetIds.push(dev.userId);
+      if (dev.deviceId === currentDeviceId || targetIds.length === 0) {
+        if (user?.id) targetIds.push(user.id);
+      }
+
       const res = await OneSignalService.sendPushNotification({
         title: '📱 Cihaza Özel Test Bildirimi',
         message: `Merhaba! Bu bildirim "${dev.deviceName}" (${dev.deviceId}) cihazına özel olarak iletildi.`,
         targetMode: 'custom',
-        targetUserIds: dev.pushSubscriptionId ? undefined : dev.userId ? [dev.userId] : undefined,
-        targetSubscriptionIds: dev.pushSubscriptionId ? [dev.pushSubscriptionId] : undefined,
+        targetUserIds: targetIds.length > 0 ? targetIds : (user?.id ? [user.id] : undefined),
         url: 'https://saha-takip-beige.vercel.app',
         collapseId: `test_dev_${dev.deviceId}`,
       });

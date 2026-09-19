@@ -184,14 +184,35 @@ export const NotificationStatusModal: React.FC<NotificationStatusModalProps> = (
   };
 
   const handleSendTestToDevice = async (dev: RegisteredDevice) => {
-    const targetId = dev.userId || user?.id;
-    if (!targetId) {
-      Alert.alert('Hata', 'Hedef kullanıcı ID bulunamadı.');
-      return;
+    // 1. Resolve all possible target user IDs/aliases
+    const binding = userBindings.find((b) => b.boundDeviceId === dev.deviceId);
+    const targetSet = new Set<string>();
+
+    if (binding?.userId) targetSet.add(binding.userId);
+    if (binding?.username) targetSet.add(binding.username);
+
+    // If device matches current device or device belongs to current user
+    const isCurrentDevice = dev.deviceId === currentDeviceId;
+    const isSameUser =
+      user?.name && dev.userName && dev.userName.toLowerCase().includes(user.name.toLowerCase().split(' ')[0]);
+
+    if (isCurrentDevice || isSameUser || targetSet.size === 0) {
+      if (user?.id) targetSet.add(user.id);
+      if ((user as any)?.username) targetSet.add((user as any).username);
     }
+
+    if (dev.userId && !dev.userId.startsWith('u_')) {
+      targetSet.add(dev.userId);
+    }
+
+    const targetList = Array.from(targetSet);
+    if (targetList.length === 0) {
+      if (user?.id) targetList.push(user.id);
+    }
+
     setTestSentMessage(`⏳ "${dev.deviceName}" cihazına bildirim iletiliyor...`);
     const res = await MobileOneSignalService.sendTestPushNotification({
-      userId: targetId,
+      targetUserIds: targetList,
       title: '✈ Cihaz Bildirim Testi',
       message: `"${dev.deviceName}" donanımına doğrudan test bildirimi gönderildi.`,
     });
