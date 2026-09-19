@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -10,11 +10,14 @@ import {
   Clock,
   AlertTriangle,
   KeyRound,
+  Building2,
+  Lock,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
-import { isUserAdmin } from '../types/auth';
+import { isUserAdmin, Company } from '../types/auth';
 import { DeviceService } from '../services/deviceService';
+import { CompanyService } from '../services/companyService';
 
 export const SecurityLogsView: React.FC = () => {
   const { user } = useAuth();
@@ -27,8 +30,20 @@ export const SecurityLogsView: React.FC = () => {
   } = useStorage();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'unread' | 'cross_device'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'unread' | 'cross_device' | 'lockout'>('all');
   const [isUnbindingId, setIsUnbindingId] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('ALL');
+
+  const userComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+  const isSuperAdmin =
+    userComp === 'POLATLAR' && ['admin', 'murat'].includes((user?.username || '').toLowerCase());
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      CompanyService.fetchCompanies().then((comps) => setCompanies(comps));
+    }
+  }, [isSuperAdmin]);
 
   const handleMarkAllRead = async () => {
     await markAllAsRead();
@@ -73,9 +88,17 @@ export const SecurityLogsView: React.FC = () => {
   // Filter logs
   const filteredLogs = useMemo(() => {
     return securityLogs.filter((log) => {
+      // Company scoping: Non-superadmins only see their own company
+      if (!isSuperAdmin) {
+        if ((log.companyCode || 'POLATLAR').toUpperCase() !== userComp) return false;
+      } else if (selectedCompanyFilter !== 'ALL') {
+        if ((log.companyCode || 'POLATLAR').toUpperCase() !== selectedCompanyFilter.toUpperCase()) return false;
+      }
+
       // Filter by type
       if (filterType === 'unread' && log.read) return false;
       if (filterType === 'cross_device' && !log.boundUserId) return false;
+      if (filterType === 'lockout' && !log.message.toLowerCase().includes('kilitlendi')) return false;
 
       // Filter by search query
       if (searchQuery.trim()) {
@@ -89,14 +112,15 @@ export const SecurityLogsView: React.FC = () => {
         const matchDevice =
           log.deviceId.toLowerCase().includes(query) ||
           (log.deviceName && log.deviceName.toLowerCase().includes(query));
+        const matchCompany = (log.companyCode || '').toLowerCase().includes(query);
         const matchMessage = log.message.toLowerCase().includes(query);
 
-        return matchAttempted || matchOwner || matchDevice || matchMessage;
+        return matchAttempted || matchOwner || matchDevice || matchCompany || matchMessage;
       }
 
       return true;
     });
-  }, [securityLogs, filterType, searchQuery]);
+  }, [securityLogs, filterType, searchQuery, isSuperAdmin, userComp, selectedCompanyFilter]);
 
   // Summary statistics
   interface OffenderStat {
@@ -104,18 +128,17 @@ export const SecurityLogsView: React.FC = () => {
     count: number;
   }
 
-  const stats = useMemo<{
-    total: number;
-    crossDeviceAttempts: number;
-    topOffender: OffenderStat | null;
-  }>(() => {
-    const total = securityLogs.length;
-    const crossDeviceAttempts = securityLogs.filter((l) => l.boundUserId).length;
+  const stats = useMemo(() => {
+    const total = filteredLogs.length;
+    const crossDeviceAttempts = filteredLogs.filter((l) => l.boundUserId).length;
+    const lockoutAttempts = filteredLogs.filter((l) =>
+      l.message.toLowerCase().includes('kilitlendi')
+    ).length;
 
-    // Find staff member with most attempts
-    const attemptCounts: Record<string, OffenderStat> = {};
-    securityLogs.forEach((l) => {
-      const key = l.attemptedUsername || 'Bilinmeyen';
+    // Find top offender
+    const attemptCounts: { [key: string]: { count: number; name: string } } = {};
+    filteredLogs.forEach((l) => {
+      const key = l.attemptedUserId || l.attemptedUsername;
       const name = l.attemptedName || l.attemptedUsername;
       if (!attemptCounts[key]) attemptCounts[key] = { count: 0, name };
       attemptCounts[key].count++;
@@ -129,8 +152,8 @@ export const SecurityLogsView: React.FC = () => {
       }
     }
 
-    return { total, crossDeviceAttempts, topOffender };
-  }, [securityLogs]);
+    return { total, crossDeviceAttempts, lockoutAttempts, topOffender };
+  }, [filteredLogs]);
 
   // Admin access guard
   if (!isUserAdmin(user)) {
@@ -189,6 +212,17 @@ export const SecurityLogsView: React.FC = () => {
                 {unreadLogsCount > 0 && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-500 text-white animate-pulse">
                     {unreadLogsCount} Yeni İhlal
+                  </span>
+                )}
+                {isSuperAdmin ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1">
+                    <ShieldAlert className="w-3 h-3" />
+                    Süper Yönetici Konsolu
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center gap-1">
+                    <Building2 className="w-3 h-3" />
+                    {userComp} Kurum Masası
                   </span>
                 )}
               </div>
@@ -253,6 +287,19 @@ export const SecurityLogsView: React.FC = () => {
           </span>
         </div>
 
+        {/* Lockout Incidents */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">
+            Hesap Kilitlenmeleri (5 Dk)
+          </span>
+          <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
+            {stats.lockoutAttempts}
+          </div>
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            5 hatalı şifre girişi
+          </span>
+        </div>
+
         {/* Cross-Device Attempts */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
@@ -265,37 +312,44 @@ export const SecurityLogsView: React.FC = () => {
             Cihaz çakışması denemesi
           </span>
         </div>
-
-        {/* Top Offender */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            En Çok Deneyen
-          </span>
-          <div className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-1 truncate">
-            {stats.topOffender ? stats.topOffender.name : '—'}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            {stats.topOffender ? `${stats.topOffender.count} kez denendi` : 'İhlal kaydı yok'}
-          </span>
-        </div>
       </div>
 
       {/* Search & Filter Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        {/* Search */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Personel adı, cihaz ID veya metin ile filtrele..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm"
-          />
+      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+        <div className="flex items-center gap-3 flex-1">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Personel adı, cihaz ID veya kurum ile filtrele..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm"
+            />
+          </div>
+
+          {/* Super Admin Company Selector */}
+          {isSuperAdmin && companies.length > 0 && (
+            <div className="relative shrink-0">
+              <select
+                value={selectedCompanyFilter}
+                onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                className="px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm cursor-pointer"
+              >
+                <option value="ALL">🏢 Tüm Kurumlar ({securityLogs.length})</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.code}>
+                    🏢 {c.name} ({c.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-auto overflow-x-auto">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0 self-start md:self-auto overflow-x-auto">
           <button
             onClick={() => setFilterType('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
@@ -304,7 +358,7 @@ export const SecurityLogsView: React.FC = () => {
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Tümü ({securityLogs.length})
+            Tümü ({stats.total})
           </button>
           <button
             onClick={() => setFilterType('unread')}
@@ -317,6 +371,16 @@ export const SecurityLogsView: React.FC = () => {
             Okunmamış ({unreadLogsCount})
           </button>
           <button
+            onClick={() => setFilterType('lockout')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              filterType === 'lockout'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            🔒 Kilitlenenler ({stats.lockoutAttempts})
+          </button>
+          <button
             onClick={() => setFilterType('cross_device')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               filterType === 'cross_device'
@@ -324,7 +388,7 @@ export const SecurityLogsView: React.FC = () => {
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Başka Personel Telefonu ({stats.crossDeviceAttempts})
+            📱 Cihaz Çakışması ({stats.crossDeviceAttempts})
           </button>
         </div>
       </div>
@@ -352,6 +416,7 @@ export const SecurityLogsView: React.FC = () => {
         <div className="space-y-3">
           {filteredLogs.map((log) => {
             const timeInfo = formatTimestamp(log.timestamp);
+            const isLockout = log.message.toLowerCase().includes('kilitlendi');
             const isCrossDevice = Boolean(log.boundUserId);
 
             return (
@@ -366,15 +431,25 @@ export const SecurityLogsView: React.FC = () => {
                 {/* Header Row */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5 ${
-                        isCrossDevice
-                          ? 'bg-rose-500 text-white'
-                          : 'bg-amber-500 text-white'
-                      }`}
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {isCrossDevice ? 'Başka Personel Telefonu' : 'Yetkisiz Cihaz Denemesi'}
+                    {isLockout ? (
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5 bg-rose-600 text-white shadow-sm">
+                        <Lock className="w-3.5 h-3.5" />
+                        Hesap Kilitlendi (5 Dk)
+                      </span>
+                    ) : isCrossDevice ? (
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5 bg-rose-500 text-white">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Başka Personel Telefonu
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5 bg-amber-500 text-white">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Yetkisiz Cihaz Denemesi
+                      </span>
+                    )}
+
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      🏢 {log.companyCode || 'POLATLAR'}
                     </span>
 
                     {!log.read && (

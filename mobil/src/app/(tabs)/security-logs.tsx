@@ -28,6 +28,7 @@ import {
   Clock,
   AlertTriangle,
   Building2,
+  Lock,
 } from 'lucide-react-native';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -60,7 +61,7 @@ export default function SecurityLogsScreen() {
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'unread' | 'cross_device'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'unread' | 'cross_device' | 'lockout'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -81,6 +82,9 @@ export default function SecurityLogsScreen() {
     const total = (securityLogs || []).length;
     const unread = (securityLogs || []).filter((l) => !l.read).length;
     const crossDevice = (securityLogs || []).filter((l) => l.boundUserId).length;
+    const lockouts = (securityLogs || []).filter((l) =>
+      l.message?.toLowerCase().includes('kilitlendi')
+    ).length;
 
     // Find top offender
     const counts: Record<string, { count: number; name: string }> = {};
@@ -104,6 +108,7 @@ export default function SecurityLogsScreen() {
       total,
       unread,
       crossDevice,
+      lockouts,
       topOffender: maxCount > 0 ? topName : '—',
     };
   }, [securityLogs]);
@@ -114,6 +119,7 @@ export default function SecurityLogsScreen() {
     return (securityLogs || []).filter((log) => {
       if (filterType === 'unread' && log.read) return false;
       if (filterType === 'cross_device' && !log.boundUserId) return false;
+      if (filterType === 'lockout' && !log.message?.toLowerCase().includes('kilitlendi')) return false;
 
       if (q) {
         const matchAttempted =
@@ -450,6 +456,31 @@ export default function SecurityLogsScreen() {
           <TouchableOpacity
             style={[
               styles.filterPill,
+              filterType === 'lockout'
+                ? [styles.filterPillActive, { backgroundColor: '#e11d48' }]
+                : [
+                    styles.filterPillInactive,
+                    { backgroundColor: isDark ? '#0f172a' : '#ffffff' },
+                  ],
+            ]}
+            onPress={() => setFilterType('lockout')}
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[
+                styles.filterPillText,
+                filterType === 'lockout'
+                  ? styles.filterPillTextActive
+                  : { color: isDark ? '#cbd5e1' : '#64748b' },
+              ]}
+            >
+              🔒 Kilitlenenler ({stats.lockouts})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.filterPill,
               filterType === 'cross_device'
                 ? styles.filterPillActive
                 : [
@@ -496,30 +527,72 @@ export default function SecurityLogsScreen() {
           </View>
         ) : (
           <View style={styles.logsList}>
-            {filteredLogs.map((log: SecurityLogItem) => (
-              <View
-                key={log.id}
-                style={[
-                  styles.logCard,
-                  {
-                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                    borderColor: isDark ? '#1e293b' : '#e2e8f0',
-                  },
-                ]}
-              >
-                <View style={styles.logHeaderRow}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <AlertTriangle size={15} color="#ef4444" />
-                    <Text style={[styles.logUserName, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                      {log.attemptedName || log.attemptedUsername}
-                    </Text>
+            {filteredLogs.map((log: SecurityLogItem) => {
+              const isLockout = log.message?.toLowerCase().includes('kilitlendi');
+              return (
+                <View
+                  key={log.id}
+                  style={[
+                    styles.logCard,
+                    {
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      borderColor: isLockout ? '#f43f5e' : isDark ? '#1e293b' : '#e2e8f0',
+                    },
+                  ]}
+                >
+                  <View style={styles.logHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {isLockout ? (
+                        <Lock size={15} color="#e11d48" />
+                      ) : (
+                        <AlertTriangle size={15} color="#ef4444" />
+                      )}
+                      <Text style={[styles.logUserName, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {log.attemptedName || log.attemptedUsername}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View
+                        style={{
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          borderRadius: 6,
+                          backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+                          borderWidth: 1,
+                          borderColor: isDark ? '#334155' : '#e2e8f0',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: '800',
+                            color: isDark ? '#94a3b8' : '#475569',
+                          }}
+                        >
+                          🏢 {log.companyCode || 'POLATLAR'}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.logStatusBadge,
+                          isLockout && { backgroundColor: 'rgba(225, 29, 72, 0.15)' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.logStatusText,
+                            isLockout && { color: '#e11d48', fontWeight: '800' },
+                          ]}
+                        >
+                          {isLockout
+                            ? 'Kilitlendi'
+                            : log.status === 'danger'
+                            ? 'Tehlike'
+                            : 'Uyarı'}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.logStatusBadge}>
-                    <Text style={styles.logStatusText}>
-                      {log.status === 'danger' ? 'Tehlike' : 'Uyarı'}
-                    </Text>
-                  </View>
-                </View>
 
                 <Text style={[styles.logMessage, { color: isDark ? '#f1f5f9' : '#1e293b' }]}>
                   {log.message}
@@ -540,7 +613,8 @@ export default function SecurityLogsScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            ))}
+            );
+          })}
           </View>
         )}
       </ScrollView>

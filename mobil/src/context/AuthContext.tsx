@@ -419,6 +419,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await MobileAuthSecurityService.delay(800);
 
     if (attemptStatus.isLocked) {
+      // Record brute-force security incident log for company admins
+      StorageService.addSecurityLog({
+        companyCode: cleanComp,
+        attemptedUsername: cleanUser,
+        deviceId: 'Mobil Cihaz',
+        platform: 'Mobil (Expo)',
+        message: `"${cleanUser}" hesabı 5 ardışık hatalı şifre denemesi nedeniyle 5 dakika kilitlendi.`,
+        status: 'danger',
+      }).catch((err) => console.warn('Mobil güvenlik logu kaydedilemedi:', err));
+
       return {
         success: false,
         error: MobileAuthSecurityService.formatLockoutMessage(attemptStatus.remainingSeconds),

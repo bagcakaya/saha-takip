@@ -926,16 +926,38 @@ export const StorageService = {
     await this.saveAdminReminders(updated);
   },
 
-  // 11. SECURITY LOGS (Güvenlik & Log Kayıtları)
+  // 11. SECURITY LOGS (Güvenlik & Log Kayıtları - Slot 12)
   async getSecurityLogs(): Promise<SecurityLogItem[]> {
     const localKey = `@security_logs_${activeCompanyCode}`;
-    const logs = await getLocal<SecurityLogItem[]>(localKey);
-    return logs || [];
+    const slotId = this.getSlotId(12);
+    const { data: cloudData } = await loadChunkedSlot<SecurityLogItem[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await setLocal(localKey, cloudData);
+      return cloudData;
+    }
+    const localLogs = await getLocal<SecurityLogItem[]>(localKey);
+    return localLogs || [];
   },
 
   async saveSecurityLogs(items: SecurityLogItem[]): Promise<void> {
     const localKey = `@security_logs_${activeCompanyCode}`;
     await setLocal(localKey, items);
+    await saveChunkedSlot(this.getSlotId(12), items);
+  },
+
+  async addSecurityLog(
+    entry: Omit<SecurityLogItem, 'id' | 'timestamp' | 'read'>
+  ): Promise<SecurityLogItem> {
+    const logs = await this.getSecurityLogs();
+    const newLog: SecurityLogItem = {
+      id: `sec-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: Date.now(),
+      read: false,
+      ...entry,
+    };
+    const updated = [newLog, ...logs].slice(0, 200);
+    await this.saveSecurityLogs(updated);
+    return newLog;
   },
 
   async deleteSecurityLog(id: string): Promise<void> {
@@ -947,6 +969,7 @@ export const StorageService = {
   async clearAllSecurityLogs(): Promise<void> {
     const localKey = `@security_logs_${activeCompanyCode}`;
     await setLocal(localKey, []);
+    await saveChunkedSlot(this.getSlotId(12), []);
   },
 
   // 12. STANDARD CHECKLIST TASKS (Standart Şablon Görevleri - Görsel 4 & 5)

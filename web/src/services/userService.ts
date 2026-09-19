@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import { CompanyService } from './companyService';
 import { PasswordSecurity } from './passwordSecurity';
 import { AuthSecurityService } from './authSecurityService';
+import { StorageService } from './storageService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 const USERS_SLOT_ID = 101;
@@ -785,6 +786,16 @@ export const UserService = {
       await AuthSecurityService.delay(800);
 
       if (attemptStatus.isLocked) {
+        // Record brute-force security incident log for company admins
+        StorageService.addSecurityLog({
+          companyCode: cleanCompany,
+          attemptedUsername: cleanIdentifier,
+          deviceId: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 80) : 'Web Client',
+          platform: 'Web Tarayıcı',
+          message: `"${cleanIdentifier}" hesabı 5 ardışık hatalı şifre denemesi nedeniyle 5 dakika kilitlendi.`,
+          status: 'danger',
+        }).catch((err) => console.warn('Güvenlik logu kaydedilemedi:', err));
+
         return {
           success: false,
           error: AuthSecurityService.formatLockoutMessage(attemptStatus.remainingSeconds),
