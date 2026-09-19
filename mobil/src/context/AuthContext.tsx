@@ -6,6 +6,7 @@ import { supabase } from '../api/supabaseClient';
 import { CompanyService } from '../services/companyService';
 import { MobileOneSignalService } from '../services/oneSignalService';
 import { PasswordSecurity } from '../services/passwordSecurity';
+import { MobileAuthSecurityService } from '../services/authSecurityService';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -324,6 +325,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanUser = username.trim().toLowerCase();
     const cleanPass = password.trim();
 
+    // ANTI-BRUTE FORCE: Check if account is locked out before running queries
+    const lockout = await MobileAuthSecurityService.checkLockout(cleanComp, cleanUser);
+    if (lockout.isLocked) {
+      return {
+        success: false,
+        error: MobileAuthSecurityService.formatLockoutMessage(lockout.remainingSeconds),
+      };
+    }
+
     // 1. Kurumun sistemde var olup olmadığını doğrula
     const realComp = await CompanyService.getCompanyByCode(cleanComp);
     if (!realComp) {
@@ -397,10 +407,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(loggedUser));
       await AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(compObj));
+
+      // Reset failed attempts on successful login
+      await MobileAuthSecurityService.resetAttempts(cleanComp, cleanUser);
+
       return { success: true };
     }
 
-    return { success: false, error: 'Kullanıcı adı veya şifre hatalı.' };
+    // Record failed login attempt and apply delay
+    const attemptStatus = await MobileAuthSecurityService.recordFailedAttempt(cleanComp, cleanUser);
+    await MobileAuthSecurityService.delay(800);
+
+    if (attemptStatus.isLocked) {
+      return {
+        success: false,
+        error: MobileAuthSecurityService.formatLockoutMessage(attemptStatus.remainingSeconds),
+      };
+    }
+
+    return {
+      success: false,
+      error: MobileAuthSecurityService.formatFailedMessage(cleanComp, attemptStatus.attemptsLeft),
+    };
   };
 
   const logout = async () => {

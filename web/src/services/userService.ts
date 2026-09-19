@@ -2,6 +2,7 @@ import { UserAccount, UserRole, User, Company, isUserAdmin } from '../types/auth
 import { supabase } from './supabaseClient';
 import { CompanyService } from './companyService';
 import { PasswordSecurity } from './passwordSecurity';
+import { AuthSecurityService } from './authSecurityService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 const USERS_SLOT_ID = 101;
@@ -718,6 +719,15 @@ export const UserService = {
       return { success: false, error: 'Lütfen Kullanıcı Adınızı giriniz.' };
     }
 
+    // ANTI-BRUTE FORCE: Check if account is locked out before hitting network
+    const lockout = AuthSecurityService.checkLockout(cleanCompany, cleanIdentifier);
+    if (lockout.isLocked) {
+      return {
+        success: false,
+        error: AuthSecurityService.formatLockoutMessage(lockout.remainingSeconds),
+      };
+    }
+
     // Always fetch company to verify company and get adminEmail
     let company = await CompanyService.getCompanyByCode(cleanCompany);
     if (!company && cleanCompany !== 'POLATLAR') {
@@ -770,13 +780,27 @@ export const UserService = {
     const matchResult = await findMatch(users);
 
     if (!matchResult) {
+      // Record failed attempt and throttle with artificial delay
+      const attemptStatus = AuthSecurityService.recordFailedAttempt(cleanCompany, cleanIdentifier);
+      await AuthSecurityService.delay(800);
+
+      if (attemptStatus.isLocked) {
+        return {
+          success: false,
+          error: AuthSecurityService.formatLockoutMessage(attemptStatus.remainingSeconds),
+        };
+      }
+
       return {
         success: false,
-        error: `"${cleanCompany}" kurumu için kullanıcı adı veya şifre hatalı.`,
+        error: AuthSecurityService.formatFailedMessage(cleanCompany, attemptStatus.attemptsLeft),
       };
     }
 
     const { account, needsRehash } = matchResult;
+
+    // Reset failed attempts upon successful authentication
+    AuthSecurityService.resetAttempts(cleanCompany, cleanIdentifier);
 
     // LAZY MIGRATION: If password was verified as legacy plaintext, immediately rehash and save
     if (needsRehash) {
