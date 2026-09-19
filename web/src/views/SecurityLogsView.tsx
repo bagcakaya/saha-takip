@@ -315,27 +315,27 @@ export const SecurityLogsView: React.FC = () => {
       </div>
 
       {/* Search & Filter Toolbar */}
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 min-w-0">
           {/* Search */}
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Personel adı, cihaz ID veya kurum ile filtrele..."
+              placeholder="Personel adı, cihaz veya kurum ara..."
               className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm"
             />
           </div>
 
           {/* Super Admin Company Selector */}
           {isSuperAdmin && companies.length > 0 && (
-            <div className="relative shrink-0">
+            <div className="relative shrink-0 sm:w-auto w-full">
               <select
                 value={selectedCompanyFilter}
                 onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-                className="px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm cursor-pointer"
+                className="w-full sm:w-auto px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-sm cursor-pointer"
               >
                 <option value="ALL">🏢 Tüm Kurumlar ({securityLogs.length})</option>
                 {companies.map((c) => (
@@ -349,10 +349,10 @@ export const SecurityLogsView: React.FC = () => {
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0 self-start md:self-auto overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full lg:w-auto max-w-full">
           <button
             onClick={() => setFilterType('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               filterType === 'all'
                 ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -362,7 +362,7 @@ export const SecurityLogsView: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('unread')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               filterType === 'unread'
                 ? 'bg-rose-500 text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -372,7 +372,7 @@ export const SecurityLogsView: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('lockout')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               filterType === 'lockout'
                 ? 'bg-rose-600 text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -382,7 +382,7 @@ export const SecurityLogsView: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('cross_device')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               filterType === 'cross_device'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
