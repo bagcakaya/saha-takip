@@ -77,7 +77,7 @@ export const LicenseLockedView: React.FC = () => {
 
           {/* Body Text */}
           <Text style={[styles.bodyText, { color: isDark ? '#94a3b8' : '#475569' }]}>
-            {company?.name || 'Kurumunuzun'} Saha Takip sistemi lisans süresi dolmuş veya hizmeti geçici olarak dondurulmuştur.
+            {company?.name || 'Kurumunuzun'} İş Takip Sistemi lisansı süresi dolmuş veya hizmeti geçici olarak durdurulmuştur.
           </Text>
 
           {/* Guarantee Data Box */}
@@ -143,9 +143,12 @@ export const LicenseLockedView: React.FC = () => {
           </TouchableOpacity>
 
           {/* Footer Contact */}
-          <View style={styles.footerRow}>
-            <Mail size={14} color="#64748b" style={{ marginRight: 6 }} />
-            <Text style={styles.footerText}>Polatlar Bilişim: admin@polatlar.com</Text>
+          <View style={styles.footerCol}>
+            <Text style={styles.footerBrandText}>İş Takip Sistemi bir Polatlar Yazılım ürünüdür</Text>
+            <View style={styles.footerRow}>
+              <Mail size={13} color="#64748b" style={{ marginRight: 6 }} />
+              <Text style={styles.footerText}>info@polatlaryazilim.com</Text>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -310,6 +313,17 @@ const styles = StyleSheet.create({
   logoutBtnText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  footerCol: {
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  footerBrandText: {
+    fontSize: 12.5,
+    color: '#94a3b8',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   footerRow: {
     flexDirection: 'row',

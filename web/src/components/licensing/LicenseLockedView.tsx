@@ -47,7 +47,7 @@ export const LicenseLockedView: React.FC = () => {
 
         {/* Descriptive Body */}
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 mb-6 leading-relaxed">
-          {company?.name || 'Kurumunuzun'} Saha Takip ve İş Yönetim sistemi lisansı süresi dolmuş veya hizmeti geçici olarak durdurulmuştur.
+          {company?.name || 'Kurumunuzun'} İş Takip Sistemi lisansı süresi dolmuş veya hizmeti geçici olarak durdurulmuştur.
         </p>
 
         {/* Data Security Guarantee Notice Box */}
@@ -108,14 +108,14 @@ export const LicenseLockedView: React.FC = () => {
 
         {/* Contact Support Footer */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span className="font-medium">Polatlar Bilişim & Saha Takip</span>
+          <span className="font-medium">İş Takip Sistemi bir Polatlar Yazılım ürünüdür</span>
           <div className="flex items-center gap-4">
             <a
-              href="mailto:admin@polatlar.com"
+              href="mailto:info@polatlaryazilim.com"
               className="hover:text-blue-500 flex items-center gap-1 transition-colors"
             >
               <Mail className="w-3.5 h-3.5" />
-              <span>admin@polatlar.com</span>
+              <span>info@polatlaryazilim.com</span>
             </a>
           </div>
         </div>

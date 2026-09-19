@@ -9,7 +9,7 @@ export const DEFAULT_COMPANY: Company = {
   id: 1,
   code: 'POLATLAR',
   name: 'Polatlar',
-  adminEmail: 'admin@polatlar.com',
+  adminEmail: 'info@polatlaryazilim.com',
   adminName: 'Sistem Yöneticisi',
   createdAt: 1700000000000,
   licenseType: 'lifetime',
