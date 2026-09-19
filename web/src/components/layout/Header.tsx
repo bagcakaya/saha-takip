@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone, Store, UserX } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Bell, Wrench, UserCheck, Megaphone, Store, UserX, Server } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { isUserAdmin } from '../../types/auth';
+import { isUserAdmin, canUserManageServerConfig } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { useStorage } from '../../context/StorageContext';
+import { ServerSettingsModal } from '../auth/ServerSettingsModal';
+import { ServerConfigService } from '../../services/serverConfigService';
 
 export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template';
 
@@ -34,6 +36,9 @@ export const Header: React.FC<HeaderProps> = ({
     badgeCount,
   } = useStorage();
   const isAdmin = isUserAdmin(user);
+  const canManageServer = canUserManageServerConfig(user);
+  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
@@ -274,6 +279,29 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {/* Server Settings Button (Only for Admin & Murat) */}
+            {canManageServer && (
+              <button
+                type="button"
+                onClick={() => setIsServerModalOpen(true)}
+                className={`p-2.5 rounded-xl transition-all relative cursor-pointer ${
+                  isLocalServer
+                    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                    : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+                title={
+                  isLocalServer
+                    ? 'Yerel Sunucu (SQL Server) Aktif - Tıklayıp Yönetin'
+                    : 'Sunucu Bağlantı Ayarları (Sadece Yönetici)'
+                }
+              >
+                <Server className="w-4 h-4" />
+                {isLocalServer && (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+                )}
+              </button>
+            )}
+
             {/* User Profile Badge */}
             {user && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -388,6 +416,17 @@ export const Header: React.FC<HeaderProps> = ({
           }
         }}
       />
+
+      {/* Server Settings Modal (Only for Admin & Murat) */}
+      {canManageServer && (
+        <ServerSettingsModal
+          isOpen={isServerModalOpen}
+          onClose={() => {
+            setIsServerModalOpen(false);
+            setIsLocalServer(ServerConfigService.isLocalMode());
+          }}
+        />
+      )}
     </>
   );
 };
