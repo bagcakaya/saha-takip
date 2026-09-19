@@ -1,5 +1,10 @@
 import { ONESIGNAL_CONFIG } from '../constants/oneSignalConfig';
 import { DeviceService } from './deviceService';
+import {
+  normalizeTab,
+  detectTabFromNotification,
+  extractTabAndFilterFromUrl,
+} from '../utils/navigationUtils';
 
 declare global {
   interface Window {
@@ -100,21 +105,24 @@ export const OneSignalService = {
               additionalData?.url ||
               additionalData?.launchURL;
 
-            let tab = additionalData?.tab;
+            let tab = normalizeTab(additionalData?.tab);
             let filter = additionalData?.filter;
 
             if (!tab && launchUrl) {
-              try {
-                const parsed = new URL(launchUrl, window.location.origin);
-                tab = parsed.searchParams.get('tab');
-                filter = parsed.searchParams.get('filter');
-              } catch {
-                // ignore
-              }
+              const extracted = extractTabAndFilterFromUrl(launchUrl);
+              tab = extracted.tab;
+              if (!filter) filter = extracted.filter;
+            }
+
+            // If tab is still missing, detect from title and body
+            if (!tab) {
+              const detected = detectTabFromNotification(notification?.title, notification?.body);
+              tab = detected.tab;
+              if (!filter && detected.filter) filter = detected.filter;
             }
 
             if (!tab) {
-              tab = 'notes';
+              tab = 'home';
             }
 
             window.dispatchEvent(
@@ -612,16 +620,27 @@ export const OneSignalService = {
       return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
     }
 
-    const targetUrl = url || 'https://saha-takip-beige.vercel.app/?tab=notes';
-    let targetTab = 'notes';
-    let targetFilter = '';
-    try {
-      const parsed = new URL(targetUrl, 'https://saha-takip-beige.vercel.app');
-      targetTab = parsed.searchParams.get('tab') || 'notes';
-      targetFilter = parsed.searchParams.get('filter') || '';
-    } catch {
-      // ignore
+    let targetTab: string | null = null;
+    let targetFilter: string = '';
+
+    if (url) {
+      const extracted = extractTabAndFilterFromUrl(url);
+      targetTab = extracted.tab;
+      targetFilter = extracted.filter || '';
     }
+
+    if (!targetTab) {
+      const detected = detectTabFromNotification(title, message);
+      targetTab = detected.tab;
+      if (!targetFilter && detected.filter) targetFilter = detected.filter;
+    }
+
+    const canonicalUrl = new URL(url || 'https://saha-takip-beige.vercel.app', 'https://saha-takip-beige.vercel.app');
+    canonicalUrl.searchParams.set('tab', targetTab);
+    if (targetFilter) {
+      canonicalUrl.searchParams.set('filter', targetFilter);
+    }
+    const targetUrl = canonicalUrl.toString();
 
     // Format APNs-compliant collapse_id (max 60 chars, alphanumeric + underscores)
     // Ensures iOS APNs collapses identical lock-screen notifications into 1

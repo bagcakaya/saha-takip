@@ -23,34 +23,24 @@ import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
 import { isUserAdmin } from './types/auth';
+import {
+  normalizeTab,
+  extractTabAndFilterFromUrl,
+} from './utils/navigationUtils';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
   const isAdmin = isUserAdmin(user);
-  const validTabs: TabType[] = [
-    'home',
-    'branches',
-    'installations',
-    'services',
-    'notes',
-    'staff_tracking',
-    'timed_follow_ups',
-    'reminders',
-    'returns',
-    'logs',
-    'template',
-  ];
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const tabParam = params.get('tab') as TabType;
-        if (tabParam && validTabs.includes(tabParam)) {
-          return tabParam;
+        const { tab: urlTab } = extractTabAndFilterFromUrl(window.location.href);
+        if (urlTab) {
+          return urlTab;
         }
-        const pendingTab = sessionStorage.getItem('@saha_takip_pending_tab') as TabType;
-        if (pendingTab && validTabs.includes(pendingTab)) {
+        const pendingTab = normalizeTab(sessionStorage.getItem('@saha_takip_pending_tab'));
+        if (pendingTab) {
           sessionStorage.removeItem('@saha_takip_pending_tab');
           return pendingTab;
         }
@@ -89,44 +79,34 @@ const MainApp: React.FC = () => {
     const handleDeepLink = () => {
       if (typeof window === 'undefined') return;
       try {
-        const search = window.location.search;
-        let tabParam: string | null = null;
-        let filterParam: string | null = null;
+        const { tab: urlTab, filter: urlFilter } = extractTabAndFilterFromUrl(window.location.href);
+        const pendingTab = normalizeTab(sessionStorage.getItem('@saha_takip_pending_tab'));
+        const pendingFilter = sessionStorage.getItem('@saha_takip_pending_filter');
 
-        if (search) {
-          const params = new URLSearchParams(search);
-          tabParam = params.get('tab');
-          filterParam = params.get('filter');
+        const resolvedTab = urlTab || pendingTab;
+        const resolvedFilter = urlFilter || pendingFilter;
+
+        if (pendingTab) sessionStorage.removeItem('@saha_takip_pending_tab');
+        if (pendingFilter) sessionStorage.removeItem('@saha_takip_pending_filter');
+
+        if (resolvedTab) {
+          setActiveTab(resolvedTab);
         }
 
-        // Fallback to sessionStorage if not in URL
-        if (!tabParam) {
-          tabParam = sessionStorage.getItem('@saha_takip_pending_tab');
-          if (tabParam) sessionStorage.removeItem('@saha_takip_pending_tab');
-        }
-        if (!filterParam) {
-          filterParam = sessionStorage.getItem('@saha_takip_pending_filter');
-          if (filterParam) sessionStorage.removeItem('@saha_takip_pending_filter');
-        }
-
-        if (tabParam && validTabs.includes(tabParam as TabType)) {
-          setActiveTab(tabParam as TabType);
-        }
-
-        if (filterParam) {
+        if (resolvedFilter) {
           if (user?.id) {
             try {
-              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filterParam);
+              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, resolvedFilter);
             } catch {
               // ignore
             }
           }
           window.dispatchEvent(
-            new CustomEvent('saha:set-notes-filter', { detail: { filter: filterParam } })
+            new CustomEvent('saha:set-notes-filter', { detail: { filter: resolvedFilter } })
           );
         }
 
-        if (search && (tabParam || filterParam)) {
+        if (window.location.search && (urlTab || urlFilter)) {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
       } catch (err) {
@@ -138,11 +118,20 @@ const MainApp: React.FC = () => {
     window.addEventListener('popstate', handleDeepLink);
     window.addEventListener('focus', handleDeepLink);
 
-    // In-app navigation event handler (e.g. from OneSignal SDK foreground click)
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleDeepLink();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // In-app navigation event handler (e.g. from OneSignal SDK foreground click or window notification click)
     const handleNavigate = (e: any) => {
-      const { tab, filter } = e.detail || {};
-      if (tab && validTabs.includes(tab as TabType)) {
-        setActiveTab(tab as TabType);
+      const rawTab = e.detail?.tab;
+      const filter = e.detail?.filter;
+      const tab = normalizeTab(rawTab);
+      if (tab) {
+        setActiveTab(tab);
       }
       if (filter) {
         if (user?.id) {
@@ -161,18 +150,25 @@ const MainApp: React.FC = () => {
     // Service worker postMessage navigation handler
     const handleServiceWorkerMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'saha:navigate') {
-        const { tab, filter } = event.data;
-        if (tab && validTabs.includes(tab as TabType)) {
-          setActiveTab(tab as TabType);
+        const { tab: rawTab, filter, url } = event.data;
+        let tab = normalizeTab(rawTab);
+        let activeFilter = filter;
+        if (!tab && url) {
+          const parsed = extractTabAndFilterFromUrl(url);
+          tab = parsed.tab;
+          if (!activeFilter) activeFilter = parsed.filter;
         }
-        if (filter) {
+        if (tab) {
+          setActiveTab(tab);
+        }
+        if (activeFilter) {
           if (user?.id) {
             try {
-              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
+              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, activeFilter);
             } catch {}
           }
           window.dispatchEvent(
-            new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+            new CustomEvent('saha:set-notes-filter', { detail: { filter: activeFilter } })
           );
         }
       }
@@ -186,6 +182,7 @@ const MainApp: React.FC = () => {
     return () => {
       window.removeEventListener('popstate', handleDeepLink);
       window.removeEventListener('focus', handleDeepLink);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('saha:navigate' as any, handleNavigate);
       if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);

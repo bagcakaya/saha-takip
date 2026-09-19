@@ -3563,7 +3563,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
         } İzin talebinde bulundu. Neden: ${params.reason}`,
         targetMode: 'admin',
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       });
     } catch (pushErr) {
       console.warn('İzin talebi bildirim gönderim hatası:', pushErr);
@@ -3605,7 +3605,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } izin talebiniz (${req.durationText}) onaylandı.`,
         targetUserIds: [req.userId],
         targetMode: 'custom',
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       });
     } catch (e) {
       console.warn('İzin onay bildirimi hatası:', e);
@@ -3649,7 +3649,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } izin talebiniz reddedildi.${reason ? ` Gerekçe: ${reason}` : ''}`,
         targetUserIds: [req.userId],
         targetMode: 'custom',
-        url: 'https://saha-takip-beige.vercel.app',
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       });
     } catch (e) {
       console.warn('İzin ret bildirimi hatası:', e);
@@ -3730,7 +3730,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
           const title = `⏰ Süreli Takip: ${dueAlarm.cariName}`;
           const body = dueAlarm.description || 'Vakti gelen cari takip hatırlatması!';
-          NotificationService.sendNotification(title, body);
+          const followUpUrl = 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups';
+          NotificationService.sendNotification(title, body, followUpUrl);
 
           // Only send immediate push if it was NOT already scheduled via OneSignal cloud
           if (dueAlarm.sendPush !== false && !dueAlarm.onesignalNotificationId) {
@@ -3739,7 +3740,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               message: body,
               targetMode: 'admin',
               companyCode: user.companyCode || 'POLATLAR',
-              url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+              url: followUpUrl,
             }).catch(() => {});
           }
         }
@@ -3775,7 +3776,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: data.description.trim() || 'Vakti gelen cari takip hatırlatması!',
           targetMode: 'admin',
           companyCode,
-          url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+          url: 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups',
           sendAfter: targetDate.toISOString(),
           collapseId: `tfu_${newItemId}`,
         });
@@ -3829,7 +3830,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: (updates.description || existingItem?.description || '').trim() || 'Vakti gelen cari takip hatırlatması!',
             targetMode: 'admin',
             companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
-            url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+            url: 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups',
             sendAfter: targetDate.toISOString(),
             collapseId: `tfu_${id}`,
           });
@@ -3915,7 +3916,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: existingItem.description || 'Ertelenen cari takip hatırlatması!',
           targetMode: 'admin',
           companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
-          url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+          url: 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups',
           sendAfter: snoozeTargetDate.toISOString(),
           collapseId: `tfu_${id}`,
         });

@@ -62,6 +62,84 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// Helper to normalize any tab alias to canonical TabType
+function normalizeWorkerTab(raw) {
+  if (!raw) return null;
+  const clean = String(raw).trim().toLowerCase().replace(/-/g, '_');
+  const aliases = {
+    home: 'home',
+    dashboard: 'home',
+    anasayfa: 'home',
+    installations: 'installations',
+    kurulumlar: 'installations',
+    montaj: 'installations',
+    services: 'services',
+    servisler: 'services',
+    notes: 'notes',
+    notlar: 'notes',
+    is_emirleri: 'notes',
+    staff_tracking: 'staff_tracking',
+    stafftracking: 'staff_tracking',
+    personel: 'staff_tracking',
+    izin: 'staff_tracking',
+    timed_follow_ups: 'timed_follow_ups',
+    timedfollowups: 'timed_follow_ups',
+    sureli_takip: 'timed_follow_ups',
+    surelitakip: 'timed_follow_ups',
+    alarm: 'timed_follow_ups',
+    alarmlar: 'timed_follow_ups',
+    reminders: 'reminders',
+    admin_reminders: 'reminders',
+    adminreminders: 'reminders',
+    returns: 'returns',
+    iade: 'returns',
+    garanti: 'returns',
+    branches: 'branches',
+    subeler: 'branches',
+    logs: 'logs',
+    guvenlik: 'logs',
+    template: 'template',
+    sablon: 'template',
+  };
+  return aliases[clean] || null;
+}
+
+// Helper to detect tab from notification text if not provided
+function detectWorkerTab(title, body) {
+  const text = `${title || ''} ${body || ''}`.toLowerCase();
+  if (text.includes('süreli takip') || text.includes('sureli takip') || text.includes('⏰') || text.includes('alarm') || text.includes('cari takip')) {
+    return { tab: 'timed_follow_ups' };
+  }
+  if (text.includes('izin') || text.includes('işe başladı') || text.includes('mesai') || text.includes('personel')) {
+    return { tab: 'staff_tracking' };
+  }
+  if (text.includes('iş emri') || text.includes('onay bekliyor') || text.includes('📋')) {
+    let filter = 'pending';
+    if (text.includes('onaylandı')) filter = 'approved';
+    if (text.includes('reddedildi')) filter = 'rejected';
+    return { tab: 'notes', filter };
+  }
+  if (text.includes('kurulum') || text.includes('montaj')) {
+    return { tab: 'installations' };
+  }
+  if (text.includes('servis') || text.includes('arıza') || text.includes('bakım')) {
+    return { tab: 'services' };
+  }
+  if (text.includes('iade') || text.includes('garanti') || text.includes('🛡️')) {
+    return { tab: 'returns' };
+  }
+  if (text.includes('talimat') || text.includes('hatırlatıcı') || text.includes('📢') || text.includes('📌')) {
+    return { tab: 'reminders' };
+  }
+  if (text.includes('şube') || text.includes('sube')) {
+    return { tab: 'branches' };
+  }
+  if (text.includes('güvenlik') || text.includes('log')) {
+    return { tab: 'logs' };
+  }
+  return { tab: 'home' };
+}
+
 // Notification Click Event (Direct Deep-Linking to Tab / Filter)
 self.addEventListener('notificationclick', (event) => {
   const notification = event.notification;
@@ -69,7 +147,7 @@ self.addEventListener('notificationclick', (event) => {
 
   const data = notification.data || {};
   const additionalData = data.additionalData || data.custom?.a || {};
-  const targetUrl =
+  let targetUrl =
     notification.launchURL ||
     notification.launchUrl ||
     data.url ||
@@ -77,22 +155,36 @@ self.addEventListener('notificationclick', (event) => {
     data.custom?.u ||
     additionalData.url ||
     additionalData.launchURL ||
-    '/';
+    '';
 
-  let tab = data.tab || additionalData.tab;
+  let rawTab = data.tab || additionalData.tab;
   let filter = data.filter || additionalData.filter;
 
-  if (!tab && targetUrl && targetUrl !== '/') {
+  if (!rawTab && targetUrl && targetUrl !== '/') {
     try {
       const parsed = new URL(targetUrl, self.location.origin);
-      tab = parsed.searchParams.get('tab');
-      filter = parsed.searchParams.get('filter');
+      rawTab = parsed.searchParams.get('tab');
+      if (!filter) filter = parsed.searchParams.get('filter');
     } catch (e) {}
   }
 
+  let tab = normalizeWorkerTab(rawTab);
+
+  // Content-based fallback if tab is still missing
   if (!tab) {
-    tab = 'notes';
+    const detected = detectWorkerTab(notification.title, notification.body);
+    tab = detected.tab;
+    if (!filter && detected.filter) filter = detected.filter;
   }
+
+  // Construct definitive target URL with query params
+  const origin = self.location.origin;
+  const finalUrl = new URL(targetUrl && targetUrl !== '/' ? targetUrl : '/', origin);
+  finalUrl.searchParams.set('tab', tab);
+  if (filter) {
+    finalUrl.searchParams.set('filter', filter);
+  }
+  const finalUrlStr = finalUrl.toString();
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -102,18 +194,18 @@ self.addEventListener('notificationclick', (event) => {
             type: 'saha:navigate',
             tab,
             filter: filter || '',
-            url: targetUrl,
+            url: finalUrlStr,
           });
-          if ('navigate' in client && targetUrl && targetUrl !== '/') {
+          if ('navigate' in client) {
             try {
-              client.navigate(targetUrl);
+              client.navigate(finalUrlStr);
             } catch (e) {}
           }
           return client.focus();
         }
       }
       if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
+        return self.clients.openWindow(finalUrlStr);
       }
     })
   );

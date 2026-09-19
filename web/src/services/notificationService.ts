@@ -1,3 +1,5 @@
+import { detectTabFromNotification, extractTabAndFilterFromUrl } from '../utils/navigationUtils';
+
 let activeAlarmInterval: any = null;
 let activeAudioCtx: any = null;
 
@@ -100,35 +102,25 @@ export const NotificationService = {
         }
 
         const now = ctx.currentTime;
-        const freqs = [880, 1046.5, 880, 1174.66]; // High-priority alarm pattern
-        freqs.forEach((f, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(f, now + idx * 0.15);
-          gain.gain.setValueAtTime(0.4, now + idx * 0.15);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.15 + 0.12);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.15);
-          osc.stop(now + idx * 0.15 + 0.12);
-        });
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(1760, now + 0.15);
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
       } catch (e) {
-        console.warn('Alarm beep pattern failed:', e);
+        console.warn('Alarm audio playback failed:', e);
       }
     };
 
     playBeepPattern();
-    activeAlarmInterval = setInterval(() => {
-      playBeepPattern();
-      try {
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          navigator.vibrate([300, 100, 300]);
-        }
-      } catch {
-        // ignore
-      }
-    }, 1800);
+    activeAlarmInterval = setInterval(playBeepPattern, 1800);
   },
 
   /**
@@ -158,11 +150,37 @@ export const NotificationService = {
 
   /**
    * Sends a browser / PWA service worker notification with audio chime
+   * and automatic deep-linking to the relevant tab.
    */
-  async sendNotification(title: string, body: string, url = '/'): Promise<void> {
+  async sendNotification(title: string, body: string, url?: string): Promise<void> {
     this.playChime();
 
     if (typeof window === 'undefined') return;
+
+    let targetUrl = url;
+    let targetTab: string | null = null;
+    let targetFilter: string | null = null;
+
+    if (targetUrl && targetUrl !== '/') {
+      const parsed = extractTabAndFilterFromUrl(targetUrl);
+      targetTab = parsed.tab;
+      targetFilter = parsed.filter;
+    }
+
+    if (!targetTab) {
+      const detected = detectTabFromNotification(title, body);
+      targetTab = detected.tab;
+      targetFilter = detected.filter || null;
+      targetUrl = targetFilter
+        ? `/?tab=${targetTab}&filter=${targetFilter}`
+        : `/?tab=${targetTab}`;
+    }
+
+    const payloadData = {
+      url: targetUrl || `/?tab=${targetTab}`,
+      tab: targetTab,
+      filter: targetFilter || '',
+    };
 
     // 1. Try via Service Worker (Best for PWA / Mobile / Background)
     if ('serviceWorker' in navigator) {
@@ -175,9 +193,9 @@ export const NotificationService = {
             icon: '/icon.png',
             badge: '/favicon.png',
             vibrate: [200, 100, 200],
-            tag: 'saha-takip-alert',
+            tag: `saha-takip-${targetTab}`,
             renotify: true,
-            data: { url },
+            data: payloadData,
           });
           return;
         }
@@ -189,11 +207,26 @@ export const NotificationService = {
     // 2. Fallback to standard Window Notification
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(title, {
+        const notif = new Notification(title, {
           body,
           icon: '/icon.png',
           badge: '/favicon.png',
+          data: payloadData,
         });
+        notif.onclick = () => {
+          window.focus();
+          window.dispatchEvent(
+            new CustomEvent('saha:navigate', {
+              detail: { tab: targetTab, filter: targetFilter },
+            })
+          );
+          if (targetTab) {
+            sessionStorage.setItem('@saha_takip_pending_tab', targetTab);
+          }
+          if (targetFilter) {
+            sessionStorage.setItem('@saha_takip_pending_filter', targetFilter);
+          }
+        };
       } catch (e) {
         console.warn('Browser notification failed:', e);
       }
