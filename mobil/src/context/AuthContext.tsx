@@ -192,15 +192,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (savedUser) {
           const u: User = JSON.parse(savedUser);
+          const compCode = (u.companyCode || 'POLATLAR').trim().toUpperCase();
+          const comp = await CompanyService.getCompanyByCode(compCode);
+          if (!comp && compCode !== 'POLATLAR') {
+            // Kurum silinmişse oturumu derhal temizle
+            await AsyncStorage.removeItem(AUTH_USER_KEY);
+            await AsyncStorage.removeItem(AUTH_COMPANY_KEY);
+            setUser(null);
+            setCompany(null);
+            return;
+          }
           setUser(u);
-          StorageService.setCompany(u.companyCode || 'POLATLAR');
+          if (comp) {
+            setCompany(comp);
+            await AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(comp));
+          }
+          StorageService.setCompany(compCode, comp?.id);
           MobileOneSignalService.login(u);
-          CompanyService.getCompanyByCode(u.companyCode || 'POLATLAR').then((c) => {
-            if (c) {
-              setCompany(c);
-              AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(c));
-            }
-          });
         }
         if (savedCompany) {
           setCompany(JSON.parse(savedCompany));
@@ -222,7 +230,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanUser = username.trim().toLowerCase();
     const cleanPass = password.trim();
 
-    // 1. Fetch fresh users or check current users
+    // 1. Kurumun sistemde var olup olmadığını doğrula
+    const realComp = await CompanyService.getCompanyByCode(cleanComp);
+    if (!realComp) {
+      return {
+        success: false,
+        error: `"${cleanComp}" koduna ait bir kurum bulunamadı. Lütfen kurum kodunu kontrol edin.`,
+      };
+    }
+
+    // 2. Fetch fresh users or check current users
     let currentUsers = users;
     try {
       const fresh = await fetchUsersFromCloud();
@@ -251,16 +268,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         canChangePassword: matched.canChangePassword !== undefined ? matched.canChangePassword : (matched.role === 'admin'),
       };
 
-      const realComp = await CompanyService.getCompanyByCode(cleanComp);
-      const compObj: Company = realComp || {
-        id: cleanComp === 'POLATLAR' ? 1 : 2,
-        code: cleanComp,
-        name: cleanComp === 'POLATLAR' ? 'Polatlar' : cleanComp,
-        adminEmail: 'admin@' + cleanComp.toLowerCase() + '.com',
-        adminName: 'Yönetici',
-        createdAt: Date.now(),
-        licenseType: cleanComp === 'POLATLAR' ? 'lifetime' : 'annual',
-      };
+      const compObj: Company = realComp;
 
       setUser(loggedUser);
       setCompany(compObj);

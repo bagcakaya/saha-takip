@@ -106,6 +106,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (comp) {
           setCompany(comp);
           StorageService.setCompany(comp.code, comp.id);
+        } else if (user.companyCode.trim().toUpperCase() !== 'POLATLAR') {
+          logout();
         }
       });
     } else {
