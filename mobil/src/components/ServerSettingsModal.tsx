@@ -38,7 +38,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const { isDark } = useAppTheme();
   const [config, setConfig] = useState<ServerConfig>(() => MobileServerConfigService.getConfig());
   const [mode, setMode] = useState<'cloud' | 'local'>(config.mode);
-  const [localUrl, setLocalUrl] = useState(config.localUrl || 'http://192.168.1.100:3001');
+  const [localUrl, setLocalUrl] = useState(config.localUrl || 'http://81.213.219.69:3001');
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
@@ -51,7 +51,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
       const cfg = MobileServerConfigService.getConfig();
       setConfig(cfg);
       setMode(cfg.mode);
-      setLocalUrl(cfg.localUrl || 'http://192.168.1.100:3001');
+      setLocalUrl(cfg.localUrl || 'http://81.213.219.69:3001');
       setTestResult(null);
     }
   }, [visible]);
@@ -121,7 +121,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* Mode Selectors */}
             <Text style={[styles.sectionLabel, { color: isDark ? '#94a3b8' : '#64748b' }]}>
-              ÇALIŞMA MODU SEÇİN
+              SUNUCU MODU: [BULUT (FIREBASE)] / [YEREL SUNUCU]
             </Text>
 
             <View style={styles.modesRow}>
@@ -145,7 +145,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                         mode === 'cloud' && { color: '#3b82f6' },
                       ]}
                     >
-                      Bulut Modu
+                      Bulut (Firebase)
                     </Text>
                   </View>
                   {mode === 'cloud' && <CheckCircle2 size={16} color="#3b82f6" />}
@@ -200,7 +200,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Globe size={15} color="#3b82f6" />
                   <Text style={[styles.inputLabel, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    Sunucu Adresi (Statik IP veya Yerel IP)
+                    Sunucu Adresi (Statik IP)
                   </Text>
                 </View>
                 <Text style={styles.portLabel}>Port: 3001</Text>
@@ -210,7 +210,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                 <TextInput
                   value={localUrl}
                   onChangeText={setLocalUrl}
-                  placeholder="http://88.255.xx.xx:3001"
+                  placeholder="http://81.213.219.69:3001"
                   placeholderTextColor="#94a3b8"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -234,14 +234,14 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                   ) : (
                     <>
                       <RefreshCw size={13} color="#ffffff" />
-                      <Text style={styles.testBtnText}>Test Et</Text>
+                      <Text style={styles.testBtnText}>Bağlantıyı Test Et</Text>
                     </>
                   )}
                 </TouchableOpacity>
               </View>
 
               <Text style={styles.helpText}>
-                Ofis içindeyken yerel IP (http://192.168.1.100:3001), sahadayken Statik IP adresinizi giriniz.
+                Ofis içindeyken yerel ağdan, sahadayken Statik IP (http://81.213.219.69:3001) üzerinden bağlanılır.
               </Text>
 
               {/* Test Result Message */}

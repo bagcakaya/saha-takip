@@ -9,9 +9,20 @@ export interface ServerConfig {
 
 const SERVER_CONFIG_KEY = '@saha_takip_server_config';
 
+export function normalizeServerUrl(url: string): string {
+  let cleaned = (url || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return '';
+  // Fix accidental dot before port, e.g. 81.213.219.69.3001 -> 81.213.219.69:3001
+  cleaned = cleaned.replace(/\.3001$/, ':3001');
+  if (!/^https?:\/\//i.test(cleaned)) {
+    cleaned = 'http://' + cleaned;
+  }
+  return cleaned;
+}
+
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
   mode: 'cloud',
-  localUrl: 'http://192.168.1.100:3001',
+  localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
 };
@@ -27,7 +38,7 @@ export const MobileServerConfigService = {
       const raw = await AsyncStorage.getItem(SERVER_CONFIG_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed };
+        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed, localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl) };
       }
     } catch {
       // ignore
@@ -45,7 +56,7 @@ export const MobileServerConfigService = {
     const updated: ServerConfig = {
       ...current,
       ...partial,
-      localUrl: (partial.localUrl !== undefined ? partial.localUrl : current.localUrl).trim().replace(/\/+$/, ''),
+      localUrl: partial.localUrl !== undefined ? normalizeServerUrl(partial.localUrl) : current.localUrl,
     };
     inMemoryConfig = updated;
     try {
@@ -74,7 +85,7 @@ export const MobileServerConfigService = {
   },
 
   async testConnection(targetUrl?: string): Promise<{ success: boolean; message: string; database?: string }> {
-    const rawUrl = (targetUrl || inMemoryConfig.localUrl || '').trim().replace(/\/+$/, '');
+    const rawUrl = normalizeServerUrl(targetUrl || inMemoryConfig.localUrl || '');
     if (!rawUrl) {
       return { success: false, message: 'Sunucu adresi boş olamaz.' };
     }

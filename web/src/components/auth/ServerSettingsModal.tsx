@@ -26,7 +26,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
 }) => {
   const [config, setConfig] = useState<ServerConfig>(() => ServerConfigService.getConfig());
   const [mode, setMode] = useState<'cloud' | 'local'>(config.mode);
-  const [localUrl, setLocalUrl] = useState(config.localUrl || 'http://192.168.1.100:3001');
+  const [localUrl, setLocalUrl] = useState(config.localUrl || 'http://81.213.219.69:3001');
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
@@ -39,7 +39,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
       const cfg = ServerConfigService.getConfig();
       setConfig(cfg);
       setMode(cfg.mode);
-      setLocalUrl(cfg.localUrl || 'http://192.168.1.100:3001');
+      setLocalUrl(cfg.localUrl || 'http://81.213.219.69:3001');
       setTestResult(null);
     }
   }, [isOpen]);
@@ -101,7 +101,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         {/* Server Mode Selector */}
         <div className="space-y-3">
           <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            Çalışma Modu Seçin
+            Sunucu Modu: [Bulut (Firebase)] / [Yerel Sunucu]
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Mode 1: Cloud */}
@@ -116,7 +116,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
                   <Cloud className={`w-4 h-4 ${mode === 'cloud' ? 'text-blue-400' : 'text-slate-400'}`} />
-                  <span className="text-xs font-bold text-white">Bulut Modu</span>
+                  <span className="text-xs font-bold text-white">Bulut (Firebase)</span>
                 </div>
                 {mode === 'cloud' && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
               </div>
@@ -157,7 +157,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
           <div className="flex items-center justify-between">
             <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
               <Globe className="w-3.5 h-3.5 text-blue-400" />
-              <span>Sunucu Adresi (Statik IP veya Yerel IP)</span>
+              <span>Sunucu Adresi (Statik IP)</span>
             </label>
             <span className="text-[10px] text-slate-400">Port: 3001</span>
           </div>
@@ -167,7 +167,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
               type="text"
               value={localUrl}
               onChange={(e) => setLocalUrl(e.target.value)}
-              placeholder="http://88.255.xx.xx:3001 veya http://192.168.1.100:3001"
+              placeholder="http://81.213.219.69:3001"
               className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
             />
             <button
@@ -182,12 +182,12 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
               ) : (
                 <RefreshCw className="w-3.5 h-3.5" />
               )}
-              <span>{isTesting ? 'Test Ediliyor...' : 'Test Et'}</span>
+              <span>{isTesting ? 'Test Ediliyor...' : 'Bağlantıyı Test Et'}</span>
             </button>
           </div>
 
           <p className="text-[11px] text-slate-400">
-            Ofis içindeyken yerel IP (<code className="text-blue-300">http://192.168.1.100:3001</code>), sahadayken şirketinizin Statik IP adresini giriniz.
+            Ofis içindeyken yerel ağdan, sahadayken veya mobil verideyken Statik IP (<code className="text-blue-300">http://81.213.219.69:3001</code>) üzerinden bağlanılır.
           </p>
 
           {/* Test Result Message Box */}

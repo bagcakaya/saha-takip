@@ -7,9 +7,20 @@ export interface ServerConfig {
 
 const SERVER_CONFIG_KEY = '@saha_takip_server_config';
 
+export function normalizeServerUrl(url: string): string {
+  let cleaned = (url || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return '';
+  // Fix accidental dot before port, e.g. 81.213.219.69.3001 -> 81.213.219.69:3001
+  cleaned = cleaned.replace(/\.3001$/, ':3001');
+  if (!/^https?:\/\//i.test(cleaned)) {
+    cleaned = 'http://' + cleaned;
+  }
+  return cleaned;
+}
+
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
   mode: 'cloud',
-  localUrl: 'http://192.168.1.100:3001',
+  localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
 };
@@ -25,7 +36,7 @@ export const ServerConfigService = {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SERVER_CONFIG_KEY) : null;
       if (raw) {
         const parsed = JSON.parse(raw);
-        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed };
+        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed, localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl) };
         return inMemoryConfig!;
       }
     } catch {
@@ -40,7 +51,7 @@ export const ServerConfigService = {
     const updated: ServerConfig = {
       ...current,
       ...partial,
-      localUrl: (partial.localUrl !== undefined ? partial.localUrl : current.localUrl).trim().replace(/\/+$/, ''),
+      localUrl: partial.localUrl !== undefined ? normalizeServerUrl(partial.localUrl) : current.localUrl,
     };
     inMemoryConfig = updated;
     try {
@@ -72,7 +83,7 @@ export const ServerConfigService = {
   },
 
   async testConnection(targetUrl?: string): Promise<{ success: boolean; message: string; database?: string }> {
-    const rawUrl = (targetUrl || this.getConfig().localUrl || '').trim().replace(/\/+$/, '');
+    const rawUrl = normalizeServerUrl(targetUrl || this.getConfig().localUrl || '');
     if (!rawUrl) {
       return { success: false, message: 'Sunucu adresi boş olamaz.' };
     }
