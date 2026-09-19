@@ -39,7 +39,7 @@ import {
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../context/ThemeContext';
-import { Company, UserAccount } from '../types/auth';
+import { Company, UserAccount, canUserManageInstitutionsAndBranches } from '../types/auth';
 import { Branch } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import { CompanyService } from '../services/companyService';
@@ -73,9 +73,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
   );
 
   const isSuperAdmin = useMemo(() => {
-    const code = (currentUser?.companyCode || 'POLATLAR').trim().toUpperCase();
-    const uname = (currentUser?.username || '').trim().toLowerCase();
-    return code === 'POLATLAR' && ['admin', 'murat'].includes(uname);
+    return canUserManageInstitutionsAndBranches(currentUser);
   }, [currentUser]);
 
   // Main list states
@@ -472,7 +470,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
     }
   };
 
-  if (!visible) return null;
+  if (!visible || !isSuperAdmin) return null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

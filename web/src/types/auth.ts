@@ -236,4 +236,20 @@ export function canUserManageLicenses(
   return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
 }
 
+/**
+ * Checks if a user is permitted to view and manage Institutions and Branches ("Kurum ve Şubeler").
+ * Strictly restricted to POLATLAR company administrators with username 'admin' or 'murat'.
+ * Managers and users of other companies cannot see or access this section.
+ */
+export function canUserManageInstitutionsAndBranches(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}
+
+
 

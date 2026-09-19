@@ -16,7 +16,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
-import { isUserAdmin, canUserManageLicenses } from '../types/auth';
+import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
@@ -46,6 +46,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const canManageLicenses = canUserManageLicenses(user);
+  const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -220,14 +221,16 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           </h3>
         </div>
         <span className="text-xs font-semibold text-slate-400">
-          {isAdmin ? '11 Ana Bölüm' : '8 Ana Bölüm'}
+          {canManageInstitutionsAndBranches
+            ? (canManageLicenses ? '12 Ana Bölüm' : '11 Ana Bölüm')
+            : (isAdmin ? (canManageLicenses ? '11 Ana Bölüm' : '10 Ana Bölüm') : '8 Ana Bölüm')}
         </span>
       </div>
 
-      {/* The Colorful Square Boxes - Şubeler (Yalnızca Yönetici) */}
+      {/* The Colorful Square Boxes - Kurum ve Şubeler (Yalnızca POLATLAR admin & murat) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-5">
-        {/* 1. Şubeler - Cyan/Teal to Indigo Gradient Square Card (Yalnızca Yönetici) */}
-        {isAdmin && (
+        {/* 1. Kurum ve Şubeler (Yalnızca POLATLAR admin & murat) */}
+        {canManageInstitutionsAndBranches && (
           <button
             onClick={() => onNavigate('branches')}
             className="group relative aspect-square rounded-3xl p-4 sm:p-5 text-left flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] active:scale-[0.98] transition-all duration-200 bg-gradient-to-br from-cyan-600 via-teal-700 to-indigo-900 text-white border border-cyan-400/30 cursor-pointer"

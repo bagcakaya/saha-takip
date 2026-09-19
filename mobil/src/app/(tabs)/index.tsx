@@ -42,7 +42,7 @@ import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
 import { NotificationStatusModal } from '../../components/NotificationStatusModal';
 import { LicenseManagementModal } from '../../components/LicenseManagementModal';
-import { canUserManageLicenses } from '../../types/auth';
+import { canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../../types/auth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = 12;
@@ -74,6 +74,7 @@ export default function HomeDashboardScreen() {
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
 
   const canManageLicenses = canUserManageLicenses(user);
+  const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
   const isAdmin = user?.role === 'admin';
   const todayStr = new Date().toISOString().split('T')[0];
   const activeReturnsCount = returnWarrantyItems.filter((i) => i.status === 'pending').length;
@@ -251,14 +252,16 @@ export default function HomeDashboardScreen() {
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Hızlı Erişim Modülleri</Text>
           </View>
           <Text style={[styles.sectionCount, { color: colors.subtext }]}>
-            {isAdmin ? '11 Ana Bölüm' : '8 Ana Bölüm'}
+            {canManageInstitutionsAndBranches
+              ? (canManageLicenses ? '12 Ana Bölüm' : '11 Ana Bölüm')
+              : (isAdmin ? (canManageLicenses ? '11 Ana Bölüm' : '10 Ana Bölüm') : '8 Ana Bölüm')}
           </Text>
         </View>
 
         {/* 4. 2-Column Square Module Cards Grid (Exact Matches for Görsel 1) */}
         <View style={styles.gridContainer}>
           {/* Card 1: Kurum ve Şubeler (Cyan / Teal) */}
-          {isAdmin && (
+          {canManageInstitutionsAndBranches && (
             <TouchableOpacity
               style={[styles.moduleCard, { backgroundColor: '#0d9488', borderColor: 'rgba(45, 212, 191, 0.4)' }]}
               onPress={() => setIsBranchModalOpen(true)}
@@ -606,10 +609,12 @@ export default function HomeDashboardScreen() {
       />
 
       {/* Branch Management Modal */}
-      <BranchManagementModal
-        visible={isBranchModalOpen}
-        onClose={() => setIsBranchModalOpen(false)}
-      />
+      {canManageInstitutionsAndBranches && (
+        <BranchManagementModal
+          visible={isBranchModalOpen}
+          onClose={() => setIsBranchModalOpen(false)}
+        />
+      )}
 
       {/* Notification List Modal (Görsel 2) */}
       <NotificationListModal

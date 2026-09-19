@@ -23,7 +23,7 @@ import { LocationDetailModal } from './components/installations/LocationDetailMo
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
-import { isUserAdmin } from './types/auth';
+import { isUserAdmin, canUserManageInstitutionsAndBranches } from './types/auth';
 import {
   normalizeTab,
   extractTabAndFilterFromUrl,
@@ -32,6 +32,7 @@ import {
 const MainApp: React.FC = () => {
   const { isAuthenticated, user, licenseInfo } = useAuth();
   const isAdmin = isUserAdmin(user);
+  const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== 'undefined') {
@@ -302,7 +303,7 @@ const MainApp: React.FC = () => {
         >
           {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
           {activeTab === 'branches' &&
-            (isAdmin ? (
+            (canManageInstitutionsAndBranches ? (
               <BranchesView />
             ) : (
               <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />

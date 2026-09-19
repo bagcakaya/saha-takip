@@ -27,7 +27,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
-import { WeatherData, isUserAdmin, canUserManageServerConfig } from '../../types/auth';
+import { WeatherData, isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { CariListModal } from '../common/CariListModal';
@@ -64,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
+  const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
 
@@ -212,8 +213,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </div>
             </button>
 
-            {/* 0.5. Şubeler (Yalnızca Yönetici) */}
-            {isAdmin && (
+            {/* 0.5. Kurum ve Şubeler (Yalnızca POLATLAR admin & murat) */}
+            {canManageInstitutionsAndBranches && (
               <button
                 onClick={() => setActiveTab('branches')}
                 className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
-import { isUserAdmin, canUserAddBranch, Company } from '../types/auth';
+import { canUserAddBranch, canUserManageInstitutionsAndBranches, Company } from '../types/auth';
 import { Branch } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import { CompanyService } from '../services/companyService';
@@ -42,7 +42,6 @@ export const BranchesView: React.FC = () => {
     attendanceRecords,
   } = useStorage();
 
-  const isAdmin = isUserAdmin(user);
   const canAddBranch = canUserAddBranch(user);
   const currentCompCode = useMemo(() => (user?.companyCode || 'POLATLAR').trim().toUpperCase(), [user]);
 
@@ -258,7 +257,7 @@ export const BranchesView: React.FC = () => {
     });
   }, [availableCompanies, searchQuery, companyBranchesMap, users]);
 
-  if (!isAdmin) {
+  if (!canUserManageInstitutionsAndBranches(user)) {
     return (
       <div className="py-20 text-center space-y-4 max-w-md mx-auto">
         <div className="w-16 h-16 rounded-3xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto shadow-sm">
@@ -267,7 +266,7 @@ export const BranchesView: React.FC = () => {
         <div className="space-y-1.5">
           <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">Yetkisiz Erişim</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
-            Kurum ve şubeler yönetimi yalnızca şirket yöneticilerine açıktır.
+            Kurum ve şubeler yönetimi yalnızca POLATLAR ana sistem yöneticilerine ('admin' ve 'murat') açıktır.
           </p>
         </div>
       </div>
