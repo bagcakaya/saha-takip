@@ -1,6 +1,7 @@
 import { Company } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { ServerConfigService } from './serverConfigService';
+import { SanitizeService } from './sanitizeService';
 
 const COMPANIES_STORAGE_KEY = '@saha_takip_companies_directory';
 const COMPANIES_SLOT_ID = 100;
@@ -191,10 +192,24 @@ export const CompanyService = {
     licenseType?: Company['licenseType'];
     licenseExpiresAt?: number;
   }): Promise<{ success: boolean; error?: string; company?: Company }> {
-    const cleanName = params.name.trim();
-    const cleanCode = params.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-    const cleanAdminName = params.adminName.trim();
-    const cleanAdminEmail = params.adminEmail.trim().toLowerCase();
+    // Malicious payload check
+    const malicious =
+      SanitizeService.detectMaliciousContent(params.name) ||
+      SanitizeService.detectMaliciousContent(params.code) ||
+      SanitizeService.detectMaliciousContent(params.adminName);
+    if (malicious.isMalicious) {
+      return {
+        success: false,
+        error: 'Kurum bilgilerinde geçersiz veya güvenlik kurallarına aykırı karakterler tespit edildi.',
+      };
+    }
+
+    const cleanName = SanitizeService.sanitizeText(params.name, 100);
+    const cleanCode = SanitizeService.sanitizeIdentifier(params.code, 30)
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '');
+    const cleanAdminName = SanitizeService.sanitizeText(params.adminName, 80);
+    const cleanAdminEmail = SanitizeService.sanitizeEmail(params.adminEmail);
 
     if (!cleanName) {
       return { success: false, error: 'Kurum/Şirket adı zorunludur.' };

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Company } from '../types/auth';
 import { supabase } from '../api/supabaseClient';
 import { MobileServerConfigService } from './serverConfigService';
+import { MobileSanitizeService } from './sanitizeService';
 
 const COMPANIES_STORAGE_KEY = '@saha_takip_companies_directory';
 const COMPANIES_SLOT_ID = 100;
@@ -189,10 +190,24 @@ export const CompanyService = {
     licenseType?: Company['licenseType'];
     licenseExpiresAt?: number;
   }): Promise<{ success: boolean; error?: string; company?: Company }> {
-    const cleanName = params.name.trim();
-    const cleanCode = params.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-    const cleanAdminName = params.adminName.trim();
-    const cleanAdminEmail = params.adminEmail.trim().toLowerCase();
+    // Malicious payload check
+    const malicious =
+      MobileSanitizeService.detectMaliciousContent(params.name) ||
+      MobileSanitizeService.detectMaliciousContent(params.code) ||
+      MobileSanitizeService.detectMaliciousContent(params.adminName);
+    if (malicious.isMalicious) {
+      return {
+        success: false,
+        error: 'Kurum bilgilerinde geçersiz veya güvenlik kurallarına aykırı karakterler tespit edildi.',
+      };
+    }
+
+    const cleanName = MobileSanitizeService.sanitizeText(params.name, 100);
+    const cleanCode = MobileSanitizeService.sanitizeIdentifier(params.code, 30)
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '');
+    const cleanAdminName = MobileSanitizeService.sanitizeText(params.adminName, 80);
+    const cleanAdminEmail = MobileSanitizeService.sanitizeEmail(params.adminEmail);
 
     if (!cleanName) {
       return { success: false, error: 'Kurum/Şirket adı zorunludur.' };

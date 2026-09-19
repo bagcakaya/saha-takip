@@ -7,6 +7,7 @@ import { CompanyService } from '../services/companyService';
 import { MobileOneSignalService } from '../services/oneSignalService';
 import { PasswordSecurity } from '../services/passwordSecurity';
 import { MobileAuthSecurityService } from '../services/authSecurityService';
+import { MobileSanitizeService } from '../services/sanitizeService';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -321,8 +322,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (companyCode: string, username: string, password: string) => {
-    const cleanComp = (companyCode || 'POLATLAR').trim().toUpperCase();
-    const cleanUser = username.trim().toLowerCase();
+    // Malicious payload / XSS check
+    const malicious =
+      MobileSanitizeService.detectMaliciousContent(companyCode) ||
+      MobileSanitizeService.detectMaliciousContent(username);
+    if (malicious.isMalicious) {
+      return {
+        success: false,
+        error: 'Giriş bilgilerinde geçersiz veya güvenlik kurallarına aykırı karakterler tespit edildi.',
+      };
+    }
+
+    const cleanComp = MobileSanitizeService.sanitizeIdentifier(
+      companyCode || 'POLATLAR',
+      30
+    ).toUpperCase();
+    const cleanUser = MobileSanitizeService.sanitizeIdentifier(username, 40).toLowerCase();
     const cleanPass = password.trim();
 
     // ANTI-BRUTE FORCE: Check if account is locked out before running queries
@@ -565,8 +580,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     canChangePassword?: boolean;
   }) => {
     try {
+      // Malicious payload check
+      const malicious =
+        MobileSanitizeService.detectMaliciousContent(params.username) ||
+        MobileSanitizeService.detectMaliciousContent(params.name);
+      if (malicious.isMalicious) {
+        return {
+          success: false,
+          error: 'Kullanıcı adı veya isim alanında geçersiz veya zararlı karakterler tespit edildi.',
+        };
+      }
+
       const currentComp = (user?.companyCode || 'POLATLAR').toUpperCase();
-      const cleanUser = params.username.trim().toLowerCase();
+      const cleanUser = MobileSanitizeService.sanitizeIdentifier(params.username, 40).toLowerCase();
+      const cleanName = MobileSanitizeService.sanitizeText(params.name || params.username, 80);
       const newId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       const createdAt = Date.now();
 
@@ -586,7 +613,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: newId,
         username: cleanUser,
         password: hashedPassword,
-        name: params.name.trim(),
+        name: cleanName,
         role: params.role,
         companyCode: currentComp,
         createdAt,

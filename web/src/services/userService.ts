@@ -4,6 +4,7 @@ import { CompanyService } from './companyService';
 import { PasswordSecurity } from './passwordSecurity';
 import { AuthSecurityService } from './authSecurityService';
 import { StorageService } from './storageService';
+import { SanitizeService } from './sanitizeService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 const USERS_SLOT_ID = 101;
@@ -427,9 +428,25 @@ export const UserService = {
     email?: string;
   }): Promise<{ success: boolean; error?: string; user?: User }> {
     const users = this.getUsers();
-    const cleanCompanyCode = (params.companyCode || 'POLATLAR').trim().toUpperCase();
-    const cleanUsername = params.username.trim().toLowerCase();
-    const cleanName = params.name.trim() || params.username.trim();
+
+    // XSS / Malicious payload check
+    const malicious =
+      SanitizeService.detectMaliciousContent(params.username) ||
+      SanitizeService.detectMaliciousContent(params.name);
+    if (malicious.isMalicious) {
+      return {
+        success: false,
+        error: 'Kullanıcı adı veya isim alanında geçersiz / zararlı karakterler tespit edildi.',
+      };
+    }
+
+    const cleanCompanyCode = SanitizeService.sanitizeIdentifier(
+      params.companyCode || 'POLATLAR',
+      30
+    ).toUpperCase();
+    const cleanUsername = SanitizeService.sanitizeIdentifier(params.username, 40).toLowerCase();
+    const cleanName = SanitizeService.sanitizeText(params.name || params.username, 80);
+    const cleanEmail = params.email ? SanitizeService.sanitizeEmail(params.email) : undefined;
     const cleanPassword = params.password.trim();
 
     if (!cleanUsername) {
@@ -459,7 +476,7 @@ export const UserService = {
       role: params.role,
       createdAt: Date.now(),
       companyCode: cleanCompanyCode,
-      email: params.email?.trim().toLowerCase(),
+      email: cleanEmail,
     };
 
     const updated = [...users, newUser];
@@ -571,6 +588,13 @@ export const UserService = {
       }
     }
 
+    if (updates.name !== undefined) {
+      const check = SanitizeService.detectMaliciousContent(updates.name);
+      if (check.isMalicious) {
+        return { success: false, error: 'İsim alanında geçersiz / zararlı karakterler tespit edildi.' };
+      }
+    }
+
     let newPassword = current.password;
     if (updates.password !== undefined && updates.password.trim()) {
       newPassword = await PasswordSecurity.hashPassword(updates.password.trim());
@@ -578,7 +602,10 @@ export const UserService = {
 
     const updatedUser = {
       ...current,
-      name: updates.name !== undefined && updates.name.trim() ? updates.name.trim() : current.name,
+      name:
+        updates.name !== undefined && updates.name.trim()
+          ? SanitizeService.sanitizeText(updates.name, 80)
+          : current.name,
       role: updates.role !== undefined ? updates.role : current.role,
       password: newPassword,
     };
