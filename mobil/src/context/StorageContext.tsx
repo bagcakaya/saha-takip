@@ -3,6 +3,8 @@ import { supabase } from '../api/supabaseClient';
 import { useAuth } from './AuthContext';
 import { StorageService } from '../services/storageService';
 import { LocationService } from '../services/locationService';
+import { parseDueDateTime } from '../utils/dateUtils';
+import { MobilePushService } from '../services/pushService';
 import {
   LocationItem,
   ServiceItem,
@@ -802,15 +804,41 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!params.cariName.trim() || !params.description.trim()) {
       return { success: false, message: 'Lütfen cari ve takip konusunu doldurun.' };
     }
+
+    const newItemId = 'tfu_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const companyCode = user?.companyCode || 'POLATLAR';
+    let onesignalNotificationId: string | undefined = undefined;
+
+    // Pre-schedule push notification via OneSignal cloud server
+    // This wakes up locked phones and delivers notifications even if the app is killed!
+    const targetDate = parseDueDateTime(params.dueDate);
+    if (params.sendPush !== false && targetDate && targetDate.getTime() > Date.now()) {
+      try {
+        const notifId = await MobilePushService.scheduleTimedFollowUpPush({
+          followUpId: newItemId,
+          cariName: params.cariName.trim(),
+          description: params.description.trim(),
+          targetIsoDate: targetDate.toISOString(),
+          companyCode,
+        });
+        if (notifId) {
+          onesignalNotificationId = notifId;
+        }
+      } catch (err) {
+        console.warn('Failed to pre-schedule push notification from mobile:', err);
+      }
+    }
+
     const newItem: TimedFollowUp = {
-      id: 'tfu_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      companyCode: user?.companyCode || 'POLATLAR',
+      id: newItemId,
+      companyCode,
       cariName: params.cariName.trim(),
       description: params.description.trim(),
       dueDate: params.dueDate,
       status: 'pending',
       soundAlarm: params.soundAlarm !== false,
       sendPush: params.sendPush !== false,
+      onesignalNotificationId,
       createdAt: Date.now(),
       createdBy: user?.id,
       createdByName: user?.name || user?.username || 'Yönetici',
@@ -822,13 +850,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateTimedFollowUp = async (id: string, updates: Partial<TimedFollowUp>) => {
-    const updated = timedFollowUps.map((item) => (item.id === id ? { ...item, ...updates } : item));
+    const existingItem = timedFollowUps.find((item) => item.id === id);
+    let newNotificationId = updates.onesignalNotificationId ?? existingItem?.onesignalNotificationId;
+
+    if (updates.dueDate && updates.dueDate !== existingItem?.dueDate) {
+      if (existingItem?.onesignalNotificationId) {
+        MobilePushService.cancelScheduledPush(existingItem.onesignalNotificationId).catch(() => {});
+        newNotificationId = undefined;
+      }
+      const targetDate = parseDueDateTime(updates.dueDate);
+      if (
+        (updates.sendPush !== false && existingItem?.sendPush !== false) &&
+        targetDate &&
+        targetDate.getTime() > Date.now()
+      ) {
+        try {
+          const notifId = await MobilePushService.scheduleTimedFollowUpPush({
+            followUpId: id,
+            cariName: (updates.cariName || existingItem?.cariName || '').trim(),
+            description: (updates.description || existingItem?.description || '').trim(),
+            targetIsoDate: targetDate.toISOString(),
+            companyCode: user?.companyCode || 'POLATLAR',
+          });
+          if (notifId) {
+            newNotificationId = notifId;
+          }
+        } catch (err) {
+          console.warn('Failed to update scheduled push from mobile:', err);
+        }
+      }
+    }
+
+    const updated = timedFollowUps.map((item) =>
+      item.id === id ? { ...item, ...updates, onesignalNotificationId: newNotificationId } : item
+    );
     setTimedFollowUps(updated);
     await StorageService.saveTimedFollowUps(updated);
     return { success: true, message: 'Takip güncellendi.' };
   };
 
   const deleteTimedFollowUp = async (id: string) => {
+    const itemToDelete = timedFollowUps.find((item) => item.id === id);
+    if (itemToDelete?.onesignalNotificationId) {
+      MobilePushService.cancelScheduledPush(itemToDelete.onesignalNotificationId).catch(() => {});
+    }
     const updated = timedFollowUps.filter((item) => item.id !== id);
     setTimedFollowUps(updated);
     await StorageService.saveTimedFollowUps(updated);
@@ -836,6 +901,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const completeTimedFollowUp = async (id: string) => {
+    const itemToComplete = timedFollowUps.find((item) => item.id === id);
+    if (itemToComplete?.onesignalNotificationId) {
+      MobilePushService.cancelScheduledPush(itemToComplete.onesignalNotificationId).catch(() => {});
+    }
     const updated = timedFollowUps.map((item) =>
       item.id === id
         ? {

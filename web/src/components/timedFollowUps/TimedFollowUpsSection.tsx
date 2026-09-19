@@ -15,6 +15,7 @@ import {
 import { useStorage } from '../../context/StorageContext';
 import { TimedFollowUp } from '../../types/storage';
 import { TimedFollowUpModal } from './TimedFollowUpModal';
+import { parseDueDateTime } from '../../utils/dateUtils';
 
 export const TimedFollowUpsSection: React.FC = () => {
   const {
@@ -39,7 +40,8 @@ export const TimedFollowUpsSection: React.FC = () => {
       if (item.status === 'completed') {
         completed++;
       } else {
-        const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
+        const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+        const targetTime = targetDate ? targetDate.getTime() : 0;
         if (targetTime <= now) {
           due++;
         } else {
@@ -57,7 +59,8 @@ export const TimedFollowUpsSection: React.FC = () => {
       if (activeFilter === 'completed') return item.status === 'completed';
       if (item.status === 'completed') return false;
 
-      const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
+      const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+      const targetTime = targetDate ? targetDate.getTime() : 0;
       if (activeFilter === 'due') return targetTime <= now;
       if (activeFilter === 'pending') return targetTime > now;
       return true;
@@ -66,8 +69,8 @@ export const TimedFollowUpsSection: React.FC = () => {
       if (a.status !== b.status) {
         return a.status === 'pending' ? -1 : 1;
       }
-      const timeA = new Date(a.snoozedUntil || a.dueDate).getTime();
-      const timeB = new Date(b.snoozedUntil || b.dueDate).getTime();
+      const timeA = parseDueDateTime(a.snoozedUntil || a.dueDate)?.getTime() ?? 0;
+      const timeB = parseDueDateTime(b.snoozedUntil || b.dueDate)?.getTime() ?? 0;
       return timeA - timeB;
     });
   }, [timedFollowUps, activeFilter, now]);
@@ -77,7 +80,8 @@ export const TimedFollowUpsSection: React.FC = () => {
       return { text: 'Tamamlandı', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
     }
 
-    const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
+    const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+    const targetTime = targetDate ? targetDate.getTime() : 0;
     const diffMs = targetTime - now;
 
     if (diffMs <= 0) {

@@ -16,6 +16,31 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Handle cancellation of scheduled notifications
+  if (req.method === 'DELETE' || (req.method === 'POST' && (req.query?.action === 'cancel' || req.body?.action === 'cancel'))) {
+    const rawBody = typeof req.body === 'string' ? (req.body ? JSON.parse(req.body) : {}) : (req.body || {});
+    const notificationId = req.query?.id || rawBody?.id;
+    if (!notificationId) {
+      res.status(400).json({ error: 'Missing notification id' });
+      return;
+    }
+    try {
+      const response = await fetch(`https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${ONESIGNAL_APP_ID}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: 'Basic ' + getApiKey(),
+        },
+      });
+      const data = await response.json().catch(() => ({}));
+      res.status(response.status).json(data);
+      return;
+    } catch (err) {
+      console.error('Failed to cancel OneSignal notification:', err);
+      res.status(500).json({ error: err?.message || 'Failed to cancel notification' });
+      return;
+    }
+  }
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;

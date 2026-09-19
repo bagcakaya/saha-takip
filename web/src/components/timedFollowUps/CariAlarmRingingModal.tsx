@@ -1,21 +1,24 @@
 import React from 'react';
 import { Bell, CheckCircle2, Clock, VolumeX, Building2, AlertTriangle } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
+import { parseDueDateTime } from '../../utils/dateUtils';
 
 export const CariAlarmRingingModal: React.FC = () => {
   const { activeRingingAlarm, completeTimedFollowUp, snoozeTimedFollowUp, dismissAlarm } = useStorage();
 
   if (!activeRingingAlarm) return null;
 
-  const formattedTime = activeRingingAlarm.dueDate
-    ? new Date(activeRingingAlarm.dueDate).toLocaleTimeString('tr-TR', {
+  const parsedDate = parseDueDateTime(activeRingingAlarm.snoozedUntil || activeRingingAlarm.dueDate);
+
+  const formattedTime = parsedDate
+    ? parsedDate.toLocaleTimeString('tr-TR', {
         hour: '2-digit',
         minute: '2-digit',
       })
     : '';
 
-  const formattedDate = activeRingingAlarm.dueDate
-    ? new Date(activeRingingAlarm.dueDate).toLocaleDateString('tr-TR', {
+  const formattedDate = parsedDate
+    ? parsedDate.toLocaleDateString('tr-TR', {
         day: 'numeric',
         month: 'long',
       })

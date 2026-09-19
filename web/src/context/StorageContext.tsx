@@ -11,6 +11,7 @@ import { UserService } from '../services/userService';
 import { TabType } from '../components/layout/Header';
 import { LocationService } from '../services/locationService';
 import { DeviceService } from '../services/deviceService';
+import { parseDueDateTime } from '../utils/dateUtils';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -3578,8 +3579,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const now = Date.now();
       const dueAlarm = timedFollowUps.find((item) => {
         if (item.status !== 'pending') return false;
-        const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
-        return targetTime <= now && !item.notified;
+        const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+        const targetTime = targetDate ? targetDate.getTime() : NaN;
+        return !isNaN(targetTime) && targetTime <= now && !item.notified;
       });
 
       if (dueAlarm) {
@@ -3594,12 +3596,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const body = dueAlarm.description || 'Vakti gelen cari takip hatırlatması!';
           NotificationService.sendNotification(title, body);
 
-          if (dueAlarm.sendPush !== false) {
+          // Only send immediate push if it was NOT already scheduled via OneSignal cloud
+          if (dueAlarm.sendPush !== false && !dueAlarm.onesignalNotificationId) {
             OneSignalService.sendPushNotification({
               title,
               message: body,
               targetMode: 'admin',
               companyCode: user.companyCode || 'POLATLAR',
+              url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
             }).catch(() => {});
           }
         }
@@ -3620,9 +3624,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     soundAlarm?: boolean;
     sendPush?: boolean;
   }) => {
+    const newItemId = generateId();
+    const companyCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    let onesignalNotificationId: string | undefined = undefined;
+
+    // Pre-schedule cloud push notification via OneSignal send_after
+    // This ensures notifications ring on locked phones even if the app is killed/closed!
+    const targetDate = parseDueDateTime(data.dueDate);
+    const now = Date.now();
+    if (data.sendPush !== false && targetDate && targetDate.getTime() > now) {
+      try {
+        const pushRes = await OneSignalService.sendPushNotification({
+          title: `⏰ Süreli Takip: ${data.cariName.trim()}`,
+          message: data.description.trim() || 'Vakti gelen cari takip hatırlatması!',
+          targetMode: 'admin',
+          companyCode,
+          url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+          sendAfter: targetDate.toISOString(),
+          collapseId: `tfu_${newItemId}`,
+        });
+        if (pushRes?.data?.id) {
+          onesignalNotificationId = pushRes.data.id;
+        }
+      } catch (err) {
+        console.warn('Failed to pre-schedule OneSignal push for timed follow-up:', err);
+      }
+    }
+
     const newItem: TimedFollowUp = {
-      id: generateId(),
-      companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
+      id: newItemId,
+      companyCode,
       cariName: data.cariName.trim(),
       description: data.description.trim(),
       dueDate: data.dueDate,
@@ -3630,7 +3661,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       notified: false,
       soundAlarm: data.soundAlarm ?? true,
       sendPush: data.sendPush ?? true,
-      createdAt: Date.now(),
+      onesignalNotificationId,
+      createdAt: now,
       createdBy: user?.id,
       createdByName: user?.name || 'Yönetici',
     };
@@ -3640,9 +3672,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateTimedFollowUp = async (id: string, updates: Partial<TimedFollowUp>) => {
+    const existingItem = timedFollowUps.find((item) => item.id === id);
+    let newNotificationId = updates.onesignalNotificationId ?? existingItem?.onesignalNotificationId;
+
+    // If dueDate changed and sendPush is enabled, cancel old schedule and schedule new one
+    if (updates.dueDate && updates.dueDate !== existingItem?.dueDate) {
+      if (existingItem?.onesignalNotificationId) {
+        OneSignalService.cancelNotification(existingItem.onesignalNotificationId).catch(() => {});
+        newNotificationId = undefined;
+      }
+      const targetDate = parseDueDateTime(updates.dueDate);
+      if (
+        (updates.sendPush !== false && existingItem?.sendPush !== false) &&
+        targetDate &&
+        targetDate.getTime() > Date.now()
+      ) {
+        try {
+          const pushRes = await OneSignalService.sendPushNotification({
+            title: `⏰ Süreli Takip: ${(updates.cariName || existingItem?.cariName || '').trim()}`,
+            message: (updates.description || existingItem?.description || '').trim() || 'Vakti gelen cari takip hatırlatması!',
+            targetMode: 'admin',
+            companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
+            url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+            sendAfter: targetDate.toISOString(),
+            collapseId: `tfu_${id}`,
+          });
+          if (pushRes?.data?.id) {
+            newNotificationId = pushRes.data.id;
+          }
+        } catch (err) {
+          console.warn('Failed to update scheduled OneSignal push:', err);
+        }
+      }
+    }
+
     const updated = timedFollowUps.map((item) => {
       if (item.id === id) {
-        const res = { ...item, ...updates };
+        const res: TimedFollowUp = { ...item, ...updates, onesignalNotificationId: newNotificationId };
         if (updates.dueDate && updates.dueDate !== item.dueDate) {
           res.notified = false;
           res.snoozedUntil = undefined;
@@ -3660,6 +3726,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       NotificationService.stopAlarmSound();
       setActiveRingingAlarm(null);
     }
+    const itemToDelete = timedFollowUps.find((item) => item.id === id);
+    if (itemToDelete?.onesignalNotificationId) {
+      OneSignalService.cancelNotification(itemToDelete.onesignalNotificationId).catch(() => {});
+    }
     const updated = timedFollowUps.filter((item) => item.id !== id);
     setTimedFollowUps(updated);
     await StorageService.saveTimedFollowUps(updated);
@@ -3669,6 +3739,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (activeRingingAlarm?.id === id) {
       NotificationService.stopAlarmSound();
       setActiveRingingAlarm(null);
+    }
+    const itemToComplete = timedFollowUps.find((item) => item.id === id);
+    if (itemToComplete?.onesignalNotificationId) {
+      OneSignalService.cancelNotification(itemToComplete.onesignalNotificationId).catch(() => {});
     }
     const updated = timedFollowUps.map((item) =>
       item.id === id
@@ -3688,13 +3762,42 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const snoozeTimedFollowUp = async (id: string, minutes: number = 15) => {
     NotificationService.stopAlarmSound();
     setActiveRingingAlarm(null);
-    const newDueDate = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+
+    const existingItem = timedFollowUps.find((item) => item.id === id);
+    if (existingItem?.onesignalNotificationId) {
+      OneSignalService.cancelNotification(existingItem.onesignalNotificationId).catch(() => {});
+    }
+
+    const snoozeTargetDate = new Date(Date.now() + minutes * 60 * 1000);
+    const newDueDate = snoozeTargetDate.toISOString();
+    let newNotificationId: string | undefined = undefined;
+
+    if (existingItem && existingItem.sendPush !== false) {
+      try {
+        const pushRes = await OneSignalService.sendPushNotification({
+          title: `⏰ [Ertelendi] Süreli Takip: ${existingItem.cariName}`,
+          message: existingItem.description || 'Ertelenen cari takip hatırlatması!',
+          targetMode: 'admin',
+          companyCode: (user?.companyCode || 'POLATLAR').trim().toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=timed-follow-ups',
+          sendAfter: snoozeTargetDate.toISOString(),
+          collapseId: `tfu_${id}`,
+        });
+        if (pushRes?.data?.id) {
+          newNotificationId = pushRes.data.id;
+        }
+      } catch (err) {
+        console.warn('Failed to schedule snoozed OneSignal push:', err);
+      }
+    }
+
     const updated = timedFollowUps.map((item) =>
       item.id === id
         ? {
             ...item,
             snoozedUntil: newDueDate,
             notified: false,
+            onesignalNotificationId: newNotificationId,
           }
         : item
     );

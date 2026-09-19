@@ -582,7 +582,7 @@ export const OneSignalService = {
       : [];
 
     // Short-term deduplication cache (4-second window) to block rapid repeated clicks / double-calls
-    const dedupKey = `${title}__${message}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}`;
+    const dedupKey = `${title}__${message}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}__${sendAfter || ''}`;
     const now = Date.now();
     const lastSent = this.recentPushRequests.get(dedupKey);
     if (lastSent && now - lastSent < 4000) {
@@ -836,5 +836,58 @@ export const OneSignalService = {
       console.error('OneSignal REST API fetch failed:', e);
       throw e;
     }
+  },
+
+  /**
+   * Cancels a scheduled push notification from OneSignal cloud
+   */
+  async cancelNotification(notificationId: string): Promise<boolean> {
+    if (!notificationId) return false;
+
+    // 1. Try serverless proxy DELETE first
+    try {
+      const res = await fetch(`/api/send-notification?id=${encodeURIComponent(notificationId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('DELETE proxy failed, trying POST cancel:', e);
+    }
+
+    // 2. Try serverless proxy POST fallback with action: cancel
+    try {
+      const postRes = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', id: notificationId }),
+      });
+      if (postRes.ok) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('POST cancel proxy failed:', e);
+    }
+
+    // 3. Fallback to direct OneSignal REST API
+    if (ONESIGNAL_CONFIG.REST_API_KEY && ONESIGNAL_CONFIG.APP_ID) {
+      try {
+        const directRes = await fetch(
+          `https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${ONESIGNAL_CONFIG.APP_ID}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+            },
+          }
+        );
+        return directRes.ok;
+      } catch (directErr) {
+        console.warn('Direct OneSignal cancel API failed:', directErr);
+      }
+    }
+
+    return false;
   },
 };

@@ -320,5 +320,6 @@ export interface TimedFollowUp {
   completedAt?: number;
   completedByName?: string;
   snoozedUntil?: string;
+  onesignalNotificationId?: string; // OneSignal cloud scheduled notification id for cancellation
 }
 
