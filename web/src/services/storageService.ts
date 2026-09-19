@@ -681,6 +681,95 @@ export const StorageService = {
     }
   },
 
+  mapNoteToRow(n: GeneralNote) {
+    return {
+      id: n.id,
+      content: n.content,
+      cari_name: n.cariName || null,
+      created_at: n.createdAt,
+      created_by: n.createdBy || null,
+      created_by_name: n.createdByName || null,
+      target_mode: n.targetMode || 'self',
+      target_user_ids: n.targetUserIds || [],
+      target_user_names: n.targetUserNames || [],
+      target_user_id: n.targetUserId || null,
+      target_user_name: n.targetUserName || null,
+      reminder_active: n.reminderActive,
+      reminder_date: n.reminderDate || null,
+      notified: n.notified || false,
+      status: n.status || 'pending',
+      completed_at: n.completedAt || null,
+      completed_by: n.completedBy || null,
+      completed_by_name: n.completedByName || null,
+      completion_note: n.completionNote || null,
+      approved_at: n.approvedAt || null,
+      approved_by: n.approvedBy || null,
+      approved_by_name: n.approvedByName || null,
+      rejected_at: n.rejectedAt || null,
+      rejected_by: n.rejectedBy || null,
+      rejected_by_name: n.rejectedByName || null,
+      rejection_reason: n.rejectionReason || null,
+    };
+  },
+
+  /**
+   * Atomically saves a single note to local cache and Supabase without overwriting other notes
+   */
+  async saveSingleNote(note: GeneralNote): Promise<void> {
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const idx = existing.findIndex((n) => n.id === note.id);
+    let updated: GeneralNote[];
+    if (idx >= 0) {
+      updated = [...existing];
+      updated[idx] = note;
+    } else {
+      updated = [note, ...existing];
+    }
+    await saveItem(localKey, updated);
+
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const row = this.mapNoteToRow(note);
+        await supabase.from('notes').upsert([row]);
+      } catch (err) {
+        console.warn('saveSingleNote Supabase error:', err);
+      }
+      saveChunkedSlot(4, updated).catch(() => {});
+    } else {
+      saveChunkedSlot(this.getSlotId(4), updated).catch(() => {});
+    }
+  },
+
+  /**
+   * Atomically saves multiple notes to local cache and Supabase in a single batch
+   */
+  async saveMultipleNotes(notesToSave: GeneralNote[]): Promise<void> {
+    if (!notesToSave || notesToSave.length === 0) return;
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const saveMap = new Map(notesToSave.map((n) => [n.id, n]));
+    const updated = existing.map((n) => saveMap.get(n.id) || n);
+    for (const n of notesToSave) {
+      if (!existing.some((e) => e.id === n.id)) {
+        updated.unshift(n);
+      }
+    }
+    await saveItem(localKey, updated);
+
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        const rows = notesToSave.map((n) => this.mapNoteToRow(n));
+        await supabase.from('notes').upsert(rows);
+      } catch (err) {
+        console.warn('saveMultipleNotes Supabase error:', err);
+      }
+      saveChunkedSlot(4, updated).catch(() => {});
+    } else {
+      saveChunkedSlot(this.getSlotId(4), updated).catch(() => {});
+    }
+  },
+
   /**
    * Retrieves return & warranty items (Supabase cloud + local cache + standard_tasks slot 2)
    */

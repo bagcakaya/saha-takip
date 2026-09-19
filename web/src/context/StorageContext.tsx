@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
@@ -84,6 +84,8 @@ interface StorageContextType {
   completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<void>;
   approveNote: (id: string) => Promise<void>;
   rejectNote: (id: string, reason?: string) => Promise<void>;
+  approveMultipleNotes: (ids: string[]) => Promise<void>;
+  completeMultipleNotes: (ids: string[], completionNote?: string) => Promise<void>;
   addAdminReminder: (data: {
     title: string;
     content: string;
@@ -243,6 +245,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
+  const allNotesRef = useRef<GeneralNote[]>([]);
+  allNotesRef.current = allNotes;
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
@@ -1878,32 +1882,32 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Mark note as completed by Staff (submits to Admin for approval)
   const completeNote = async (id: string, completionNote?: string, completionPhotos?: string[]) => {
-    const targetNote = allNotes.find((n) => n.id === id);
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
     if (!targetNote) return;
 
     const completedAt = Date.now();
     const staffName = user?.name || user?.username || 'Saha Personeli';
     const trimmedNote = completionNote?.trim() || undefined;
 
-    const newNotes = allNotes.map((n) => {
-      if (n.id === id) {
-        return {
-          ...n,
-          status: 'pending_approval' as const,
-          completedAt,
-          completedBy: user?.id,
-          completedByName: staffName,
-          completionNote: trimmedNote,
-          completionPhotos: completionPhotos !== undefined ? completionPhotos : n.completionPhotos || [],
-          // Reset previous rejection if resubmitted
-          rejectedAt: undefined,
-          rejectedBy: undefined,
-          rejectedByName: undefined,
-          rejectionReason: undefined,
-        };
-      }
-      return n;
-    });
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      status: 'pending_approval' as const,
+      completedAt,
+      completedBy: user?.id,
+      completedByName: staffName,
+      completionNote: trimmedNote,
+      completionPhotos: completionPhotos !== undefined ? completionPhotos : targetNote.completionPhotos || [],
+      // Reset previous rejection if resubmitted
+      rejectedAt: undefined,
+      rejectedBy: undefined,
+      rejectedByName: undefined,
+      rejectionReason: undefined,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
 
     // Mark as seen on staff device immediately
     if (user?.id) {
@@ -1913,7 +1917,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompleted);
     }
 
-    await saveNotes(newNotes);
+    await StorageService.saveSingleNote(updatedNote);
 
     // Send instant hardware push notification to Admin(s)
     let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
@@ -1950,24 +1954,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const targetNote = allNotes.find((n) => n.id === id);
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
     if (!targetNote || targetNote.status === 'approved') return;
 
     const approvedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
 
-    const newNotes = allNotes.map((n) => {
-      if (n.id === id) {
-        return {
-          ...n,
-          status: 'approved' as const,
-          approvedAt,
-          approvedBy: user?.id,
-          approvedByName: adminName,
-        };
-      }
-      return n;
-    });
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      status: 'approved' as const,
+      approvedAt,
+      approvedBy: user?.id,
+      approvedByName: adminName,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
 
     // Mark as seen on admin device immediately
     if (user?.id) {
@@ -1977,7 +1981,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
-    await saveNotes(newNotes);
+    await StorageService.saveSingleNote(updatedNote);
 
     // Notify Staff who completed it or was targeted
     const targetRecipientIds = Array.from(
@@ -2014,26 +2018,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const targetNote = allNotes.find((n) => n.id === id);
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
     if (!targetNote || targetNote.status === 'rejected') return;
 
     const rejectedAt = Date.now();
     const adminName = user?.name || user?.username || 'Yönetici';
     const trimmedReason = reason?.trim() || 'Yönetici tarafından eksik görüldü';
 
-    const newNotes = allNotes.map((n) => {
-      if (n.id === id) {
-        return {
-          ...n,
-          status: 'rejected' as const,
-          rejectedAt,
-          rejectedBy: user?.id,
-          rejectedByName: adminName,
-          rejectionReason: trimmedReason,
-        };
-      }
-      return n;
-    });
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      status: 'rejected' as const,
+      rejectedAt,
+      rejectedBy: user?.id,
+      rejectedByName: adminName,
+      rejectionReason: trimmedReason,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
 
     // Mark as seen on admin device immediately
     if (user?.id) {
@@ -2043,7 +2047,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
-    await saveNotes(newNotes);
+    await StorageService.saveSingleNote(updatedNote);
 
     // Notify Staff who completed it or was targeted
     const targetRecipientIds = Array.from(
@@ -2071,6 +2075,138 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         collapseId: `note_rej_${id}`,
       });
     }
+  };
+
+  // Bulk: Admin approves multiple work orders in one atomic batch
+  const approveMultipleNotes = async (ids: string[]) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler iş emirlerini onaylayabilir.');
+      return;
+    }
+    if (!ids || ids.length === 0) return;
+
+    const currentNotes = allNotesRef.current;
+    const targetSet = new Set(ids);
+    const approvedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const updatedNotesList: GeneralNote[] = [];
+    const newNotes = currentNotes.map((n) => {
+      if (targetSet.has(n.id) && n.status !== 'approved') {
+        const updated: GeneralNote = {
+          ...n,
+          status: 'approved' as const,
+          approvedAt,
+          approvedBy: user?.id,
+          approvedByName: adminName,
+        };
+        updatedNotesList.push(updated);
+        return updated;
+      }
+      return n;
+    });
+
+    if (updatedNotesList.length === 0) return;
+
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenApprovals = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode));
+      updatedNotesList.forEach((n) => seenApprovals.add(`${n.id}_approved_${approvedAt}`));
+      saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
+    }
+
+    await StorageService.saveMultipleNotes(updatedNotesList);
+
+    // Notify all affected staff
+    const allRecipients = new Set<string>();
+    updatedNotesList.forEach((n) => {
+      if (n.completedBy) allRecipients.add(n.completedBy);
+      if (Array.isArray(n.targetUserIds)) n.targetUserIds.forEach((uid) => allRecipients.add(uid));
+      if (n.targetUserId && n.targetUserId !== 'all' && n.targetUserId !== 'self') {
+        allRecipients.add(n.targetUserId);
+      }
+    });
+
+    const recipientList = Array.from(allRecipients);
+    if (recipientList.length > 0) {
+      await OneSignalService.sendPushNotification({
+        title: '✅ İş Emirleri Onaylandı!',
+        message: `${adminName}, ${updatedNotesList.length} adet iş emrinizi başarıyla onayladı.`,
+        targetMode: 'custom',
+        targetUserIds: recipientList,
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
+        collapseId: `bulk_app_${approvedAt}`,
+      });
+    }
+  };
+
+  // Bulk: Staff completes and submits multiple work orders for approval in one atomic batch
+  const completeMultipleNotes = async (ids: string[], completionNote?: string) => {
+    if (!ids || ids.length === 0) return;
+
+    const currentNotes = allNotesRef.current;
+    const targetSet = new Set(ids);
+    const completedAt = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Personeli';
+    const trimmedNote = completionNote?.trim() || undefined;
+
+    const updatedNotesList: GeneralNote[] = [];
+    const newNotes = currentNotes.map((n) => {
+      if (targetSet.has(n.id) && n.status !== 'pending_approval' && n.status !== 'approved') {
+        const updated: GeneralNote = {
+          ...n,
+          status: 'pending_approval' as const,
+          completedAt,
+          completedBy: user?.id,
+          completedByName: staffName,
+          completionNote: trimmedNote,
+          rejectedAt: undefined,
+          rejectedBy: undefined,
+          rejectedByName: undefined,
+          rejectionReason: undefined,
+        };
+        updatedNotesList.push(updated);
+        return updated;
+      }
+      return n;
+    });
+
+    if (updatedNotesList.length === 0) return;
+
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    if (user?.id) {
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const seenCompleted = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode));
+      updatedNotesList.forEach((n) => seenCompleted.add(`${n.id}_${completedAt}`));
+      saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompleted);
+    }
+
+    await StorageService.saveMultipleNotes(updatedNotesList);
+
+    // Notify Admins
+    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+    if (adminIds.length === 0) {
+      try {
+        const cloudUsers = await UserService.fetchUsersFromCloud();
+        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+      } catch {}
+    }
+    if (adminIds.length === 0) adminIds = ['admin-1'];
+
+    const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+    await OneSignalService.sendPushNotification({
+      title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
+      message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
+      targetMode: 'custom',
+      targetUserIds: adminIds,
+      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+      collapseId: `bulk_comp_${completedAt}`,
+    });
   };
 
   // Admin Reminder / Directive Management
@@ -4087,6 +4223,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         completeNote,
         approveNote,
         rejectNote,
+        approveMultipleNotes,
+        completeMultipleNotes,
         addAdminReminder,
         updateAdminReminder,
         deleteAdminReminder,

@@ -10,6 +10,10 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  CheckCheck,
+  CheckSquare,
+  Loader2,
+  Send,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { NoteCard } from '../components/notes/NoteCard';
@@ -19,7 +23,15 @@ import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 
 export const NotesView: React.FC = () => {
-  const { notes, isLoading, addNote, updateNote, deleteNote } = useStorage();
+  const {
+    notes,
+    isLoading,
+    addNote,
+    updateNote,
+    deleteNote,
+    approveMultipleNotes,
+    completeMultipleNotes,
+  } = useStorage();
   const { user: currentUser } = useAuth();
   const isAdmin = isUserAdmin(currentUser);
 
@@ -78,6 +90,13 @@ export const NotesView: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<GeneralNote | null>(null);
 
+  // Bulk Actions & Multi-selection state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [isBulkCompleteModalOpen, setIsBulkCompleteModalOpen] = useState(false);
+  const [bulkCompletionNote, setBulkCompletionNote] = useState('');
+
   const sortedNotes = useMemo(() => {
     return [...notes].sort((a, b) => b.createdAt - a.createdAt);
   }, [notes]);
@@ -86,6 +105,10 @@ export const NotesView: React.FC = () => {
     return notes.filter(
       (n) => !n.status || n.status === 'pending' || n.status === 'pending_approval'
     ).length;
+  }, [notes]);
+
+  const pendingApprovalNotes = useMemo(() => {
+    return notes.filter((n) => n.status === 'pending_approval');
   }, [notes]);
 
   const approvedNotesCount = useMemo(() => {
@@ -158,6 +181,92 @@ export const NotesView: React.FC = () => {
     });
   }, [sortedNotes, searchQuery, activeFilter, isAdmin, currentUser]);
 
+  const selectableNotes = useMemo(() => {
+    if (isAdmin) {
+      const approvable = filteredNotes.filter(
+        (n) => n.status === 'pending_approval' || n.status === 'rejected'
+      );
+      return approvable.length > 0 ? approvable : filteredNotes;
+    }
+    const completable = filteredNotes.filter(
+      (n) => !n.status || n.status === 'pending' || n.status === 'rejected'
+    );
+    return completable.length > 0 ? completable : filteredNotes;
+  }, [filteredNotes, isAdmin]);
+
+  const handleToggleSelect = (noteId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(noteId) ? prev.filter((id) => id !== noteId) : [...prev, noteId]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === selectableNotes.length && selectableNotes.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(selectableNotes.map((n) => n.id));
+    }
+  };
+
+  const handleApproveAllPending = async () => {
+    if (pendingApprovalNotes.length === 0 || isBulkProcessing) return;
+    if (
+      !window.confirm(
+        `Onay bekleyen ${pendingApprovalNotes.length} iş emrinin tümünü onaylamak istediğinize emin misiniz?`
+      )
+    ) {
+      return;
+    }
+    setIsBulkProcessing(true);
+    try {
+      await approveMultipleNotes(pendingApprovalNotes.map((n) => n.id));
+    } catch (err) {
+      console.error('Toplu onaylama hatası:', err);
+      alert('Toplu onaylama sırasında bir hata oluştu.');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const handleApproveSelected = async () => {
+    if (selectedIds.length === 0 || isBulkProcessing) return;
+    if (
+      !window.confirm(
+        `Seçilen ${selectedIds.length} iş emrini onaylamak istediğinize emin misiniz?`
+      )
+    ) {
+      return;
+    }
+    setIsBulkProcessing(true);
+    try {
+      await approveMultipleNotes(selectedIds);
+      setSelectionMode(false);
+      setSelectedIds([]);
+    } catch (err) {
+      console.error('Seçilenleri onaylama hatası:', err);
+      alert('İşlem sırasında bir hata oluştu.');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const handleConfirmBulkComplete = async () => {
+    if (selectedIds.length === 0 || isBulkProcessing) return;
+    setIsBulkProcessing(true);
+    try {
+      await completeMultipleNotes(selectedIds, bulkCompletionNote.trim() || undefined);
+      setIsBulkCompleteModalOpen(false);
+      setBulkCompletionNote('');
+      setSelectionMode(false);
+      setSelectedIds([]);
+    } catch (err) {
+      console.error('Toplu tamamlama hatası:', err);
+      alert('Onaya gönderme sırasında bir hata oluştu.');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
   const handleOpenAdd = () => {
     setEditingNote(null);
     setIsModalOpen(true);
@@ -229,14 +338,40 @@ export const NotesView: React.FC = () => {
             )}
           </div>
 
-          {/* New Note Button */}
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all active:scale-95 shrink-0"
-          >
-            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>Yeni İş Emri Ekle</span>
-          </button>
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            {!selectionMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectionMode(true);
+                  if (isAdmin) {
+                    const ids = pendingApprovalNotes.map((n) => n.id);
+                    setSelectedIds(ids.length > 0 ? ids : selectableNotes.map((n) => n.id));
+                  } else {
+                    const completable = filteredNotes
+                      .filter((n) => !n.status || n.status === 'pending' || n.status === 'rejected')
+                      .map((n) => n.id);
+                    setSelectedIds(completable);
+                  }
+                }}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-extrabold text-xs sm:text-sm shadow-xs transition-all active:scale-95 cursor-pointer"
+                title="Birden fazla iş emrini seçerek işlem yapın"
+              >
+                <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>{isAdmin ? 'Toplu Seçim' : 'Toplu Onaya Gönder'}</span>
+              </button>
+            )}
+
+            {/* New Note Button */}
+            <button
+              onClick={handleOpenAdd}
+              className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Yeni İş Emri Ekle</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter Pills with Approval/Pending/Rejected categories */}
@@ -320,6 +455,113 @@ export const NotesView: React.FC = () => {
         </div>
       </div>
 
+      {/* Admin Quick Approval Banner */}
+      {isAdmin && pendingApprovalNotes.length > 0 && !selectionMode && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-950 dark:text-amber-100 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-black">
+                Onay Bekleyen {pendingApprovalNotes.length} İş Emri Var
+              </div>
+              <div className="text-xs text-amber-700 dark:text-amber-300">
+                Personellerin tamamladığı iş emirlerini tek tuşla topluca onaylayabilir veya seçerek inceleyebilirsiniz.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              disabled={isBulkProcessing}
+              onClick={handleApproveAllPending}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {isBulkProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCheck className="w-4 h-4" />
+              )}
+              <span>Tümünü Onayla ({pendingApprovalNotes.length})</span>
+            </button>
+            <button
+              onClick={() => {
+                setSelectionMode(true);
+                setSelectedIds(pendingApprovalNotes.map((n) => n.id));
+              }}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-100/50 dark:hover:bg-amber-900/40 text-xs font-bold transition-all cursor-pointer shadow-xs"
+            >
+              <CheckSquare className="w-4 h-4" />
+              <span>Kutucuklarla Seç</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Active Selection Mode Bar */}
+      {selectionMode && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border-2 border-blue-500 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-slate-100">
+                Toplu İşlem Modu: {selectedIds.length} / {selectableNotes.length} seçildi
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                Kartların sol üstündeki kutucukları işaretleyerek işlemi tamamlayın.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <button
+              onClick={handleToggleSelectAll}
+              className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all cursor-pointer"
+            >
+              {selectedIds.length === selectableNotes.length && selectableNotes.length > 0
+                ? 'Seçimi Bırak'
+                : 'Tümünü Seç'}
+            </button>
+
+            {isAdmin ? (
+              <button
+                disabled={selectedIds.length === 0 || isBulkProcessing}
+                onClick={handleApproveSelected}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isBulkProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCheck className="w-4 h-4" />
+                )}
+                <span>Seçilenleri Onayla ({selectedIds.length})</span>
+              </button>
+            ) : (
+              <button
+                disabled={selectedIds.length === 0 || isBulkProcessing}
+                onClick={() => setIsBulkCompleteModalOpen(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>Seçilenleri Onaya Gönder ({selectedIds.length})</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setSelectionMode(false);
+                setSelectedIds([]);
+              }}
+              className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition-all cursor-pointer"
+            >
+              Kapat
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Notes Grid (Responsive 1/2/3 columns) */}
       {isLoading ? (
         <div className="text-center py-20 text-slate-400 text-sm">Yükleniyor...</div>
@@ -377,6 +619,9 @@ export const NotesView: React.FC = () => {
             <NoteCard
               key={note.id}
               note={note}
+              selectionMode={selectionMode}
+              isSelected={selectedIds.includes(note.id)}
+              onToggleSelect={() => handleToggleSelect(note.id)}
               onEdit={() => {
                 if (isAdmin || note.createdBy === currentUser?.id) {
                   handleOpenEdit(note);
@@ -405,6 +650,67 @@ export const NotesView: React.FC = () => {
         editingNote={editingNote}
         onSave={handleSave}
       />
+
+      {/* Bulk Complete Modal for Staff */}
+      {isBulkCompleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 sm:p-6 max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-black text-base">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <span>Toplu Onaya Gönder ({selectedIds.length} İş Emri)</span>
+              </div>
+              <button
+                onClick={() => setIsBulkCompleteModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Seçtiğiniz {selectedIds.length} adet iş emri yönetici onayına sunulacaktır. İsteğe bağlı olarak ortak bir tamamlama açıklaması ekleyebilirsiniz.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Tamamlama Açıklaması (İsteğe Bağlı)
+              </label>
+              <textarea
+                value={bulkCompletionNote}
+                onChange={(e) => setBulkCompletionNote(e.target.value)}
+                rows={3}
+                placeholder="Örn: Belirtilen kurulumlar eksiksiz tamamlandı..."
+                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none font-medium"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkCompleteModalOpen(false)}
+                disabled={isBulkProcessing}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkComplete}
+                disabled={isBulkProcessing}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isBulkProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>{isBulkProcessing ? 'Gönderiliyor...' : 'Onaya Gönder'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

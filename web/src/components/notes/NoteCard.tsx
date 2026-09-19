@@ -16,6 +16,7 @@ import {
   X,
   RotateCcw,
   Building2,
+  Loader2,
 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -30,11 +31,22 @@ interface NoteCardProps {
   note: GeneralNote;
   onEdit: () => void;
   onDelete: () => void;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) => {
+export const NoteCard: React.FC<NoteCardProps> = ({
+  note,
+  onEdit,
+  onDelete,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
+}) => {
   const { user: currentUser } = useAuth();
   const { completeNote, approveNote, rejectNote } = useStorage();
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const isAdmin = isUserAdmin(currentUser);
   const isCreatedByMe = note.createdBy === currentUser?.id;
@@ -78,6 +90,16 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
         minute: '2-digit',
       })
     : '';
+
+  const handleApprove = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await approveNote(note.id);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Determine target description for admin
   const isCustomTarget =
@@ -138,6 +160,26 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
 
       {/* Header & Badges */}
       <div className="flex items-start justify-between gap-2">
+        {selectionMode && onToggleSelect && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect();
+            }}
+            className="cursor-pointer mr-1 mt-0.5 shrink-0"
+            title={isSelected ? 'Seçimi Kaldır' : 'Seç'}
+          >
+            <div
+              className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-blue-400'
+              }`}
+            >
+              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+            </div>
+          </div>
+        )}
         <div className="space-y-1.5 flex-1">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-slate-500 flex-wrap">
             <span>{formattedCreated}</span>
@@ -437,15 +479,21 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
           {note.status === 'pending_approval' && (
             <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-2">
               <button
-                onClick={() => approveNote(note.id)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs shadow-xs transition-all"
+                disabled={isProcessing}
+                onClick={handleApprove}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
               >
-                <Check className="w-4 h-4" />
-                <span>Onayla</span>
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                <span>{isProcessing ? 'Onaylanıyor...' : 'Onayla'}</span>
               </button>
               <button
+                disabled={isProcessing}
                 onClick={() => setIsRejectModalOpen(true)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/50 active:scale-95 font-extrabold text-xs transition-all"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/50 active:scale-95 disabled:opacity-60 font-extrabold text-xs transition-all cursor-pointer"
               >
                 <X className="w-4 h-4" />
                 <span>Reddet</span>
@@ -456,11 +504,16 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete }) =>
           {note.status === 'rejected' && (
             <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-end">
               <button
-                onClick={() => approveNote(note.id)}
-                className="flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-bold text-xs transition-all"
+                disabled={isProcessing}
+                onClick={handleApprove}
+                className="flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-60 font-bold text-xs transition-all cursor-pointer"
               >
-                <Check className="w-3.5 h-3.5" />
-                <span>Yine de Onayla</span>
+                {isProcessing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                <span>{isProcessing ? 'Onaylanıyor...' : 'Yine de Onayla'}</span>
               </button>
             </div>
           )}
