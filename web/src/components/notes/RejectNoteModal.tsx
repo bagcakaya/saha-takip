@@ -30,11 +30,11 @@ export const RejectNoteModal: React.FC<RejectNoteModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    onClose();
     try {
       await onConfirm(reason.trim());
-      onClose();
     } catch (err) {
-      console.error(err);
+      console.error('RejectNoteModal submit error:', err);
     } finally {
       setIsSubmitting(false);
     }

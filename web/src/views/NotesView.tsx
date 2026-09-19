@@ -217,9 +217,10 @@ export const NotesView: React.FC = () => {
     ) {
       return;
     }
+    const idsToApprove = pendingApprovalNotes.map((n) => n.id);
     setIsBulkProcessing(true);
     try {
-      await approveMultipleNotes(pendingApprovalNotes.map((n) => n.id));
+      await approveMultipleNotes(idsToApprove);
     } catch (err) {
       console.error('Toplu onaylama hatası:', err);
       alert('Toplu onaylama sırasında bir hata oluştu.');
@@ -237,11 +238,12 @@ export const NotesView: React.FC = () => {
     ) {
       return;
     }
+    const idsToApprove = [...selectedIds];
+    setSelectionMode(false);
+    setSelectedIds([]);
     setIsBulkProcessing(true);
     try {
-      await approveMultipleNotes(selectedIds);
-      setSelectionMode(false);
-      setSelectedIds([]);
+      await approveMultipleNotes(idsToApprove);
     } catch (err) {
       console.error('Seçilenleri onaylama hatası:', err);
       alert('İşlem sırasında bir hata oluştu.');
@@ -252,13 +254,15 @@ export const NotesView: React.FC = () => {
 
   const handleConfirmBulkComplete = async () => {
     if (selectedIds.length === 0 || isBulkProcessing) return;
+    const idsToComplete = [...selectedIds];
+    const noteText = bulkCompletionNote.trim() || undefined;
+    setIsBulkCompleteModalOpen(false);
+    setBulkCompletionNote('');
+    setSelectionMode(false);
+    setSelectedIds([]);
     setIsBulkProcessing(true);
     try {
-      await completeMultipleNotes(selectedIds, bulkCompletionNote.trim() || undefined);
-      setIsBulkCompleteModalOpen(false);
-      setBulkCompletionNote('');
-      setSelectionMode(false);
-      setSelectedIds([]);
+      await completeMultipleNotes(idsToComplete, noteText);
     } catch (err) {
       console.error('Toplu tamamlama hatası:', err);
       alert('Onaya gönderme sırasında bir hata oluştu.');

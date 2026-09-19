@@ -58,11 +58,11 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    onClose();
     try {
       await onConfirm(completionNote.trim(), completionPhotos);
-      onClose();
     } catch (err) {
-      console.error(err);
+      console.error('CompleteNoteModal submit error:', err);
     } finally {
       setIsSubmitting(false);
     }

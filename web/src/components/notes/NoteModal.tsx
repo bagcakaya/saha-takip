@@ -183,8 +183,20 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       .map((id) => users.find((u) => u.id === id)?.name)
       .filter(Boolean) as string[];
 
+    // Close modal immediately for instant UI feedback
+    setIsSubmitting(true);
+    onClose();
+
+    if (notifyWhatsapp && targetMode !== 'self') {
+      const cariPrefix = cariName.trim() ? `🏢 CARİ: ${cariName.trim()}\n\n` : '';
+      WhatsappService.shareNote({
+        content: `${cariPrefix}${content.trim()}`,
+        senderName: currentUser?.name || currentUser?.username || 'Yetkili',
+        targetUserName: targetMode === 'all' ? 'Tüm Personeller' : targetUserNames.join(', '),
+      });
+    }
+
     try {
-      setIsSubmitting(true);
       await onSave(
         content.trim(),
         reminderActive,
@@ -195,17 +207,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
         photos,
         cariName.trim() || undefined
       );
-
-      if (notifyWhatsapp && targetMode !== 'self') {
-        const cariPrefix = cariName.trim() ? `🏢 CARİ: ${cariName.trim()}\n\n` : '';
-        WhatsappService.shareNote({
-          content: `${cariPrefix}${content.trim()}`,
-          senderName: currentUser?.name || currentUser?.username || 'Yetkili',
-          targetUserName: targetMode === 'all' ? 'Tüm Personeller' : targetUserNames.join(', '),
-        });
-      }
-
-      onClose();
+    } catch (err) {
+      console.error('onSave note error:', err);
     } finally {
       setIsSubmitting(false);
     }

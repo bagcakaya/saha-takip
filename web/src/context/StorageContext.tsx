@@ -1363,13 +1363,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
       if (adminIds.length > 0) {
         const staffName = user?.name || user?.username || 'Saha Personeli';
-        await OneSignalService.sendPushNotification({
+        OneSignalService.sendPushNotification({
           title: '📍 Yeni Kurulum Eklendi!',
           message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
-        });
+        }).catch((err) => console.warn('OneSignal new loc push error:', err));
       }
     }
   };
@@ -1433,13 +1433,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
 
       if (adminIds.length > 0) {
-        await OneSignalService.sendPushNotification({
+        OneSignalService.sendPushNotification({
           title: '✅ Kurulum Tamamlandı!',
           message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
-        });
+        }).catch((err) => console.warn('OneSignal complete task push error:', err));
       }
 
       if (isUserAdmin(user)) {
@@ -1621,31 +1621,37 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     await saveLocations(newLocations);
 
-    // Send instant hardware push notification to Admin(s)
-    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-    if (adminIds.length === 0) {
+    // Send instant hardware push notification to Admin(s) in background
+    (async () => {
       try {
-        const cloudUsers = await UserService.fetchUsersFromCloud();
-        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-      } catch {
-        // ignore
+        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        if (adminIds.length === 0) {
+          try {
+            const cloudUsers = await UserService.fetchUsersFromCloud();
+            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+          } catch {
+            // ignore
+          }
+        }
+        if (adminIds.length === 0) {
+          adminIds = ['admin-1'];
+        }
+
+        const locSnippet = targetLocation.name.length > 50 ? `${targetLocation.name.slice(0, 50)}...` : targetLocation.name;
+        const locExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+
+        await OneSignalService.sendPushNotification({
+          title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+          collapseId: `loc_comp_${targetLocation.id}`,
+        });
+      } catch (err) {
+        console.warn('OneSignal completeLocation push error:', err);
       }
-    }
-    if (adminIds.length === 0) {
-      adminIds = ['admin-1'];
-    }
-
-    const locSnippet = targetLocation.name.length > 50 ? `${targetLocation.name.slice(0, 50)}...` : targetLocation.name;
-    const locExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
-
-    await OneSignalService.sendPushNotification({
-      title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
-      targetMode: 'custom',
-      targetUserIds: adminIds,
-      url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
-      collapseId: `loc_comp_${targetLocation.id}`,
-    });
+    })();
   };
 
   // Admin approves completed location
@@ -1683,24 +1689,31 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     await saveLocations(newLocations);
 
-    const targetRecipientIds = Array.from(
-      new Set(
-        [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
-      )
-    );
+    // Send push notification in background
+    (async () => {
+      try {
+        const targetRecipientIds = Array.from(
+          new Set(
+            [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
+          )
+        );
 
-    const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
+        const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
 
-    if (targetRecipientIds.length > 0) {
-      await OneSignalService.sendPushNotification({
-        title: '✅ Kurulum Onaylandı!',
-        message: `${adminName}, "${locSnippet}" kurulumunuzu onayladı.`,
-        targetMode: 'custom',
-        targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
-        collapseId: `loc_app_${id}`,
-      });
-    }
+        if (targetRecipientIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '✅ Kurulum Onaylandı!',
+            message: `${adminName}, "${locSnippet}" kurulumunuzu onayladı.`,
+            targetMode: 'custom',
+            targetUserIds: targetRecipientIds,
+            url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
+            collapseId: `loc_app_${id}`,
+          });
+        }
+      } catch (err) {
+        console.warn('OneSignal approveLocation push error:', err);
+      }
+    })();
   };
 
   // Admin rejects completed location with reason
@@ -1740,24 +1753,31 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     await saveLocations(newLocations);
 
-    const targetRecipientIds = Array.from(
-      new Set(
-        [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
-      )
-    );
+    // Send push notification in background
+    (async () => {
+      try {
+        const targetRecipientIds = Array.from(
+          new Set(
+            [targetLoc.completedBy, targetLoc.createdBy].filter(Boolean) as string[]
+          )
+        );
 
-    const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
+        const locSnippet = targetLoc.name.length > 50 ? `${targetLoc.name.slice(0, 50)}...` : targetLoc.name;
 
-    if (targetRecipientIds.length > 0) {
-      await OneSignalService.sendPushNotification({
-        title: '❌ Kurulum Reddedildi!',
-        message: `${adminName}, "${locSnippet}" kurulumunu reddetti. Gerekçe: ${trimmedReason}`,
-        targetMode: 'custom',
-        targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
-        collapseId: `loc_rej_${id}`,
-      });
-    }
+        if (targetRecipientIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '❌ Kurulum Reddedildi!',
+            message: `${adminName}, "${locSnippet}" kurulumunu reddetti. Gerekçe: ${trimmedReason}`,
+            targetMode: 'custom',
+            targetUserIds: targetRecipientIds,
+            url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
+            collapseId: `loc_rej_${id}`,
+          });
+        }
+      } catch (err) {
+        console.warn('OneSignal rejectLocation push error:', err);
+      }
+    })();
   };
 
   // Add general note with single/multi target user sharing and photo support
@@ -1799,7 +1819,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_NOTES_KEY(user.id, compCode), seenNotes);
     }
 
-    // Send hardware push notification directly to locked phones via OneSignal
+    // 1. Instant optimistic state update
+    const newNotes = [newNote, ...allNotesRef.current];
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    // 2. Background atomic persistence
+    StorageService.saveSingleNote(newNote).catch((err) => {
+      console.warn('saveSingleNote background error:', err);
+    });
+
+    // 3. Background hardware push notification directly to locked phones via OneSignal (non-blocking)
     if (targetMode !== 'self') {
       const notifTitle = newNote.cariName
         ? `📋 ${newNote.cariName} - İş Emri (${newNote.createdByName})`
@@ -1810,29 +1840,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : newNote.content;
 
       // 1. Immediate arrival alert
-      await OneSignalService.sendPushNotification({
+      OneSignalService.sendPushNotification({
         title: notifTitle,
         message: notifMsg,
         targetMode,
         targetUserIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-      });
+      }).catch((err) => console.warn('OneSignal addNote push error:', err));
 
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
       if (reminderActive && reminderDate) {
-        await OneSignalService.sendPushNotification({
+        OneSignalService.sendPushNotification({
           title: newNote.cariName ? `⏰ [${newNote.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
           message: notifMsg,
           targetMode,
           targetUserIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
           sendAfter: new Date(reminderDate).toISOString(),
-        });
+        }).catch((err) => console.warn('OneSignal addNote reminder push error:', err));
       }
     }
-
-    const newNotes = [newNote, ...allNotes];
-    await saveNotes(newNotes);
   };
 
   // Update general note with single/multi target user sharing and photo support
@@ -1848,13 +1875,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     cariName?: string
   ) => {
     if (!content.trim()) return;
-    const newNotes = allNotes.map((n) => {
+    let targetUpdatedNote: GeneralNote | null = null;
+    const newNotes = allNotesRef.current.map((n) => {
       if (n.id === id) {
         const nextMode = targetMode !== undefined ? targetMode : n.targetMode || 'self';
         const nextIds = targetUserIds !== undefined ? targetUserIds : n.targetUserIds || [];
         const nextNames = targetUserNames !== undefined ? targetUserNames : n.targetUserNames || [];
 
-        return {
+        const updated: GeneralNote = {
           ...n,
           cariName: cariName !== undefined ? (cariName.trim() || undefined) : n.cariName,
           content: content.trim(),
@@ -1868,16 +1896,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           photos: photos !== undefined ? photos : n.photos || [],
           notified: false,
         };
+        targetUpdatedNote = updated;
+        return updated;
       }
       return n;
     });
-    await saveNotes(newNotes);
+
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    if (targetUpdatedNote) {
+      StorageService.saveSingleNote(targetUpdatedNote).catch((err) => {
+        console.warn('saveSingleNote update error:', err);
+      });
+    }
   };
 
   // Delete general note
   const deleteNote = async (id: string) => {
-    const newNotes = allNotes.filter((n) => n.id !== id);
-    await saveNotes(newNotes);
+    const newNotes = allNotesRef.current.filter((n) => n.id !== id);
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+    StorageService.saveNotes(newNotes).catch((err) => {
+      console.warn('saveNotes delete error:', err);
+    });
   };
 
   // Mark note as completed by Staff (submits to Admin for approval)
@@ -1917,34 +1959,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompleted);
     }
 
-    await StorageService.saveSingleNote(updatedNote);
-
-    // Send instant hardware push notification to Admin(s)
-    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-    if (adminIds.length === 0) {
-      try {
-        const cloudUsers = await UserService.fetchUsersFromCloud();
-        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-      } catch {
-        // ignore
-      }
-    }
-    if (adminIds.length === 0) {
-      adminIds = ['admin-1'];
-    }
-
-    const noteSnippet =
-      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
-    const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
-
-    await OneSignalService.sendPushNotification({
-      title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
-      targetMode: 'custom',
-      targetUserIds: adminIds,
-      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-      collapseId: `note_comp_${targetNote.id}`,
+    // Background atomic persistence (non-blocking)
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote completeNote error:', err);
     });
+
+    // Send instant hardware push notification to Admin(s) in background
+    (async () => {
+      try {
+        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        if (adminIds.length === 0) {
+          try {
+            const cloudUsers = await UserService.fetchUsersFromCloud();
+            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+          } catch {
+            // ignore
+          }
+        }
+        if (adminIds.length === 0) {
+          adminIds = ['admin-1'];
+        }
+
+        const noteSnippet =
+          targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+        const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+
+        await OneSignalService.sendPushNotification({
+          title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+          collapseId: `note_comp_${targetNote.id}`,
+        });
+      } catch (pushErr) {
+        console.warn('OneSignal completeNote push error:', pushErr);
+      }
+    })();
   };
 
   // Admin approves completed work order
@@ -1981,34 +2032,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
-    await StorageService.saveSingleNote(updatedNote);
+    // Background atomic persistence (non-blocking)
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote approveNote error:', err);
+    });
 
-    // Notify Staff who completed it or was targeted
-    const targetRecipientIds = Array.from(
-      new Set(
-        [
-          targetNote.completedBy,
-          ...(targetNote.targetUserIds || []),
-          targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
-            ? targetNote.targetUserId
-            : undefined,
-        ].filter(Boolean) as string[]
-      )
-    );
+    // Notify Staff who completed it or was targeted in background
+    (async () => {
+      try {
+        const targetRecipientIds = Array.from(
+          new Set(
+            [
+              targetNote.completedBy,
+              ...(targetNote.targetUserIds || []),
+              targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
+                ? targetNote.targetUserId
+                : undefined,
+            ].filter(Boolean) as string[]
+          )
+        );
 
-    const noteSnippet =
-      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+        const noteSnippet =
+          targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
 
-    if (targetRecipientIds.length > 0) {
-      await OneSignalService.sendPushNotification({
-        title: '✅ İş Emri Onaylandı!',
-        message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
-        targetMode: 'custom',
-        targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
-        collapseId: `note_app_${id}`,
-      });
-    }
+        if (targetRecipientIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '✅ İş Emri Onaylandı!',
+            message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
+            targetMode: 'custom',
+            targetUserIds: targetRecipientIds,
+            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
+            collapseId: `note_app_${id}`,
+          });
+        }
+      } catch (pushErr) {
+        console.warn('OneSignal approveNote push error:', pushErr);
+      }
+    })();
   };
 
   // Admin rejects completed work order with reason
@@ -2047,34 +2107,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
-    await StorageService.saveSingleNote(updatedNote);
+    // Background atomic persistence (non-blocking)
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote rejectNote error:', err);
+    });
 
-    // Notify Staff who completed it or was targeted
-    const targetRecipientIds = Array.from(
-      new Set(
-        [
-          targetNote.completedBy,
-          ...(targetNote.targetUserIds || []),
-          targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
-            ? targetNote.targetUserId
-            : undefined,
-        ].filter(Boolean) as string[]
-      )
-    );
+    // Notify Staff who completed it or was targeted in background
+    (async () => {
+      try {
+        const targetRecipientIds = Array.from(
+          new Set(
+            [
+              targetNote.completedBy,
+              ...(targetNote.targetUserIds || []),
+              targetNote.targetUserId !== 'all' && targetNote.targetUserId !== 'self'
+                ? targetNote.targetUserId
+                : undefined,
+            ].filter(Boolean) as string[]
+          )
+        );
 
-    const noteSnippet =
-      targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+        const noteSnippet =
+          targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
 
-    if (targetRecipientIds.length > 0) {
-      await OneSignalService.sendPushNotification({
-        title: '❌ İş Emri Reddedildi!',
-        message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
-        targetMode: 'custom',
-        targetUserIds: targetRecipientIds,
-        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
-        collapseId: `note_rej_${id}`,
-      });
-    }
+        if (targetRecipientIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '❌ İş Emri Reddedildi!',
+            message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
+            targetMode: 'custom',
+            targetUserIds: targetRecipientIds,
+            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
+            collapseId: `note_rej_${id}`,
+          });
+        }
+      } catch (pushErr) {
+        console.warn('OneSignal rejectNote push error:', pushErr);
+      }
+    })();
   };
 
   // Bulk: Admin approves multiple work orders in one atomic batch
@@ -2118,29 +2187,38 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovals);
     }
 
-    await StorageService.saveMultipleNotes(updatedNotesList);
-
-    // Notify all affected staff
-    const allRecipients = new Set<string>();
-    updatedNotesList.forEach((n) => {
-      if (n.completedBy) allRecipients.add(n.completedBy);
-      if (Array.isArray(n.targetUserIds)) n.targetUserIds.forEach((uid) => allRecipients.add(uid));
-      if (n.targetUserId && n.targetUserId !== 'all' && n.targetUserId !== 'self') {
-        allRecipients.add(n.targetUserId);
-      }
+    // Background atomic batch persistence (non-blocking)
+    StorageService.saveMultipleNotes(updatedNotesList).catch((err) => {
+      console.warn('saveMultipleNotes approve error:', err);
     });
 
-    const recipientList = Array.from(allRecipients);
-    if (recipientList.length > 0) {
-      await OneSignalService.sendPushNotification({
-        title: '✅ İş Emirleri Onaylandı!',
-        message: `${adminName}, ${updatedNotesList.length} adet iş emrinizi başarıyla onayladı.`,
-        targetMode: 'custom',
-        targetUserIds: recipientList,
-        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
-        collapseId: `bulk_app_${approvedAt}`,
-      });
-    }
+    // Notify all affected staff in background
+    (async () => {
+      try {
+        const allRecipients = new Set<string>();
+        updatedNotesList.forEach((n) => {
+          if (n.completedBy) allRecipients.add(n.completedBy);
+          if (Array.isArray(n.targetUserIds)) n.targetUserIds.forEach((uid) => allRecipients.add(uid));
+          if (n.targetUserId && n.targetUserId !== 'all' && n.targetUserId !== 'self') {
+            allRecipients.add(n.targetUserId);
+          }
+        });
+
+        const recipientList = Array.from(allRecipients);
+        if (recipientList.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '✅ İş Emirleri Onaylandı!',
+            message: `${adminName}, ${updatedNotesList.length} adet iş emrinizi başarıyla onayladı.`,
+            targetMode: 'custom',
+            targetUserIds: recipientList,
+            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
+            collapseId: `bulk_app_${approvedAt}`,
+          });
+        }
+      } catch (pushErr) {
+        console.warn('OneSignal approveMultipleNotes push error:', pushErr);
+      }
+    })();
   };
 
   // Bulk: Staff completes and submits multiple work orders for approval in one atomic batch
@@ -2186,27 +2264,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompleted);
     }
 
-    await StorageService.saveMultipleNotes(updatedNotesList);
-
-    // Notify Admins
-    let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-    if (adminIds.length === 0) {
-      try {
-        const cloudUsers = await UserService.fetchUsersFromCloud();
-        adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-      } catch {}
-    }
-    if (adminIds.length === 0) adminIds = ['admin-1'];
-
-    const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
-    await OneSignalService.sendPushNotification({
-      title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
-      message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
-      targetMode: 'custom',
-      targetUserIds: adminIds,
-      url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-      collapseId: `bulk_comp_${completedAt}`,
+    // Background atomic batch persistence (non-blocking)
+    StorageService.saveMultipleNotes(updatedNotesList).catch((err) => {
+      console.warn('saveMultipleNotes complete error:', err);
     });
+
+    // Notify Admins in background
+    (async () => {
+      try {
+        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        if (adminIds.length === 0) {
+          try {
+            const cloudUsers = await UserService.fetchUsersFromCloud();
+            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+          } catch {}
+        }
+        if (adminIds.length === 0) adminIds = ['admin-1'];
+
+        const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
+        await OneSignalService.sendPushNotification({
+          title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
+          targetMode: 'custom',
+          targetUserIds: adminIds,
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+          collapseId: `bulk_comp_${completedAt}`,
+        });
+      } catch (pushErr) {
+        console.warn('OneSignal completeMultipleNotes push error:', pushErr);
+      }
+    })();
   };
 
   // Admin Reminder / Directive Management
@@ -2324,13 +2411,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If warranty, schedule hardware push alert via OneSignal at 20 days exact timestamp
     if (newItem.type === 'warranty' && newItem.reminderActive && newItem.reminderDate) {
-      await OneSignalService.sendPushNotification({
+      OneSignalService.sendPushNotification({
         title: `🛡️ Garanti Takibi (20 Gün): ${newItem.companyName}`,
         message: `${newItem.companyName} firmasına gönderilen garanti ürününün 20 günü doldu. Lütfen son durumunu sorgulayın.`,
         targetMode: 'all',
         url: 'https://saha-takip-beige.vercel.app/?tab=returns',
         sendAfter: new Date(newItem.reminderDate).toISOString(),
-      });
+      }).catch((err) => console.warn('OneSignal warranty reminder push error:', err));
     }
 
     const updated = [newItem, ...returnWarrantyItems];
@@ -2382,19 +2469,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
       const message = `${updaterName}, ${cariText}${existingItem.companyName} firmasına gönderilen ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText || trackingText}`;
 
-      // 1. OneSignal hardware push notification directly to all Admins
-      try {
-        await OneSignalService.sendPushNotification({
-          title,
-          message,
-          targetMode: 'admin',
-          companyCode: compCode,
-          url: 'https://saha-takip-beige.vercel.app/?tab=returns',
-          collapseId: `ret_comp_${id}`,
-        });
-      } catch (err) {
-        console.warn('OneSignal return completed push error:', err);
-      }
+      // 1. OneSignal hardware push notification directly to all Admins (non-blocking)
+      OneSignalService.sendPushNotification({
+        title,
+        message,
+        targetMode: 'admin',
+        companyCode: compCode,
+        url: 'https://saha-takip-beige.vercel.app/?tab=returns',
+        collapseId: `ret_comp_${id}`,
+      }).catch((err) => console.warn('OneSignal return completed push error:', err));
 
       // 2. In-App Toast for current user if admin
       if (isUserAdmin(user)) {
@@ -2437,39 +2520,40 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [newService, ...allServices];
     await saveServices(updated);
 
-    // Send push notification directly to all Admins if created by staff
+    // Send push notification directly to all Admins if created by staff (non-blocking in background)
     if (!isUserAdmin(user)) {
-      let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-      if (adminIds.length === 0) {
+      (async () => {
         try {
-          const cloudUsers = await UserService.fetchUsersFromCloud();
-          adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
-        } catch {
-          // ignore
+          let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+          if (adminIds.length === 0) {
+            try {
+              const cloudUsers = await UserService.fetchUsersFromCloud();
+              adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+            } catch {
+              // ignore
+            }
+          }
+          if (adminIds.length === 0) {
+            adminIds = ['admin-1'];
+          }
+
+          const locText = newService.location ? ` (${newService.location})` : '';
+          const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
+          const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+
+          await OneSignalService.sendPushNotification({
+            title: '🔧 Yeni Servis Kaydı',
+            message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
+            targetMode: 'custom',
+            targetUserIds: adminIds,
+            companyCode: compCode,
+            url: 'https://saha-takip-beige.vercel.app/?tab=services',
+            collapseId: `srv_new_${newService.id}`,
+          });
+        } catch (err) {
+          console.warn('OneSignal new service push error:', err);
         }
-      }
-      if (adminIds.length === 0) {
-        adminIds = ['admin-1'];
-      }
-
-      const locText = newService.location ? ` (${newService.location})` : '';
-      const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
-      const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-
-      // Direct hardware push to all Admin User IDs
-      try {
-        await OneSignalService.sendPushNotification({
-          title: '🔧 Yeni Servis Kaydı',
-          message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: compCode,
-          url: 'https://saha-takip-beige.vercel.app/?tab=services',
-          collapseId: `srv_new_${newService.id}`,
-        });
-      } catch (err) {
-        console.warn('OneSignal new service push error:', err);
-      }
+      })();
     }
   };
 
@@ -3555,19 +3639,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       details = `${params.date} (${params.durationText})`;
     }
 
-    // Send OneSignal Push Notification to Admins
-    try {
-      await OneSignalService.sendPushNotification({
-        title: `📝 Yeni İzin Talebi: ${user.name}`,
-        message: `${user.name}, ${details} ${
-          params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
-        } İzin talebinde bulundu. Neden: ${params.reason}`,
-        targetMode: 'admin',
-        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      });
-    } catch (pushErr) {
+    // Send OneSignal Push Notification to Admins (non-blocking)
+    OneSignalService.sendPushNotification({
+      title: `📝 Yeni İzin Talebi: ${user.name}`,
+      message: `${user.name}, ${details} ${
+        params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
+      } İzin talebinde bulundu. Neden: ${params.reason}`,
+      targetMode: 'admin',
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch((pushErr) => {
       console.warn('İzin talebi bildirim gönderim hatası:', pushErr);
-    }
+    });
 
     return {
       success: true,
@@ -3596,20 +3678,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setLeaveRequests(updated);
     await StorageService.saveLeaveRequests(updated);
 
-    // Notify employee via push notification
-    try {
-      await OneSignalService.sendPushNotification({
-        title: '✅ İzin Talebiniz Onaylandı',
-        message: `Sayın ${req.userName}, ${
-          req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
-        } izin talebiniz (${req.durationText}) onaylandı.`,
-        targetUserIds: [req.userId],
-        targetMode: 'custom',
-        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      });
-    } catch (e) {
+    // Notify employee via push notification (non-blocking)
+    OneSignalService.sendPushNotification({
+      title: '✅ İzin Talebiniz Onaylandı',
+      message: `Sayın ${req.userName}, ${
+        req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
+      } izin talebiniz (${req.durationText}) onaylandı.`,
+      targetUserIds: [req.userId],
+      targetMode: 'custom',
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch((e) => {
       console.warn('İzin onay bildirimi hatası:', e);
-    }
+    });
 
     return {
       success: true,
@@ -3640,20 +3720,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setLeaveRequests(updated);
     await StorageService.saveLeaveRequests(updated);
 
-    // Notify employee via push notification
-    try {
-      await OneSignalService.sendPushNotification({
-        title: '❌ İzin Talebiniz Reddedildi',
-        message: `Sayın ${req.userName}, ${
-          req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
-        } izin talebiniz reddedildi.${reason ? ` Gerekçe: ${reason}` : ''}`,
-        targetUserIds: [req.userId],
-        targetMode: 'custom',
-        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      });
-    } catch (e) {
+    // Notify employee via push notification (non-blocking)
+    OneSignalService.sendPushNotification({
+      title: '❌ İzin Talebiniz Reddedildi',
+      message: `Sayın ${req.userName}, ${
+        req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
+      } izin talebiniz reddedildi.${reason ? ` Gerekçe: ${reason}` : ''}`,
+      targetUserIds: [req.userId],
+      targetMode: 'custom',
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch((e) => {
       console.warn('İzin ret bildirimi hatası:', e);
-    }
+    });
 
     return {
       success: true,
