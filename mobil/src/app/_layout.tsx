@@ -6,12 +6,17 @@ import { StorageProvider } from '../context/StorageContext';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
+import { MobileOneSignalService } from '../services/oneSignalService';
 
 function RootNavigator() {
   const { isAuthenticated, isLoading } = useAuth();
   const { isDark } = useAppTheme();
   const segments = useSegments();
   const router = useRouter();
+
+  useEffect(() => {
+    MobileOneSignalService.init();
+  }, []);
 
   useEffect(() => {
     if (isLoading) return;

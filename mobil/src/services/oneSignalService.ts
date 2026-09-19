@@ -1,0 +1,90 @@
+import { LogLevel, OneSignal } from 'react-native-onesignal';
+import { Platform } from 'react-native';
+import { router } from 'expo-router';
+
+export const ONESIGNAL_APP_ID = '03e50631-8d38-4796-a90f-ae524dab69fd';
+
+export const MobileOneSignalService = {
+  initialized: false,
+
+  /**
+   * Initializes OneSignal SDK, requests permissions and attaches click listeners
+   */
+  init(onNavigate?: (tab: string, filter?: string) => void) {
+    if (this.initialized || Platform.OS === 'web') return;
+    this.initialized = true;
+
+    try {
+      OneSignal.Debug.setLogLevel(LogLevel.Warn);
+      OneSignal.initialize(ONESIGNAL_APP_ID);
+
+      // Prompt for push notification permission (Mandatory on Android 13+ and iOS)
+      OneSignal.Notifications.requestPermission(true);
+
+      // Listen for push notification click / open events
+      OneSignal.Notifications.addEventListener('click', (event: any) => {
+        try {
+          const additionalData: any = event.notification.additionalData || {};
+          const tab = additionalData?.tab;
+          const filter = additionalData?.filter;
+
+          if (onNavigate && tab) {
+            onNavigate(tab, filter);
+            return;
+          }
+
+          // Route to appropriate tab in mobil app
+          if (tab === 'notes' || tab === 'reminders') {
+            router.push('/(tabs)/reminders' as any);
+          } else if (tab === 'returns') {
+            router.push('/(tabs)/returns' as any);
+          } else if (tab === 'services') {
+            router.push('/(tabs)/services' as any);
+          } else if (tab === 'installations') {
+            router.push('/(tabs)/installations' as any);
+          } else if (tab === 'attendance' || tab === 'staff_tracking') {
+            router.push('/(tabs)/attendance' as any);
+          }
+        } catch (e) {
+          console.warn('OneSignal notification click error:', e);
+        }
+      });
+    } catch (err) {
+      console.warn('OneSignal init error:', err);
+    }
+  },
+
+  /**
+   * Firmly links the current logged-in user to OneSignal external_id and tags
+   */
+  async login(user: { id: string; name?: string; role?: string; companyCode?: string }) {
+    if (Platform.OS === 'web' || !user?.id) return;
+    try {
+      if (!this.initialized) this.init();
+      OneSignal.login(user.id);
+
+      const tags: Record<string, string> = {
+        userId: user.id,
+        name: user.name || 'Personel',
+        role: user.role || 'user',
+        company_code: (user.companyCode || 'POLATLAR').toUpperCase(),
+        platform: Platform.OS,
+      };
+      OneSignal.User.addTags(tags);
+    } catch (err) {
+      console.warn('OneSignal login error:', err);
+    }
+  },
+
+  /**
+   * Unlinks the user on logout
+   */
+  logout() {
+    if (Platform.OS === 'web') return;
+    try {
+      OneSignal.logout();
+    } catch (err) {
+      console.warn('OneSignal logout error:', err);
+    }
+  },
+};

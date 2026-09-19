@@ -4,6 +4,7 @@ import { User, UserAccount, Company, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { supabase } from '../api/supabaseClient';
 import { CompanyService } from '../services/companyService';
+import { MobileOneSignalService } from '../services/oneSignalService';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -177,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const u: User = JSON.parse(savedUser);
           setUser(u);
           StorageService.setCompany(u.companyCode || 'POLATLAR');
+          MobileOneSignalService.login(u);
         }
         if (savedCompany) {
           setCompany(JSON.parse(savedCompany));
@@ -238,6 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(loggedUser);
       setCompany(compObj);
       StorageService.setCompany(cleanComp, compObj.id);
+      MobileOneSignalService.login(loggedUser);
 
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(loggedUser));
       await AsyncStorage.setItem(AUTH_COMPANY_KEY, JSON.stringify(compObj));
@@ -248,6 +251,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    MobileOneSignalService.logout();
     setUser(null);
     setCompany(null);
     await AsyncStorage.removeItem(AUTH_USER_KEY);

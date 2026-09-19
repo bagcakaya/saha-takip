@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "311231651112",
+    "project_id": "is-takip-sistemi-279d9",
+    "storage_bucket": "is-takip-sistemi-279d9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:311231651112:android:35e6d7555ba6164d89841d",
+        "android_client_info": {
+          "package_name": "com.sahatakip.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZbGkRrLBrNYV9DSs8bRWmgkfR4V6o-XI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
