@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Store,
   Clock,
+  Server,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -25,10 +26,12 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
-import { WeatherData, isUserAdmin } from '../../types/auth';
+import { WeatherData, isUserAdmin, canUserManageServerConfig } from '../../types/auth';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { CariListModal } from '../common/CariListModal';
+import { ServerSettingsModal } from '../auth/ServerSettingsModal';
+import { ServerConfigService } from '../../services/serverConfigService';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -59,6 +62,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
 
   const isAdmin = isUserAdmin(user);
+  const canManageServer = canUserManageServerConfig(user);
+  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
 
   // Live weather state for sidebar
   const [weather, setWeather] = useState<WeatherData>(() => {
@@ -585,6 +591,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                     <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
                   ) : null}
                 </button>
+                {canManageServer && (
+                  <button
+                    type="button"
+                    onClick={() => setIsServerModalOpen(true)}
+                    className={`p-2 rounded-xl transition-all relative cursor-pointer ${
+                      isLocalServer
+                        ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100'
+                        : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                    title={
+                      isLocalServer
+                        ? 'Yerel Sunucu (SQL Server) Aktif - Tıklayıp Yönetin'
+                        : 'Sunucu Bağlantı Ayarları (Sadece Yönetici)'
+                    }
+                  >
+                    <Server className="w-4 h-4" />
+                    {isLocalServer && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+                    )}
+                  </button>
+                )}
                 <ThemeToggle />
               </div>
             </div>
@@ -650,6 +677,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         isOpen={isCariListOpen}
         onClose={() => setIsCariListOpen(false)}
       />
+
+      {/* Server Settings Modal (Only for Authorized Admins: admin, murat) */}
+      {canManageServer && (
+        <ServerSettingsModal
+          isOpen={isServerModalOpen}
+          onClose={() => setIsServerModalOpen(false)}
+          onSaved={() => setIsLocalServer(ServerConfigService.isLocalMode())}
+        />
+      )}
     </>
   );
 };

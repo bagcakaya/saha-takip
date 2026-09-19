@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { canUserChangePassword } from '../../types/auth';
+import { canUserChangePassword, canUserManageServerConfig } from '../../types/auth';
 import {
   User,
   Building2,
@@ -36,6 +36,8 @@ export default function ProfileScreen() {
   const { user, company, logout, updateUser, refreshUsers } = useAuth();
   const { cariler, notes, addNote } = useStorage();
   const isDark = useColorScheme() === 'dark';
+
+  const canManageServer = canUserManageServerConfig(user);
 
   // Server settings modal state
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -270,70 +272,72 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      {/* 2.5. Server Connection Settings Card */}
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: isDark ? '#1e293b' : '#ffffff',
-            borderColor: isDark ? '#334155' : '#e2e8f0',
-          },
-        ]}
-      >
-        <View style={styles.cardTitleRow}>
-          <Server size={18} color="#3b82f6" />
-          <Text style={[styles.cardTitle, { color: isDark ? '#f8fafc' : '#0f172a' }]}>
-            Sunucu Bağlantı Ayarları
-          </Text>
-        </View>
-
-        <Text style={[styles.cardDesc, { color: isDark ? '#94a3b8' : '#64748b' }]}>
-          Uygulamanın bağlandığı veritabanı altyapısını (Windows Server 2022 SQL Server veya Bulut) buradan yönetebilirsiniz.
-        </Text>
-
+      {/* 2.5. Server Connection Settings Card (Only for Authorized Admins: admin, murat) */}
+      {canManageServer && (
         <View
           style={[
-            styles.serverStatusBox,
+            styles.card,
             {
-              backgroundColor: isDark ? '#0f172a' : '#f8fafc',
-              borderColor: serverConfig.mode === 'local' ? '#10b981' : (isDark ? '#334155' : '#cbd5e1'),
+              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
             },
           ]}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6',
-                }}
-              />
-              <Text style={[styles.serverModeText, { color: isDark ? '#ffffff' : '#0f172a' }]} numberOfLines={1}>
-                {serverConfig.mode === 'local' ? 'Yerel Sunucu (SQL Server)' : 'Bulut Modu (Varsayılan)'}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.configBtn,
-                { backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6' },
-              ]}
-              onPress={() => setIsServerModalOpen(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.configBtnText}>Yapılandır</Text>
-            </TouchableOpacity>
+          <View style={styles.cardTitleRow}>
+            <Server size={18} color="#3b82f6" />
+            <Text style={[styles.cardTitle, { color: isDark ? '#f8fafc' : '#0f172a' }]}>
+              Sunucu Bağlantı Ayarları
+            </Text>
           </View>
 
-          {serverConfig.mode === 'local' && (
-            <Text style={styles.serverUrlText} numberOfLines={1}>
-              Adres: {serverConfig.localUrl}
-            </Text>
-          )}
+          <Text style={[styles.cardDesc, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+            Uygulamanın bağlandığı veritabanı altyapısını (Windows Server 2022 SQL Server veya Bulut) buradan yönetebilirsiniz.
+          </Text>
+
+          <View
+            style={[
+              styles.serverStatusBox,
+              {
+                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+                borderColor: serverConfig.mode === 'local' ? '#10b981' : (isDark ? '#334155' : '#cbd5e1'),
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6',
+                  }}
+                />
+                <Text style={[styles.serverModeText, { color: isDark ? '#ffffff' : '#0f172a' }]} numberOfLines={1}>
+                  {serverConfig.mode === 'local' ? 'Yerel Sunucu (SQL Server)' : 'Bulut Modu (Varsayılan)'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.configBtn,
+                  { backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6' },
+                ]}
+                onPress={() => setIsServerModalOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.configBtnText}>Yapılandır</Text>
+              </TouchableOpacity>
+            </View>
+
+            {serverConfig.mode === 'local' && (
+              <Text style={styles.serverUrlText} numberOfLines={1}>
+                Adres: {serverConfig.localUrl}
+              </Text>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* 3. Fast Cari Search Tool */}
       <View
@@ -465,11 +469,13 @@ export default function ProfileScreen() {
       <Text style={styles.versionText}>İş Takip Sistemi Mobil v1.0.0 (Expo SDK 57)</Text>
     </ScrollView>
 
-    <ServerSettingsModal
-      visible={isServerModalOpen}
-      onClose={() => setIsServerModalOpen(false)}
-      onSaved={() => setServerConfig(MobileServerConfigService.getConfig())}
-    />
+    {canManageServer && (
+      <ServerSettingsModal
+        visible={isServerModalOpen}
+        onClose={() => setIsServerModalOpen(false)}
+        onSaved={() => setServerConfig(MobileServerConfigService.getConfig())}
+      />
+    )}
   </>
   );
 }

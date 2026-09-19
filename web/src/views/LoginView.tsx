@@ -10,7 +10,6 @@ import {
   Building2,
   KeyRound,
   MessageCircle,
-  Server,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { WeatherService } from '../services/weatherService';
@@ -18,8 +17,6 @@ import { TimeOfDay, WeatherCondition, WeatherData } from '../types/auth';
 import { WeatherBackground } from '../components/auth/WeatherBackground';
 import { ContactModal } from '../components/auth/ContactModal';
 import { ForgotPasswordModal } from '../components/auth/ForgotPasswordModal';
-import { ServerSettingsModal } from '../components/auth/ServerSettingsModal';
-import { ServerConfigService } from '../services/serverConfigService';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -35,8 +32,6 @@ export const LoginView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
-  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
-  const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
 
   // Live weather & ambience (100% automatically detected from user's GPS location & time)
   const [liveWeather, setLiveWeather] = useState<WeatherData>(() => {
@@ -113,24 +108,11 @@ export const LoginView: React.FC = () => {
         condition={activeCondition}
       />
 
-      {/* Top Right Floating Action Buttons (Sunucu Ayarı & İletişim) */}
+      {/* Top Right Floating "İletişim" Button */}
       <div
-        className="absolute right-4 sm:right-6 z-20 flex items-center gap-2"
+        className="absolute right-4 sm:right-6 z-20"
         style={{ top: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 56px)' }}
       >
-        <button
-          type="button"
-          onClick={() => setIsServerModalOpen(true)}
-          title="Sunucu Bağlantı Ayarları (SQL Server & Bulut)"
-          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/20 text-white text-xs font-black shadow-xl transition-all active:scale-95 group hover:border-emerald-400/50 cursor-pointer"
-        >
-          <Server className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-          <span>Sunucu</span>
-          {isLocalServer && (
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Yerel Sunucu Modu Aktif" />
-          )}
-        </button>
-
         <button
           type="button"
           onClick={() => setIsContactOpen(true)}
@@ -329,13 +311,6 @@ export const LoginView: React.FC = () => {
           if (newPass) setPassword(newPass);
           if (adminUser) setUsername(adminUser);
         }}
-      />
-
-      {/* Server Settings Modal (SQL Server / Cloud) */}
-      <ServerSettingsModal
-        isOpen={isServerModalOpen}
-        onClose={() => setIsServerModalOpen(false)}
-        onSaved={() => setIsLocalServer(ServerConfigService.isLocalMode())}
       />
     </div>
   );

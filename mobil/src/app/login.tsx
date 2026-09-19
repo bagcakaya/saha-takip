@@ -30,10 +30,7 @@ import {
   MapPin,
   ClipboardList,
   Check,
-  Server,
 } from 'lucide-react-native';
-import { ServerSettingsModal } from '../components/ServerSettingsModal';
-import { MobileServerConfigService } from '../services/serverConfigService';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -49,8 +46,6 @@ export default function LoginScreen() {
   // Modals
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isForgotOpen, setIsForgotOpen] = useState(false);
-  const [isServerOpen, setIsServerOpen] = useState(false);
-  const [isLocalServer, setIsLocalServer] = useState(() => MobileServerConfigService.isLocalMode());
 
   // Weather state (Matches Görsel-5: 📍 Konumunuz Belirleni... • 22°C • Yıldızlı Gece)
   const [weather, setWeather] = useState<MobileWeatherData>({
@@ -98,24 +93,14 @@ export default function LoginScreen() {
       {/* 1. Dynamic Cloud & Atmospheric Weather Canvas Background */}
       <WeatherBackground weather={weather} />
 
-      {/* 2. Top Right Floating Buttons (Sunucu & İletişim) */}
+      {/* 2. Top Right Floating "İletişim" Button (Matches Görsel 4) */}
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.serverBtn}
-          onPress={() => setIsServerOpen(true)}
-          activeOpacity={0.8}
-        >
-          <Server size={14} color="#10b981" />
-          <Text style={styles.serverBtnText}>Sunucu</Text>
-          {isLocalServer && <View style={styles.activeDot} />}
-        </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.contactBtn}
           onPress={() => setIsContactOpen(true)}
           activeOpacity={0.8}
         >
-          <MessageCircle size={14} color="#60a5fa" />
+          <MessageCircle size={15} color="#60a5fa" />
           <Text style={styles.contactBtnText}>İletişim</Text>
         </TouchableOpacity>
       </View>
@@ -272,11 +257,6 @@ export default function LoginScreen() {
         onClose={() => setIsForgotOpen(false)}
         defaultCompanyCode={companyCode}
       />
-      <ServerSettingsModal
-        visible={isServerOpen}
-        onClose={() => setIsServerOpen(false)}
-        onSaved={() => setIsLocalServer(MobileServerConfigService.isLocalMode())}
-      />
     </KeyboardAvoidingView>
   );
 }
@@ -289,38 +269,8 @@ const styles = StyleSheet.create({
   topBar: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 52 : 40,
-    right: 16,
+    right: 20,
     zIndex: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  serverBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.45)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  serverBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  activeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10b981',
   },
   contactBtn: {
     flexDirection: 'row',

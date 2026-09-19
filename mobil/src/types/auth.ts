@@ -100,3 +100,18 @@ export function canUserAddBranch(
   const isAdmin = isUserAdmin(user);
   return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
 }
+
+/**
+ * Checks if a user is permitted to configure server connection (SQL Server / Cloud).
+ * Strictly restricted to POLATLAR administrators ('admin' or 'murat').
+ */
+export function canUserManageServerConfig(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}
+
