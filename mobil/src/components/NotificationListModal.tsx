@@ -62,6 +62,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     returnWarrantyItems,
     timedFollowUps,
     adminReminders,
+    markSecurityLogsAsRead,
   } = useStorage();
   const { isDark } = useAppTheme();
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -290,7 +291,12 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     return list;
   }, [attendanceRecords, notes, leaveRequests, locations, services, returnWarrantyItems, timedFollowUps, adminReminders]);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
+    try {
+      await markSecurityLogsAsRead?.();
+    } catch {
+      // ignore
+    }
     Alert.alert('Bildirimler', 'Tüm bildirimler okundu olarak işaretlendi.');
   };
 

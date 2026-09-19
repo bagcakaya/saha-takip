@@ -3847,6 +3847,34 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // ignore
       }
     }
+    // Stop any active ringing alarm
+    if (activeRingingAlarm) {
+      NotificationService.stopAlarmSound();
+      setActiveRingingAlarm(null);
+    }
+    // Mark due timed follow-ups as notified so they don't ring or stay pending notification
+    const hasDueUnnotified = timedFollowUps.some((item) => {
+      if (item.status !== 'pending' || item.notified) return false;
+      const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+      const targetTime = targetDate ? targetDate.getTime() : NaN;
+      return !isNaN(targetTime) && targetTime <= now;
+    });
+
+    if (hasDueUnnotified) {
+      const updatedFollowUps = timedFollowUps.map((item) => {
+        if (item.status === 'pending' && !item.notified) {
+          const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+          const targetTime = targetDate ? targetDate.getTime() : NaN;
+          if (!isNaN(targetTime) && targetTime <= now) {
+            return { ...item, notified: true };
+          }
+        }
+        return item;
+      });
+      setTimedFollowUps(updatedFollowUps);
+      StorageService.saveTimedFollowUps(updatedFollowUps).catch(() => {});
+    }
+
     // Mark security logs as read in storage and state
     const updated = securityLogs.map((l) => ({ ...l, read: true }));
     setSecurityLogs(updated);
@@ -3903,11 +3931,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         (a.checkOutTime && a.checkOutTime > lastReadTime)
       ).length;
 
-      // 9. Timed follow-up alarms due
+      // 9. Timed follow-up alarms due (only unnotified and newer than lastReadTime)
       count += timedFollowUps.filter((item) => {
-        if (item.status !== 'pending') return false;
-        const targetTime = new Date(item.snoozedUntil || item.dueDate).getTime();
-        return targetTime <= Date.now();
+        if (item.status !== 'pending' || item.notified) return false;
+        const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
+        const targetTime = targetDate ? targetDate.getTime() : NaN;
+        return !isNaN(targetTime) && targetTime <= Date.now() && targetTime > lastReadTime;
       }).length;
     } else {
       // Staff

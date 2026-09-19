@@ -21,6 +21,7 @@ import { isUserAdmin } from '../../types/auth';
 import { useStorage } from '../../context/StorageContext';
 import { TabType } from '../layout/Header';
 import { NotificationStatusCard } from './NotificationStatusCard';
+import { parseDueDateTime } from '../../utils/dateUtils';
 
 export interface AppNotification {
   id: string;
@@ -47,7 +48,8 @@ export interface AppNotification {
     | 'attendance_checked_in'
     | 'attendance_checked_out'
     | 'security_log'
-    | 'return_completed';
+    | 'return_completed'
+    | 'timed_follow_up';
   title: string;
   senderName: string;
   senderRole?: string;
@@ -81,6 +83,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     leaveRequests,
     securityLogs,
     returnWarrantyItems,
+    timedFollowUps,
   } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
@@ -293,6 +296,27 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           createdAt: item.completedAt,
           tab: 'returns',
         });
+      }
+    });
+
+    // 10. Süreli Takipler (Vakti gelen alarmlar & takip hatırlatmaları)
+    timedFollowUps.forEach((tfu) => {
+      if (tfu.status === 'pending') {
+        const targetDate = parseDueDateTime(tfu.snoozedUntil || tfu.dueDate);
+        const targetTime = targetDate ? targetDate.getTime() : NaN;
+        if (!isNaN(targetTime)) {
+          const isDue = targetTime <= Date.now();
+          notifications.push({
+            id: `tfu_${tfu.id}_${targetTime}`,
+            type: 'timed_follow_up',
+            title: isDue ? `⏰ Süreli Takip Vakti: ${tfu.cariName}` : `⏰ Süreli Takip: ${tfu.cariName}`,
+            senderName: tfu.createdByName || 'Yönetici',
+            senderRole: 'Süreli Takip',
+            content: `${tfu.description || 'Cari takip hatırlatması'}${tfu.dueDate ? ` (Vade: ${tfu.dueDate})` : ''}`,
+            createdAt: targetTime,
+            tab: 'timed_follow_ups',
+          });
+        }
       }
     });
   } else {
@@ -582,6 +606,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         return <Wrench className="w-4 h-4 text-orange-500" />;
       case 'reminder':
         return <Bell className="w-4 h-4 text-indigo-500" />;
+      case 'timed_follow_up':
+        return <Clock className="w-4 h-4 text-amber-500" />;
       default:
         return <Bell className="w-4 h-4 text-blue-500" />;
     }
