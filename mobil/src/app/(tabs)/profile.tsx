@@ -8,6 +8,7 @@ import {
   StyleSheet,
   useColorScheme,
   Alert,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -26,12 +27,19 @@ import {
   Key,
   Lock,
   CheckCircle2,
+  Server,
 } from 'lucide-react-native';
+import { ServerSettingsModal } from '../../components/ServerSettingsModal';
+import { MobileServerConfigService, ServerConfig } from '../../services/serverConfigService';
 
 export default function ProfileScreen() {
   const { user, company, logout, updateUser, refreshUsers } = useAuth();
   const { cariler, notes, addNote } = useStorage();
   const isDark = useColorScheme() === 'dark';
+
+  // Server settings modal state
+  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(() => MobileServerConfigService.getConfig());
 
   // Password update state
   const [newPassword, setNewPassword] = useState('');
@@ -109,11 +117,12 @@ export default function ProfileScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: isDark ? '#0f172a' : '#f8fafc' }]}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <>
+      <ScrollView
+        style={[styles.container, { backgroundColor: isDark ? '#0f172a' : '#f8fafc' }]}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
       {/* 1. User Info Card */}
       <View
         style={[
@@ -261,6 +270,71 @@ export default function ProfileScreen() {
         )}
       </View>
 
+      {/* 2.5. Server Connection Settings Card */}
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+            borderColor: isDark ? '#334155' : '#e2e8f0',
+          },
+        ]}
+      >
+        <View style={styles.cardTitleRow}>
+          <Server size={18} color="#3b82f6" />
+          <Text style={[styles.cardTitle, { color: isDark ? '#f8fafc' : '#0f172a' }]}>
+            Sunucu Bağlantı Ayarları
+          </Text>
+        </View>
+
+        <Text style={[styles.cardDesc, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+          Uygulamanın bağlandığı veritabanı altyapısını (Windows Server 2022 SQL Server veya Bulut) buradan yönetebilirsiniz.
+        </Text>
+
+        <View
+          style={[
+            styles.serverStatusBox,
+            {
+              backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+              borderColor: serverConfig.mode === 'local' ? '#10b981' : (isDark ? '#334155' : '#cbd5e1'),
+            },
+          ]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6',
+                }}
+              />
+              <Text style={[styles.serverModeText, { color: isDark ? '#ffffff' : '#0f172a' }]} numberOfLines={1}>
+                {serverConfig.mode === 'local' ? 'Yerel Sunucu (SQL Server)' : 'Bulut Modu (Varsayılan)'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.configBtn,
+                { backgroundColor: serverConfig.mode === 'local' ? '#10b981' : '#3b82f6' },
+              ]}
+              onPress={() => setIsServerModalOpen(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.configBtnText}>Yapılandır</Text>
+            </TouchableOpacity>
+          </View>
+
+          {serverConfig.mode === 'local' && (
+            <Text style={styles.serverUrlText} numberOfLines={1}>
+              Adres: {serverConfig.localUrl}
+            </Text>
+          )}
+        </View>
+      </View>
+
       {/* 3. Fast Cari Search Tool */}
       <View
         style={[
@@ -390,6 +464,13 @@ export default function ProfileScreen() {
 
       <Text style={styles.versionText}>İş Takip Sistemi Mobil v1.0.0 (Expo SDK 57)</Text>
     </ScrollView>
+
+    <ServerSettingsModal
+      visible={isServerModalOpen}
+      onClose={() => setIsServerModalOpen(false)}
+      onSaved={() => setServerConfig(MobileServerConfigService.getConfig())}
+    />
+  </>
   );
 }
 
@@ -631,5 +712,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94a3b8',
     marginTop: 20,
+  },
+  serverStatusBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
+  },
+  serverModeText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  serverUrlText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  configBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  configBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#ffffff',
   },
 });
