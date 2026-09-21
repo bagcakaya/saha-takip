@@ -63,7 +63,10 @@ CREATE TABLE IF NOT EXISTS public.notes (
   rejected_at BIGINT,
   rejected_by TEXT,
   rejected_by_name TEXT,
-  rejection_reason TEXT
+  rejection_reason TEXT,
+  cari_name TEXT,
+  photos TEXT[],
+  completion_photos TEXT[]
 );
 
 -- 4. SERVICES TABLOSU (Teknik Servis & Müdahale)

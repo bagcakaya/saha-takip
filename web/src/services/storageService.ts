@@ -619,23 +619,28 @@ export const StorageService = {
               cariName: fb?.cariName || (row as any).cari_name || undefined,
               photos: fb?.photos || (row as any).photos || [],
               completionPhotos: fb?.completionPhotos || (row as any).completion_photos || [],
-              status: fb?.status || 'pending',
-              completedAt: fb?.completedAt,
-              completedBy: fb?.completedBy,
-              completedByName: fb?.completedByName,
-              completionNote: fb?.completionNote,
-              approvedAt: fb?.approvedAt,
-              approvedBy: fb?.approvedBy,
-              approvedByName: fb?.approvedByName,
-              rejectedAt: fb?.rejectedAt,
-              rejectedBy: fb?.rejectedBy,
-              rejectedByName: fb?.rejectedByName,
-              rejectionReason: fb?.rejectionReason,
+              status: fb?.status || (row as any).status || 'pending',
+              completedAt: fb?.completedAt || (row.completed_at ? Number(row.completed_at) : undefined),
+              completedBy: fb?.completedBy || row.completed_by || undefined,
+              completedByName: fb?.completedByName || row.completed_by_name || undefined,
+              completionNote: fb?.completionNote || row.completion_note || undefined,
+              approvedAt: fb?.approvedAt || (row.approved_at ? Number(row.approved_at) : undefined),
+              approvedBy: fb?.approvedBy || row.approved_by || undefined,
+              approvedByName: fb?.approvedByName || row.approved_by_name || undefined,
+              rejectedAt: fb?.rejectedAt || (row.rejected_at ? Number(row.rejected_at) : undefined),
+              rejectedBy: fb?.rejectedBy || row.rejected_by || undefined,
+              rejectedByName: fb?.rejectedByName || row.rejected_by_name || undefined,
+              rejectionReason: fb?.rejectionReason || row.rejection_reason || undefined,
             };
           });
 
-          await saveItem(localKey, mergedNotes);
-          return mergedNotes;
+          // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table
+          const dataIds = new Set(data.map((r) => r.id));
+          const missingFromTable = fallbackNotes.filter((fb) => !dataIds.has(fb.id));
+          const finalNotes = [...mergedNotes, ...missingFromTable];
+
+          await saveItem(localKey, finalNotes);
+          return finalNotes;
         }
       } catch (e) {
         console.warn('Supabase notes fetch error:', e);
@@ -718,6 +723,7 @@ export const StorageService = {
         if (fullRows.length > 0) {
           const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
           if (upsertErr) {
+            console.warn('saveNotes primary upsert error, falling back to basic columns:', upsertErr);
             const basicRows = notes.map((n) => ({
               id: n.id,
               content: n.content,
@@ -729,9 +735,21 @@ export const StorageService = {
               target_user_names: n.targetUserNames || [],
               target_user_id: n.targetUserId || null,
               target_user_name: n.targetUserName || null,
-              reminder_active: n.reminderActive,
+              reminder_active: Boolean(n.reminderActive),
               reminder_date: n.reminderDate || null,
-              notified: n.notified || false,
+              notified: Boolean(n.notified),
+              status: n.status || 'pending',
+              completed_at: n.completedAt || null,
+              completed_by: n.completedBy || null,
+              completed_by_name: n.completedByName || null,
+              completion_note: n.completionNote || null,
+              approved_at: n.approvedAt || null,
+              approved_by: n.approvedBy || null,
+              approved_by_name: n.approvedByName || null,
+              rejected_at: n.rejectedAt || null,
+              rejected_by: n.rejectedBy || null,
+              rejected_by_name: n.rejectedByName || null,
+              rejection_reason: n.rejectionReason || null,
             }));
             await supabase.from('notes').upsert(basicRows);
           }
@@ -810,7 +828,38 @@ export const StorageService = {
     if (activeCompanyCode === 'POLATLAR') {
       try {
         const row = this.mapNoteToRow(note);
-        await supabase.from('notes').upsert([row]);
+        const { error: singleErr } = await supabase.from('notes').upsert([row]);
+        if (singleErr) {
+          console.warn('saveSingleNote primary upsert error, falling back to basic columns:', singleErr);
+          const basicRow: any = {
+            id: note.id,
+            content: note.content,
+            created_at: note.createdAt,
+            created_by: note.createdBy || null,
+            created_by_name: note.createdByName || null,
+            target_mode: note.targetMode || 'self',
+            target_user_ids: note.targetUserIds || [],
+            target_user_names: note.targetUserNames || [],
+            target_user_id: note.targetUserId || null,
+            target_user_name: note.targetUserName || null,
+            reminder_active: Boolean(note.reminderActive),
+            reminder_date: note.reminderDate || null,
+            notified: Boolean(note.notified),
+            status: note.status || 'pending',
+            completed_at: note.completedAt || null,
+            completed_by: note.completedBy || null,
+            completed_by_name: note.completedByName || null,
+            completion_note: note.completionNote || null,
+            approved_at: note.approvedAt || null,
+            approved_by: note.approvedBy || null,
+            approved_by_name: note.approvedByName || null,
+            rejected_at: note.rejectedAt || null,
+            rejected_by: note.rejectedBy || null,
+            rejected_by_name: note.rejectedByName || null,
+            rejection_reason: note.rejectionReason || null,
+          };
+          await supabase.from('notes').upsert([basicRow]);
+        }
       } catch (err) {
         console.warn('saveSingleNote Supabase error:', err);
       }
@@ -839,7 +888,38 @@ export const StorageService = {
     if (activeCompanyCode === 'POLATLAR') {
       try {
         const rows = notesToSave.map((n) => this.mapNoteToRow(n));
-        await supabase.from('notes').upsert(rows);
+        const { error: batchErr } = await supabase.from('notes').upsert(rows);
+        if (batchErr) {
+          console.warn('saveMultipleNotes primary upsert error, falling back to basic columns:', batchErr);
+          const basicRows = notesToSave.map((n) => ({
+            id: n.id,
+            content: n.content,
+            created_at: n.createdAt,
+            created_by: n.createdBy || null,
+            created_by_name: n.createdByName || null,
+            target_mode: n.targetMode || 'self',
+            target_user_ids: n.targetUserIds || [],
+            target_user_names: n.targetUserNames || [],
+            target_user_id: n.targetUserId || null,
+            target_user_name: n.targetUserName || null,
+            reminder_active: Boolean(n.reminderActive),
+            reminder_date: n.reminderDate || null,
+            notified: Boolean(n.notified),
+            status: n.status || 'pending',
+            completed_at: n.completedAt || null,
+            completed_by: n.completedBy || null,
+            completed_by_name: n.completedByName || null,
+            completion_note: n.completionNote || null,
+            approved_at: n.approvedAt || null,
+            approved_by: n.approvedBy || null,
+            approved_by_name: n.approvedByName || null,
+            rejected_at: n.rejectedAt || null,
+            rejected_by: n.rejectedBy || null,
+            rejected_by_name: n.rejectedByName || null,
+            rejection_reason: n.rejectionReason || null,
+          }));
+          await supabase.from('notes').upsert(basicRows);
+        }
       } catch (err) {
         console.warn('saveMultipleNotes Supabase error:', err);
       }

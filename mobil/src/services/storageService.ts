@@ -782,17 +782,23 @@ export const StorageService = {
               completedBy: fb?.completedBy || r.completed_by || undefined,
               completedByName: fb?.completedByName || r.completed_by_name || undefined,
               completionNote: fb?.completionNote || r.completion_note || undefined,
-              approvedAt: fb?.approvedAt,
-              approvedBy: fb?.approvedBy,
-              approvedByName: fb?.approvedByName,
-              rejectedAt: fb?.rejectedAt,
-              rejectedBy: fb?.rejectedBy,
-              rejectedByName: fb?.rejectedByName,
-              rejectionReason: fb?.rejectionReason,
+              approvedAt: fb?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
+              approvedBy: fb?.approvedBy || r.approved_by || undefined,
+              approvedByName: fb?.approvedByName || r.approved_by_name || undefined,
+              rejectedAt: fb?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
+              rejectedBy: fb?.rejectedBy || r.rejected_by || undefined,
+              rejectedByName: fb?.rejectedByName || r.rejected_by_name || undefined,
+              rejectionReason: fb?.rejectionReason || r.rejection_reason || undefined,
             };
           });
-          await setLocal(localKey, mapped);
-          return mapped;
+
+          // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table
+          const dataIds = new Set(data.map((r: any) => r.id));
+          const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id));
+          const merged = [...mapped, ...missingFallback];
+
+          await setLocal(localKey, merged);
+          return merged;
         }
 
         if (fallbackNotes.length > 0) {
@@ -840,8 +846,46 @@ export const StorageService = {
           completed_by: n.completedBy || null,
           completed_by_name: n.completedByName || null,
           completion_note: n.completionNote || null,
+          approved_at: n.approvedAt || null,
+          approved_by: n.approvedBy || null,
+          approved_by_name: n.approvedByName || null,
+          rejected_at: n.rejectedAt || null,
+          rejected_by: n.rejectedBy || null,
+          rejected_by_name: n.rejectedByName || null,
+          rejection_reason: n.rejectionReason || null,
         }));
-        await supabase.from('notes').upsert(rows);
+        const { error: upsertErr } = await supabase.from('notes').upsert(rows);
+        if (upsertErr) {
+          console.warn('mobil saveNotes primary upsert error, falling back to basic columns:', upsertErr);
+          const basicRows = notes.map((n) => ({
+            id: n.id,
+            content: n.content,
+            created_at: n.createdAt,
+            created_by: n.createdBy || null,
+            created_by_name: n.createdByName || null,
+            target_mode: n.targetMode || 'self',
+            target_user_ids: n.targetUserIds || [],
+            target_user_names: n.targetUserNames || [],
+            target_user_id: n.targetUserId || null,
+            target_user_name: n.targetUserName || null,
+            reminder_active: n.reminderActive || false,
+            reminder_date: n.reminderDate || null,
+            notified: n.notified || false,
+            status: n.status || 'pending',
+            completed_at: n.completedAt || null,
+            completed_by: n.completedBy || null,
+            completed_by_name: n.completedByName || null,
+            completion_note: n.completionNote || null,
+            approved_at: n.approvedAt || null,
+            approved_by: n.approvedBy || null,
+            approved_by_name: n.approvedByName || null,
+            rejected_at: n.rejectedAt || null,
+            rejected_by: n.rejectedBy || null,
+            rejected_by_name: n.rejectedByName || null,
+            rejection_reason: n.rejectionReason || null,
+          }));
+          await supabase.from('notes').upsert(basicRows);
+        }
         await saveChunkedSlot(4, notes);
         await saveChunkedSlot(this.getSlotId(4), notes);
       } else {
