@@ -756,7 +756,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateNoteStatus = async (id: string, status: any) => {
-    const updated = notes.map((n) => (n.id === id ? { ...n, status } : n));
+    const now = Date.now();
+    const updated = notes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status,
+          approvedAt: status === 'approved' ? now : (status === 'pending' ? undefined : n.approvedAt),
+          approvedBy: status === 'approved' ? user?.id : (status === 'pending' ? undefined : n.approvedBy),
+          approvedByName: status === 'approved' ? (user?.name || 'Yönetici') : (status === 'pending' ? undefined : n.approvedByName),
+        };
+      }
+      return n;
+    });
     setNotes(updated);
     await StorageService.updateNoteStatus(id, status);
     return { success: true, message: 'İş emri durumu güncellendi.' };

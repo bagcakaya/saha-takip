@@ -98,8 +98,33 @@ export const NotesView: React.FC = () => {
   const [bulkCompletionNote, setBulkCompletionNote] = useState('');
 
   const sortedNotes = useMemo(() => {
-    return [...notes].sort((a, b) => b.createdAt - a.createdAt);
-  }, [notes]);
+    return [...notes].sort((a, b) => {
+      // 1. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
+      if (activeFilter === 'approved') {
+        const aAppr = a.approvedAt || a.completedAt || a.createdAt || 0;
+        const bAppr = b.approvedAt || b.completedAt || b.createdAt || 0;
+        return bAppr - aAppr;
+      }
+
+      // 2. Diğer sekmelerde (Tümü vb.):
+      // Onaylanmışsa onay zamanı, bekleyen onay ise tamamlanma zamanı, değilse oluşturulma zamanı
+      const aTime =
+        a.status === 'approved' && a.approvedAt
+          ? a.approvedAt
+          : a.status === 'pending_approval' && a.completedAt
+          ? a.completedAt
+          : a.createdAt || 0;
+
+      const bTime =
+        b.status === 'approved' && b.approvedAt
+          ? b.approvedAt
+          : b.status === 'pending_approval' && b.completedAt
+          ? b.completedAt
+          : b.createdAt || 0;
+
+      return bTime - aTime;
+    });
+  }, [notes, activeFilter]);
 
   const pendingNotesCount = useMemo(() => {
     return notes.filter(

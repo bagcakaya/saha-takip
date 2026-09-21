@@ -92,7 +92,7 @@ export default function WorkOrdersScreen() {
   }, [notes]);
 
   const filteredNotes = useMemo(() => {
-    return notes.filter((n) => {
+    const list = notes.filter((n) => {
       // Tab filter
       const status = n.status || 'pending';
       if (activeTab === 'pending' && status !== 'pending') return false;
@@ -106,6 +106,33 @@ export default function WorkOrdersScreen() {
       const inCreator = (n.createdByName || '').toLowerCase().includes(q);
       const inTargets = (n.targetUserNames || []).some((u) => u.toLowerCase().includes(q));
       return inContent || inCari || inCreator || inTargets;
+    });
+
+    return [...list].sort((a, b) => {
+      // 1. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
+      if (activeTab === 'approved') {
+        const aAppr = a.approvedAt || a.completedAt || a.createdAt || 0;
+        const bAppr = b.approvedAt || b.completedAt || b.createdAt || 0;
+        return bAppr - aAppr;
+      }
+
+      // 2. Diğer sekmelerde (Tümü vb.):
+      // Onaylanmışsa onay zamanı, bekleyen onay ise tamamlanma zamanı, değilse oluşturulma zamanı
+      const aTime =
+        (a.status === 'approved' || a.status === 'completed') && a.approvedAt
+          ? a.approvedAt
+          : a.status === 'pending_approval' && a.completedAt
+          ? a.completedAt
+          : a.createdAt || 0;
+
+      const bTime =
+        (b.status === 'approved' || b.status === 'completed') && b.approvedAt
+          ? b.approvedAt
+          : b.status === 'pending_approval' && b.completedAt
+          ? b.completedAt
+          : b.createdAt || 0;
+
+      return bTime - aTime;
     });
   }, [notes, activeTab, search]);
 
@@ -355,6 +382,15 @@ export default function WorkOrdersScreen() {
             <Text style={styles.metaDivider}>•</Text>
             <User size={12} color="#94a3b8" />
             <Text style={styles.metaText}>{item.createdByName || 'Yönetici'}</Text>
+            {item.approvedAt && isCompleted ? (
+              <>
+                <Text style={styles.metaDivider}>•</Text>
+                <CheckCircle2 size={12} color="#10b981" />
+                <Text style={[styles.metaText, { color: '#10b981', fontWeight: '700' }]}>
+                  Onay: {new Date(item.approvedAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </>
+            ) : null}
           </View>
 
           <View style={styles.actionButtonsRow}>

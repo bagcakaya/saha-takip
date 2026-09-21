@@ -425,11 +425,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({
       )}
 
       {/* Approved Details Box */}
-      {note.status === 'approved' && note.approvedByName && (
+      {note.status === 'approved' && (
         <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-xs text-emerald-800 dark:text-emerald-300">
           <div className="flex items-center gap-1.5 font-bold">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>Onaylayan: {note.approvedByName}</span>
+            <span>Onaylayan: {note.approvedByName || 'Yönetici'}</span>
           </div>
           {note.approvedAt && (
             <span className="text-[11px] text-emerald-600 dark:text-emerald-400">

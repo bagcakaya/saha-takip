@@ -914,7 +914,17 @@ export const StorageService = {
 
   async updateNoteStatus(id: string, status: any): Promise<void> {
     const notes = await this.getNotes();
-    const updated = notes.map((n) => (n.id === id ? { ...n, status } : n));
+    const now = Date.now();
+    const updated = notes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status,
+          approvedAt: status === 'approved' ? (n.approvedAt || now) : (status === 'pending' ? undefined : n.approvedAt),
+        };
+      }
+      return n;
+    });
     await this.saveNotes(updated);
   },
 
