@@ -40,6 +40,9 @@ interface StorageContextType {
   refreshData: () => Promise<void>;
   checkInStaff: (branchId?: string) => Promise<{ success: boolean; message: string }>;
   checkOutStaff: (notes?: string) => Promise<{ success: boolean; message: string }>;
+  approveAttendance: (recordId: string, actionType: 'checkin' | 'checkout') => Promise<{ success: boolean; message: string }>;
+  rejectAttendance: (recordId: string, actionType: 'checkin' | 'checkout', reason?: string) => Promise<{ success: boolean; message: string }>;
+  deleteAttendanceRecord: (recordId: string) => Promise<{ success: boolean; message: string }>;
   requestLeave: (params: {
     startDate: string;
     endDate?: string;
@@ -433,6 +436,101 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e: any) {
       return { success: false, message: e?.message || 'Konum alınamadı.' };
     }
+  };
+
+  const approveAttendance = async (
+    recordId: string,
+    actionType: 'checkin' | 'checkout'
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user || user.role !== 'admin') {
+      return { success: false, message: 'Bu işlemi yapmaya sadece yöneticiler yetkilidir.' };
+    }
+    const idx = attendanceRecords.findIndex((r) => r.id === recordId);
+    if (idx === -1) {
+      return { success: false, message: 'İlgili mesai kaydı bulunamadı.' };
+    }
+    const record = attendanceRecords[idx];
+    let updatedRecord: AttendanceRecord;
+
+    if (actionType === 'checkin') {
+      updatedRecord = {
+        ...record,
+        status: 'checked_in',
+        checkInApprovalStatus: 'approved',
+        checkInApprovedBy: user.name,
+        checkInApprovedAt: Date.now(),
+      };
+    } else {
+      const now = Date.now();
+      const checkoutTime = record.checkOutTime || now;
+      const durationMinutes = Math.max(1, Math.round((checkoutTime - record.checkInTime) / 60000));
+
+      updatedRecord = {
+        ...record,
+        status: 'completed',
+        checkOutTime: checkoutTime,
+        checkOutApprovalStatus: 'approved',
+        checkOutApprovedBy: user.name,
+        checkOutApprovedAt: now,
+        workDurationMinutes: durationMinutes,
+      };
+    }
+
+    const updated = [...attendanceRecords];
+    updated[idx] = updatedRecord;
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+    return { success: true, message: 'Talep başarıyla onaylandı.' };
+  };
+
+  const rejectAttendance = async (
+    recordId: string,
+    actionType: 'checkin' | 'checkout',
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user || user.role !== 'admin') {
+      return { success: false, message: 'Bu işlemi yapmaya sadece yöneticiler yetkilidir.' };
+    }
+    const idx = attendanceRecords.findIndex((r) => r.id === recordId);
+    if (idx === -1) {
+      return { success: false, message: 'İlgili mesai kaydı bulunamadı.' };
+    }
+    const record = attendanceRecords[idx];
+    let updatedRecord: AttendanceRecord;
+
+    if (actionType === 'checkin') {
+      updatedRecord = {
+        ...record,
+        status: 'completed',
+        checkInApprovalStatus: 'rejected',
+        approvalNote: reason || 'Yönetici tarafından işe giriş reddedildi.',
+      };
+    } else {
+      updatedRecord = {
+        ...record,
+        status: 'checked_in',
+        checkOutApprovalStatus: 'rejected',
+        approvalNote: reason || 'Yönetici tarafından çıkış reddedildi.',
+      };
+    }
+
+    const updated = [...attendanceRecords];
+    updated[idx] = updatedRecord;
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+    return { success: true, message: 'Talep reddedildi.' };
+  };
+
+  const deleteAttendanceRecord = async (
+    recordId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!user || user.role !== 'admin') {
+      return { success: false, message: 'Bu işlemi yapmaya sadece yöneticiler yetkilidir.' };
+    }
+    const updated = attendanceRecords.filter((r) => r.id !== recordId);
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+    return { success: true, message: 'Kayıt silindi.' };
   };
 
   // 3. IZIN TALEBI
@@ -1131,6 +1229,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         refreshData: loadData,
         checkInStaff,
         checkOutStaff,
+        approveAttendance,
+        rejectAttendance,
+        deleteAttendanceRecord,
         requestLeave,
         addService,
         deleteService,

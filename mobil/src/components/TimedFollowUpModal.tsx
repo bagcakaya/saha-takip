@@ -21,9 +21,13 @@ import {
   ChevronDown,
   Check,
   Search,
+  Plus,
+  Sparkles,
+  AlertCircle,
 } from 'lucide-react-native';
 import { useStorage } from '../context/StorageContext';
 import { useAppTheme } from '../context/ThemeContext';
+import { getRemainingDaysInfo } from '../utils/dateUtils';
 
 interface TimedFollowUpModalProps {
   visible: boolean;
@@ -80,6 +84,14 @@ export function TimedFollowUpModal({ visible, onClose, onSuccess }: TimedFollowU
       target.setDate(now.getDate() + 1);
     } else if (type === '3d') {
       target.setDate(now.getDate() + 3);
+    } else if (type === '1m') {
+      target.setMonth(now.getMonth() + 1);
+    } else if (type === '3m') {
+      target.setMonth(now.getMonth() + 3);
+    } else if (type === '6m') {
+      target.setMonth(now.getMonth() + 6);
+    } else if (type === '1y') {
+      target.setFullYear(now.getFullYear() + 1);
     }
 
     const day = String(target.getDate()).padStart(2, '0');
@@ -89,6 +101,8 @@ export function TimedFollowUpModal({ visible, onClose, onSuccess }: TimedFollowU
     const minutes = String(target.getMinutes()).padStart(2, '0');
     setDueDateTime(`${day}.${month}.${year} ${hours}:${minutes}`);
   };
+
+  const remainingInfo = getRemainingDaysInfo(dueDateTime);
 
   const handleSubmit = async () => {
     if (!cariName.trim()) {
@@ -205,9 +219,52 @@ export function TimedFollowUpModal({ visible, onClose, onSuccess }: TimedFollowU
             />
 
             {/* Field 3: Date & Time */}
-            <Text style={[styles.label, { marginTop: 16 }]}>
-              <Calendar size={13} color="#f59e0b" /> HATIRLATICI TARİH & SAAT <Text style={{ color: '#ef4444' }}>*</Text>
-            </Text>
+            <View style={styles.labelWithBadgeRow}>
+              <Text style={styles.labelInline}>
+                <Calendar size={13} color="#f59e0b" /> HATIRLATICI TARİH & SAAT <Text style={{ color: '#ef4444' }}>*</Text>
+              </Text>
+              {remainingInfo && (
+                <View
+                  style={[
+                    styles.remainingBadge,
+                    remainingInfo.status === 'expired'
+                      ? styles.remainingBadgeExpired
+                      : remainingInfo.status === 'expiring_soon'
+                      ? styles.remainingBadgeExpiringSoon
+                      : styles.remainingBadgeActive,
+                  ]}
+                >
+                  {remainingInfo.status === 'expired' ? (
+                    <AlertCircle size={11} color="#f43f5e" />
+                  ) : (
+                    <Clock
+                      size={11}
+                      color={
+                        remainingInfo.status === 'expiring_soon'
+                          ? '#f59e0b'
+                          : '#10b981'
+                      }
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.remainingBadgeText,
+                      {
+                        color:
+                          remainingInfo.status === 'expired'
+                            ? '#f43f5e'
+                            : remainingInfo.status === 'expiring_soon'
+                            ? '#f59e0b'
+                            : '#10b981',
+                      },
+                    ]}
+                  >
+                    {remainingInfo.label}
+                  </Text>
+                </View>
+              )}
+            </View>
+
             <View
               style={[
                 styles.dateInputRow,
@@ -230,8 +287,45 @@ export function TimedFollowUpModal({ visible, onClose, onSuccess }: TimedFollowU
               <Calendar size={18} color="#64748b" />
             </View>
 
+            {/* Görsel-2 Stili: Hızlı Ay & Yıl Seçimi */}
+            <Text style={styles.quickLabel}>Hızlı Süre Seçimi (Görsel-2 Stili):</Text>
+            <View style={styles.quickGrid}>
+              <TouchableOpacity
+                style={[styles.chipPill, styles.chipPillGreen]}
+                onPress={() => applyQuickTime('1m')}
+                activeOpacity={0.7}
+              >
+                <Plus size={12} color="#10b981" />
+                <Text style={[styles.chipPillText, { color: '#10b981' }]}>+1 Ay</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chipPill, styles.chipPillGreen]}
+                onPress={() => applyQuickTime('3m')}
+                activeOpacity={0.7}
+              >
+                <Plus size={12} color="#10b981" />
+                <Text style={[styles.chipPillText, { color: '#10b981' }]}>+3 Ay</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chipPill, styles.chipPillBlue]}
+                onPress={() => applyQuickTime('6m')}
+                activeOpacity={0.7}
+              >
+                <Plus size={12} color="#3b82f6" />
+                <Text style={[styles.chipPillText, { color: '#3b82f6' }]}>+6 Ay</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chipPill, styles.chipPillPurple]}
+                onPress={() => applyQuickTime('1y')}
+                activeOpacity={0.7}
+              >
+                <Sparkles size={12} color="#f59e0b" />
+                <Text style={[styles.chipPillText, { color: '#c084fc' }]}>+1 Yıl</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Quick time selection pills */}
-            <Text style={styles.quickLabel}>Hızlı Süre Seçimi:</Text>
+            <Text style={[styles.quickLabel, { marginTop: 10 }]}>Kısa Süreler:</Text>
             <View style={styles.quickGrid}>
               <TouchableOpacity
                 style={[styles.quickPill, { backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }]}
@@ -562,6 +656,70 @@ const styles = StyleSheet.create({
   quickGrid: {
     flexDirection: 'row',
     gap: 6,
+  },
+  labelWithBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  labelInline: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+  },
+  remainingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  remainingBadgeActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  remainingBadgeExpiringSoon: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  remainingBadgeExpired: {
+    backgroundColor: 'rgba(244, 63, 94, 0.12)',
+    borderColor: 'rgba(244, 63, 94, 0.3)',
+  },
+  remainingBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  chipPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  chipPillGreen: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+  },
+  chipPillBlue: {
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    borderColor: 'rgba(59, 130, 246, 0.35)',
+  },
+  chipPillPurple: {
+    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+    borderColor: 'rgba(168, 85, 247, 0.35)',
+  },
+  chipPillText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   quickPill: {
     flex: 1,

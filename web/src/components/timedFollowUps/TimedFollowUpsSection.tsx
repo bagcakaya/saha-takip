@@ -15,7 +15,7 @@ import {
 import { useStorage } from '../../context/StorageContext';
 import { TimedFollowUp } from '../../types/storage';
 import { TimedFollowUpModal } from './TimedFollowUpModal';
-import { parseDueDateTime } from '../../utils/dateUtils';
+import { parseDueDateTime, getRemainingDaysInfo } from '../../utils/dateUtils';
 
 export const TimedFollowUpsSection: React.FC = () => {
   const {
@@ -77,32 +77,35 @@ export const TimedFollowUpsSection: React.FC = () => {
 
   const getTimeRemainingText = (item: TimedFollowUp) => {
     if (item.status === 'completed') {
-      return { text: 'Tamamlandı', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+      return { text: 'Tamamlandı', icon: 'check', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
     }
 
-    const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
-    const targetTime = targetDate ? targetDate.getTime() : 0;
-    const diffMs = targetTime - now;
-
-    if (diffMs <= 0) {
-      const minutesAgo = Math.floor(Math.abs(diffMs) / 60000);
-      if (minutesAgo < 60) {
-        return { text: `${minutesAgo || 1} dk önce doldu`, color: 'text-red-400 bg-red-500/10 border-red-500/30 font-bold animate-pulse' };
-      }
-      const hoursAgo = Math.floor(minutesAgo / 60);
-      return { text: `${hoursAgo} sa önce doldu`, color: 'text-red-400 bg-red-500/10 border-red-500/30 font-bold' };
+    const info = getRemainingDaysInfo(item.snoozedUntil || item.dueDate);
+    if (!info) {
+      return { text: 'Belirtilmedi', icon: 'clock', color: 'text-slate-400 bg-slate-800/80 border-slate-700' };
     }
 
-    const minutesLeft = Math.floor(diffMs / 60000);
-    if (minutesLeft < 60) {
-      return { text: `${minutesLeft} dk kaldı`, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+    if (info.status === 'expired') {
+      return {
+        text: info.label,
+        icon: 'alert',
+        color: 'text-rose-400 bg-rose-500/10 border-rose-500/30 font-black animate-pulse',
+      };
     }
-    const hoursLeft = Math.floor(minutesLeft / 60);
-    if (hoursLeft < 24) {
-      return { text: `${hoursLeft} sa ${minutesLeft % 60} dk kaldı`, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
+
+    if (info.status === 'expiring_soon') {
+      return {
+        text: info.label,
+        icon: 'clock',
+        color: 'text-amber-400 bg-amber-500/10 border-amber-500/20 font-black animate-pulse',
+      };
     }
-    const daysLeft = Math.floor(hoursLeft / 24);
-    return { text: `${daysLeft} gün kaldı`, color: 'text-slate-400 bg-slate-800/80 border-slate-700' };
+
+    return {
+      text: info.label,
+      icon: 'clock',
+      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 font-black',
+    };
   };
 
   const handleDelete = (id: string, cari: string) => {
@@ -266,8 +269,15 @@ export const TimedFollowUpsSection: React.FC = () => {
                           {item.cariName}
                         </span>
                       </div>
-                      <span className={`px-2 py-0.5 rounded-md text-[11px] border shrink-0 font-medium ${remaining.color}`}>
-                        {remaining.text}
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-black border shrink-0 flex items-center gap-1 ${remaining.color}`}>
+                        {remaining.icon === 'alert' ? (
+                          <AlertCircle className="w-3 h-3" />
+                        ) : remaining.icon === 'check' ? (
+                          <Check className="w-3 h-3" />
+                        ) : (
+                          <Clock className="w-3 h-3" />
+                        )}
+                        <span>{remaining.text}</span>
                       </span>
                     </div>
 
@@ -279,15 +289,21 @@ export const TimedFollowUpsSection: React.FC = () => {
 
                   {/* Bottom Row: Date & Actions */}
                   <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-                    {/* Date / Time */}
+                    {/* Date / Time & Remaining Badge */}
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 font-semibold text-slate-300">
                         <Calendar className="w-3.5 h-3.5 text-slate-500" />
                         <span>
                           {targetDate.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} •{' '}
                           {targetDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
+                      {!isCompleted && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 ${remaining.color}`}>
+                          <Clock className="w-2.5 h-2.5" />
+                          <span>{remaining.text}</span>
+                        </span>
+                      )}
                       {item.soundAlarm && (
                         <span title="Sesli alarm devrede" className="text-amber-400">
                           <Volume2 className="w-3.5 h-3.5" />

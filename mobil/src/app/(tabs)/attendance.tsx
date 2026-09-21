@@ -87,6 +87,8 @@ export default function AttendanceScreen() {
     branches,
     checkInStaff,
     checkOutStaff,
+    approveAttendance,
+    rejectAttendance,
     refreshData,
     updateWorkplaceLocation,
   } = useStorage();
@@ -124,6 +126,52 @@ export default function AttendanceScreen() {
               Alert.alert('Başarılı', `"${staffName}" kullanıcısının hesabı silindi.`);
             } else {
               Alert.alert('İşlem Başarısız', res.error || 'Personel silinemedi.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleActionApprove = (record: AttendanceRecord, type: 'checkin' | 'checkout') => {
+    const actionText = type === 'checkin' ? 'işe giriş' : 'işten çıkış';
+    Alert.alert(
+      'Mesai Onayı',
+      `${record.userName} personeline ait 20 m dışı ${actionText} talebini onaylamak istiyor musunuz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Onayla',
+          style: 'default',
+          onPress: async () => {
+            const res = await approveAttendance(record.id, type);
+            if (res.success) {
+              Alert.alert('Başarılı', res.message);
+            } else {
+              Alert.alert('Hata', res.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleActionReject = (record: AttendanceRecord, type: 'checkin' | 'checkout') => {
+    const actionText = type === 'checkin' ? 'işe giriş' : 'işten çıkış';
+    Alert.alert(
+      'Mesai Reddi',
+      `${record.userName} personeline ait 20 m dışı ${actionText} talebini reddetmek istiyor musunuz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Reddet',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await rejectAttendance(record.id, type, 'Yönetici tarafından reddedildi.');
+            if (res.success) {
+              Alert.alert('Bilgi', res.message);
+            } else {
+              Alert.alert('Hata', res.message);
             }
           },
         },
@@ -1263,6 +1311,7 @@ export default function AttendanceScreen() {
                 <View style={styles.tableHeaderRow}>
                   <Text style={[styles.thCell, { width: 120 }]}>TARİH</Text>
                   <Text style={[styles.thCell, { width: 170 }]}>PERSONEL</Text>
+                  {isAdmin && <Text style={[styles.thCell, { width: 145, textAlign: 'center' }]}>ONAY / İŞLEM</Text>}
                   <Text style={[styles.thCell, { width: 85 }]}>ŞUBE</Text>
                   <Text style={[styles.thCell, { width: 110 }]}>DURUM</Text>
                   <Text style={[styles.thCell, { width: 90 }]}>GİRİŞ SAATİ</Text>
@@ -1336,6 +1385,63 @@ export default function AttendanceScreen() {
                           </View>
                         </View>
                       </View>
+
+                      {/* Sütun: ONAY / İŞLEM (Şubeden Önce, Sola-Sağa Kaydırmadan Görünsün!) */}
+                      {isAdmin && (
+                        <View style={[styles.tdCell, { width: 145, alignItems: 'center', justifyContent: 'center' }]}>
+                          {item.status === 'pending_checkout_approval' || (item.checkOutOutside && item.checkOutApprovalStatus === 'pending') ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <TouchableOpacity
+                                style={styles.inlineApproveBtn}
+                                onPress={() => handleActionApprove(item, 'checkout')}
+                                activeOpacity={0.8}
+                              >
+                                <Check size={12} color="#ffffff" />
+                                <Text style={styles.inlineApproveBtnText}>Onayla</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.inlineRejectBtn}
+                                onPress={() => handleActionReject(item, 'checkout')}
+                                activeOpacity={0.8}
+                              >
+                                <X size={12} color="#ffffff" />
+                                <Text style={styles.inlineRejectBtnText}>Reddet</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : item.status === 'pending_checkin_approval' || (item.checkInOutside && item.checkInApprovalStatus === 'pending') ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <TouchableOpacity
+                                style={styles.inlineApproveBtn}
+                                onPress={() => handleActionApprove(item, 'checkin')}
+                                activeOpacity={0.8}
+                              >
+                                <Check size={12} color="#ffffff" />
+                                <Text style={styles.inlineApproveBtnText}>Onayla</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.inlineRejectBtn}
+                                onPress={() => handleActionReject(item, 'checkin')}
+                                activeOpacity={0.8}
+                              >
+                                <X size={12} color="#ffffff" />
+                                <Text style={styles.inlineRejectBtnText}>Reddet</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'approved') || (item.checkInOutside && item.checkInApprovalStatus === 'approved') ? (
+                            <View style={styles.inlineApprovedBadge}>
+                              <Check size={11} color="#10b981" />
+                              <Text style={styles.inlineApprovedBadgeText}>Onaylandı</Text>
+                            </View>
+                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'rejected') || (item.checkInOutside && item.checkInApprovalStatus === 'rejected') ? (
+                            <View style={styles.inlineRejectedBadge}>
+                              <X size={11} color="#f43f5e" />
+                              <Text style={styles.inlineRejectedBadgeText}>Reddedildi</Text>
+                            </View>
+                          ) : (
+                            <Text style={styles.emptyDashText}>-</Text>
+                          )}
+                        </View>
+                      )}
 
                       {/* Sütun 3: ŞUBE */}
                       <View style={[styles.tdCell, { width: 85 }]}>
@@ -2564,6 +2670,66 @@ const styles = StyleSheet.create({
   notesTextVal: {
     color: '#94a3b8',
     fontSize: 12,
+  },
+  inlineApproveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#10b981',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  inlineApproveBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  inlineRejectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  inlineRejectBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  inlineApprovedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  inlineApprovedBadgeText: {
+    color: '#10b981',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  inlineRejectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  inlineRejectedBadgeText: {
+    color: '#ef4444',
+    fontSize: 10,
+    fontWeight: '800',
   },
   emptyDashText: {
     color: '#64748b',

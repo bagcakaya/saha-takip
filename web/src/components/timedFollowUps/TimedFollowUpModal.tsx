@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Clock, Bell, Volume2, Calendar, AlertCircle, Building2, Smartphone } from 'lucide-react';
+import { X, Clock, Bell, Volume2, Calendar, AlertCircle, Building2, Smartphone, Plus, Sparkles, CheckCircle2 } from 'lucide-react';
 import { TimedFollowUp } from '../../types/storage';
 import { useStorage } from '../../context/StorageContext';
 import { CariSelect } from '../common/CariSelect';
+import { getRemainingDaysInfo } from '../../utils/dateUtils';
 
 interface TimedFollowUpModalProps {
   isOpen: boolean;
@@ -57,6 +58,8 @@ export const TimedFollowUpModal: React.FC<TimedFollowUpModalProps> = ({
 
   if (!isOpen) return null;
 
+  const remainingInfo = getRemainingDaysInfo(dueDate);
+
   const setPresetTime = (minutesOffset: number) => {
     const d = new Date(Date.now() + minutesOffset * 60 * 1000);
     setDueDate(toLocalDatetimeString(d));
@@ -73,6 +76,18 @@ export const TimedFollowUpModal: React.FC<TimedFollowUpModalProps> = ({
     const d = new Date();
     d.setDate(d.getDate() + days);
     d.setHours(hour, 0, 0, 0);
+    setDueDate(toLocalDatetimeString(d));
+  };
+
+  const setMonthsLaterAt = (months: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    setDueDate(toLocalDatetimeString(d));
+  };
+
+  const setYearsLaterAt = (years: number) => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + years);
     setDueDate(toLocalDatetimeString(d));
   };
 
@@ -192,20 +207,93 @@ export const TimedFollowUpModal: React.FC<TimedFollowUpModalProps> = ({
 
           {/* Tarih & Saat Seçimi */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-amber-400" />
-              Hatırlatıcı Tarih & Saat <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="datetime-local"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
-            />
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                <span>Hatırlatıcı Tarih & Saat</span>
+                <span className="text-red-400">*</span>
+              </label>
+
+              {/* Görsel-3: Kalan Gün Sayısı Rozeti */}
+              {remainingInfo && (
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-black flex items-center gap-1 border transition-all ${
+                    remainingInfo.status === 'expired'
+                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                      : remainingInfo.status === 'expiring_soon'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  }`}
+                >
+                  {remainingInfo.status === 'expired' ? (
+                    <AlertCircle className="w-3 h-3" />
+                  ) : remainingInfo.status === 'expiring_soon' ? (
+                    <Clock className="w-3 h-3" />
+                  ) : (
+                    <CheckCircle2 className="w-3 h-3" />
+                  )}
+                  <span>{remainingInfo.label}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="relative">
+              <input
+                type="datetime-local"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
+              />
+            </div>
+
+            {/* Görsel-2: Hızlı Ay & Yıl Seçimi Butonları */}
+            <div className="mt-3">
+              <div className="text-[11px] text-slate-400 mb-1.5 font-medium flex items-center justify-between">
+                <span>Hızlı Süre Seçimi (Görsel-2 Stili):</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMonthsLaterAt(1)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="1 Ay Sonraya Ayarla"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+1 Ay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMonthsLaterAt(3)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="3 Ay Sonraya Ayarla"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+3 Ay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMonthsLaterAt(6)}
+                  className="px-3 py-1.5 rounded-xl bg-blue-950/40 hover:bg-blue-900/60 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="6 Ay Sonraya Ayarla"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+6 Ay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setYearsLaterAt(1)}
+                  className="px-3 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="1 Yıl Sonraya Ayarla"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>+1 Yıl</span>
+                </button>
+              </div>
+            </div>
 
             {/* Hızlı Önayarlar */}
             <div className="mt-2.5">
-              <div className="text-[11px] text-slate-400 mb-1.5 font-medium">Hızlı Süre Seçimi:</div>
+              <div className="text-[11px] text-slate-400 mb-1.5 font-medium">Kısa Süreler:</div>
               <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                 <button
                   type="button"

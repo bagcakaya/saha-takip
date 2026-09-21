@@ -51,3 +51,59 @@ export function parseDueDateTime(value: string | number | null | undefined): Dat
   const fallback = new Date(str);
   return isNaN(fallback.getTime()) ? null : fallback;
 }
+
+export interface RemainingDaysInfo {
+  days: number;
+  label: string;
+  status: 'expired' | 'today' | 'expiring_soon' | 'active';
+  isExpired: boolean;
+}
+
+export function getRemainingDaysInfo(value: string | number | null | undefined): RemainingDaysInfo | null {
+  const targetDate = parseDueDateTime(value);
+  if (!targetDate) return null;
+
+  const now = new Date();
+  const diffMs = targetDate.getTime() - now.getTime();
+
+  if (diffMs <= 0) {
+    const minutesAgo = Math.floor(Math.abs(diffMs) / 60000);
+    const hoursAgo = Math.floor(minutesAgo / 60);
+    const daysAgo = Math.floor(hoursAgo / 24);
+
+    let expiredLabel = 'Süresi Doldu';
+    if (daysAgo > 0) {
+      expiredLabel = `${daysAgo} Gün Önce Doldu`;
+    } else if (hoursAgo > 0) {
+      expiredLabel = `${hoursAgo} Sa Önce Doldu`;
+    }
+
+    return {
+      days: 0,
+      label: expiredLabel,
+      status: 'expired',
+      isExpired: true,
+    };
+  }
+
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 1 && targetDate.getDate() === now.getDate()) {
+    const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+    const minsLeft = Math.floor((diffMs % (1000 * 60 * 60)) / 60000);
+    const label = hoursLeft > 0 ? `${hoursLeft} Saat Kaldı` : `${minsLeft || 1} Dk Kaldı`;
+    return {
+      days: 0,
+      label,
+      status: 'expiring_soon',
+      isExpired: false,
+    };
+  }
+
+  return {
+    days: diffDays,
+    label: `${diffDays} Gün Kaldı`,
+    status: diffDays <= 7 ? 'expiring_soon' : 'active',
+    isExpired: false,
+  };
+}

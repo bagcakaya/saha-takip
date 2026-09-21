@@ -25,10 +25,12 @@ import {
   Smartphone,
   CheckCircle2,
   Trash2,
+  AlertCircle,
 } from 'lucide-react-native';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../context/ThemeContext';
+import { getRemainingDaysInfo } from '../../utils/dateUtils';
 import { TimedFollowUpModal } from '../../components/TimedFollowUpModal';
 import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
@@ -356,7 +358,9 @@ export default function TimedFollowUpsScreen() {
         ) : (
           /* List of follow-ups */
           <View style={styles.itemsList}>
-            {filteredItems.map((item: TimedFollowUp) => (
+            {filteredItems.map((item: TimedFollowUp) => {
+              const remainingInfo = getRemainingDaysInfo(item.dueDate);
+              return (
               <View
                 key={item.id}
                 style={[
@@ -377,24 +381,66 @@ export default function TimedFollowUpsScreen() {
                       {item.cariName}
                     </Text>
                   </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      item.status === 'completed'
-                        ? styles.statusBadgeCompleted
-                        : styles.statusBadgePending,
-                    ]}
-                  >
-                    <Text
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {item.status !== 'completed' && remainingInfo && (
+                      <View
+                        style={[
+                          styles.remainingBadge,
+                          remainingInfo.status === 'expired'
+                            ? styles.remainingBadgeExpired
+                            : remainingInfo.status === 'expiring_soon'
+                            ? styles.remainingBadgeExpiringSoon
+                            : styles.remainingBadgeActive,
+                        ]}
+                      >
+                        {remainingInfo.status === 'expired' ? (
+                          <AlertCircle size={10} color="#f43f5e" />
+                        ) : (
+                          <Clock
+                            size={10}
+                            color={
+                              remainingInfo.status === 'expiring_soon'
+                                ? '#f59e0b'
+                                : '#10b981'
+                            }
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.remainingBadgeText,
+                            {
+                              color:
+                                remainingInfo.status === 'expired'
+                                  ? '#f43f5e'
+                                  : remainingInfo.status === 'expiring_soon'
+                                  ? '#f59e0b'
+                                  : '#10b981',
+                            },
+                          ]}
+                        >
+                          {remainingInfo.label}
+                        </Text>
+                      </View>
+                    )}
+                    <View
                       style={[
-                        styles.statusBadgeText,
+                        styles.statusBadge,
                         item.status === 'completed'
-                          ? { color: '#10b981' }
-                          : { color: '#f59e0b' },
+                          ? styles.statusBadgeCompleted
+                          : styles.statusBadgePending,
                       ]}
                     >
-                      {item.status === 'completed' ? 'Tamamlandı' : 'Bekliyor'}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.statusBadgeText,
+                          item.status === 'completed'
+                            ? { color: '#10b981' }
+                            : { color: '#f59e0b' },
+                        ]}
+                      >
+                        {item.status === 'completed' ? 'Tamamlandı' : 'Bekliyor'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
@@ -403,9 +449,51 @@ export default function TimedFollowUpsScreen() {
                 </Text>
 
                 <View style={styles.cardMetaRow}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Calendar size={13} color="#94a3b8" />
-                    <Text style={styles.metaText}>{item.dueDate}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Calendar size={13} color="#94a3b8" />
+                      <Text style={styles.metaText}>{item.dueDate}</Text>
+                    </View>
+                    {item.status !== 'completed' && remainingInfo && (
+                      <View
+                        style={[
+                          styles.remainingBadge,
+                          remainingInfo.status === 'expired'
+                            ? styles.remainingBadgeExpired
+                            : remainingInfo.status === 'expiring_soon'
+                            ? styles.remainingBadgeExpiringSoon
+                            : styles.remainingBadgeActive,
+                        ]}
+                      >
+                        {remainingInfo.status === 'expired' ? (
+                          <AlertCircle size={10} color="#f43f5e" />
+                        ) : (
+                          <Clock
+                            size={10}
+                            color={
+                              remainingInfo.status === 'expiring_soon'
+                                ? '#f59e0b'
+                                : '#10b981'
+                            }
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.remainingBadgeText,
+                            {
+                              color:
+                                remainingInfo.status === 'expired'
+                                  ? '#f43f5e'
+                                  : remainingInfo.status === 'expiring_soon'
+                                  ? '#f59e0b'
+                                  : '#10b981',
+                            },
+                          ]}
+                        >
+                          {remainingInfo.label}
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -455,7 +543,7 @@ export default function TimedFollowUpsScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            ))}
+            ); })}
           </View>
         )}
       </ScrollView>
@@ -800,5 +888,30 @@ const styles = StyleSheet.create({
   deleteBtn: {
     padding: 6,
     borderRadius: 6,
+  },
+  remainingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  remainingBadgeActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  remainingBadgeExpiringSoon: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  remainingBadgeExpired: {
+    backgroundColor: 'rgba(244, 63, 94, 0.12)',
+    borderColor: 'rgba(244, 63, 94, 0.3)',
+  },
+  remainingBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
 });
