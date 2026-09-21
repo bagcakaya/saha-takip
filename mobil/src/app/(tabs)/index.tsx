@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,9 @@ import {
   Platform,
   Alert,
   Image,
+  Modal,
+  Animated,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -35,6 +38,7 @@ import {
   Megaphone,
   Settings,
   Shield,
+  X,
 } from 'lucide-react-native';
 import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
@@ -45,8 +49,22 @@ import { LicenseManagementModal } from '../../components/LicenseManagementModal'
 import { canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../../types/auth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_GAP = 12;
-const CARD_WIDTH = (SCREEN_WIDTH - 32 - CARD_GAP) / 2;
+const GRID_PADDING = 16;
+const ITEM_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2) / 3;
+
+interface HomeModule {
+  id: string;
+  title: string;
+  shortTitle: string;
+  description: string;
+  icon: any;
+  color: string;
+  glowColor: string;
+  badgeText: string;
+  activeCount?: number;
+  action: () => void;
+  visible: boolean;
+}
 
 export default function HomeDashboardScreen() {
   const { user, logout } = useAuth();
@@ -72,6 +90,11 @@ export default function HomeDashboardScreen() {
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+
+  // Enlarged Card Pop-up state (Görsel-2 on tap with blurred backdrop)
+  const [selectedModule, setSelectedModule] = useState<HomeModule | null>(null);
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
@@ -103,9 +126,218 @@ export default function HomeDashboardScreen() {
     setIsNotificationSettingsOpen(true);
   };
 
+  // Open the enlarged card modal with smooth spring animation
+  const handleOpenModule = (module: HomeModule) => {
+    setSelectedModule(module);
+    scaleAnim.setValue(0.75);
+    opacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 65,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Close the enlarged card modal
+  const handleCloseModule = (onDone?: () => void) => {
+    Animated.parallel([
+      Animated.timing(scaleAnim, {
+        toValue: 0.8,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setSelectedModule(null);
+      if (onDone) onDone();
+    });
+  };
+
+  // Trigger the module's action when user clicks the enlarged card
+  const handleExecuteAction = () => {
+    if (!selectedModule) return;
+    const actionToRun = selectedModule.action;
+    handleCloseModule(() => {
+      setTimeout(() => {
+        actionToRun();
+      }, 50);
+    });
+  };
+
+  // All 12 system modules list (Görsel-1 layout)
+  const modules: HomeModule[] = [
+    {
+      id: 'branches',
+      title: 'Kurum ve Şubeler',
+      shortTitle: 'Kurum & Şube',
+      description: 'Kurumlar, şubeler, konumlar ve personel atamaları',
+      icon: Store,
+      color: '#0d9488',
+      glowColor: '#2dd4bf',
+      badgeText: `${branches.length} Şube`,
+      activeCount: branches.length,
+      action: () => setIsBranchModalOpen(true),
+      visible: canManageInstitutionsAndBranches,
+    },
+    {
+      id: 'installations',
+      title: 'Kurulumlar',
+      shortTitle: 'Kurulumlar',
+      description: 'Saha montajları, müşteri adresleri ve kontrol listeleri',
+      icon: Building2,
+      color: '#1d4ed8',
+      glowColor: '#60a5fa',
+      badgeText: `${activeInstallationsCount} Bekleyen`,
+      activeCount: activeInstallationsCount,
+      action: () => router.push('/(tabs)/installations'),
+      visible: true,
+    },
+    {
+      id: 'services',
+      title: 'Servisler',
+      shortTitle: 'Servisler',
+      description: 'Müşteri servis müdahaleleri, parça ve arıza kayıtları',
+      icon: Wrench,
+      color: '#ea580c',
+      glowColor: '#fb923c',
+      badgeText: `${services.length} Bekleyen`,
+      activeCount: services.length,
+      action: () => router.push('/(tabs)/services'),
+      visible: true,
+    },
+    {
+      id: 'work-orders',
+      title: 'İş Emirleri',
+      shortTitle: 'İş Takip',
+      description: 'Personele görev atama, alarmlar ve anlık iş emirleri',
+      icon: ClipboardList,
+      color: '#7e22ce',
+      glowColor: '#c084fc',
+      badgeText: `${notes.length} Bekleyen`,
+      activeCount: notes.length,
+      action: () => router.push('/(tabs)/work-orders'),
+      visible: true,
+    },
+    {
+      id: 'attendance',
+      title: 'Personel Takibi',
+      shortTitle: 'Personel',
+      description: 'Lokasyon doğrulamalı ve yönetici onaylı işe giriş-çıkış takibi',
+      icon: UserCheck,
+      color: '#047857',
+      glowColor: '#34d399',
+      badgeText: `${activeAttendanceCount} Aktif`,
+      activeCount: activeAttendanceCount,
+      action: () => router.push('/(tabs)/attendance'),
+      visible: true,
+    },
+    {
+      id: 'timed-follow-ups',
+      title: 'Süreli Takipler',
+      shortTitle: 'Süreli Takip',
+      description: 'Cari bazlı alarmlar, randevu ve zaman ayarlı iş hatırlatıcıları',
+      icon: Clock,
+      color: '#d97706',
+      glowColor: '#fbbf24',
+      badgeText: `${pendingFollowUpsCount} Bekleyen`,
+      activeCount: pendingFollowUpsCount,
+      action: () => router.push('/(tabs)/timed-follow-ups'),
+      visible: isAdmin,
+    },
+    {
+      id: 'reminders',
+      title: 'Hatırlatmalar',
+      shortTitle: 'Hatırlatma',
+      description: 'Yönetici çalışma talimatları, kurallar ve şirket prosedürleri',
+      icon: Megaphone,
+      color: '#4338ca',
+      glowColor: '#818cf8',
+      badgeText: `${adminRemindersCount || 1} Talimat`,
+      activeCount: adminRemindersCount,
+      action: () => router.push('/(tabs)/reminders'),
+      visible: true,
+    },
+    {
+      id: 'returns',
+      title: 'İade / Garanti',
+      shortTitle: 'İade & Garanti',
+      description: 'Seri no, kargo fişi ve 1 haftalık otomatik durum takibi',
+      icon: RotateCcw,
+      color: '#dc2626',
+      glowColor: '#f87171',
+      badgeText: `${activeReturnsCount} Süreçte`,
+      activeCount: activeReturnsCount,
+      action: () => router.push('/(tabs)/returns'),
+      visible: true,
+    },
+    {
+      id: 'security-logs',
+      title: 'Log Kayıtları',
+      shortTitle: 'Güvenlik Log',
+      description: 'Cihaz uyuşmazlığı ve yetkisiz giriş denemeleri güvenlik kayıtları',
+      icon: ShieldAlert,
+      color: '#991b1b',
+      glowColor: '#ef4444',
+      badgeText: `${securityLogsCount} Kayıt`,
+      activeCount: securityLogsCount,
+      action: () => router.push('/(tabs)/security-logs'),
+      visible: isAdmin,
+    },
+    {
+      id: 'templates',
+      title: 'Şablon',
+      shortTitle: 'Şablonlar',
+      description: 'Standart kontrol listesi görevleri & tam veri seti yönetimi',
+      icon: ListTodo,
+      color: '#0f766e',
+      glowColor: '#2dd4bf',
+      badgeText: `${(standardTasks || []).length || 15} Görev`,
+      action: () => router.push('/(tabs)/templates'),
+      visible: true,
+    },
+    {
+      id: 'notification-settings',
+      title: 'Bildirim Ayarları',
+      shortTitle: 'Bildirimler',
+      description: 'Kilit ekranı izni, test gönderimi ve OneSignal cihaz kontrolü',
+      icon: Settings,
+      color: '#312e81',
+      glowColor: '#a5b4fc',
+      badgeText: 'Canlı Durum',
+      action: handleNotificationSettings,
+      visible: true,
+    },
+    {
+      id: 'licensing',
+      title: 'Lisanslama',
+      shortTitle: 'Lisans Masası',
+      description: 'Kurum lisans süreleri, dondurma ve abonelik kontrolü',
+      icon: Sparkles,
+      color: '#1e1b4b',
+      glowColor: '#c084fc',
+      badgeText: 'SaaS Masası',
+      action: () => setIsLicenseModalOpen(true),
+      visible: canManageLicenses,
+    },
+  ];
+
+  const visibleModules = modules.filter((m) => m.visible);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* 1. Top Navigation Bar (Matches Görsel 1 & 2) */}
+      {/* 1. Top Navigation Bar */}
       <View
         style={[
           styles.navBar,
@@ -129,7 +361,7 @@ export default function HomeDashboardScreen() {
             </View>
           </View>
 
-          {/* Right 5 Icon Buttons (Matches Görsel 1 & 2) */}
+          {/* Right 4 Icon Buttons */}
           <View style={styles.topBarIconsRow}>
             {isAdmin && (
               <TouchableOpacity
@@ -176,425 +408,183 @@ export default function HomeDashboardScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* 2. Welcome Hero Banner */}
+        {/* 2. Compact Profile & Greeting Bar (Single-screen optimization) */}
         <View
           style={[
-            styles.heroCard,
+            styles.compactHeroBar,
             {
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
+              backgroundColor: isDark ? '#0f172a' : '#ffffff',
+              borderColor: isDark ? '#1e293b' : '#e2e8f0',
             },
           ]}
         >
-          {/* Top Line: Role Badge + Date */}
-          <View style={styles.heroTopRow}>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleBadgeText}>
-                {isAdmin ? 'SİSTEM YÖNETİCİSİ' : 'SAHA YETKİLİSİ'}
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={[styles.compactHeroName, { color: colors.text }]} numberOfLines={1}>
+                {user?.name || 'Yetkili'} 👋
               </Text>
+              <View style={styles.compactRolePill}>
+                <Text style={styles.compactRolePillText}>
+                  {isAdmin ? 'YÖNETİCİ' : 'SAHA'}
+                </Text>
+              </View>
             </View>
-            <Text style={[styles.dateText, { color: colors.subtext }]}>{turkishDate}</Text>
-          </View>
-
-          {/* Welcome Heading */}
-          <Text style={[styles.welcomeTitle, { color: colors.text }]}>
-            Hoş Geldiniz, {user?.name || 'Yetkili'} 👋
-          </Text>
-          <Text style={[styles.welcomeSubtitle, { color: colors.subtext }]}>
-            İşlem yapmak istediğiniz bölüme aşağıdaki kare kutulardan doğrudan giriş yapabilirsiniz.
-          </Text>
-
-          {/* 3 Stat Boxes Row */}
-          <View style={styles.statsRow}>
-            <View
-              style={[
-                styles.statBox,
-                {
-                  backgroundColor: colors.statBoxBg,
-                  borderColor: colors.statBoxBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.statLabel, { color: colors.subtext }]}>AKTİF KURULUM</Text>
-              <Text style={[styles.statValue, { color: colors.text }]}>{locations.length}</Text>
-            </View>
-            <View
-              style={[
-                styles.statBox,
-                {
-                  backgroundColor: colors.statBoxBg,
-                  borderColor: colors.statBoxBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.statLabel, { color: colors.subtext }]}>SERVİSLER</Text>
-              <Text style={[styles.statValue, { color: '#fb923c' }]}>{services.length}</Text>
-            </View>
-            <View
-              style={[
-                styles.statBox,
-                {
-                  backgroundColor: colors.statBoxBg,
-                  borderColor: colors.statBoxBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.statLabel, { color: colors.subtext }]}>İADE / GARANTİ</Text>
-              <Text style={[styles.statValue, { color: '#fbbf24' }]}>{activeReturnsCount}</Text>
-            </View>
+            <Text style={[styles.compactHeroSub, { color: colors.subtext }]} numberOfLines={1}>
+              {turkishDate} • {locations.length} Kurulum • {services.length} Servis
+            </Text>
           </View>
         </View>
 
-        {/* 3. Section Title */}
-        <View style={styles.sectionHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={18} color="#f59e0b" />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Hızlı Erişim Modülleri</Text>
-          </View>
-          <Text style={[styles.sectionCount, { color: colors.subtext }]}>
-            {canManageInstitutionsAndBranches
-              ? (canManageLicenses ? '12 Ana Bölüm' : '11 Ana Bölüm')
-              : (isAdmin ? (canManageLicenses ? '11 Ana Bölüm' : '10 Ana Bölüm') : '8 Ana Bölüm')}
-          </Text>
-        </View>
-
-        {/* 4. 2-Column Square Module Cards Grid (Exact Matches for Görsel 1) */}
-        <View style={styles.gridContainer}>
-          {/* Card 1: Kurum ve Şubeler (Cyan / Teal) */}
-          {canManageInstitutionsAndBranches && (
-            <TouchableOpacity
-              style={[styles.moduleCard, { backgroundColor: '#0d9488', borderColor: 'rgba(45, 212, 191, 0.4)' }]}
-              onPress={() => setIsBranchModalOpen(true)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.cardIconCircle}>
-                  <Building2 size={20} color="#ffffff" />
-                </View>
-                <View style={styles.badgeColumn}>
-                  <View style={styles.solidPillBadge}>
-                    <Text style={styles.solidPillText}>{branches.length} Şube</Text>
+        {/* 3. Görsel-1: 3-Column Circular App Launcher Grid (Tek Ekrana Sığan Düzen) */}
+        <View style={styles.launcherGrid}>
+          {visibleModules.map((mod) => {
+            const IconComponent = mod.icon;
+            return (
+              <TouchableOpacity
+                key={mod.id}
+                style={styles.launcherItem}
+                onPress={() => handleOpenModule(mod)}
+                activeOpacity={0.75}
+              >
+                {/* Glowing Circular App Icon */}
+                <View
+                  style={[
+                    styles.launcherCircle,
+                    {
+                      borderColor: mod.glowColor + '55',
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      shadowColor: mod.glowColor,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.launcherIconInner,
+                      { backgroundColor: mod.glowColor + '18' },
+                    ]}
+                  >
+                    <IconComponent size={28} color={mod.glowColor} />
                   </View>
+
+                  {/* Active Badge Dot / Count */}
+                  {mod.activeCount !== undefined && mod.activeCount > 0 && (
+                    <View
+                      style={[
+                        styles.launcherBadge,
+                        { backgroundColor: mod.glowColor },
+                      ]}
+                    >
+                      <Text style={styles.launcherBadgeText}>
+                        {mod.activeCount > 99 ? '99+' : mod.activeCount}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              </View>
-              <View style={styles.cardBottom}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardTitle}>Kurum ve Şubeler</Text>
-                  <ArrowRight size={15} color="#ffffff" />
-                </View>
-                <Text style={styles.cardDesc} numberOfLines={2}>
-                  Kurumlar, şubeler, konumlar ve personel atamaları
+
+                {/* Module Title Below Icon */}
+                <Text
+                  style={[
+                    styles.launcherLabel,
+                    { color: isDark ? '#f8fafc' : '#0f172a' },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {mod.shortTitle}
                 </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Card 2: Kurulumlar (Royal Blue) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#1d4ed8', borderColor: 'rgba(96, 165, 250, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/installations')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <Building2 size={20} color="#ffffff" />
-              </View>
-              <View style={styles.badgeColumn}>
-                <View style={styles.badgeRow}>
-                  <View style={styles.translucentBadge}>
-                    <Text style={styles.translucentBadgeText}>0 Onay</Text>
-                  </View>
-                  <View style={styles.solidPillBadge}>
-                    <Text style={styles.solidPillText}>{activeInstallationsCount} Bekleyen</Text>
-                  </View>
-                </View>
-                <Text style={styles.totalBadgeText}>{locations.length} Toplam</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Kurulumlar</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Saha montajları, müşteri adresleri ve kontrol listeleri
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 3: Servisler (Orange) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#ea580c', borderColor: 'rgba(251, 146, 60, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/services')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <Wrench size={20} color="#ffffff" />
-              </View>
-              <View style={styles.badgeColumn}>
-                <View style={styles.badgeRow}>
-                  <View style={styles.translucentBadge}>
-                    <Text style={styles.translucentBadgeText}>0 Onay</Text>
-                  </View>
-                  <View style={styles.solidPillBadge}>
-                    <Text style={styles.solidPillText}>{services.length} Bekleyen</Text>
-                  </View>
-                </View>
-                <Text style={styles.totalBadgeText}>{services.length} Toplam</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Servisler</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Müşteri servis müdahaleleri, parça ve...
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 4: İş Emirleri (Violet / Purple) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#7e22ce', borderColor: 'rgba(192, 132, 252, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/work-orders')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <ClipboardList size={20} color="#ffffff" />
-              </View>
-              <View style={styles.badgeColumn}>
-                <View style={styles.badgeRow}>
-                  <View style={styles.translucentBadge}>
-                    <Text style={styles.translucentBadgeText}>0 Onay</Text>
-                  </View>
-                  <View style={styles.solidPillBadge}>
-                    <Text style={styles.solidPillText}>{notes.length} Bekleyen</Text>
-                  </View>
-                </View>
-                <Text style={styles.totalBadgeText}>{notes.length + locations.length} Toplam</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>İş Emirleri</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Personele görev atama, alarmlar ve anlık iş emirleri
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 5: Personel Takibi (Emerald Green) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#047857', borderColor: 'rgba(52, 211, 153, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/attendance')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <UserCheck size={20} color="#ffffff" />
-              </View>
-              <View style={styles.solidPillBadge}>
-                <Text style={styles.solidPillText}>Takip</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Personel Takibi</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Lokasyon doğrulamalı ve yönetici onaylı işe giriş-...
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 6: Süreli Takipler (Amber / Orange) */}
-          {isAdmin && (
-            <TouchableOpacity
-              style={[styles.moduleCard, { backgroundColor: '#d97706', borderColor: 'rgba(251, 191, 36, 0.4)' }]}
-              onPress={() => router.push('/(tabs)/timed-follow-ups')}
-              activeOpacity={0.85}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.cardIconCircle}>
-                  <Clock size={20} color="#ffffff" />
-                </View>
-                <View style={styles.solidPillBadge}>
-                  <Text style={styles.solidPillText}>{pendingFollowUpsCount} Bekleyen</Text>
-                </View>
-              </View>
-              <View style={styles.cardBottom}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardTitle}>Süreli Takipler</Text>
-                  <ArrowRight size={15} color="#ffffff" />
-                </View>
-                <Text style={styles.cardDesc} numberOfLines={2}>
-                  Cari bazlı alarmlar, randevu ve zaman ayarlı iş...
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Card 7: Hatırlatmalar (Deep Indigo) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#4338ca', borderColor: 'rgba(165, 180, 252, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/reminders')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <Megaphone size={20} color="#ffffff" />
-              </View>
-              <View style={styles.solidPillBadge}>
-                <Text style={styles.solidPillText}>{adminRemindersCount || 1} Talimat</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Hatırlatmalar</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Yönetici çalışma talimatları, kurallar ve prosedürler
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 8: İade / Garanti (Red / Rose) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#dc2626', borderColor: 'rgba(248, 113, 113, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/returns')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <RotateCcw size={20} color="#ffffff" />
-              </View>
-              <View style={styles.solidPillBadge}>
-                <Text style={styles.solidPillText}>{activeReturnsCount} Süreçte</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>İade / Garanti</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Seri no, kargo fişi ve 1 haftalık otomatik durum...
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 9: Log Kayıtları (Dark Rose / Brown) */}
-          {isAdmin && (
-            <TouchableOpacity
-              style={[styles.moduleCard, { backgroundColor: '#991b1b', borderColor: 'rgba(239, 68, 68, 0.4)' }]}
-              onPress={() => router.push('/(tabs)/security-logs')}
-              activeOpacity={0.85}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.cardIconCircle}>
-                  <ShieldAlert size={20} color="#ffffff" />
-                </View>
-                <View style={styles.solidPillBadge}>
-                  <Text style={styles.solidPillText}>{securityLogsCount} Kayıt</Text>
-                </View>
-              </View>
-              <View style={styles.cardBottom}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardTitle}>Log Kayıtları</Text>
-                  <ArrowRight size={15} color="#ffffff" />
-                </View>
-                <Text style={styles.cardDesc} numberOfLines={2}>
-                  Cihaz uyuşmazlığı ve yetkisiz giriş denemeleri...
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Card 10: Şablon (Teal / Emerald) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#0f766e', borderColor: 'rgba(45, 212, 191, 0.4)' }]}
-            onPress={() => router.push('/(tabs)/templates')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <ListTodo size={20} color="#ffffff" />
-              </View>
-              <View style={styles.solidPillBadge}>
-                <Text style={styles.solidPillText}>{(standardTasks || []).length || 15} Görev</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Şablon</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Standart kontrol listesi görevleri & tam veri...
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 11: Bildirim Ayarları (Purple / Slate) (Matches Görsel 1) */}
-          <TouchableOpacity
-            style={[styles.moduleCard, { backgroundColor: '#312e81', borderColor: 'rgba(129, 140, 248, 0.4)' }]}
-            onPress={handleNotificationSettings}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.cardIconCircle}>
-                <Settings size={20} color="#ffffff" />
-              </View>
-              <View style={styles.solidPillBadge}>
-                <Text style={styles.solidPillText}>Canlı Durum</Text>
-              </View>
-            </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Bildirim Ayarları</Text>
-                <ArrowRight size={15} color="#ffffff" />
-              </View>
-              <Text style={styles.cardDesc} numberOfLines={2}>
-                Kilit ekranı izni, test gönderimi ve cihaz kontrolü
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Card 12: Lisanslama (Super Admin Only: admin & murat) */}
-          {canManageLicenses && (
-            <TouchableOpacity
-              style={[styles.moduleCard, { backgroundColor: '#1e1b4b', borderColor: 'rgba(99, 102, 241, 0.45)' }]}
-              onPress={() => setIsLicenseModalOpen(true)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.cardIconCircle}>
-                  <Building2 size={20} color="#818cf8" />
-                </View>
-                <View style={[styles.solidPillBadge, { backgroundColor: 'rgba(99, 102, 241, 0.25)' }]}>
-                  <Text style={[styles.solidPillText, { color: '#a5b4fc' }]}>SaaS Masası</Text>
-                </View>
-              </View>
-              <View style={styles.cardBottom}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardTitle}>Lisanslama</Text>
-                  <ArrowRight size={15} color="#ffffff" />
-                </View>
-                <Text style={styles.cardDesc} numberOfLines={2}>
-                  Kurum lisans süreleri, dondurma ve abonelik kontrolü
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </ScrollView>
+
+      {/* 4. Görsel-2: Enlarged Card Pop-up with Blurred Flu Backdrop */}
+      <Modal
+        visible={!!selectedModule}
+        transparent
+        animationType="none"
+        onRequestClose={() => handleCloseModule()}
+      >
+        <TouchableWithoutFeedback onPress={() => handleCloseModule()}>
+          <Animated.View
+            style={[
+              styles.modalBackdrop,
+              {
+                opacity: opacityAnim,
+              },
+            ]}
+          >
+            {/* Modal Inner Container - Stops Propagation */}
+            <TouchableWithoutFeedback>
+              <Animated.View
+                style={[
+                  styles.enlargedCardContainer,
+                  {
+                    transform: [{ scale: scaleAnim }],
+                  },
+                ]}
+              >
+                {selectedModule && (
+                  <View
+                    style={[
+                      styles.enlargedCard,
+                      {
+                        backgroundColor: selectedModule.color,
+                        borderColor: selectedModule.glowColor + '70',
+                      },
+                    ]}
+                  >
+                    {/* Top Row: Squircle Icon & Badge */}
+                    <View style={styles.enlargedTopRow}>
+                      <View style={styles.enlargedSquircleIcon}>
+                        <selectedModule.icon size={26} color="#ffffff" />
+                      </View>
+
+                      <View style={styles.enlargedBadgePill}>
+                        <Text style={styles.enlargedBadgeText}>
+                          {selectedModule.badgeText}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Middle: Title with Arrow & Full Description */}
+                    <View style={styles.enlargedContentBox}>
+                      <View style={styles.enlargedTitleRow}>
+                        <Text style={styles.enlargedTitle} numberOfLines={1}>
+                          {selectedModule.title}
+                        </Text>
+                        <ArrowRight size={20} color="#ffffff" />
+                      </View>
+
+                      <Text style={styles.enlargedDesc} numberOfLines={3}>
+                        {selectedModule.description}
+                      </Text>
+                    </View>
+
+                    {/* Bottom CTA Action Button */}
+                    <TouchableOpacity
+                      style={styles.enlargedActionBtn}
+                      onPress={handleExecuteAction}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.enlargedActionBtnText}>Bölüme Giriş Yap</Text>
+                      <ArrowRight size={16} color="#ffffff" />
+                    </TouchableOpacity>
+
+                    {/* Close 'X' Button at Top Right corner of the card */}
+                    <TouchableOpacity
+                      style={styles.enlargedCloseBtn}
+                      onPress={() => handleCloseModule()}
+                      activeOpacity={0.8}
+                    >
+                      <X size={16} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
       {/* User Management Modal */}
       <UserManagementModal
@@ -602,7 +592,7 @@ export default function HomeDashboardScreen() {
         onClose={() => setIsUserModalOpen(false)}
       />
 
-      {/* Create Company Modal (Görsel 1 & 2) */}
+      {/* Create Company Modal */}
       <CreateCompanyModal
         visible={isCreateCompanyOpen}
         onClose={() => setIsCreateCompanyOpen(false)}
@@ -616,19 +606,19 @@ export default function HomeDashboardScreen() {
         />
       )}
 
-      {/* Notification List Modal (Görsel 2) */}
+      {/* Notification List Modal */}
       <NotificationListModal
         visible={isNotifModalOpen}
         onClose={() => setIsNotifModalOpen(false)}
       />
 
-      {/* Notification Status & Device Management Modal (Görseller 1-4) */}
+      {/* Notification Status & Device Management Modal */}
       <NotificationStatusModal
         visible={isNotificationSettingsOpen}
         onClose={() => setIsNotificationSettingsOpen(false)}
       />
 
-      {/* SaaS License Management Modal (Super Admin: admin & murat) */}
+      {/* SaaS License Management Modal (Super Admin) */}
       {canManageLicenses && (
         <LicenseManagementModal
           visible={isLicenseModalOpen}
@@ -637,7 +627,7 @@ export default function HomeDashboardScreen() {
       )}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -689,16 +679,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topIconBtnBranch: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-    borderWidth: 1.2,
-    borderColor: '#3b82f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   topIconBtnNotif: {
     width: 36,
     height: 36,
@@ -730,177 +710,204 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: GRID_PADDING,
+    paddingTop: 12,
+    paddingBottom: 30,
   },
-  heroCard: {
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  heroTopRow: {
+  compactHeroBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  roleBadge: {
-    backgroundColor: 'rgba(37, 99, 235, 0.25)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.4)',
+    marginBottom: 16,
   },
-  roleBadgeText: {
-    fontSize: 10,
+  compactHeroName: {
+    fontSize: 15,
     fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  compactRolePill: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.35)',
+  },
+  compactRolePillText: {
+    fontSize: 9,
+    fontWeight: '900',
     color: '#60a5fa',
     letterSpacing: 0.5,
   },
-  dateText: {
+  compactHeroSub: {
     fontSize: 11,
-    fontWeight: '600',
-  },
-  welcomeTitle: {
-    fontSize: 21,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-  },
-  welcomeSubtitle: {
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 14,
-  },
-  statBox: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  statLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '900',
     marginTop: 2,
+    fontWeight: '500',
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  sectionCount: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  gridContainer: {
+
+  // Görsel-1: 3-Column Launcher Grid
+  launcherGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: CARD_GAP,
+    justifyContent: 'flex-start',
+    rowGap: 18,
   },
-  moduleCard: {
-    width: CARD_WIDTH,
-    height: CARD_WIDTH * 1.05,
-    borderRadius: 22,
-    padding: 14,
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
+  launcherItem: {
+    width: ITEM_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 4,
   },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  launcherCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+    position: 'relative',
   },
-  cardIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  launcherIconInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeColumn: {
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 3,
-  },
-  translucentBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  translucentBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  solidPillBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  solidPillText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  totalBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  cardBottom: {
-    gap: 4,
-  },
-  cardTitleRow: {
-    flexDirection: 'row',
+  launcherBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
   },
-  cardTitle: {
-    fontSize: 15,
+  launcherBadgeText: {
+    fontSize: 9,
     fontWeight: '900',
     color: '#ffffff',
   },
-  cardDesc: {
-    fontSize: 10,
+  launcherLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 15,
+    letterSpacing: -0.2,
+  },
+
+  // Görsel-2: Enlarged Card Pop-up with Blurred Backdrop
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(3, 7, 18, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  enlargedCardContainer: {
+    width: '100%',
+    maxWidth: 360,
+  },
+  enlargedCard: {
+    borderRadius: 26,
+    padding: 20,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 12,
+    position: 'relative',
+  },
+  enlargedTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  enlargedSquircleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enlargedBadgePill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  enlargedBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 0.2,
+  },
+  enlargedContentBox: {
+    marginBottom: 20,
+  },
+  enlargedTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  enlargedTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: -0.3,
+  },
+  enlargedDesc: {
+    fontSize: 13,
     color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 14,
+    lineHeight: 18,
     fontWeight: '500',
+  },
+  enlargedActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  enlargedActionBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  enlargedCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
