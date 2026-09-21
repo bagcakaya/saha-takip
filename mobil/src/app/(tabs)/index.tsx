@@ -233,7 +233,7 @@ export default function HomeDashboardScreen() {
     {
       id: 'attendance',
       title: 'Personel Takibi',
-      shortTitle: 'Personel',
+      shortTitle: 'Personel Takip',
       description: 'Lokasyon doğrulamalı ve yönetici onaylı işe giriş-çıkış takibi',
       icon: UserCheck,
       color: '#047857',
@@ -285,7 +285,7 @@ export default function HomeDashboardScreen() {
     {
       id: 'security-logs',
       title: 'Log Kayıtları',
-      shortTitle: 'Güvenlik Log',
+      shortTitle: 'Log Kayıtları',
       description: 'Cihaz uyuşmazlığı ve yetkisiz giriş denemeleri güvenlik kayıtları',
       icon: ShieldAlert,
       color: '#991b1b',
@@ -322,7 +322,7 @@ export default function HomeDashboardScreen() {
     {
       id: 'licensing',
       title: 'Lisanslama',
-      shortTitle: 'Lisans Masası',
+      shortTitle: 'Lisanslama',
       description: 'Kurum lisans süreleri, dondurma ve abonelik kontrolü',
       icon: Sparkles,
       color: '#1e1b4b',

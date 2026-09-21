@@ -206,7 +206,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     {
       id: 'staff_tracking',
       title: 'Personel Takibi',
-      shortTitle: 'Personel',
+      shortTitle: 'Personel Takip',
       description: 'Lokasyon doğrulamalı ve yönetici onaylı işe giriş-çıkış takibi',
       icon: UserCheck,
       gradient: 'bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-900',
@@ -262,7 +262,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     {
       id: 'logs',
       title: 'Log Kayıtları',
-      shortTitle: 'Güvenlik Log',
+      shortTitle: 'Log Kayıtları',
       description: 'Cihaz uyuşmazlığı ve yetkisiz giriş denemeleri takibi',
       icon: ShieldAlert,
       gradient: 'bg-gradient-to-br from-red-800 via-red-900 to-slate-950',
@@ -302,7 +302,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     {
       id: 'licensing',
       title: 'Lisanslama',
-      shortTitle: 'Lisans Masası',
+      shortTitle: 'Lisanslama',
       description: 'Kurum lisans süreleri, dondurma ve abonelik kontrolü',
       icon: Sparkles,
       gradient: 'bg-gradient-to-br from-blue-700 via-indigo-800 to-slate-950',
