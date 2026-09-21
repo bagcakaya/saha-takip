@@ -663,33 +663,57 @@ export const StorageService = {
     const localKey = `@return_warranty_${activeCompanyCode}`;
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        let fallbackItems: ReturnWarrantyItem[] = [];
+        try {
+          const slot = await loadChunkedSlot<ReturnWarrantyItem[]>(2);
+          if (slot.data && Array.isArray(slot.data)) {
+            fallbackItems = slot.data;
+          }
+        } catch {}
+
         const { data, error } = await supabase
           .from('return_warranty')
           .select('*')
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          const mapped: ReturnWarrantyItem[] = data.map((r) => ({
-            id: r.id,
-            type: r.type || 'warranty',
-            companyName: r.company_name,
-            cariName: r.cari_name || undefined,
-            sentDate: r.sent_date,
-            serialNumber: r.serial_number || '',
-            trackingCode: r.tracking_code || '',
-            serialNumberPhoto: r.serial_number_photo || undefined,
-            trackingCodePhoto: r.tracking_code_photo || undefined,
-            notes: r.notes || '',
-            status: r.status || 'pending',
-            reminderDate: r.reminder_date || undefined,
-            reminderActive: r.reminder_active || false,
-            notified: r.notified || false,
-            createdAt: Number(r.created_at) || Date.now(),
-            createdBy: r.created_by || '',
-            createdByName: r.created_by_name || '',
-          }));
-          await setLocal(localKey, mapped);
-          return mapped;
+          const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
+          const mapped: ReturnWarrantyItem[] = data.map((r) => {
+            const fb = fallbackMap.get(r.id);
+            return {
+              id: r.id,
+              type: r.type || 'warranty',
+              companyName: r.company_name,
+              cariName: r.cari_name || fb?.cariName || undefined,
+              sentDate: r.sent_date,
+              serialNumber: r.serial_number || fb?.serialNumber || '',
+              trackingCode: r.tracking_code || fb?.trackingCode || '',
+              serialNumberPhoto: r.serial_number_photo || fb?.serialNumberPhoto || undefined,
+              trackingCodePhoto: r.tracking_code_photo || fb?.trackingCodePhoto || undefined,
+              notes: r.notes || fb?.notes || '',
+              status: r.status || 'pending',
+              reminderDate: r.reminder_date || fb?.reminderDate || undefined,
+              reminderActive: r.reminder_active || false,
+              notified: r.notified || false,
+              createdAt: Number(r.created_at) || Date.now(),
+              createdBy: r.created_by || '',
+              createdByName: r.created_by_name || '',
+            };
+          });
+
+          const cloudIds = new Set(mapped.map((c) => c.id));
+          const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
+          const merged = [...mapped, ...missingFallback];
+
+          if (merged.length > 0) {
+            await setLocal(localKey, merged);
+            return merged;
+          }
+        }
+
+        if (fallbackItems.length > 0) {
+          await setLocal(localKey, fallbackItems);
+          return fallbackItems;
         }
       } else {
         const slot = await loadChunkedSlot<ReturnWarrantyItem[]>(this.getSlotId(2));

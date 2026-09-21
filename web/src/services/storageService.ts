@@ -960,8 +960,8 @@ export const StorageService = {
               sentDate: row.sent_date,
               serialNumber: row.serial_number || undefined,
               trackingCode: row.tracking_code || undefined,
-              serialNumberPhoto: row.serial_number_photo || undefined,
-              trackingCodePhoto: row.tracking_code_photo || undefined,
+              serialNumberPhoto: row.serial_number_photo || fb?.serialNumberPhoto || undefined,
+              trackingCodePhoto: row.tracking_code_photo || fb?.trackingCodePhoto || undefined,
               notes: row.notes || undefined,
               status: row.status as any,
               reminderDate: row.reminder_date || undefined,
@@ -976,8 +976,15 @@ export const StorageService = {
             };
           });
 
-          await saveItem(localKey, cloudItems);
-          return cloudItems;
+          // Merge any fallback items from slot 2 that aren't in return_warranty table yet
+          const cloudIds = new Set(cloudItems.map((c) => c.id));
+          const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
+          const mergedItems = [...cloudItems, ...missingFallback];
+
+          if (mergedItems.length > 0) {
+            await saveItem(localKey, mergedItems);
+            return mergedItems;
+          }
         }
       } catch {
         // ignore
