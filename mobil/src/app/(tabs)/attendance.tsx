@@ -230,6 +230,7 @@ export default function AttendanceScreen() {
   const [startDateStr, setStartDateStr] = useState(() => formatToDDMMYYYY(getTodayIsoDate()));
   const [endDateStr, setEndDateStr] = useState(() => formatToDDMMYYYY(getTodayIsoDate()));
   const [isExporting, setIsExporting] = useState(false);
+  const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
   const fetchGps = async () => {
     setGpsLoading(true);
@@ -416,7 +417,7 @@ export default function AttendanceScreen() {
     const firstDayLastMonthIso = `${firstDayLastMonth.getFullYear()}-${pad(firstDayLastMonth.getMonth() + 1)}-01`;
     const lastDayLastMonthIso = `${lastDayLastMonth.getFullYear()}-${pad(lastDayLastMonth.getMonth() + 1)}-${pad(lastDayLastMonth.getDate())}`;
 
-    return attendanceRecords.filter((r) => {
+    const list = attendanceRecords.filter((r) => {
       // Staff filter
       if (selectedStaffFilter !== 'all') {
         const staffObj = ALL_STAFF.find((s) => s.id === selectedStaffFilter);
@@ -441,6 +442,47 @@ export default function AttendanceScreen() {
       }
 
       return true;
+    });
+
+    const getApprovalSortScore = (r: AttendanceRecord) => {
+      const isPending =
+        r.status === 'pending_checkout_approval' ||
+        r.status === 'pending_checkin_approval' ||
+        (r.checkOutOutside && r.checkOutApprovalStatus === 'pending') ||
+        (r.checkInOutside && r.checkInApprovalStatus === 'pending');
+
+      let approvedAt = 0;
+      if (r.checkOutApprovalStatus === 'approved') {
+        approvedAt = Math.max(approvedAt, r.checkOutApprovedAt || r.checkOutTime || r.checkInTime || 1);
+      }
+      if (r.checkInApprovalStatus === 'approved') {
+        approvedAt = Math.max(approvedAt, r.checkInApprovedAt || r.checkInTime || 1);
+      }
+
+      return { isPending, approvedAt };
+    };
+
+    return [...list].sort((a, b) => {
+      const scoreA = getApprovalSortScore(a);
+      const scoreB = getApprovalSortScore(b);
+
+      // 1. Bekleyen onaylar en başta (yönetici işlem yapsın)
+      if (scoreA.isPending && !scoreB.isPending) return -1;
+      if (!scoreA.isPending && scoreB.isPending) return 1;
+      if (scoreA.isPending && scoreB.isPending) {
+        return (b.checkOutTime || b.checkInTime || 0) - (a.checkOutTime || a.checkInTime || 0);
+      }
+
+      // 2. Yönetici tarafından onaylananlar en üstte (en son onaylanan en başta)
+      if (scoreA.approvedAt > 0 && scoreB.approvedAt > 0) {
+        return scoreB.approvedAt - scoreA.approvedAt;
+      }
+      if (scoreA.approvedAt > 0 && scoreB.approvedAt === 0) return -1;
+      if (scoreA.approvedAt === 0 && scoreB.approvedAt > 0) return 1;
+
+      // 3. Normal kayıtlar: Tarihe göre azalan, ardından giriş saatine göre azalan
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return (b.checkInTime || 0) - (a.checkInTime || 0);
     });
   }, [attendanceRecords, selectedStaffFilter, activePeriod]);
 
@@ -1228,60 +1270,106 @@ export default function AttendanceScreen() {
         </View>
 
         {/* ============================================================ */}
-        {/* GÖRSEL-3: PERSONEL MESAİ ÖZETİ LİSTESİ */}
+        {/* GÖRSEL-3: PERSONEL MESAİ ÖZETİ LİSTESİ (OKLA AÇILIR PANEL) */}
         {/* ============================================================ */}
-        <View style={{ gap: 10 }}>
-          <View style={styles.sectionHeaderRow}>
-            <Users size={18} color="#38bdf8" />
-            <Text style={styles.sectionHeadingText}>PERSONEL MESAİ ÖZETİ</Text>
-          </View>
-
-          {staffSummaries.map((staff) => (
-            <View
-              key={staff.id}
+        {isAdmin && (
+          <View style={{ gap: 10 }}>
+            <TouchableOpacity
               style={[
-                styles.staffSummaryCard,
+                styles.summaryToggleBtn,
                 {
-                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  backgroundColor: isDark ? '#0c152e' : '#f8fafc',
                   borderColor: isDark ? '#1e293b' : '#e2e8f0',
                 },
               ]}
+              onPress={() => setIsStaffSummaryOpen(!isStaffSummaryOpen)}
+              activeOpacity={0.7}
             >
-              {/* Header: Initial avatar + name + role */}
-              <View style={styles.staffHeaderRow}>
-                <View style={styles.initialBadge}>
-                  <Text style={styles.initialText}>{staff.name.charAt(0)}</Text>
-                </View>
-                <View>
-                  <Text style={[styles.staffNameText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    {staff.name}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Users size={18} color="#38bdf8" />
+                <Text style={styles.sectionHeadingText}>PERSONEL MESAİ ÖZETİ</Text>
+                <View
+                  style={{
+                    backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe',
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#0284c7',
+                      fontSize: 11,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {staffSummaries.length} Personel
                   </Text>
-                  <Text style={styles.staffRoleText}>{staff.role}</Text>
                 </View>
               </View>
 
-              {/* 3 Metric Columns: TOPLAM | GÜN | ORTALAMA */}
-              <View style={styles.staffMetricsRow}>
-                <View style={styles.metricCol}>
-                  <Text style={styles.metricLabel}>TOPLAM</Text>
-                  <Text style={styles.metricValBlue}>{staff.totalText}</Text>
-                </View>
-
-                <View style={styles.metricCol}>
-                  <Text style={styles.metricLabel}>GÜN</Text>
-                  <Text style={[styles.metricValWhite, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    {staff.daysText}
-                  </Text>
-                </View>
-
-                <View style={styles.metricCol}>
-                  <Text style={styles.metricLabel}>ORTALAMA</Text>
-                  <Text style={styles.metricValGreen}>{staff.avgText}</Text>
-                </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: isDark ? '#94a3b8' : '#64748b' }}>
+                  {isStaffSummaryOpen ? 'Gizle' : 'Göster'}
+                </Text>
+                <ChevronDown
+                  size={18}
+                  color={isDark ? '#94a3b8' : '#64748b'}
+                  style={{
+                    transform: [{ rotate: isStaffSummaryOpen ? '180deg' : '0deg' }],
+                  }}
+                />
               </View>
-            </View>
-          ))}
-        </View>
+            </TouchableOpacity>
+
+            {isStaffSummaryOpen &&
+              staffSummaries.map((staff) => (
+                <View
+                  key={staff.id}
+                  style={[
+                    styles.staffSummaryCard,
+                    {
+                      backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                      borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                    },
+                  ]}
+                >
+                  {/* Header: Initial avatar + name + role */}
+                  <View style={styles.staffHeaderRow}>
+                    <View style={styles.initialBadge}>
+                      <Text style={styles.initialText}>{staff.name.charAt(0)}</Text>
+                    </View>
+                    <View>
+                      <Text style={[styles.staffNameText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {staff.name}
+                      </Text>
+                      <Text style={styles.staffRoleText}>{staff.role}</Text>
+                    </View>
+                  </View>
+
+                  {/* 3 Metric Columns: TOPLAM | GÜN | ORTALAMA */}
+                  <View style={styles.staffMetricsRow}>
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel}>TOPLAM</Text>
+                      <Text style={styles.metricValBlue}>{staff.totalText}</Text>
+                    </View>
+
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel}>GÜN</Text>
+                      <Text style={[styles.metricValWhite, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {staff.daysText}
+                      </Text>
+                    </View>
+
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel}>ORTALAMA</Text>
+                      <Text style={styles.metricValGreen}>{staff.avgText}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+          </View>
+        )}
 
         {/* ============================================================ */}
         {/* GÖRSEL-4 & 5: 10 SÜTUNLU DETAYLI MESAİ GİRİŞ-ÇIKIŞ TABLOSU */}
@@ -1427,12 +1515,12 @@ export default function AttendanceScreen() {
                                 <Text style={styles.inlineRejectBtnText}>Reddet</Text>
                               </TouchableOpacity>
                             </View>
-                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'approved') || (item.checkInOutside && item.checkInApprovalStatus === 'approved') ? (
+                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'approved') || (item.checkInOutside && item.checkInApprovalStatus === 'approved') || item.checkOutApprovalStatus === 'approved' || item.checkInApprovalStatus === 'approved' ? (
                             <View style={styles.inlineApprovedBadge}>
                               <Check size={11} color="#10b981" />
                               <Text style={styles.inlineApprovedBadgeText}>Onaylandı</Text>
                             </View>
-                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'rejected') || (item.checkInOutside && item.checkInApprovalStatus === 'rejected') ? (
+                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'rejected') || (item.checkInOutside && item.checkInApprovalStatus === 'rejected') || item.checkOutApprovalStatus === 'rejected' || item.checkInApprovalStatus === 'rejected' ? (
                             <View style={styles.inlineRejectedBadge}>
                               <X size={11} color="#f43f5e" />
                               <Text style={styles.inlineRejectedBadgeText}>Reddedildi</Text>
@@ -2476,6 +2564,15 @@ const styles = StyleSheet.create({
   },
 
   /* Personel Mesai Özeti (Görsel-3) */
+  summaryToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
