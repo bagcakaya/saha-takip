@@ -28,6 +28,7 @@ import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData, isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches } from '../../types/auth';
+import { getRemainingDays } from '../../utils/dateUtils';
 import { OneSignalService } from '../../services/oneSignalService';
 import { NotificationListModal } from '../common/NotificationListModal';
 import { CariListModal } from '../common/CariListModal';
@@ -145,10 +146,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   }, [timedFollowUps]);
 
   const pendingTimedFollowUpsCount = React.useMemo(() => {
-    const now = Date.now();
-    return timedFollowUps.filter(
-      (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() > now
-    ).length;
+    return timedFollowUps.filter((item) => {
+      if (item.status !== 'pending') return false;
+      const remainingDays = getRemainingDays(item.snoozedUntil || item.dueDate);
+      return remainingDays !== null && remainingDays <= 15 && remainingDays > 0;
+    }).length;
   }, [timedFollowUps]);
 
   const handleDeleteAccount = async () => {

@@ -314,6 +314,11 @@ export const TimedFollowUpsSection: React.FC = () => {
                           <Smartphone className="w-3.5 h-3.5" />
                         </span>
                       )}
+                      {item.currentMilestoneLabel && !isCompleted && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          {item.currentMilestoneLabel}
+                        </span>
+                      )}
                     </div>
 
                     {/* Action Buttons */}

@@ -36,7 +36,7 @@ export const CariAlarmRingingModal: React.FC = () => {
             </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 text-white text-xs font-bold uppercase tracking-wider backdrop-blur-sm mb-1">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
-              Süreli Cari Alarmı Çalıyor
+              {activeRingingAlarm.currentMilestoneLabel || 'Süreli Cari Alarmı Çalıyor'}
             </div>
             <div className="text-white/90 text-sm font-medium">
               {formattedDate} • {formattedTime}

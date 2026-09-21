@@ -11,7 +11,7 @@ import { UserService } from '../services/userService';
 import { TabType } from '../components/layout/Header';
 import { LocationService } from '../services/locationService';
 import { DeviceService } from '../services/deviceService';
-import { parseDueDateTime } from '../utils/dateUtils';
+import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -3817,28 +3817,44 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const checkAlarms = () => {
       const now = Date.now();
-      const dueAlarm = timedFollowUps.find((item) => {
-        if (item.status !== 'pending') return false;
-        const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
-        const targetTime = targetDate ? targetDate.getTime() : NaN;
-        return !isNaN(targetTime) && targetTime <= now && !item.notified;
-      });
+      let triggeredAlarm: TimedFollowUp | null = null;
+      let triggerResult: ReturnType<typeof checkMilestoneTrigger> = null;
 
-      if (dueAlarm) {
-        if (!activeRingingAlarm || activeRingingAlarm.id !== dueAlarm.id) {
-          setActiveRingingAlarm(dueAlarm);
+      for (const item of timedFollowUps) {
+        if (item.status !== 'pending') continue;
+        const res = checkMilestoneTrigger(item, now);
+        if (res && res.shouldTrigger) {
+          triggeredAlarm = item;
+          triggerResult = res;
+          break;
+        }
+      }
 
-          if (dueAlarm.soundAlarm !== false) {
+      if (triggeredAlarm && triggerResult) {
+        const { milestoneKey, milestoneLabel, consumedMilestones } = triggerResult;
+
+        if (
+          !activeRingingAlarm ||
+          activeRingingAlarm.id !== triggeredAlarm.id ||
+          activeRingingAlarm.currentMilestoneKey !== milestoneKey
+        ) {
+          const alarmWithMilestone: TimedFollowUp = {
+            ...triggeredAlarm,
+            currentMilestoneLabel: milestoneLabel,
+            currentMilestoneKey: milestoneKey,
+          };
+          setActiveRingingAlarm(alarmWithMilestone);
+
+          if (triggeredAlarm.soundAlarm !== false) {
             NotificationService.playAlarmSound();
           }
 
-          const title = `⏰ Süreli Takip: ${dueAlarm.cariName}`;
-          const body = dueAlarm.description || 'Vakti gelen cari takip hatırlatması!';
+          const title = `⏰ Süreli Takip (${milestoneLabel}): ${triggeredAlarm.cariName}`;
+          const body = triggeredAlarm.description || `Cari takip hatırlatması: ${milestoneLabel}`;
           const followUpUrl = 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups';
           NotificationService.sendNotification(title, body, followUpUrl);
 
-          // Only send immediate push if it was NOT already scheduled via OneSignal cloud
-          if (dueAlarm.sendPush !== false && !dueAlarm.onesignalNotificationId) {
+          if (triggeredAlarm.sendPush !== false) {
             OneSignalService.sendPushNotification({
               title,
               message: body,
@@ -3847,6 +3863,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               url: followUpUrl,
             }).catch(() => {});
           }
+
+          // Persist the consumed milestone(s) immediately so that the same milestone never fires again
+          const existingMilestones = triggeredAlarm.notifiedMilestones || [];
+          const mergedMilestones = Array.from(new Set([...existingMilestones, ...consumedMilestones]));
+          const updated = timedFollowUps.map((it) =>
+            it.id === triggeredAlarm!.id
+              ? {
+                  ...it,
+                  notifiedMilestones: mergedMilestones,
+                  currentMilestoneLabel: milestoneLabel,
+                  currentMilestoneKey: milestoneKey,
+                  notified: milestoneKey === 'due' ? true : it.notified,
+                }
+              : it
+          );
+          setTimedFollowUps(updated);
+          StorageService.saveTimedFollowUps(updated).catch(() => {});
         }
       }
     };
@@ -3953,6 +3986,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (updates.dueDate && updates.dueDate !== item.dueDate) {
           res.notified = false;
           res.snoozedUntil = undefined;
+          res.notifiedMilestones = [];
+          res.currentMilestoneLabel = undefined;
+          res.currentMilestoneKey = undefined;
         }
         return res;
       }
@@ -4050,10 +4086,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     NotificationService.stopAlarmSound();
     if (activeRingingAlarm) {
       const alarmId = activeRingingAlarm.id;
+      const milestoneKey = activeRingingAlarm.currentMilestoneKey;
       setActiveRingingAlarm(null);
-      const updated = timedFollowUps.map((item) =>
-        item.id === alarmId ? { ...item, notified: true } : item
-      );
+      const updated = timedFollowUps.map((item) => {
+        if (item.id !== alarmId) return item;
+        const currentMilestones = item.notifiedMilestones || [];
+        const nextMilestones =
+          milestoneKey && !currentMilestones.includes(milestoneKey)
+            ? [...currentMilestones, milestoneKey]
+            : currentMilestones;
+        return {
+          ...item,
+          notified: milestoneKey === 'due' ? true : item.notified,
+          notifiedMilestones: nextMilestones,
+        };
+      });
       setTimedFollowUps(updated);
       await StorageService.saveTimedFollowUps(updated);
     }

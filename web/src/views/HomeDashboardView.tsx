@@ -24,6 +24,7 @@ import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationStatusModal } from '../components/common/NotificationStatusModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
+import { getRemainingDays } from '../utils/dateUtils';
 
 interface HomeDashboardViewProps {
   onNavigate: (tab: TabType) => void;
@@ -133,10 +134,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     (r) => !r.readBy || !r.readBy.includes(user?.id || '')
   ).length;
 
-  const now = Date.now();
-  const pendingTimedFollowUpsCount = timedFollowUps.filter(
-    (item) => item.status === 'pending' && new Date(item.snoozedUntil || item.dueDate).getTime() > now
-  ).length;
+  const pendingTimedFollowUpsCount = timedFollowUps.filter((item) => {
+    if (item.status !== 'pending') return false;
+    const remainingDays = getRemainingDays(item.snoozedUntil || item.dueDate);
+    return remainingDays !== null && remainingDays <= 15;
+  }).length;
 
   const todayStr = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
@@ -226,7 +228,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-amber-600 via-amber-700 to-yellow-800',
       borderColor: 'border-amber-400/40',
       glowColor: 'text-amber-400',
-      badgeText: `${pendingTimedFollowUpsCount} Bekleyen`,
+      badgeText: pendingTimedFollowUpsCount > 0 ? `${pendingTimedFollowUpsCount} Bekleyen` : `${timedFollowUps.filter((i) => i.status === 'pending').length} Takip`,
       activeCount: pendingTimedFollowUpsCount,
       action: () => onNavigate('timed_follow_ups'),
       visible: isAdmin,

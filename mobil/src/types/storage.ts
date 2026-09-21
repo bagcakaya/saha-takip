@@ -337,5 +337,8 @@ export interface TimedFollowUp {
   completedByName?: string;
   snoozedUntil?: string;
   onesignalNotificationId?: string; // OneSignal cloud scheduled notification id for cancellation
+  notifiedMilestones?: string[]; // e.g. ['30d', '15d', '7d', '3d', 'due']
+  currentMilestoneLabel?: string; // e.g. '1 Ay Kaldı! (30 Gün)', '15 Gün Kaldı!', '7 Gün Kaldı!', '3 Gün Kaldı!', 'Vadesi Geldi!'
+  currentMilestoneKey?: string;
 }
 

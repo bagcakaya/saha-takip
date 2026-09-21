@@ -47,6 +47,7 @@ import { NotificationListModal } from '../../components/NotificationListModal';
 import { NotificationStatusModal } from '../../components/NotificationStatusModal';
 import { LicenseManagementModal } from '../../components/LicenseManagementModal';
 import { canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../../types/auth';
+import { getRemainingDays } from '../../utils/dateUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = 16;
@@ -105,7 +106,11 @@ export default function HomeDashboardScreen() {
   const activeAttendanceCount = attendanceRecords.filter(
     (r) => r.date === todayStr && (r.status === 'checked_in' || r.status === 'completed')
   ).length;
-  const pendingFollowUpsCount = (timedFollowUps || []).filter((f) => f.status === 'pending').length;
+  const pendingFollowUpsCount = (timedFollowUps || []).filter((f) => {
+    if (f.status !== 'pending') return false;
+    const remainingDays = getRemainingDays(f.snoozedUntil || f.dueDate);
+    return remainingDays !== null && remainingDays <= 15;
+  }).length;
   const adminRemindersCount = (adminReminders || []).length;
   const securityLogsCount = (securityLogs || []).filter((l) => !l.read).length;
 
@@ -251,7 +256,7 @@ export default function HomeDashboardScreen() {
       icon: Clock,
       color: '#d97706',
       glowColor: '#fbbf24',
-      badgeText: `${pendingFollowUpsCount} Bekleyen`,
+      badgeText: pendingFollowUpsCount > 0 ? `${pendingFollowUpsCount} Bekleyen` : `${(timedFollowUps || []).filter((f) => f.status === 'pending').length} Takip`,
       activeCount: pendingFollowUpsCount,
       action: () => router.push('/(tabs)/timed-follow-ups'),
       visible: isAdmin,

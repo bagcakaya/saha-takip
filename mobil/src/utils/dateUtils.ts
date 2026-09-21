@@ -100,10 +100,146 @@ export function getRemainingDaysInfo(value: string | number | null | undefined):
     };
   }
 
-  return {
-    days: diffDays,
-    label: `${diffDays} Gün Kaldı`,
-    status: diffDays <= 7 ? 'expiring_soon' : 'active',
-    isExpired: false,
-  };
+    return {
+      days: diffDays,
+      label: `${diffDays} Gün Kaldı`,
+      status: diffDays <= 7 ? 'expiring_soon' : 'active',
+      isExpired: false,
+    };
+  }
+
+/**
+ * Calculates remaining whole days until due date/time.
+ * If target is past or now, returns 0.
+ * If invalid date, returns null.
+ */
+export function getRemainingDays(value: string | number | null | undefined): number | null {
+  const targetDate = parseDueDateTime(value);
+  if (!targetDate) return null;
+
+  const now = Date.now();
+  const diffMs = targetDate.getTime() - now;
+
+  if (diffMs <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
+
+export type FollowUpMilestone = '30d' | '15d' | '7d' | '3d' | 'due' | 'snooze_due';
+
+export interface MilestoneTriggerResult {
+  shouldTrigger: boolean;
+  milestoneKey: FollowUpMilestone;
+  milestoneLabel: string;
+  consumedMilestones: FollowUpMilestone[];
+}
+
+/**
+ * Checks whether a timed follow-up should trigger an alarm:
+ * - 1 ay (30 gün) kala ('30d')
+ * - 15 gün kala ('15d')
+ * - 7 gün kala ('7d')
+ * - 3 gün kala ('3d')
+ * - Vadesi geldiğinde ('due')
+ * - Ertelenen süresi bittiğinde ('snooze_due')
+ */
+export function checkMilestoneTrigger(
+  item: {
+    status?: string;
+    dueDate: string;
+    snoozedUntil?: string;
+    notified?: boolean;
+    notifiedMilestones?: string[];
+  },
+  nowMs: number = Date.now()
+): MilestoneTriggerResult | null {
+  if (item.status && item.status !== 'pending') return null;
+
+  // 1. Check snooze if active
+  if (item.snoozedUntil) {
+    const snoozeDate = parseDueDateTime(item.snoozedUntil);
+    const snoozeTime = snoozeDate ? snoozeDate.getTime() : NaN;
+    if (!isNaN(snoozeTime)) {
+      if (nowMs >= snoozeTime && !item.notified) {
+        return {
+          shouldTrigger: true,
+          milestoneKey: 'snooze_due',
+          milestoneLabel: 'Erteleme Süresi Doldu!',
+          consumedMilestones: ['snooze_due'],
+        };
+      }
+      // If snoozed and snooze time hasn't arrived, wait
+      if (nowMs < snoozeTime) {
+        return null;
+      }
+    }
+  }
+
+  // 2. Check due date
+  const targetDate = parseDueDateTime(item.dueDate);
+  if (!targetDate) return null;
+  const targetTime = targetDate.getTime();
+  if (isNaN(targetTime)) return null;
+
+  const notifiedMilestones = item.notifiedMilestones || [];
+
+  // If due date has passed
+  if (nowMs >= targetTime) {
+    if (!item.notified && !notifiedMilestones.includes('due')) {
+      return {
+        shouldTrigger: true,
+        milestoneKey: 'due',
+        milestoneLabel: 'Vadesi Geldi!',
+        consumedMilestones: ['30d', '15d', '7d', '3d', 'due'],
+      };
+    }
+    return null;
+  }
+
+  // Future due date: calculate remaining days
+  const diffMs = targetTime - nowMs;
+  const remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (remainingDays <= 3) {
+    if (!notifiedMilestones.includes('3d')) {
+      return {
+        shouldTrigger: true,
+        milestoneKey: '3d',
+        milestoneLabel: '3 Gün Kaldı!',
+        consumedMilestones: ['30d', '15d', '7d', '3d'],
+      };
+    }
+  } else if (remainingDays <= 7) {
+    if (!notifiedMilestones.includes('7d')) {
+      return {
+        shouldTrigger: true,
+        milestoneKey: '7d',
+        milestoneLabel: '7 Gün Kaldı!',
+        consumedMilestones: ['30d', '15d', '7d'],
+      };
+    }
+  } else if (remainingDays <= 15) {
+    if (!notifiedMilestones.includes('15d')) {
+      return {
+        shouldTrigger: true,
+        milestoneKey: '15d',
+        milestoneLabel: '15 Gün Kaldı!',
+        consumedMilestones: ['30d', '15d'],
+      };
+    }
+  } else if (remainingDays <= 30) {
+    if (!notifiedMilestones.includes('30d')) {
+      return {
+        shouldTrigger: true,
+        milestoneKey: '30d',
+        milestoneLabel: '1 Ay Kaldı! (30 Gün)',
+        consumedMilestones: ['30d'],
+      };
+    }
+  }
+
+  return null;
+}
+

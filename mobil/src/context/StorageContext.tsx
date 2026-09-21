@@ -1050,9 +1050,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
-    const updated = timedFollowUps.map((item) =>
-      item.id === id ? { ...item, ...updates, onesignalNotificationId: newNotificationId } : item
-    );
+    const updated = timedFollowUps.map((item) => {
+      if (item.id === id) {
+        const res: TimedFollowUp = { ...item, ...updates, onesignalNotificationId: newNotificationId };
+        if (updates.dueDate && updates.dueDate !== item.dueDate) {
+          res.notified = false;
+          res.snoozedUntil = undefined;
+          res.notifiedMilestones = [];
+          res.currentMilestoneLabel = undefined;
+          res.currentMilestoneKey = undefined;
+        }
+        return res;
+      }
+      return item;
+    });
     setTimedFollowUps(updated);
     await StorageService.saveTimedFollowUps(updated);
     return { success: true, message: 'Takip güncellendi.' };
