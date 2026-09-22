@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { StorageProvider, useStorage } from './context/StorageContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -23,6 +23,7 @@ import { LocationDetailModal } from './components/installations/LocationDetailMo
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { isUserAdmin, canUserManageInstitutionsAndBranches } from './types/auth';
 import {
   normalizeTab,
@@ -68,9 +69,20 @@ const MainApp: React.FC = () => {
   // Selected location for right summary panel preview / detail modal
   const [previewLocation, setPreviewLocation] = useState<LocationItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+
+  // Automatically scroll back to top when switching tabs (prevents mobile/iOS Safari viewport offset glitches)
+  useEffect(() => {
+    if (mainScrollRef.current) {
+      mainScrollRef.current.scrollTop = 0;
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
+  }, [activeTab]);
 
   // Guard against non-admin accessing branches tab
-  React.useEffect(() => {
+  useEffect(() => {
     if (user && !isAdmin && activeTab === 'branches') {
       setActiveTab('home');
     }
@@ -285,7 +297,10 @@ const MainApp: React.FC = () => {
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* 2. Center Content Area (Fluid full width) */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden w-full max-w-full">
+      <div
+        ref={mainScrollRef}
+        className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden w-full max-w-full"
+      >
         {/* Mobile / Tablet Header (< lg screens) */}
         <Header
           activeTab={activeTab}
@@ -301,27 +316,29 @@ const MainApp: React.FC = () => {
             paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)',
           }}
         >
-          {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
-          {activeTab === 'branches' &&
-            (canManageInstitutionsAndBranches ? (
-              <BranchesView />
-            ) : (
-              <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
-            ))}
-          {activeTab === 'installations' && <InstallationsView />}
-          {activeTab === 'services' && <ServicesView />}
-          {activeTab === 'notes' && <NotesView />}
-          {activeTab === 'staff_tracking' && <StaffTrackingView />}
-          {activeTab === 'timed_follow_ups' &&
-            (isAdmin ? (
-              <TimedFollowUpsView />
-            ) : (
-              <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
-            ))}
-          {activeTab === 'reminders' && <RemindersView />}
-          {activeTab === 'returns' && <ReturnWarrantyView />}
-          {activeTab === 'logs' && <SecurityLogsView />}
-          {activeTab === 'template' && <TemplateView />}
+          <ErrorBoundary onReset={() => setActiveTab('home')}>
+            {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
+            {activeTab === 'branches' &&
+              (canManageInstitutionsAndBranches ? (
+                <BranchesView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+              ))}
+            {activeTab === 'installations' && <InstallationsView />}
+            {activeTab === 'services' && <ServicesView />}
+            {activeTab === 'notes' && <NotesView />}
+            {activeTab === 'staff_tracking' && <StaffTrackingView />}
+            {activeTab === 'timed_follow_ups' &&
+              (isAdmin ? (
+                <TimedFollowUpsView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+              ))}
+            {activeTab === 'reminders' && <RemindersView />}
+            {activeTab === 'returns' && <ReturnWarrantyView />}
+            {activeTab === 'logs' && <SecurityLogsView />}
+            {activeTab === 'template' && <TemplateView />}
+          </ErrorBoundary>
         </main>
       </div>
 

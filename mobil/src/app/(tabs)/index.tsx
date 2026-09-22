@@ -101,18 +101,22 @@ export default function HomeDashboardScreen() {
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
   const isAdmin = user?.role === 'admin';
   const todayStr = new Date().toISOString().split('T')[0];
-  const activeReturnsCount = returnWarrantyItems.filter((i) => i.status === 'pending').length;
-  const activeInstallationsCount = locations.filter((l) => l.status !== 'completed').length;
-  const activeAttendanceCount = attendanceRecords.filter(
-    (r) => r.date === todayStr && (r.status === 'checked_in' || r.status === 'completed')
+  const activeReturnsCount = (returnWarrantyItems || []).filter((i) => i && i.status === 'pending').length;
+  const activeInstallationsCount = (locations || []).filter((l) => l && l.status !== 'completed').length;
+  const activeAttendanceCount = (attendanceRecords || []).filter(
+    (r) => r && r.date === todayStr && (r.status === 'checked_in' || r.status === 'completed')
   ).length;
   const pendingFollowUpsCount = (timedFollowUps || []).filter((f) => {
-    if (f.status !== 'pending') return false;
-    const remainingDays = getRemainingDays(f.snoozedUntil || f.dueDate);
-    return remainingDays !== null && remainingDays <= 15;
+    if (!f || f.status !== 'pending') return false;
+    try {
+      const remainingDays = getRemainingDays(f.snoozedUntil || f.dueDate);
+      return remainingDays !== null && remainingDays <= 15;
+    } catch {
+      return false;
+    }
   }).length;
   const adminRemindersCount = (adminReminders || []).length;
-  const securityLogsCount = (securityLogs || []).filter((l) => !l.read).length;
+  const securityLogsCount = (securityLogs || []).filter((l) => l && !l.read).length;
 
   const turkishDate = new Date().toLocaleDateString('tr-TR', {
     day: 'numeric',
@@ -191,8 +195,8 @@ export default function HomeDashboardScreen() {
       icon: Store,
       color: '#0d9488',
       glowColor: '#2dd4bf',
-      badgeText: `${branches.length} Şube`,
-      activeCount: branches.length,
+      badgeText: `${(branches || []).length} Şube`,
+      activeCount: (branches || []).length,
       action: () => setIsBranchModalOpen(true),
       visible: canManageInstitutionsAndBranches,
     },
@@ -217,8 +221,8 @@ export default function HomeDashboardScreen() {
       icon: Wrench,
       color: '#ea580c',
       glowColor: '#fb923c',
-      badgeText: `${services.length} Bekleyen`,
-      activeCount: services.length,
+      badgeText: `${(services || []).length} Bekleyen`,
+      activeCount: (services || []).length,
       action: () => router.push('/(tabs)/services'),
       visible: true,
     },
@@ -230,8 +234,8 @@ export default function HomeDashboardScreen() {
       icon: ClipboardList,
       color: '#7e22ce',
       glowColor: '#c084fc',
-      badgeText: `${notes.length} Bekleyen`,
-      activeCount: notes.length,
+      badgeText: `${(notes || []).length} Bekleyen`,
+      activeCount: (notes || []).length,
       action: () => router.push('/(tabs)/work-orders'),
       visible: true,
     },

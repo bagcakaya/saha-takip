@@ -108,36 +108,57 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     }
   };
 
+  // Defensive fallbacks for all arrays from storage
+  const safeBranches = Array.isArray(branches) ? branches : [];
+  const safeLocations = Array.isArray(locations) ? locations : [];
+  const safeServices = Array.isArray(services) ? services : [];
+  const safeNotes = Array.isArray(notes) ? notes : [];
+  const safeReturnWarrantyItems = Array.isArray(returnWarrantyItems) ? returnWarrantyItems : [];
+  const safeAttendanceRecords = Array.isArray(attendanceRecords) ? attendanceRecords : [];
+  const safeAdminReminders = Array.isArray(adminReminders) ? adminReminders : [];
+  const safeStandardTasks = Array.isArray(standardTasks) ? standardTasks : [];
+  const safeSecurityLogs = Array.isArray(securityLogs) ? securityLogs : [];
+  const safeTimedFollowUps = Array.isArray(timedFollowUps) ? timedFollowUps : [];
+
   const isAdmin = isUserAdmin(user);
-  const pendingReturns = returnWarrantyItems.filter((i) => i.status === 'pending').length;
+  const pendingReturns = safeReturnWarrantyItems.filter((i) => i && i.status === 'pending').length;
   const todayKey = new Date().toISOString().split('T')[0];
-  const activeStaffCount = attendanceRecords.filter(
-    (r) => r.date === todayKey && r.status === 'checked_in'
+  const activeStaffCount = safeAttendanceRecords.filter(
+    (r) => r && r.date === todayKey && r.status === 'checked_in'
   ).length;
 
   // Kurulumlar (Installations) Counts
-  const installationPendingCount = locations.filter(
-    (loc) => !loc.status || loc.status === 'pending'
+  const installationPendingCount = safeLocations.filter(
+    (loc) => loc && (!loc.status || loc.status === 'pending')
   ).length;
 
   // Servisler (Services) Counts
-  const servicesPendingCount = services.filter(
-    (s) => !s.status || s.status === 'pending'
+  const servicesPendingCount = safeServices.filter(
+    (s) => s && (!s.status || s.status === 'pending')
   ).length;
 
   // İş Emirleri (Notes) Counts
-  const notesPendingCount = notes.filter(
-    (n) => !n.status || n.status === 'pending'
+  const notesPendingCount = safeNotes.filter(
+    (n) => n && (!n.status || n.status === 'pending')
   ).length;
 
-  const unreadRemindersCount = adminReminders.filter(
-    (r) => !r.readBy || !r.readBy.includes(user?.id || '')
-  ).length;
+  const unreadRemindersCount = safeAdminReminders.filter((r) => {
+    if (!r) return false;
+    if (!r.readBy) return true;
+    if (Array.isArray(r.readBy)) {
+      return !r.readBy.includes(user?.id || '');
+    }
+    return true;
+  }).length;
 
-  const pendingTimedFollowUpsCount = timedFollowUps.filter((item) => {
-    if (item.status !== 'pending') return false;
-    const remainingDays = getRemainingDays(item.snoozedUntil || item.dueDate);
-    return remainingDays !== null && remainingDays <= 15;
+  const pendingTimedFollowUpsCount = safeTimedFollowUps.filter((item) => {
+    if (!item || item.status !== 'pending') return false;
+    try {
+      const remainingDays = getRemainingDays(item.snoozedUntil || item.dueDate);
+      return remainingDays !== null && remainingDays <= 15;
+    } catch {
+      return false;
+    }
   }).length;
 
   const todayStr = new Date().toLocaleDateString('tr-TR', {
@@ -158,8 +179,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-cyan-600 via-teal-700 to-indigo-900',
       borderColor: 'border-cyan-400/40',
       glowColor: 'text-cyan-400',
-      badgeText: `${branches.length} Şube`,
-      activeCount: branches.length,
+      badgeText: `${safeBranches.length} Şube`,
+      activeCount: safeBranches.length,
       action: () => onNavigate('branches'),
       visible: canManageInstitutionsAndBranches,
     },
@@ -228,7 +249,10 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-amber-600 via-amber-700 to-yellow-800',
       borderColor: 'border-amber-400/40',
       glowColor: 'text-amber-400',
-      badgeText: pendingTimedFollowUpsCount > 0 ? `${pendingTimedFollowUpsCount} Bekleyen` : `${timedFollowUps.filter((i) => i.status === 'pending').length} Takip`,
+      badgeText:
+        pendingTimedFollowUpsCount > 0
+          ? `${pendingTimedFollowUpsCount} Bekleyen`
+          : `${safeTimedFollowUps.filter((i) => i && i.status === 'pending').length} Takip`,
       activeCount: pendingTimedFollowUpsCount,
       action: () => onNavigate('timed_follow_ups'),
       visible: isAdmin,
@@ -242,7 +266,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800',
       borderColor: 'border-indigo-400/40',
       glowColor: 'text-indigo-400',
-      badgeText: `${adminReminders.length || 1} Talimat`,
+      badgeText: `${safeAdminReminders.length || 1} Talimat`,
       activeCount: unreadRemindersCount,
       action: () => onNavigate('reminders'),
       visible: true,
@@ -270,7 +294,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-red-800 via-red-900 to-slate-950',
       borderColor: 'border-red-500/40',
       glowColor: 'text-red-400',
-      badgeText: `${unreadLogsCount || securityLogs.length} Kayıt`,
+      badgeText: `${unreadLogsCount || safeSecurityLogs.length} Kayıt`,
       activeCount: unreadLogsCount,
       action: () => onNavigate('logs'),
       visible: isAdmin,
@@ -284,7 +308,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       gradient: 'bg-gradient-to-br from-emerald-600 via-teal-700 to-cyan-800',
       borderColor: 'border-emerald-400/40',
       glowColor: 'text-emerald-400',
-      badgeText: `${standardTasks.length} Görev`,
+      badgeText: `${safeStandardTasks.length} Görev`,
       action: () => onNavigate('template'),
       visible: true,
     },
@@ -337,11 +361,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
             <span className="text-[9px] font-bold text-slate-300 block uppercase">Kurulum</span>
-            <span className="text-sm sm:text-base font-black text-white">{locations.length}</span>
+            <span className="text-sm sm:text-base font-black text-white">{safeLocations.length}</span>
           </div>
           <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
             <span className="text-[9px] font-bold text-slate-300 block uppercase">Servis</span>
-            <span className="text-sm sm:text-base font-black text-orange-400">{services.length}</span>
+            <span className="text-sm sm:text-base font-black text-orange-400">{safeServices.length}</span>
           </div>
           <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
             <span className="text-[9px] font-bold text-slate-300 block uppercase">İade</span>
@@ -463,13 +487,15 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       )}
 
       {/* Notification Settings Modal */}
-      <NotificationStatusModal
-        isOpen={isNotificationSettingsOpen}
-        onClose={() => setIsNotificationSettingsOpen(false)}
-      />
+      {isNotificationSettingsOpen && (
+        <NotificationStatusModal
+          isOpen={isNotificationSettingsOpen}
+          onClose={() => setIsNotificationSettingsOpen(false)}
+        />
+      )}
 
       {/* SaaS License Management Modal (Super Admin: admin & murat) */}
-      {canManageLicenses && (
+      {canManageLicenses && isLicenseModalOpen && (
         <LicenseManagementModal
           isOpen={isLicenseModalOpen}
           onClose={() => setIsLicenseModalOpen(false)}

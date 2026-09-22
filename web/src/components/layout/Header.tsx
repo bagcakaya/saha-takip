@@ -317,7 +317,12 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
               <button
                 type="button"
-                onClick={() => setActiveTab('home')}
+                onClick={() => {
+                  setActiveTab('home');
+                  if (typeof window !== 'undefined') {
+                    window.scrollTo(0, 0);
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
                 title="Ana Menüye Dön"
               >

@@ -518,25 +518,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           localStorage.setItem(initKey, 'true');
         }
 
-        setAllLocations(migratedLocs);
-        setStandardTasks(tasks);
-        setAllNotes(nts);
-        setReturnWarrantyItems(returns);
-        setAllServices(srvs);
+        setAllLocations(migratedLocs || []);
+        setStandardTasks(tasks || []);
+        setAllNotes(nts || []);
+        setReturnWarrantyItems(returns || []);
+        setAllServices(srvs || []);
         if (wpLoc) {
           const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10) ? 20 : wpLoc.radiusMeters };
           setWorkplaceLocation(finalWp);
         } else {
           setWorkplaceLocation(null);
         }
-        setBranches(branchList);
-        setAttendanceRecords(attRecs);
-        setAdminReminders(reminders);
-        setLeaveRequests(leaveReqs);
-        setSecurityLogs(secLogs);
-        setCariler(cariData.cariler);
-        setCarilerUpdatedAt(cariData.updatedAt);
-        setCarilerTotal(cariData.total);
+        setBranches(branchList || []);
+        setAttendanceRecords(attRecs || []);
+        setAdminReminders(reminders || []);
+        setLeaveRequests(leaveReqs || []);
+        setSecurityLogs(secLogs || []);
+        setCariler((cariData && cariData.cariler) || []);
+        setCarilerUpdatedAt(cariData?.updatedAt);
+        setCarilerTotal(cariData?.total || 0);
         setTimedFollowUps(followUps || []);
         setDataCompanyCode(compCode);
       } catch (err) {
