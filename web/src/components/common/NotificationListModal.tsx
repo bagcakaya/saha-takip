@@ -641,9 +641,9 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-300 dark:border-slate-700 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150">
+      <div className="w-full max-w-lg md:max-w-xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-300 dark:border-slate-700 overflow-hidden flex flex-col max-h-[88vh] animate-in zoom-in-95 duration-150">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0 shadow-xs">
               <Bell className="w-5 h-5" />
@@ -689,15 +689,14 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           </div>
         </div>
 
-        {/* Diagnostic Card Collapsible Panel */}
-        {showDiagnostics && (
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 animate-in slide-in-from-top-2 duration-200">
-            <NotificationStatusCard isEmbedded className="shadow-none border-slate-200 dark:border-slate-700" />
-          </div>
-        )}
-
-        {/* Notification Items List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-900">
+        {/* Unified Scrollable Modal Body (Diagnostics + Notifications) */}
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-900 overscroll-contain">
+          {/* Diagnostic Card Collapsible Panel */}
+          {showDiagnostics && (
+            <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 animate-in slide-in-from-top-2 duration-200">
+              <NotificationStatusCard isEmbedded className="shadow-none border-slate-200 dark:border-slate-700" />
+            </div>
+          )}
           {notifications.length === 0 ? (
             <div className="p-10 text-center space-y-2">
               <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-500">
