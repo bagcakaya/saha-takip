@@ -13,6 +13,10 @@ export interface StaffAttendanceSummary {
   totalDays: number;
   totalMinutes: number;
   totalDurationFormatted: string;
+  totalBreakMinutes?: number;
+  totalBreakFormatted?: string;
+  totalNetMinutes?: number;
+  totalNetFormatted?: string;
   averageMinutesPerDay: number;
   averageDurationFormatted: string;
   completedSessions: number;
@@ -46,6 +50,28 @@ export const calculateRecordDurationMinutes = (record: AttendanceRecord): number
     return Math.max(0, diff);
   }
   return 0;
+};
+
+/**
+ * Calculates total break minutes for an attendance record (including live elapsed break if active)
+ */
+export const calculateRecordBreakMinutes = (record: AttendanceRecord): number => {
+  const breaks = Array.isArray(record.breaks) ? record.breaks : [];
+  let total = record.totalBreakMinutes ?? breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+  if (record.isOnBreak && record.currentBreakStartTime) {
+    total += Math.max(0, Math.round((Date.now() - record.currentBreakStartTime) / 60000));
+  }
+  return total;
+};
+
+/**
+ * Calculates net work duration in minutes (gross work duration - break duration)
+ */
+export const calculateRecordNetWorkMinutes = (record: AttendanceRecord): number => {
+  if (record.status === 'on_leave') return 0;
+  const gross = calculateRecordDurationMinutes(record);
+  const breakMin = calculateRecordBreakMinutes(record);
+  return Math.max(0, gross - breakMin);
 };
 
 /**
@@ -88,9 +114,11 @@ export const exportAttendanceToExcel = async ({
         'Rol / Yetki',
         'Şube / Lokasyon',
         'Çalışılan Gün',
-        'Toplam Mesai',
-        'Toplam Süre (Dk)',
-        'Günlük Ort. Mesai',
+        'Brüt Mesai',
+        'Toplam Mola',
+        'Net Mesai',
+        'Net Süre (Dk)',
+        'Günlük Ort. Net',
         'Tamamlanan Mesai',
         'Aktif / Bekleyen',
       ],
@@ -98,12 +126,19 @@ export const exportAttendanceToExcel = async ({
 
     let sumTotalDays = 0;
     let sumTotalMinutes = 0;
+    let sumTotalBreakMinutes = 0;
+    let sumTotalNetMinutes = 0;
     let sumCompleted = 0;
     let sumPending = 0;
 
     summaries.forEach((s) => {
+      const sBreakMin = s.totalBreakMinutes || 0;
+      const sNetMin = s.totalNetMinutes ?? Math.max(0, s.totalMinutes - sBreakMin);
+
       sumTotalDays += s.totalDays;
       sumTotalMinutes += s.totalMinutes;
+      sumTotalBreakMinutes += sBreakMin;
+      sumTotalNetMinutes += sNetMin;
       sumCompleted += s.completedSessions;
       sumPending += s.activeSessions + s.pendingSessions;
 
@@ -113,14 +148,16 @@ export const exportAttendanceToExcel = async ({
         s.branchName || 'Merkez',
         s.totalDays,
         s.totalDurationFormatted,
-        s.totalMinutes,
-        s.averageDurationFormatted,
+        s.totalBreakFormatted || formatMinutesToDuration(sBreakMin),
+        s.totalNetFormatted || formatMinutesToDuration(sNetMin),
+        sNetMin,
+        s.totalDays > 0 ? formatMinutesToDuration(Math.round(sNetMin / s.totalDays)) : '0 dk',
         s.completedSessions,
         s.activeSessions + s.pendingSessions,
       ]);
     });
 
-    const overallAvgMinutes = sumTotalDays > 0 ? Math.round(sumTotalMinutes / sumTotalDays) : 0;
+    const overallAvgNetMinutes = sumTotalDays > 0 ? Math.round(sumTotalNetMinutes / sumTotalDays) : 0;
 
     // Add overall total row
     summaryAoa.push([]);
@@ -130,23 +167,27 @@ export const exportAttendanceToExcel = async ({
       '',
       sumTotalDays,
       formatMinutesToDuration(sumTotalMinutes),
-      sumTotalMinutes,
-      formatMinutesToDuration(overallAvgMinutes),
+      formatMinutesToDuration(sumTotalBreakMinutes),
+      formatMinutesToDuration(sumTotalNetMinutes),
+      sumTotalNetMinutes,
+      formatMinutesToDuration(overallAvgNetMinutes),
       sumCompleted,
       sumPending,
     ]);
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
     wsSummary['!cols'] = [
-      { wch: 22 },
-      { wch: 16 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 18 },
-      { wch: 16 },
-      { wch: 18 },
-      { wch: 16 },
-      { wch: 16 },
+      { wch: 22 }, // Personel
+      { wch: 16 }, // Rol
+      { wch: 18 }, // Şube
+      { wch: 14 }, // Gün
+      { wch: 16 }, // Brüt
+      { wch: 16 }, // Mola
+      { wch: 16 }, // Net
+      { wch: 14 }, // Net Dk
+      { wch: 18 }, // Günlük Ort Net
+      { wch: 16 }, // Tamamlanan
+      { wch: 16 }, // Bekleyen
     ];
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Mesai Özeti');
 
@@ -169,8 +210,11 @@ export const exportAttendanceToExcel = async ({
         'Çıkış Saati',
         'Çıkış Mesafesi',
         'Çıkış Durumu',
-        'Çalışma Süresi',
-        'Süre (Dakika)',
+        'Brüt Mesai',
+        'Mola Sayısı',
+        'Toplam Mola (Dk)',
+        'Net Çalışma Süresi',
+        'Net Dk',
         'Notlar / Açıklama',
       ],
     ];
@@ -184,9 +228,13 @@ export const exportAttendanceToExcel = async ({
       const checkInDate = r.checkInTime ? new Date(r.checkInTime) : null;
       const checkOutDate = r.checkOutTime ? new Date(r.checkOutTime) : null;
       const durationMin = calculateRecordDurationMinutes(r);
+      const breakMin = calculateRecordBreakMinutes(r);
+      const netMin = calculateRecordNetWorkMinutes(r);
+      const breakCount = Array.isArray(r.breaks) ? r.breaks.length : 0;
 
       let statusText = 'Tamamlandı';
       if (r.status === 'on_leave') statusText = 'İzinli';
+      else if (r.isOnBreak) statusText = 'Molada';
       else if (r.status === 'checked_in') statusText = 'Mesaide';
       else if (r.status === 'pending_checkin_approval') statusText = 'Giriş Onayı Bekliyor';
       else if (r.status === 'pending_checkout_approval') statusText = 'Çıkış Onayı Bekliyor';
@@ -244,7 +292,10 @@ export const exportAttendanceToExcel = async ({
         checkOutDistanceStr,
         checkOutApprovalStr,
         r.status === 'on_leave' ? '-' : formatMinutesToDuration(durationMin),
-        r.status === 'on_leave' ? '-' : durationMin,
+        r.status === 'on_leave' ? 0 : breakCount,
+        r.status === 'on_leave' ? 0 : breakMin,
+        r.status === 'on_leave' ? '-' : formatMinutesToDuration(netMin),
+        r.status === 'on_leave' ? 0 : netMin,
         notesStr,
       ]);
     });
@@ -263,7 +314,10 @@ export const exportAttendanceToExcel = async ({
       { wch: 14 },
       { wch: 22 },
       { wch: 16 },
-      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 12 },
       { wch: 30 },
     ];
     XLSX.utils.book_append_sheet(wb, wsDetails, 'Detaylı Kayıtlar');
@@ -330,12 +384,19 @@ export const exportAttendanceToPdf = async ({
     });
 
     const totalMinutes = summaries.reduce((acc, s) => acc + s.totalMinutes, 0);
+    const totalBreakMinutes = summaries.reduce((acc, s) => acc + (s.totalBreakMinutes || 0), 0);
+    const totalNetMinutes = summaries.reduce(
+      (acc, s) => acc + (s.totalNetMinutes !== undefined ? s.totalNetMinutes : Math.max(0, s.totalMinutes - (s.totalBreakMinutes || 0))),
+      0
+    );
     const totalDays = summaries.reduce((acc, s) => acc + s.totalDays, 0);
     const totalCompleted = summaries.reduce((acc, s) => acc + s.completedSessions, 0);
 
     const summaryTableRows = summaries
-      .map(
-        (s) => `
+      .map((s) => {
+        const sBreakMin = s.totalBreakMinutes || 0;
+        const sNetMin = s.totalNetMinutes !== undefined ? s.totalNetMinutes : Math.max(0, s.totalMinutes - sBreakMin);
+        return `
         <tr>
           <td style="padding: 8px 10px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #e2e8f0;">
             ${s.userName}
@@ -349,11 +410,14 @@ export const exportAttendanceToPdf = async ({
           <td style="padding: 8px 10px; text-align: center; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
             ${s.totalDays} gün
           </td>
-          <td style="padding: 8px 10px; text-align: right; font-weight: 800; color: #0284c7; border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 8px 10px; text-align: right; color: #475569; font-weight: 600; border-bottom: 1px solid #e2e8f0;">
             ${s.totalDurationFormatted}
           </td>
-          <td style="padding: 8px 10px; text-align: right; color: #16a34a; font-weight: 600; border-bottom: 1px solid #e2e8f0;">
-            ${s.averageDurationFormatted}
+          <td style="padding: 8px 10px; text-align: right; color: #d97706; font-weight: 600; border-bottom: 1px solid #e2e8f0;">
+            ${s.totalBreakFormatted || formatMinutesToDuration(sBreakMin)}
+          </td>
+          <td style="padding: 8px 10px; text-align: right; font-weight: 800; color: #16a34a; border-bottom: 1px solid #e2e8f0;">
+            ${s.totalNetFormatted || formatMinutesToDuration(sNetMin)}
           </td>
           <td style="padding: 8px 10px; text-align: center; border-bottom: 1px solid #e2e8f0;">
             <span style="display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; background: #ecfdf5; color: #047857;">
@@ -361,8 +425,8 @@ export const exportAttendanceToPdf = async ({
             </span>
           </td>
         </tr>
-      `
-      )
+      `;
+      })
       .join('');
 
     const sortedRecords = [...records].sort((a, b) => {
@@ -376,10 +440,15 @@ export const exportAttendanceToPdf = async ({
         const checkInDate = r.checkInTime ? new Date(r.checkInTime) : null;
         const checkOutDate = r.checkOutTime ? new Date(r.checkOutTime) : null;
         const durationMin = calculateRecordDurationMinutes(r);
+        const breakMin = calculateRecordBreakMinutes(r);
+        const netMin = calculateRecordNetWorkMinutes(r);
+        const breakCount = Array.isArray(r.breaks) ? r.breaks.length : 0;
 
         let statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #f1f5f9; color: #475569;">Tamamlandı</span>`;
         if (r.status === 'on_leave') {
           statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">İzinli</span>`;
+        } else if (r.isOnBreak) {
+          statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #fef3c7; color: #b45309; border: 1px solid #fde68a;">Molada</span>`;
         } else if (r.status === 'checked_in') {
           statusBadge = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #dcfce7; color: #15803d;">Mesaide</span>`;
         } else if (r.status === 'pending_checkin_approval') {
@@ -397,6 +466,8 @@ export const exportAttendanceToPdf = async ({
             ? '-'
             : checkOutDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
         const durationStr = r.status === 'on_leave' ? '-' : formatMinutesToDuration(durationMin);
+        const breakStr = r.status === 'on_leave' || breakCount === 0 ? '-' : `${breakCount} (${breakMin} dk)`;
+        const netStr = r.status === 'on_leave' ? '-' : formatMinutesToDuration(netMin);
 
         return `
           <tr>
@@ -415,8 +486,14 @@ export const exportAttendanceToPdf = async ({
             <td style="padding: 6px 8px; font-size: 11px; text-align: center; border-bottom: 1px solid #e2e8f0; font-family: monospace;">
               ${checkOutStr}
             </td>
-            <td style="padding: 6px 8px; font-size: 11px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0; color: #0284c7;">
+            <td style="padding: 6px 8px; font-size: 11px; text-align: right; color: #475569; border-bottom: 1px solid #e2e8f0;">
               ${durationStr}
+            </td>
+            <td style="padding: 6px 8px; font-size: 11px; text-align: center; color: #d97706; font-weight: 600; border-bottom: 1px solid #e2e8f0;">
+              ${breakStr}
+            </td>
+            <td style="padding: 6px 8px; font-size: 11px; text-align: right; font-weight: 800; color: #16a34a; border-bottom: 1px solid #e2e8f0;">
+              ${netStr}
             </td>
             <td style="padding: 6px 8px; font-size: 11px; text-align: center; border-bottom: 1px solid #e2e8f0;">
               ${statusBadge}
@@ -477,15 +554,23 @@ export const exportAttendanceToPdf = async ({
 
           <div class="kpi-row">
             <div class="kpi-box">
-              <div class="kpi-label">Toplam Mesai Süresi</div>
+              <div class="kpi-label">Brüt Mesai Süresi</div>
               <div class="kpi-value">${formatMinutesToDuration(totalMinutes)}</div>
             </div>
             <div class="kpi-box">
-              <div class="kpi-label">Toplam Çalışılan Gün</div>
+              <div class="kpi-label">Toplam Mola</div>
+              <div class="kpi-value" style="color: #d97706;">${formatMinutesToDuration(totalBreakMinutes)}</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">Net Çalışma Süresi</div>
+              <div class="kpi-value" style="color: #16a34a;">${formatMinutesToDuration(totalNetMinutes)}</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">Toplam Gün</div>
               <div class="kpi-value">${totalDays} Gün</div>
             </div>
             <div class="kpi-box">
-              <div class="kpi-label">Tamamlanan Oturum</div>
+              <div class="kpi-label">Tamamlanan</div>
               <div class="kpi-value">${totalCompleted} Adet</div>
             </div>
           </div>
@@ -498,8 +583,9 @@ export const exportAttendanceToPdf = async ({
                 <th>Rol</th>
                 <th>Şube</th>
                 <th style="text-align: center;">Çalışılan Gün</th>
-                <th style="text-align: right;">Toplam Mesai</th>
-                <th style="text-align: right;">Günlük Ort. Mesai</th>
+                <th style="text-align: right;">Brüt Mesai</th>
+                <th style="text-align: right;">Mola</th>
+                <th style="text-align: right;">Net Mesai</th>
                 <th style="text-align: center;">Tamamlanan</th>
               </tr>
             </thead>
@@ -517,7 +603,9 @@ export const exportAttendanceToPdf = async ({
                 <th>Şube</th>
                 <th style="text-align: center;">Giriş Saati</th>
                 <th style="text-align: center;">Çıkış Saati</th>
-                <th style="text-align: right;">Süre</th>
+                <th style="text-align: right;">Brüt Süre</th>
+                <th style="text-align: center;">Mola</th>
+                <th style="text-align: right;">Net Mesai</th>
                 <th style="text-align: center;">Durum</th>
                 <th>Not / Açıklama</th>
               </tr>

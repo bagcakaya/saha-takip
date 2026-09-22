@@ -43,6 +43,8 @@ import {
   Building2,
   UserX,
   Trash2,
+  Coffee,
+  Play,
 } from 'lucide-react-native';
 import { AttendanceRecord, WorkplaceLocation } from '../../types/storage';
 import { UserManagementModal } from '../../components/UserManagementModal';
@@ -53,6 +55,8 @@ import {
   exportAttendanceToExcel,
   exportAttendanceToPdf,
   calculateRecordDurationMinutes,
+  calculateRecordBreakMinutes,
+  calculateRecordNetWorkMinutes,
   formatMinutesToDuration,
   StaffAttendanceSummary,
 } from '../../services/attendanceExportService';
@@ -87,6 +91,8 @@ export default function AttendanceScreen() {
     branches,
     checkInStaff,
     checkOutStaff,
+    startBreak,
+    endBreak,
     approveAttendance,
     rejectAttendance,
     refreshData,
@@ -318,6 +324,23 @@ export default function AttendanceScreen() {
 
   const isCheckedIn = Boolean(todayRecord && todayRecord.checkInTime && !todayRecord.checkOutTime);
   const isCheckedOut = Boolean(todayRecord && todayRecord.checkOutTime);
+  const isOnBreak = Boolean(todayRecord?.isOnBreak);
+
+  const [isProcessingBreak, setIsProcessingBreak] = useState(false);
+  const [liveBreakTimerText, setLiveBreakTimerText] = useState('');
+  const [expandedBreakRecordIds, setExpandedBreakRecordIds] = useState<Set<string>>(new Set());
+
+  const toggleRecordBreakAccordion = (recordId: string) => {
+    setExpandedBreakRecordIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) {
+        next.delete(recordId);
+      } else {
+        next.add(recordId);
+      }
+      return next;
+    });
+  };
 
   const handlePeriodChange = (period: PeriodFilter) => {
     setActivePeriod(period);
@@ -394,7 +417,63 @@ export default function AttendanceScreen() {
     ]);
   };
 
-  // Filtered records for table & summary
+  // Live break stopwatch
+  useEffect(() => {
+    if (!isOnBreak || !todayRecord?.currentBreakStartTime) {
+      setLiveBreakTimerText('');
+      return;
+    }
+
+    const updateBreakTimer = () => {
+      const startTime = todayRecord.currentBreakStartTime || Date.now();
+      const diffMs = Math.max(0, Date.now() - startTime);
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSecs / 3600);
+      const remSecs = totalSecs % 3600;
+      const mins = Math.floor(remSecs / 60);
+      const secs = remSecs % 60;
+
+      if (hours > 0) {
+        setLiveBreakTimerText(`${hours} sa ${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
+      } else {
+        setLiveBreakTimerText(`${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
+      }
+    };
+
+    updateBreakTimer();
+    const interval = setInterval(updateBreakTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isOnBreak, todayRecord?.currentBreakStartTime]);
+
+  const handleStartBreak = async () => {
+    if (isProcessingBreak) return;
+    setIsProcessingBreak(true);
+    try {
+      const res = await startBreak();
+      if (!res.success) {
+        Alert.alert('Bilgi', res.message);
+      }
+    } catch (err: any) {
+      Alert.alert('Hata', 'Mola başlatılırken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsProcessingBreak(false);
+    }
+  };
+
+  const handleEndBreak = async () => {
+    if (isProcessingBreak) return;
+    setIsProcessingBreak(true);
+    try {
+      const res = await endBreak();
+      if (!res.success) {
+        Alert.alert('Bilgi', res.message);
+      }
+    } catch (err: any) {
+      Alert.alert('Hata', 'Mola sonlandırılırken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsProcessingBreak(false);
+    }
+  };
   const filteredRecords = useMemo(() => {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -489,36 +568,59 @@ export default function AttendanceScreen() {
   // 4 Stat Box Calculations (Görsel-3)
   const stats = useMemo(() => {
     let totalMinutes = 0;
+    let totalBreakMinutes = 0;
+    let totalNetMinutes = 0;
     const uniqueDays = new Set<string>();
     const staffSet = new Set<string>();
     let checkInCount = 0;
     let completedCount = 0;
     let inWorkCount = 0;
+    let onBreakCount = 0;
 
     filteredRecords.forEach((r) => {
-      totalMinutes += r.workDurationMinutes || 0;
-      if (r.date) uniqueDays.add(r.date);
+      const gross = calculateRecordDurationMinutes(r);
+      const bMin = calculateRecordBreakMinutes(r);
+      const net = calculateRecordNetWorkMinutes(r);
+
+      totalMinutes += gross;
+      totalBreakMinutes += bMin;
+      totalNetMinutes += net;
+
+      if (r.date && gross > 0) uniqueDays.add(r.date);
       if (r.userName) staffSet.add(r.userName);
       if (r.checkInTime) checkInCount++;
       if (r.status === 'completed') completedCount++;
-      if (r.status === 'checked_in') inWorkCount++;
+      if (r.isOnBreak) onBreakCount++;
+      else if (r.status === 'checked_in') inWorkCount++;
     });
 
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
+
+    const netHours = Math.floor(totalNetMinutes / 60);
+    const netMins = totalNetMinutes % 60;
+
+    const breakHours = Math.floor(totalBreakMinutes / 60);
+    const breakMins = totalBreakMinutes % 60;
+
     const daysCount = uniqueDays.size;
-    const avgMinsPerDay = daysCount > 0 ? Math.round(totalMinutes / daysCount) : 0;
-    const avgH = Math.floor(avgMinsPerDay / 60);
-    const avgM = avgMinsPerDay % 60;
+    const avgNetMinsPerDay = daysCount > 0 ? Math.round(totalNetMinutes / daysCount) : 0;
+    const avgH = Math.floor(avgNetMinsPerDay / 60);
+    const avgM = avgNetMinsPerDay % 60;
 
     return {
       totalFormatted: `${hours} sa ${mins} dk`,
       totalMinutes,
+      netFormatted: `${netHours} sa ${netMins} dk`,
+      totalNetMinutes,
+      breakFormatted: `${breakHours} sa ${breakMins} dk`,
+      totalBreakMinutes,
       daysCount,
-      avgPerDayFormatted: `Ort: ${avgH} sa ${avgM} dk / gün`,
+      avgPerDayFormatted: `Ort. Net: ${avgH} sa ${avgM} dk / gün`,
       checkInCount,
       completedCount,
       inWorkCount,
+      onBreakCount,
       activeStaffCount: staffSet.size,
       totalRegisteredStaff: ALL_STAFF.length,
     };
@@ -529,19 +631,32 @@ export default function AttendanceScreen() {
     return ALL_STAFF.map((staff) => {
       const records = filteredRecords.filter((r) => r.userName === staff.name);
       let totalM = 0;
+      let breakM = 0;
+      let netM = 0;
       const days = new Set<string>();
+
       records.forEach((r) => {
-        totalM += r.workDurationMinutes || 0;
-        if (r.date && (r.workDurationMinutes || 0) > 0) days.add(r.date);
+        const gross = calculateRecordDurationMinutes(r);
+        const b = calculateRecordBreakMinutes(r);
+        const n = calculateRecordNetWorkMinutes(r);
+
+        totalM += gross;
+        breakM += b;
+        netM += n;
+
+        if (r.date && gross > 0) days.add(r.date);
       });
+
       const dCount = days.size;
-      const avgM = dCount > 0 ? Math.round(totalM / dCount) : 0;
+      const avgNetM = dCount > 0 ? Math.round(netM / dCount) : 0;
 
       return {
         ...staff,
         totalText: totalM > 0 ? `${Math.floor(totalM / 60)} sa ${totalM % 60} dk` : '0 dk',
+        breakText: breakM > 0 ? `${Math.floor(breakM / 60)} sa ${breakM % 60} dk` : '0 dk',
+        netText: netM > 0 ? `${Math.floor(netM / 60)} sa ${netM % 60} dk` : '0 dk',
         daysText: `${dCount} gün`,
-        avgText: avgM > 0 ? `${Math.floor(avgM / 60)} sa ${avgM % 60} dk` : '0 dk',
+        avgText: avgNetM > 0 ? `${Math.floor(avgNetM / 60)} sa ${avgNetM % 60} dk` : '0 dk',
       };
     });
   }, [filteredRecords]);
@@ -551,6 +666,8 @@ export default function AttendanceScreen() {
     return ALL_STAFF.map((staff) => {
       const records = filteredRecords.filter((r) => r.userName === staff.name);
       let totalMinutes = 0;
+      let totalBreakMinutes = 0;
+      let totalNetMinutes = 0;
       const days = new Set<string>();
       let completedSessions = 0;
       let activeSessions = 0;
@@ -559,7 +676,13 @@ export default function AttendanceScreen() {
 
       records.forEach((r) => {
         const d = calculateRecordDurationMinutes(r);
+        const b = calculateRecordBreakMinutes(r);
+        const n = calculateRecordNetWorkMinutes(r);
+
         totalMinutes += d;
+        totalBreakMinutes += b;
+        totalNetMinutes += n;
+
         if (r.date && d > 0) days.add(r.date);
         if (r.branchName) branchName = r.branchName;
         if (r.status === 'completed') completedSessions++;
@@ -568,7 +691,7 @@ export default function AttendanceScreen() {
       });
 
       const totalDays = days.size;
-      const averageMinutesPerDay = totalDays > 0 ? Math.round(totalMinutes / totalDays) : 0;
+      const averageMinutesPerDay = totalDays > 0 ? Math.round(totalNetMinutes / totalDays) : 0;
 
       return {
         userId: staff.id,
@@ -578,6 +701,10 @@ export default function AttendanceScreen() {
         totalDays,
         totalMinutes,
         totalDurationFormatted: formatMinutesToDuration(totalMinutes),
+        totalBreakMinutes,
+        totalBreakFormatted: formatMinutesToDuration(totalBreakMinutes),
+        totalNetMinutes,
+        totalNetFormatted: formatMinutesToDuration(totalNetMinutes),
         averageMinutesPerDay,
         averageDurationFormatted: formatMinutesToDuration(averageMinutesPerDay),
         completedSessions,
@@ -975,17 +1102,19 @@ export default function AttendanceScreen() {
           <View style={styles.todayHeaderRow}>
             <View>
               <Text style={[styles.todayTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                Bugünkü Mesai Durumunuz (18 Eylül)
+                Bugünkü Mesai Durumunuz ({new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })})
               </Text>
               <Text style={styles.todaySubtitle}>
                 Personel: <Text style={{ color: isDark ? '#cbd5e1' : '#334155' }}>{user?.name || 'Sistem Yöneticisi'}</Text>
               </Text>
             </View>
 
-            <View style={styles.todayStatusBadge}>
-              <Text style={styles.todayStatusBadgeText}>
+            <View style={[styles.todayStatusBadge, isOnBreak && { backgroundColor: '#f59e0b' }]}>
+              <Text style={[styles.todayStatusBadgeText, isOnBreak && { color: '#ffffff' }]}>
                 {isCheckedOut
                   ? 'Çıkış Yapıldı'
+                  : isOnBreak
+                  ? '🟡 Molada'
                   : isCheckedIn
                   ? 'Mesaide'
                   : 'Henüz Giriş Yapılmadı'}
@@ -1050,6 +1179,147 @@ export default function AttendanceScreen() {
               İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.
             </Text>
           </TouchableOpacity>
+
+          {/* Mola Yönetim Kartı (İşe girmiş personeller için canlı mola paneli) */}
+          {isCheckedIn && !isCheckedOut && (
+            <View
+              style={[
+                styles.molaBox,
+                isOnBreak
+                  ? styles.molaBoxActive
+                  : { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb', borderColor: isDark ? '#b45309' : '#fde68a' },
+              ]}
+            >
+              <View style={styles.molaHeaderRow}>
+                <View style={[styles.molaIconContainer, isOnBreak && styles.molaIconContainerActive]}>
+                  <Coffee size={20} color={isOnBreak ? '#ffffff' : '#d97706'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.molaTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                      {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
+                    </Text>
+                    <View style={[styles.molaBadge, isOnBreak ? styles.molaBadgePulse : styles.molaBadgeNormal]}>
+                      <Text style={[styles.molaBadgeText, isOnBreak && { color: '#ffffff' }]}>
+                        {isOnBreak ? 'Canlı Mola' : 'Mesaide Aktif'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.molaSubtitle, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+                    {isOnBreak ? (
+                      <Text style={{ color: '#d97706', fontWeight: '700' }}>
+                        Geçen Mola: <Text style={{ fontWeight: '900', color: '#b45309' }}>{liveBreakTimerText || 'Hesaplanıyor...'}</Text>
+                      </Text>
+                    ) : (
+                      `Bugün: ${
+                        todayRecord?.breaks && todayRecord.breaks.length > 0
+                          ? `${todayRecord.breaks.length} mola (${calculateRecordBreakMinutes(todayRecord)} dk)`
+                          : 'Henüz molaya çıkılmadı'
+                      }`
+                    )}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.molaActionBtn,
+                  isOnBreak ? styles.molaActionBtnEnd : styles.molaActionBtnStart,
+                ]}
+                onPress={isOnBreak ? handleEndBreak : handleStartBreak}
+                disabled={isProcessingBreak}
+                activeOpacity={0.85}
+              >
+                {isProcessingBreak ? (
+                  <ActivityIndicator size="small" color={isOnBreak ? '#ffffff' : '#78350f'} />
+                ) : isOnBreak ? (
+                  <>
+                    <Play size={16} color="#ffffff" fill="#ffffff" />
+                    <Text style={styles.molaActionBtnEndText}>Molayı Bitir ve Mesaiye Dön</Text>
+                  </>
+                ) : (
+                  <>
+                    <Coffee size={16} color="#78350f" />
+                    <Text style={styles.molaActionBtnStartText}>Molaya Çık</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Bugünkü Giriş & Çıkış Detay Kartı */}
+          {todayRecord && (
+            <View
+              style={[
+                styles.todaySummaryBox,
+                {
+                  backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                  borderColor: isDark ? '#334155' : '#e2e8f0',
+                },
+              ]}
+            >
+              {todayRecord.branchName && (
+                <View style={styles.todayBranchRow}>
+                  <Store size={14} color="#0d9488" />
+                  <Text style={[styles.todayBranchText, { color: isDark ? '#5eead4' : '#0f766e' }]}>
+                    Mesai Şubesi: <Text style={{ fontWeight: '900' }}>{todayRecord.branchName}</Text>
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.todaySummaryGrid}>
+                {/* Giriş Saati */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>GİRİŞ SAATİ</Text>
+                  <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    {formatTime(todayRecord.checkInTime)}
+                  </Text>
+                </View>
+
+                {/* Giriş Mesafesi */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>GİRİŞ MESAFESİ</Text>
+                  <Text style={[styles.todayGridVal, { color: '#10b981' }]}>
+                    {todayRecord.checkInDistance !== undefined
+                      ? `${Math.round(todayRecord.checkInDistance)} m`
+                      : '≤ 20 m'}
+                  </Text>
+                </View>
+
+                {/* Çıkış Saati */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>ÇIKIŞ SAATİ</Text>
+                  <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    {todayRecord.checkOutTime ? formatTime(todayRecord.checkOutTime) : (isOnBreak ? 'Molada' : 'Devam ediyor')}
+                  </Text>
+                </View>
+
+                {/* Brüt Mesai */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>BRÜT MESAİ</Text>
+                  <Text style={[styles.todayGridVal, { color: '#0284c7' }]}>
+                    {formatMinutesToDuration(calculateRecordDurationMinutes(todayRecord))}
+                  </Text>
+                </View>
+
+                {/* Toplam Mola */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>TOPLAM MOLA</Text>
+                  <Text style={[styles.todayGridVal, { color: '#d97706' }]}>
+                    {formatMinutesToDuration(calculateRecordBreakMinutes(todayRecord))}
+                  </Text>
+                </View>
+
+                {/* Net Çalışma */}
+                <View style={styles.todayGridCol}>
+                  <Text style={styles.todayGridLabel}>NET ÇALIŞMA</Text>
+                  <Text style={[styles.todayGridVal, { color: '#10b981', fontWeight: '900' }]}>
+                    {formatMinutesToDuration(calculateRecordNetWorkMinutes(todayRecord))}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* ============================================================ */}
@@ -1236,11 +1506,11 @@ export default function AttendanceScreen() {
         {/* GÖRSEL-3: 4 İSTATİSTİK KUTUSU (2x2 GRID) */}
         {/* ============================================================ */}
         <View style={styles.statsGrid}>
-          {/* Box 1: Toplam Mesai Süresi (Mavi) */}
+          {/* Box 1: Net Mesai Süresi (Mavi) */}
           <View style={[styles.statCard, styles.statCardBlue]}>
-            <Text style={styles.statLabelBlue}>Toplam Mesai Süresi</Text>
-            <Text style={styles.statValueLarge}>{stats.totalFormatted}</Text>
-            <Text style={styles.statSubText}>({stats.totalMinutes} dakika)</Text>
+            <Text style={styles.statLabelBlue}>Net Mesai Süresi</Text>
+            <Text style={styles.statValueLarge}>{stats.netFormatted}</Text>
+            <Text style={styles.statSubText}>Brüt: {stats.totalFormatted} • Mola: {stats.breakFormatted}</Text>
           </View>
 
           {/* Box 2: Çalışılan Gün / Ort. (Yeşil) */}
@@ -1255,7 +1525,7 @@ export default function AttendanceScreen() {
             <Text style={styles.statLabelBlue}>Mesai Kayıtları</Text>
             <Text style={styles.statValueLarge}>{stats.checkInCount} Giriş</Text>
             <Text style={styles.statSubText}>
-              {stats.completedCount} Tamamlandı • {stats.inWorkCount} Mesaide
+              {stats.completedCount} Tamamlandı • {stats.inWorkCount} Mesaide{stats.onBreakCount > 0 ? ` • ${stats.onBreakCount} Molada` : ''}
             </Text>
           </View>
 
@@ -1347,11 +1617,21 @@ export default function AttendanceScreen() {
                     </View>
                   </View>
 
-                  {/* 3 Metric Columns: TOPLAM | GÜN | ORTALAMA */}
+                  {/* 4 Metric Columns: BRÜT | MOLA | NET | GÜN */}
                   <View style={styles.staffMetricsRow}>
                     <View style={styles.metricCol}>
-                      <Text style={styles.metricLabel}>TOPLAM</Text>
+                      <Text style={styles.metricLabel}>BRÜT</Text>
                       <Text style={styles.metricValBlue}>{staff.totalText}</Text>
+                    </View>
+
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel}>MOLA</Text>
+                      <Text style={[styles.metricValBlue, { color: '#d97706' }]}>{(staff as any).breakText || '0 dk'}</Text>
+                    </View>
+
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel}>NET</Text>
+                      <Text style={styles.metricValGreen}>{(staff as any).netText || staff.totalText}</Text>
                     </View>
 
                     <View style={styles.metricCol}>
@@ -1359,11 +1639,6 @@ export default function AttendanceScreen() {
                       <Text style={[styles.metricValWhite, { color: isDark ? '#ffffff' : '#0f172a' }]}>
                         {staff.daysText}
                       </Text>
-                    </View>
-
-                    <View style={styles.metricCol}>
-                      <Text style={styles.metricLabel}>ORTALAMA</Text>
-                      <Text style={styles.metricValGreen}>{staff.avgText}</Text>
                     </View>
                   </View>
                 </View>
@@ -1395,7 +1670,7 @@ export default function AttendanceScreen() {
           >
             <ScrollView horizontal showsHorizontalScrollIndicator={true}>
               <View style={styles.tableInner}>
-                {/* 10 Columns Header (Matches Görsel-4 & Görsel-5 exactly) */}
+                {/* 13 Columns Header (Brüt, Mola Akordeon ve Net Mesai Entegre) */}
                 <View style={styles.tableHeaderRow}>
                   <Text style={[styles.thCell, { width: 120 }]}>TARİH</Text>
                   <Text style={[styles.thCell, { width: 170 }]}>PERSONEL</Text>
@@ -1406,7 +1681,9 @@ export default function AttendanceScreen() {
                   <Text style={[styles.thCell, { width: 130 }]}>GİRİŞ MESAFESİ</Text>
                   <Text style={[styles.thCell, { width: 90 }]}>ÇIKIŞ SAATİ</Text>
                   <Text style={[styles.thCell, { width: 130 }]}>ÇIKIŞ MESAFESİ</Text>
-                  <Text style={[styles.thCell, { width: 105 }]}>TOPLAM SÜRE</Text>
+                  <Text style={[styles.thCell, { width: 105 }]}>BRÜT SÜRE</Text>
+                  <Text style={[styles.thCell, { width: 130, textAlign: 'center' }]}>MOLA ÖZETİ</Text>
+                  <Text style={[styles.thCell, { width: 105 }]}>NET MESAİ</Text>
                   <Text style={[styles.thCell, { width: 220 }]}>NOT / AÇIKLAMA</Text>
                 </View>
 
@@ -1424,232 +1701,359 @@ export default function AttendanceScreen() {
                   );
 
                   const isLeave = item.status === 'on_leave';
+                  const durationMin = calculateRecordDurationMinutes(item);
+                  const breakMin = calculateRecordBreakMinutes(item);
+                  const netMin = calculateRecordNetWorkMinutes(item);
+                  const isExpanded = expandedBreakRecordIds.has(item.id);
+                  const hasBreaks = Boolean(item.breaks && item.breaks.length > 0);
 
                   return (
-                    <View
-                      key={item.id || idx}
-                      style={[
-                        styles.tableDataRow,
-                        idx % 2 === 1 && {
-                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc',
-                        },
-                      ]}
-                    >
-                      {/* Sütun 1: TARİH */}
-                      <View style={[styles.tdCell, { width: 120 }]}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Calendar size={13} color="#94a3b8" />
-                          <Text
-                            style={[
-                              styles.dateCellText,
-                              { color: isDark ? '#ffffff' : '#0f172a' },
-                            ]}
-                          >
-                            {item.date}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Sütun 2: PERSONEL */}
-                      <View style={[styles.tdCell, { width: 170 }]}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <View style={styles.tableInitialBadge}>
-                            <Text style={styles.tableInitialText}>
-                              {item.userName ? item.userName.charAt(0) : 'P'}
-                            </Text>
-                          </View>
-                          <View>
+                    <React.Fragment key={item.id || idx}>
+                      <View
+                        style={[
+                          styles.tableDataRow,
+                          idx % 2 === 1 && {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc',
+                          },
+                        ]}
+                      >
+                        {/* Sütun 1: TARİH */}
+                        <View style={[styles.tdCell, { width: 120 }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Calendar size={13} color="#94a3b8" />
                             <Text
                               style={[
-                                styles.personelNameText,
+                                styles.dateCellText,
                                 { color: isDark ? '#ffffff' : '#0f172a' },
                               ]}
                             >
-                              {item.userName}
-                            </Text>
-                            <Text style={styles.personelRoleText}>
-                              {item.userRole || 'Saha Yetkilisi'}
+                              {item.date}
                             </Text>
                           </View>
                         </View>
-                      </View>
 
-                      {/* Sütun: ONAY / İŞLEM (Şubeden Önce, Sola-Sağa Kaydırmadan Görünsün!) */}
-                      {isAdmin && (
-                        <View style={[styles.tdCell, { width: 145, alignItems: 'center', justifyContent: 'center' }]}>
-                          {item.status === 'pending_checkout_approval' || (item.checkOutOutside && item.checkOutApprovalStatus === 'pending') ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <TouchableOpacity
-                                style={styles.inlineApproveBtn}
-                                onPress={() => handleActionApprove(item, 'checkout')}
-                                activeOpacity={0.8}
-                              >
-                                <Check size={12} color="#ffffff" />
-                                <Text style={styles.inlineApproveBtnText}>Onayla</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.inlineRejectBtn}
-                                onPress={() => handleActionReject(item, 'checkout')}
-                                activeOpacity={0.8}
-                              >
-                                <X size={12} color="#ffffff" />
-                                <Text style={styles.inlineRejectBtnText}>Reddet</Text>
-                              </TouchableOpacity>
+                        {/* Sütun 2: PERSONEL */}
+                        <View style={[styles.tdCell, { width: 170 }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={styles.tableInitialBadge}>
+                              <Text style={styles.tableInitialText}>
+                                {item.userName ? item.userName.charAt(0) : 'P'}
+                              </Text>
                             </View>
-                          ) : item.status === 'pending_checkin_approval' || (item.checkInOutside && item.checkInApprovalStatus === 'pending') ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <TouchableOpacity
-                                style={styles.inlineApproveBtn}
-                                onPress={() => handleActionApprove(item, 'checkin')}
-                                activeOpacity={0.8}
+                            <View>
+                              <Text
+                                style={[
+                                  styles.personelNameText,
+                                  { color: isDark ? '#ffffff' : '#0f172a' },
+                                ]}
                               >
-                                <Check size={12} color="#ffffff" />
-                                <Text style={styles.inlineApproveBtnText}>Onayla</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.inlineRejectBtn}
-                                onPress={() => handleActionReject(item, 'checkin')}
-                                activeOpacity={0.8}
+                                {item.userName}
+                              </Text>
+                              <Text style={styles.personelRoleText}>
+                                {item.userRole || 'Saha Yetkilisi'}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* Sütun: ONAY / İŞLEM (Şubeden Önce, Sola-Sağa Kaydırmadan Görünsün!) */}
+                        {isAdmin && (
+                          <View style={[styles.tdCell, { width: 145, alignItems: 'center', justifyContent: 'center' }]}>
+                            {item.status === 'pending_checkout_approval' || (item.checkOutOutside && item.checkOutApprovalStatus === 'pending') ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <TouchableOpacity
+                                  style={styles.inlineApproveBtn}
+                                  onPress={() => handleActionApprove(item, 'checkout')}
+                                  activeOpacity={0.8}
+                                >
+                                  <Check size={12} color="#ffffff" />
+                                  <Text style={styles.inlineApproveBtnText}>Onayla</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.inlineRejectBtn}
+                                  onPress={() => handleActionReject(item, 'checkout')}
+                                  activeOpacity={0.8}
+                                >
+                                  <X size={12} color="#ffffff" />
+                                  <Text style={styles.inlineRejectBtnText}>Reddet</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : item.status === 'pending_checkin_approval' || (item.checkInOutside && item.checkInApprovalStatus === 'pending') ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <TouchableOpacity
+                                  style={styles.inlineApproveBtn}
+                                  onPress={() => handleActionApprove(item, 'checkin')}
+                                  activeOpacity={0.8}
+                                >
+                                  <Check size={12} color="#ffffff" />
+                                  <Text style={styles.inlineApproveBtnText}>Onayla</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.inlineRejectBtn}
+                                  onPress={() => handleActionReject(item, 'checkin')}
+                                  activeOpacity={0.8}
+                                >
+                                  <X size={12} color="#ffffff" />
+                                  <Text style={styles.inlineRejectBtnText}>Reddet</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'approved') || (item.checkInOutside && item.checkInApprovalStatus === 'approved') || item.checkOutApprovalStatus === 'approved' || item.checkInApprovalStatus === 'approved' ? (
+                              <View style={styles.inlineApprovedBadge}>
+                                <Check size={11} color="#10b981" />
+                                <Text style={styles.inlineApprovedBadgeText}>Onaylandı</Text>
+                              </View>
+                            ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'rejected') || (item.checkInOutside && item.checkInApprovalStatus === 'rejected') || item.checkOutApprovalStatus === 'rejected' || item.checkInApprovalStatus === 'rejected' ? (
+                              <View style={styles.inlineRejectedBadge}>
+                                <X size={11} color="#f43f5e" />
+                                <Text style={styles.inlineRejectedBadgeText}>Reddedildi</Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.emptyDashText}>-</Text>
+                            )}
+                          </View>
+                        )}
+
+                        {/* Sütun 3: ŞUBE */}
+                        <View style={[styles.tdCell, { width: 85 }]}>
+                          <Text style={{ color: '#94a3b8', fontSize: 12 }}>
+                            {item.branchName || 'Merkez'}
+                          </Text>
+                        </View>
+
+                        {/* Sütun 4: DURUM */}
+                        <View style={[styles.tdCell, { width: 110 }]}>
+                          {isLeave ? (
+                            <View style={styles.leavePill}>
+                              <Calendar size={11} color="#10b981" />
+                              <Text style={styles.leavePillText}>İzinli</Text>
+                            </View>
+                          ) : item.isOnBreak ? (
+                            <View style={styles.onBreakPill}>
+                              <Coffee size={11} color="#b45309" />
+                              <Text style={styles.onBreakPillText}>
+                                Molada{item.currentBreakStartTime ? ` (${Math.max(1, Math.round((Date.now() - item.currentBreakStartTime) / 60000))} dk)` : ''}
+                              </Text>
+                            </View>
+                          ) : item.status === 'completed' ? (
+                            <View style={styles.checkOutPill}>
+                              <Text style={styles.checkOutPillText}>Çıkış Yaptı</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.inWorkPill}>
+                              <Text style={styles.inWorkPillText}>Mesaide</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Sütun 5: GİRİŞ SAATİ */}
+                        <View style={[styles.tdCell, { width: 90 }]}>
+                          <Text
+                            style={[
+                              styles.timeText,
+                              { color: isDark ? '#ffffff' : '#0f172a' },
+                            ]}
+                          >
+                            {isLeave ? '-' : formatTime(item.checkInTime)}
+                          </Text>
+                        </View>
+
+                        {/* Sütun 6: GİRİŞ MESAFESİ (Görsel-5 Devamı) */}
+                        <View style={[styles.tdCell, { width: 130 }]}>
+                          {isLeave ? (
+                            <Text style={styles.emptyDashText}>-</Text>
+                          ) : (
+                            <View>
+                              <Text
+                                style={[
+                                  styles.distanceTextVal,
+                                  inDist.isOutside ? { color: '#fb923c' } : { color: '#34d399' },
+                                ]}
                               >
-                                <X size={12} color="#ffffff" />
-                                <Text style={styles.inlineRejectBtnText}>Reddet</Text>
-                              </TouchableOpacity>
+                                {inDist.distStr}
+                              </Text>
+                              {inDist.isApproved && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Check size={10} color="#10b981" />
+                                  <Text style={styles.approvedLabelText}>Yönetici Onaylı</Text>
+                                </View>
+                              )}
                             </View>
-                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'approved') || (item.checkInOutside && item.checkInApprovalStatus === 'approved') || item.checkOutApprovalStatus === 'approved' || item.checkInApprovalStatus === 'approved' ? (
-                            <View style={styles.inlineApprovedBadge}>
-                              <Check size={11} color="#10b981" />
-                              <Text style={styles.inlineApprovedBadgeText}>Onaylandı</Text>
+                          )}
+                        </View>
+
+                        {/* Sütun 7: ÇIKIŞ SAATİ */}
+                        <View style={[styles.tdCell, { width: 90 }]}>
+                          <Text
+                            style={[
+                              styles.timeText,
+                              { color: isDark ? '#ffffff' : '#0f172a' },
+                            ]}
+                          >
+                            {isLeave ? '-' : formatTime(item.checkOutTime)}
+                          </Text>
+                        </View>
+
+                        {/* Sütun 8: ÇIKIŞ MESAFESİ */}
+                        <View style={[styles.tdCell, { width: 130 }]}>
+                          {isLeave ? (
+                            <Text style={styles.emptyDashText}>-</Text>
+                          ) : (
+                            <View>
+                              <Text
+                                style={[
+                                  styles.distanceTextVal,
+                                  { color: '#f87171' },
+                                ]}
+                              >
+                                {outDist.distStr}
+                              </Text>
+                              {outDist.isApproved && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Check size={10} color="#10b981" />
+                                  <Text style={styles.approvedLabelText}>Yönetici Onaylı</Text>
+                                </View>
+                              )}
                             </View>
-                          ) : (item.checkOutOutside && item.checkOutApprovalStatus === 'rejected') || (item.checkInOutside && item.checkInApprovalStatus === 'rejected') || item.checkOutApprovalStatus === 'rejected' || item.checkInApprovalStatus === 'rejected' ? (
-                            <View style={styles.inlineRejectedBadge}>
-                              <X size={11} color="#f43f5e" />
-                              <Text style={styles.inlineRejectedBadgeText}>Reddedildi</Text>
-                            </View>
+                          )}
+                        </View>
+
+                        {/* Sütun 9: BRÜT SÜRE */}
+                        <View style={[styles.tdCell, { width: 105 }]}>
+                          <Text
+                            style={[
+                              styles.durationTextVal,
+                              { color: isDark ? '#ffffff' : '#0f172a' },
+                            ]}
+                          >
+                            {isLeave ? '-' : durationMin > 0 ? formatMinutesToDuration(durationMin) : item.status === 'checked_in' ? 'Devam ediyor' : '-'}
+                          </Text>
+                        </View>
+
+                        {/* Sütun 10: MOLA ÖZETİ (Akordeon Butonu) */}
+                        <View style={[styles.tdCell, { width: 130, alignItems: 'center', justifyContent: 'center' }]}>
+                          {hasBreaks ? (
+                            <TouchableOpacity
+                              style={styles.breakAccordionBtn}
+                              onPress={() => toggleRecordBreakAccordion(item.id)}
+                              activeOpacity={0.7}
+                            >
+                              <Coffee size={12} color="#b45309" />
+                              <Text style={styles.breakAccordionBtnText}>
+                                {item.breaks!.length} Mola ({breakMin} dk)
+                              </Text>
+                              <ChevronDown
+                                size={12}
+                                color="#b45309"
+                                style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }}
+                              />
+                            </TouchableOpacity>
                           ) : (
                             <Text style={styles.emptyDashText}>-</Text>
                           )}
                         </View>
+
+                        {/* Sütun 11: NET MESAİ */}
+                        <View style={[styles.tdCell, { width: 105 }]}>
+                          <Text
+                            style={[
+                              styles.durationTextVal,
+                              { color: '#10b981', fontWeight: '900' },
+                            ]}
+                          >
+                            {isLeave ? '-' : durationMin > 0 ? formatMinutesToDuration(netMin) : item.status === 'checked_in' ? 'Devam ediyor' : '-'}
+                          </Text>
+                        </View>
+
+                        {/* Sütun 12: NOT / AÇIKLAMA */}
+                        <View style={[styles.tdCell, { width: 220 }]}>
+                          <Text
+                            style={styles.notesTextVal}
+                            numberOfLines={2}
+                          >
+                            {item.notes || '-'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Mola Akordeon Detay Çekmecesi (Açıldığında) */}
+                      {isExpanded && hasBreaks && (
+                        <View
+                          style={[
+                            styles.breakDrawerRow,
+                            {
+                              backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb',
+                              borderColor: isDark ? '#b45309' : '#fde68a',
+                            },
+                          ]}
+                        >
+                          <View style={styles.breakDrawerHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Coffee size={14} color="#d97706" />
+                              <Text style={[styles.breakDrawerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                                {item.userName} - Mola Detayları ({item.date})
+                              </Text>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                              <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+                                Brüt: <Text style={{ fontWeight: 'bold' }}>{formatMinutesToDuration(durationMin)}</Text>
+                              </Text>
+                              <Text style={{ fontSize: 11, color: '#d97706', fontWeight: 'bold' }}>
+                                Mola: {formatMinutesToDuration(breakMin)}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: '#10b981', fontWeight: '900' }}>
+                                Net Mesai: {formatMinutesToDuration(netMin)}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Mola Kartları */}
+                          <View style={styles.breakCardsGrid}>
+                            {item.breaks!.map((b, bIdx) => {
+                              const bStart = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                              const bEnd = b.endTime ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam ediyor';
+                              const bDur = b.durationMinutes || (b.endTime ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000)) : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+                              const isOngoing = !b.endTime;
+
+                              return (
+                                <View
+                                  key={b.id || bIdx}
+                                  style={[
+                                    styles.breakCardItem,
+                                    isOngoing
+                                      ? styles.breakCardItemActive
+                                      : { backgroundColor: isDark ? '#1e293b' : '#ffffff', borderColor: isDark ? '#334155' : '#e2e8f0' },
+                                  ]}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                    <Text style={[styles.breakCardNum, { color: isDark ? '#cbd5e1' : '#334155' }]}>
+                                      ☕ {bIdx + 1}. Mola
+                                    </Text>
+                                    {isOngoing && (
+                                      <View style={styles.breakActivePill}>
+                                        <Text style={styles.breakActivePillText}>Aktif</Text>
+                                      </View>
+                                    )}
+                                  </View>
+
+                                  <Text style={[styles.breakCardTime, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                                    {bStart} - {bEnd}
+                                  </Text>
+                                  <Text style={styles.breakCardDurText}>
+                                    Süre: <Text style={{ fontWeight: 'bold' }}>{bDur} dk</Text>
+                                  </Text>
+                                  {b.note ? (
+                                    <Text style={styles.breakCardNoteText} numberOfLines={1}>
+                                      "{b.note}"
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
                       )}
-
-                      {/* Sütun 3: ŞUBE */}
-                      <View style={[styles.tdCell, { width: 85 }]}>
-                        <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-                          {item.branchName || 'Merkez'}
-                        </Text>
-                      </View>
-
-                      {/* Sütun 4: DURUM */}
-                      <View style={[styles.tdCell, { width: 110 }]}>
-                        {isLeave ? (
-                          <View style={styles.leavePill}>
-                            <Calendar size={11} color="#10b981" />
-                            <Text style={styles.leavePillText}>İzinli</Text>
-                          </View>
-                        ) : item.status === 'completed' ? (
-                          <View style={styles.checkOutPill}>
-                            <Text style={styles.checkOutPillText}>Çıkış Yaptı</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.inWorkPill}>
-                            <Text style={styles.inWorkPillText}>Mesaide</Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Sütun 5: GİRİŞ SAATİ */}
-                      <View style={[styles.tdCell, { width: 90 }]}>
-                        <Text
-                          style={[
-                            styles.timeText,
-                            { color: isDark ? '#ffffff' : '#0f172a' },
-                          ]}
-                        >
-                          {isLeave ? '-' : formatTime(item.checkInTime)}
-                        </Text>
-                      </View>
-
-                      {/* Sütun 6: GİRİŞ MESAFESİ (Görsel-5 Devamı) */}
-                      <View style={[styles.tdCell, { width: 130 }]}>
-                        {isLeave ? (
-                          <Text style={styles.emptyDashText}>-</Text>
-                        ) : (
-                          <View>
-                            <Text
-                              style={[
-                                styles.distanceTextVal,
-                                inDist.isOutside ? { color: '#fb923c' } : { color: '#34d399' },
-                              ]}
-                            >
-                              {inDist.distStr}
-                            </Text>
-                            {inDist.isApproved && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <Check size={10} color="#10b981" />
-                                <Text style={styles.approvedLabelText}>Yönetici Onaylı</Text>
-                              </View>
-                            )}
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Sütun 7: ÇIKIŞ SAATİ */}
-                      <View style={[styles.tdCell, { width: 90 }]}>
-                        <Text
-                          style={[
-                            styles.timeText,
-                            { color: isDark ? '#ffffff' : '#0f172a' },
-                          ]}
-                        >
-                          {isLeave ? '-' : formatTime(item.checkOutTime)}
-                        </Text>
-                      </View>
-
-                      {/* Sütun 8: ÇIKIŞ MESAFESİ */}
-                      <View style={[styles.tdCell, { width: 130 }]}>
-                        {isLeave ? (
-                          <Text style={styles.emptyDashText}>-</Text>
-                        ) : (
-                          <View>
-                            <Text
-                              style={[
-                                styles.distanceTextVal,
-                                { color: '#f87171' },
-                              ]}
-                            >
-                              {outDist.distStr}
-                            </Text>
-                            {outDist.isApproved && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <Check size={10} color="#10b981" />
-                                <Text style={styles.approvedLabelText}>Yönetici Onaylı</Text>
-                              </View>
-                            )}
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Sütun 9: TOPLAM SÜRE */}
-                      <View style={[styles.tdCell, { width: 105 }]}>
-                        <Text
-                          style={[
-                            styles.durationTextVal,
-                            { color: isDark ? '#ffffff' : '#0f172a' },
-                          ]}
-                        >
-                          {isLeave ? '-' : formatMinutes(item.workDurationMinutes)}
-                        </Text>
-                      </View>
-
-                      {/* Sütun 10: NOT / AÇIKLAMA */}
-                      <View style={[styles.tdCell, { width: 220 }]}>
-                        <Text
-                          style={styles.notesTextVal}
-                          numberOfLines={2}
-                        >
-                          {item.notes || '-'}
-                        </Text>
-                      </View>
-                    </View>
+                    </React.Fragment>
                   );
                 })}
               </View>
@@ -2654,7 +3058,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   tableInner: {
-    minWidth: 1100,
+    minWidth: 1630,
   },
   tableHeaderRow: {
     flexDirection: 'row',
@@ -2924,5 +3328,223 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 24,
     lineHeight: 16,
+  },
+
+  /* Mola Paneli */
+  molaBox: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 14,
+    marginTop: 10,
+    gap: 12,
+  },
+  molaBoxActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: '#f59e0b',
+  },
+  molaHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  molaIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  molaIconContainerActive: {
+    backgroundColor: '#f59e0b',
+  },
+  molaTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  molaBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  molaBadgeNormal: {
+    backgroundColor: '#dcfce7',
+  },
+  molaBadgePulse: {
+    backgroundColor: '#f59e0b',
+  },
+  molaBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  molaSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  molaActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+  },
+  molaActionBtnStart: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1.2,
+    borderColor: '#fde68a',
+  },
+  molaActionBtnStartText: {
+    color: '#78350f',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  molaActionBtnEnd: {
+    backgroundColor: '#d97706',
+  },
+  molaActionBtnEndText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  /* Bugünkü Detay Kutusu */
+  todaySummaryBox: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 10,
+    gap: 8,
+  },
+  todayBranchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148, 163, 184, 0.15)',
+  },
+  todayBranchText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  todaySummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  todayGridCol: {
+    width: '31%',
+    gap: 2,
+  },
+  todayGridLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#94a3b8',
+    letterSpacing: 0.2,
+  },
+  todayGridVal: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  /* Tablo Mola Öğeleri */
+  onBreakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  onBreakPillText: {
+    color: '#b45309',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  breakAccordionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fffbeb',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  breakAccordionBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#b45309',
+  },
+  breakDrawerRow: {
+    width: '100%',
+    padding: 12,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  breakDrawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(217, 119, 6, 0.2)',
+  },
+  breakDrawerTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  breakCardsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  breakCardItem: {
+    minWidth: 130,
+    padding: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  breakCardItemActive: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#f59e0b',
+  },
+  breakCardNum: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  breakCardTime: {
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  breakCardDurText: {
+    fontSize: 10,
+    color: '#d97706',
+    marginTop: 2,
+  },
+  breakCardNoteText: {
+    fontSize: 9,
+    color: '#64748b',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  breakActivePill: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  breakActivePillText: {
+    color: '#ffffff',
+    fontSize: 8,
+    fontWeight: '900',
   },
 });

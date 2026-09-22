@@ -27,6 +27,8 @@ import {
   Users,
   MapPinOff,
   ChevronDown,
+  Coffee,
+  Play,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -38,6 +40,8 @@ import {
   exportAttendanceToPdf,
   formatMinutesToDuration,
   calculateRecordDurationMinutes,
+  calculateRecordBreakMinutes,
+  calculateRecordNetWorkMinutes,
   StaffAttendanceSummary,
 } from '../services/attendanceExportService';
 import { StaffMultiSelect } from '../components/common/StaffMultiSelect';
@@ -51,6 +55,8 @@ export const StaffTrackingView: React.FC = () => {
     updateWorkplaceLocation,
     checkInStaff,
     checkOutStaff,
+    startBreak,
+    endBreak,
     approveAttendance,
     rejectAttendance,
     cancelAttendanceRequest,
@@ -435,6 +441,7 @@ export const StaffTrackingView: React.FC = () => {
   const isCompletedToday = currentUserTodayRecord?.status === 'completed';
   const isPendingCheckIn = currentUserTodayRecord?.status === 'pending_checkin_approval';
   const isPendingCheckOut = currentUserTodayRecord?.status === 'pending_checkout_approval';
+  const isOnBreak = !!currentUserTodayRecord?.isOnBreak;
 
   // Current active company code (e.g. 'POLATLAR', 'BURAKDEV')
   const currentCompanyCode = useMemo(() => {
@@ -714,6 +721,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         completed: number;
         active: number;
         pending: number;
+        totalBreakMinutes: number;
+        totalNetMinutes: number;
       }
     >();
 
@@ -726,6 +735,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           branchName: r.branchName,
           uniqueDates: new Set(),
           totalMinutes: 0,
+          totalBreakMinutes: 0,
+          totalNetMinutes: 0,
           completed: 0,
           active: 0,
           pending: 0,
@@ -734,7 +745,11 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       const entry = staffMap.get(r.userId)!;
       entry.uniqueDates.add(r.date);
       const min = calculateRecordDurationMinutes(r);
+      const brkMin = calculateRecordBreakMinutes(r);
+      const netMin = Math.max(0, min - brkMin);
       entry.totalMinutes += min;
+      entry.totalBreakMinutes = (entry.totalBreakMinutes || 0) + brkMin;
+      entry.totalNetMinutes = (entry.totalNetMinutes || 0) + netMin;
       if (r.status === 'completed') entry.completed++;
       else if (r.status === 'checked_in') entry.active++;
       else if (r.status.startsWith('pending_')) entry.pending++;
@@ -750,6 +765,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             branchName: u.branchName,
             uniqueDates: new Set(),
             totalMinutes: 0,
+            totalBreakMinutes: 0,
+            totalNetMinutes: 0,
             completed: 0,
             active: 0,
             pending: 0,
@@ -762,6 +779,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     staffMap.forEach((entry, uid) => {
       const days = entry.uniqueDates.size;
       const avgMin = days > 0 ? Math.round(entry.totalMinutes / days) : 0;
+      const brkMin = entry.totalBreakMinutes || 0;
+      const netMin = entry.totalNetMinutes ?? Math.max(0, entry.totalMinutes - brkMin);
+
       summaries.push({
         userId: uid,
         userName: entry.userName,
@@ -770,6 +790,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         totalDays: days,
         totalMinutes: entry.totalMinutes,
         totalDurationFormatted: formatMinutesToDuration(entry.totalMinutes),
+        totalBreakMinutes: brkMin,
+        totalBreakFormatted: formatMinutesToDuration(brkMin),
+        totalNetMinutes: netMin,
+        totalNetFormatted: formatMinutesToDuration(netMin),
         averageMinutesPerDay: avgMin,
         averageDurationFormatted: formatMinutesToDuration(avgMin),
         completedSessions: entry.completed,
@@ -785,6 +809,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   // Aggregated stats for the filtered records
   const stats = useMemo(() => {
     const totalMinutes = filteredRecords.reduce((acc, r) => acc + calculateRecordDurationMinutes(r), 0);
+    const totalBreakMinutes = filteredRecords.reduce((acc, r) => acc + calculateRecordBreakMinutes(r), 0);
+    const totalNetMinutes = Math.max(0, totalMinutes - totalBreakMinutes);
+    const onBreakCount = filteredRecords.filter((r) => r.isOnBreak && r.status === 'checked_in').length;
+
     const uniqueDays = new Set(filteredRecords.map((r) => r.date)).size;
     const active = filteredRecords.filter((r) => r.status === 'checked_in').length;
     const completed = filteredRecords.filter((r) => r.status === 'completed').length;
@@ -795,6 +823,11 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       total: filteredRecords.length,
       totalMinutes,
       totalDurationFormatted: formatMinutesToDuration(totalMinutes),
+      totalBreakMinutes,
+      totalBreakFormatted: formatMinutesToDuration(totalBreakMinutes),
+      totalNetMinutes,
+      netWorkFormatted: formatMinutesToDuration(totalNetMinutes),
+      onBreakCount,
       uniqueDays,
       active,
       completed,
@@ -873,6 +906,80 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     const interval = setInterval(updateDuration, 30000);
     return () => clearInterval(interval);
   }, [isCheckedIn, currentUserTodayRecord]);
+
+  // Break state & live stopwatch timer (1-second tick)
+  const [liveBreakTimerText, setLiveBreakTimerText] = useState('');
+  const [isProcessingBreak, setIsProcessingBreak] = useState(false);
+  const [expandedBreakRecordIds, setExpandedBreakRecordIds] = useState<Set<string>>(new Set());
+
+  const toggleRecordBreakAccordion = (recordId: string) => {
+    setExpandedBreakRecordIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) {
+        next.delete(recordId);
+      } else {
+        next.add(recordId);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!isOnBreak || !currentUserTodayRecord?.currentBreakStartTime) {
+      setLiveBreakTimerText('');
+      return;
+    }
+
+    const updateBreakTimer = () => {
+      const start = currentUserTodayRecord.currentBreakStartTime || Date.now();
+      const diffMs = Math.max(0, Date.now() - start);
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSecs / 3600);
+      const remSecs = totalSecs % 3600;
+      const mins = Math.floor(remSecs / 60);
+      const secs = remSecs % 60;
+
+      if (hours > 0) {
+        setLiveBreakTimerText(`${hours} sa ${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
+      } else {
+        setLiveBreakTimerText(`${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
+      }
+    };
+
+    updateBreakTimer();
+    const interval = setInterval(updateBreakTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isOnBreak, currentUserTodayRecord?.currentBreakStartTime]);
+
+  const handleStartBreak = async () => {
+    if (isProcessingBreak) return;
+    setIsProcessingBreak(true);
+    try {
+      const res = await startBreak();
+      if (!res.success) {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert('Mola başlatılırken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsProcessingBreak(false);
+    }
+  };
+
+  const handleEndBreak = async () => {
+    if (isProcessingBreak) return;
+    setIsProcessingBreak(true);
+    try {
+      const res = await endBreak();
+      if (!res.success) {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert('Mola sonlandırılırken bir hata oluştu: ' + (err?.message || err));
+    } finally {
+      setIsProcessingBreak(false);
+    }
+  };
 
   // --- 6. Staff Leave Requests State & Handlers ---
   const [activeSubTab, setActiveSubTab] = useState<'attendance' | 'leaves'>('attendance');
@@ -1820,6 +1927,83 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </button>
           </div>
 
+          {/* Mola Yönetim Kartı (İşe girmiş personeller için canlı mola paneli) */}
+          {isCheckedIn && (
+            <div className={`p-4 rounded-2xl border-2 transition-all duration-200 ${
+              isOnBreak
+                ? 'bg-amber-500/10 dark:bg-amber-950/40 border-amber-500 shadow-md shadow-amber-500/15'
+                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                    isOnBreak
+                      ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30 animate-pulse'
+                      : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                  }`}>
+                    <Coffee className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                        {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
+                      </h4>
+                      {isOnBreak ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                          Canlı Mola
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          Mesaide Aktif
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      {isOnBreak ? (
+                        <span className="font-semibold text-amber-700 dark:text-amber-300">
+                          Geçen Mola Süresi: <span className="font-black text-sm tracking-wide">{liveBreakTimerText || 'Hesaplanıyor...'}</span>
+                        </span>
+                      ) : (
+                        <span>
+                          Bugünkü mola özeti:{' '}
+                          <strong>
+                            {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0
+                              ? `${currentUserTodayRecord.breaks.length} mola (${currentUserTodayRecord.totalBreakMinutes || currentUserTodayRecord.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0)} dk)`
+                              : 'Henüz molaya çıkılmadı'}
+                          </strong>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {isOnBreak ? (
+                    <button
+                      type="button"
+                      onClick={handleEndBreak}
+                      disabled={isProcessingBreak}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-black text-xs text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 shadow-md shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
+                      <span>Molayı Bitir ve Mesaiye Dön</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStartBreak}
+                      disabled={isProcessingBreak}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-black text-xs text-amber-900 dark:text-amber-100 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/60 dark:hover:bg-amber-900/90 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Coffee className="w-4 h-4 text-amber-700 dark:text-amber-300" />}
+                      <span>Molaya Çık</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Bugünkü Giriş & Çıkış Detay Kartı */}
           {currentUserTodayRecord && (
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2.5">
@@ -1836,7 +2020,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
               <div>
                 <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
                   GİRİŞ SAATİ
@@ -1882,12 +2066,32 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
               <div>
                 <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
-                  TOPLAM MESAİ
+                  BRÜT MESAİ
                 </span>
                 <span className="font-black text-blue-600 dark:text-blue-400">
                   {currentUserTodayRecord.workDurationMinutes
                     ? (Math.floor(currentUserTodayRecord.workDurationMinutes / 60) + ' sa ' + (currentUserTodayRecord.workDurationMinutes % 60) + ' dk')
                     : activeDurationText || '-'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
+                  TOPLAM MOLA
+                </span>
+                <span className="font-black text-amber-600 dark:text-amber-400">
+                  {calculateRecordBreakMinutes(currentUserTodayRecord) > 0
+                    ? `${calculateRecordBreakMinutes(currentUserTodayRecord)} dk (${currentUserTodayRecord.breaks?.length || 0} mola)`
+                    : '-'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
+                  NET ÇALIŞMA
+                </span>
+                <span className="font-black text-emerald-600 dark:text-emerald-400">
+                  {formatMinutesToDuration(calculateRecordNetWorkMinutes(currentUserTodayRecord))}
                 </span>
               </div>
             </div>
@@ -2149,16 +2353,35 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
 
             {/* 2. Mesai İstatistik Kartları */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800">
                 <span className="text-[10px] sm:text-xs font-bold text-sky-600 dark:text-sky-400 block">
-                  Toplam Mesai Süresi
+                  Toplam Brüt Mesai
                 </span>
                 <span className="text-base sm:text-xl font-black text-sky-800 dark:text-sky-200">
                   {stats.totalDurationFormatted}
                 </span>
                 <span className="text-[10px] text-sky-600/80 dark:text-sky-400/80 block mt-0.5">
                   ({stats.totalMinutes} dakika)
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-xs font-bold text-amber-700 dark:text-amber-300 block">
+                    Mola & Net Mesai
+                  </span>
+                  {stats.onBreakCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white animate-pulse">
+                      {stats.onBreakCount} Molada
+                    </span>
+                  )}
+                </div>
+                <span className="text-base sm:text-xl font-black text-amber-800 dark:text-amber-200">
+                  {stats.totalBreakFormatted}
+                </span>
+                <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80 block mt-0.5">
+                  Net: <strong className="text-emerald-700 dark:text-emerald-300 font-black">{stats.netWorkFormatted}</strong>
                 </span>
               </div>
 
@@ -2297,23 +2520,29 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-1 text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="grid grid-cols-4 gap-1 text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800">
                           <div>
-                            <span className="text-[9px] font-bold text-slate-400 block">TOPLAM</span>
-                            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+                            <span className="text-[9px] font-bold text-slate-400 block">BRÜT</span>
+                            <span className="font-extrabold text-blue-600 dark:text-blue-400 text-[10px]">
                               {s.totalDurationFormatted}
                             </span>
                           </div>
                           <div>
-                            <span className="text-[9px] font-bold text-slate-400 block">GÜN</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-300">
-                              {s.totalDays} gün
+                            <span className="text-[9px] font-bold text-slate-400 block">MOLA</span>
+                            <span className="font-bold text-amber-600 dark:text-amber-400 text-[10px]">
+                              {s.totalBreakFormatted || '0 dk'}
                             </span>
                           </div>
                           <div>
-                            <span className="text-[9px] font-bold text-slate-400 block">ORTALAMA</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                              {s.averageDurationFormatted}
+                            <span className="text-[9px] font-bold text-slate-400 block">NET</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-[10px]">
+                              {s.totalNetFormatted || s.totalDurationFormatted}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block">GÜN</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-300 text-[10px]">
+                              {s.totalDays} gün
                             </span>
                           </div>
                         </div>
@@ -2347,7 +2576,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       <th className="py-3 px-3">Giriş Mesafesi</th>
                       <th className="py-3 px-3">Çıkış Saati</th>
                       <th className="py-3 px-3">Çıkış Mesafesi</th>
-                      <th className="py-3 px-3">Toplam Süre</th>
+                      <th className="py-3 px-3">Brüt Süre</th>
+                      <th className="py-3 px-3">Mola Özeti</th>
+                      <th className="py-3 px-3">Net Mesai</th>
                       <th className="py-3 px-3">Not / Açıklama</th>
                       {isAdmin && <th className="py-3 px-3 text-right">İşlem</th>}
                     </tr>
@@ -2359,332 +2590,449 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                         ? new Date(record.checkOutTime)
                         : null;
                       const durationMinutes = calculateRecordDurationMinutes(record);
+                      const breakMinutes = calculateRecordBreakMinutes(record);
+                      const netMinutes = calculateRecordNetWorkMinutes(record);
+                      const isExpanded = expandedBreakRecordIds.has(record.id);
 
                       return (
-                        <tr
-                          key={record.id}
-                          className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-                        >
-                          {/* Tarih */}
-                          <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="w-3 h-3 text-slate-400" />
-                              <span>{record.date}</span>
-                            </div>
-                          </td>
-
-                          {/* Personel */}
-                          <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
-                                {record.userName.charAt(0).toUpperCase()}
+                        <React.Fragment key={record.id}>
+                          <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                            {/* Tarih */}
+                            <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                <span>{record.date}</span>
                               </div>
-                              <div>
-                                <div>{record.userName}</div>
-                                {record.userRole && (
-                                  <div className="text-[10px] text-slate-400 font-normal">
-                                    {record.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                            </td>
+
+                            {/* Personel */}
+                            <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
+                                  {record.userName.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div>{record.userName}</div>
+                                  {record.userRole && (
+                                    <div className="text-[10px] text-slate-400 font-normal">
+                                      {record.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Onay / İşlem (Şubeden Önce) */}
+                            {isAdmin && (
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                {record.status === 'pending_checkin_approval' ? (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={processingApprovalId === record.id}
+                                      onClick={() => handleApprove(record.id, 'checkin')}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Onayla</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={processingApprovalId === record.id}
+                                      onClick={() => handleReject(record.id, 'checkin')}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>Reddet</span>
+                                    </button>
+                                  </div>
+                                ) : record.status === 'pending_checkout_approval' ? (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={processingApprovalId === record.id}
+                                      onClick={() => handleApprove(record.id, 'checkout')}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Onayla</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={processingApprovalId === record.id}
+                                      onClick={() => handleReject(record.id, 'checkout')}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>Reddet</span>
+                                    </button>
+                                  </div>
+                                ) : (record.checkOutOutside && record.checkOutApprovalStatus === 'approved') || (record.checkInOutside && record.checkInApprovalStatus === 'approved') || record.checkOutApprovalStatus === 'approved' || record.checkInApprovalStatus === 'approved' ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                    <Check className="w-3 h-3" />
+                                    <span>Onaylandı</span>
+                                  </span>
+                                ) : (record.checkOutOutside && record.checkOutApprovalStatus === 'rejected') || (record.checkInOutside && record.checkInApprovalStatus === 'rejected') || record.checkOutApprovalStatus === 'rejected' || record.checkInApprovalStatus === 'rejected' ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                                    <X className="w-3 h-3" />
+                                    <span>Reddedildi</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </td>
+                            )}
+
+                            {/* Şube */}
+                            <td className="py-3 px-3">
+                              {record.branchName ? (
+                                <div className="flex flex-col">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                                    <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                                    {record.branchName}
+                                  </span>
+                                  {record.isOtherBranch && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                                      (Asıl: {record.assignedBranchName || 'Bilinmiyor'})
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Merkez</span>
+                              )}
+                            </td>
+
+                            {/* Durum */}
+                            <td className="py-3 px-3">
+                              {record.status === 'on_leave' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                  <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                  İzinli
+                                </span>
+                              ) : record.isOnBreak ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                  <Coffee className="w-3 h-3 text-amber-600" />
+                                  Molada ({record.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - record.currentBreakStartTime) / 60000)) + ' dk' : ''})
+                                </span>
+                              ) : record.status === 'pending_checkin_approval' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                  <Clock className="w-3 h-3 text-amber-600" />
+                                  Giriş Onayı Bekliyor
+                                </span>
+                              ) : record.status === 'pending_checkout_approval' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                  <Clock className="w-3 h-3 text-amber-600" />
+                                  Çıkış Onayı Bekliyor
+                                </span>
+                              ) : record.status === 'checked_in' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  Mesaide
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                  Çıkış Yaptı
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Giriş Saati */}
+                            <td className="py-3 px-3 font-bold">
+                              {record.status === 'on_leave' || !record.checkInTime ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : (
+                                checkInDate.toLocaleTimeString('tr-TR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              )}
+                            </td>
+
+                            {/* Giriş Mesafesi */}
+                            <td className="py-3 px-3">
+                              {record.status === 'on_leave' ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : record.checkInDistance !== undefined ? (
+                                <div className="flex flex-col">
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                    {LocationService.formatDistance(record.checkInDistance)}
+                                  </span>
+                                  {record.checkInOutside && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                      {record.checkInApprovalStatus === 'pending'
+                                        ? '⏳ Onay Bekliyor'
+                                        : '✅ Yönetici Onaylı'}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">≤ {allowedRadius} m</span>
+                              )}
+                            </td>
+
+                            {/* Çıkış Saati */}
+                            <td className="py-3 px-3 font-bold">
+                              {record.status === 'on_leave' || !checkOutDate ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : (
+                                checkOutDate.toLocaleTimeString('tr-TR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              )}
+                            </td>
+
+                            {/* Çıkış Mesafesi */}
+                            <td className="py-3 px-3">
+                              {record.status === 'on_leave' || record.checkOutDistance === undefined ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : (
+                                <div className="flex flex-col">
+                                  <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                    {LocationService.formatDistance(record.checkOutDistance)}
+                                  </span>
+                                  {record.checkOutOutside && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                      {record.checkOutApprovalStatus === 'pending'
+                                        ? '⏳ Onay Bekliyor'
+                                        : '✅ Yönetici Onaylı'}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Brüt Süre */}
+                            <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
+                              {record.status === 'on_leave' ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : durationMinutes > 0 ? (
+                                <span>{formatMinutesToDuration(durationMinutes)}</span>
+                              ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
+                                <span className="text-blue-600 font-semibold">Devam ediyor</span>
+                              ) : record.status === 'pending_checkin_approval' ? (
+                                <span className="text-amber-600 font-semibold text-xs">Onay Bekliyor</span>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+
+                            {/* Mola Özeti */}
+                            <td className="py-3 px-3">
+                              {record.breaks && record.breaks.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRecordBreakAccordion(record.id)}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/80 transition-all cursor-pointer group"
+                                  title="Mola dökümünü ve detaylarını aç/kapat"
+                                >
+                                  <Coffee className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span>
+                                    {record.breaks.length} Mola ({breakMinutes} dk)
+                                  </span>
+                                  <ChevronDown
+                                    className={`w-3 h-3 text-amber-600 transition-transform duration-200 ${
+                                      isExpanded ? 'rotate-180' : ''
+                                    }`}
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
+
+                            {/* Net Mesai */}
+                            <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
+                              {record.status === 'on_leave' ? (
+                                <span className="text-slate-400 italic font-normal">-</span>
+                              ) : durationMinutes > 0 ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                                  {formatMinutesToDuration(netMinutes)}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-600 font-semibold text-xs">Devam ediyor</span>
+                              )}
+                            </td>
+
+                            {/* Not / Açıklama */}
+                            <td className="py-3 px-3">
+                              {record.status === 'on_leave' ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="inline-flex items-center gap-1 font-black text-emerald-600 dark:text-emerald-400 text-xs bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/60">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                    <span>İzinli</span>
+                                  </span>
+                                  {record.approvalNote && (
+                                    <span
+                                      className="text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[140px] hidden sm:inline"
+                                      title={record.approvalNote}
+                                    >
+                                      ({record.approvalNote})
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span
+                                  className="text-slate-500 text-[11px] max-w-[150px] truncate block"
+                                  title={record.notes || record.approvalNote || ''}
+                                >
+                                  {record.notes || record.approvalNote || '-'}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* İşlem (Admin Only) */}
+                            {isAdmin && (
+                              <td className="py-3 px-3 text-right">
+                                {record.status === 'on_leave' ? (
+                                  <div className="flex items-center justify-end">
+                                    <span className="inline-flex items-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                                      Onaylı İzin
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {record.status === 'pending_checkin_approval' && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={processingApprovalId === record.id}
+                                          onClick={() => handleApprove(record.id, 'checkin')}
+                                          className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                        >
+                                          Onayla
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={processingApprovalId === record.id}
+                                          onClick={() => handleReject(record.id, 'checkin')}
+                                          className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                        >
+                                          Reddet
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {record.status === 'pending_checkout_approval' && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={processingApprovalId === record.id}
+                                          onClick={() => handleApprove(record.id, 'checkout')}
+                                          className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                                        >
+                                          Onayla
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={processingApprovalId === record.id}
+                                          onClick={() => handleReject(record.id, 'checkout')}
+                                          className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
+                                        >
+                                          Reddet
+                                        </button>
+                                      </>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
+                                          deleteAttendanceRecord(record.id);
+                                        }
+                                      }}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                                      title="Kaydı Sil"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
                                   </div>
                                 )}
-                              </div>
-                            </div>
-                          </td>
+                              </td>
+                            )}
+                          </tr>
 
-                          {/* Onay / İşlem (Şubeden Önce) */}
-                          {isAdmin && (
-                            <td className="py-3 px-3 text-center whitespace-nowrap">
-                              {record.status === 'pending_checkin_approval' ? (
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    disabled={processingApprovalId === record.id}
-                                    onClick={() => handleApprove(record.id, 'checkin')}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>Onayla</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={processingApprovalId === record.id}
-                                    onClick={() => handleReject(record.id, 'checkin')}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                    <span>Reddet</span>
-                                  </button>
+                          {/* Mola Akordeon Detay Çekmecesi */}
+                          {isExpanded && (
+                            <tr className="bg-amber-50/50 dark:bg-amber-950/20 border-b border-amber-200/40 dark:border-amber-800/40 animate-in fade-in">
+                              <td colSpan={isAdmin ? 14 : 12} className="p-3 sm:p-4">
+                                <div className="rounded-2xl p-4 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/60 shadow-xs space-y-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 flex items-center justify-center font-black">
+                                        <Coffee className="w-4 h-4" />
+                                      </div>
+                                      <span className="font-black text-xs text-slate-800 dark:text-slate-200">
+                                        {record.userName} - Mola Detay Çekmecesi ({record.date})
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 text-xs">
+                                      <span className="text-slate-500">
+                                        Brüt: <strong>{formatMinutesToDuration(durationMinutes)}</strong>
+                                      </span>
+                                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                                      <span className="text-amber-600 dark:text-amber-400 font-bold">
+                                        Toplam Mola: {formatMinutesToDuration(breakMinutes)}
+                                      </span>
+                                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                                        Net Çalışma: {formatMinutesToDuration(netMinutes)}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Mola Kartları */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-1">
+                                    {record.breaks?.map((b, idx) => {
+                                      const bStart = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                                      const bEnd = b.endTime ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam ediyor';
+                                      const bDur = b.durationMinutes || (b.endTime ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000)) : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+                                      const isOngoing = !b.endTime;
+
+                                      return (
+                                        <div
+                                          key={b.id || idx}
+                                          className={`p-3 rounded-xl border text-xs flex flex-col justify-between ${
+                                            isOngoing
+                                              ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 shadow-xs ring-1 ring-amber-400/30'
+                                              : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between mb-1.5">
+                                            <span className="font-black text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                              <span>☕ {idx + 1}. Mola</span>
+                                              {isOngoing && (
+                                                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white animate-pulse">
+                                                  Aktif
+                                                </span>
+                                              )}
+                                            </span>
+                                            <span className="font-black text-amber-600 dark:text-amber-400 text-xs">
+                                              {bDur} dk
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                                            <span>{bStart} - {bEnd}</span>
+                                            {b.note && <span className="italic text-slate-400 max-w-[80px] truncate" title={b.note}>({b.note})</span>}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                              ) : record.status === 'pending_checkout_approval' ? (
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    disabled={processingApprovalId === record.id}
-                                    onClick={() => handleApprove(record.id, 'checkout')}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>Onayla</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={processingApprovalId === record.id}
-                                    onClick={() => handleReject(record.id, 'checkout')}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                    <span>Reddet</span>
-                                  </button>
-                                </div>
-                              ) : (record.checkOutOutside && record.checkOutApprovalStatus === 'approved') || (record.checkInOutside && record.checkInApprovalStatus === 'approved') || record.checkOutApprovalStatus === 'approved' || record.checkInApprovalStatus === 'approved' ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                                  <Check className="w-3 h-3" />
-                                  <span>Onaylandı</span>
-                                </span>
-                              ) : (record.checkOutOutside && record.checkOutApprovalStatus === 'rejected') || (record.checkInOutside && record.checkInApprovalStatus === 'rejected') || record.checkOutApprovalStatus === 'rejected' || record.checkInApprovalStatus === 'rejected' ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
-                                  <X className="w-3 h-3" />
-                                  <span>Reddedildi</span>
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
-                            </td>
+                              </td>
+                            </tr>
                           )}
-
-                          {/* Şube */}
-                          <td className="py-3 px-3">
-                            {record.branchName ? (
-                              <div className="flex flex-col">
-                                <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                                  <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                                  {record.branchName}
-                                </span>
-                                {record.isOtherBranch && (
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
-                                    (Asıl: {record.assignedBranchName || 'Bilinmiyor'})
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">Merkez</span>
-                            )}
-                          </td>
-
-                          {/* Durum */}
-                          <td className="py-3 px-3">
-                            {record.status === 'on_leave' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                İzinli
-                              </span>
-                            ) : record.status === 'pending_checkin_approval' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
-                                <Clock className="w-3 h-3 text-amber-600" />
-                                Giriş Onayı Bekliyor
-                              </span>
-                            ) : record.status === 'pending_checkout_approval' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
-                                <Clock className="w-3 h-3 text-amber-600" />
-                                Çıkış Onayı Bekliyor
-                              </span>
-                            ) : record.status === 'checked_in' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                Mesaide
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                                Çıkış Yaptı
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Giriş Saati */}
-                          <td className="py-3 px-3 font-bold">
-                            {record.status === 'on_leave' || !record.checkInTime ? (
-                              <span className="text-slate-400 italic font-normal">-</span>
-                            ) : (
-                              checkInDate.toLocaleTimeString('tr-TR', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            )}
-                          </td>
-
-                          {/* Giriş Mesafesi */}
-                          <td className="py-3 px-3">
-                            {record.status === 'on_leave' ? (
-                              <span className="text-slate-400 italic font-normal">-</span>
-                            ) : record.checkInDistance !== undefined ? (
-                              <div className="flex flex-col">
-                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                                  {LocationService.formatDistance(record.checkInDistance)}
-                                </span>
-                                {record.checkInOutside && (
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                                    {record.checkInApprovalStatus === 'pending'
-                                      ? '⏳ Onay Bekliyor'
-                                      : '✅ Yönetici Onaylı'}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">≤ {allowedRadius} m</span>
-                            )}
-                          </td>
-
-                          {/* Çıkış Saati */}
-                          <td className="py-3 px-3 font-bold">
-                            {record.status === 'on_leave' || !checkOutDate ? (
-                              <span className="text-slate-400 italic font-normal">-</span>
-                            ) : (
-                              checkOutDate.toLocaleTimeString('tr-TR', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            )}
-                          </td>
-
-                          {/* Çıkış Mesafesi */}
-                          <td className="py-3 px-3">
-                            {record.status === 'on_leave' || record.checkOutDistance === undefined ? (
-                              <span className="text-slate-400 italic font-normal">-</span>
-                            ) : (
-                              <div className="flex flex-col">
-                                <span className="text-rose-600 dark:text-rose-400 font-bold">
-                                  {LocationService.formatDistance(record.checkOutDistance)}
-                                </span>
-                                {record.checkOutOutside && (
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                                    {record.checkOutApprovalStatus === 'pending'
-                                      ? '⏳ Onay Bekliyor'
-                                      : '✅ Yönetici Onaylı'}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Toplam Süre */}
-                          <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                            {record.status === 'on_leave' ? (
-                              <span className="text-slate-400 italic font-normal">-</span>
-                            ) : durationMinutes > 0 ? (
-                              <span>{formatMinutesToDuration(durationMinutes)}</span>
-                            ) : record.status === 'checked_in' || record.status === 'pending_checkout_approval' ? (
-                              <span className="text-emerald-600 font-semibold">Devam ediyor</span>
-                            ) : record.status === 'pending_checkin_approval' ? (
-                              <span className="text-amber-600 font-semibold text-xs">Onay Bekliyor</span>
-                            ) : (
-                              '-'
-                            )}
-                          </td>
-
-                          {/* Not / Açıklama */}
-                          <td className="py-3 px-3">
-                            {record.status === 'on_leave' ? (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="inline-flex items-center gap-1 font-black text-emerald-600 dark:text-emerald-400 text-xs bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/60">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                  <span>İzinli</span>
-                                </span>
-                                {record.approvalNote && (
-                                  <span
-                                    className="text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[140px] hidden sm:inline"
-                                    title={record.approvalNote}
-                                  >
-                                    ({record.approvalNote})
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span
-                                className="text-slate-500 text-[11px] max-w-[150px] truncate block"
-                                title={record.notes || record.approvalNote || ''}
-                              >
-                                {record.notes || record.approvalNote || '-'}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* İşlem (Admin Only) */}
-                          {isAdmin && (
-                            <td className="py-3 px-3 text-right">
-                              {record.status === 'on_leave' ? (
-                                <div className="flex items-center justify-end">
-                                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
-                                    Onaylı İzin
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  {record.status === 'pending_checkin_approval' && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        disabled={processingApprovalId === record.id}
-                                        onClick={() => handleApprove(record.id, 'checkin')}
-                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
-                                      >
-                                        Onayla
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={processingApprovalId === record.id}
-                                        onClick={() => handleReject(record.id, 'checkin')}
-                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                                      >
-                                        Reddet
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {record.status === 'pending_checkout_approval' && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        disabled={processingApprovalId === record.id}
-                                        onClick={() => handleApprove(record.id, 'checkout')}
-                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
-                                      >
-                                        Onayla
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={processingApprovalId === record.id}
-                                        onClick={() => handleReject(record.id, 'checkout')}
-                                        className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
-                                      >
-                                        Reddet
-                                      </button>
-                                    </>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
-                                        deleteAttendanceRecord(record.id);
-                                      }
-                                    }}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                                    title="Kaydı Sil"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
-      </>
-    )}
 
     {/* SUB-TAB 2: İZİN TALEPLERİ */}
     {activeSubTab === 'leaves' && (

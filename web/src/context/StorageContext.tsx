@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -148,6 +148,8 @@ interface StorageContextType {
     isPendingApproval?: boolean;
     isLocationDisabled?: boolean;
   }>;
+  startBreak: (note?: string) => Promise<{ success: boolean; message: string }>;
+  endBreak: () => Promise<{ success: boolean; message: string }>;
   approveAttendance: (
     recordId: string,
     actionType: 'checkin' | 'checkout'
@@ -3343,6 +3345,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
 
+      // Close any active break automatically if employee forgot to end break before checkout
+      let finalBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+      let totalBreakMinutes = record.totalBreakMinutes || 0;
+      if (record.isOnBreak && finalBreaks.length > 0) {
+        const lastIndex = finalBreaks.length - 1;
+        const bStart = record.currentBreakStartTime || finalBreaks[lastIndex].startTime;
+        const bDuration = Math.max(1, Math.round((checkOutTime - bStart) / 60000));
+        finalBreaks[lastIndex] = {
+          ...finalBreaks[lastIndex],
+          endTime: checkOutTime,
+          durationMinutes: bDuration,
+        };
+        totalBreakMinutes = finalBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+      }
+
       // User confirmed -> Create pending checkout approval record
       const updatedRecord: AttendanceRecord = {
         ...record,
@@ -3356,6 +3373,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         approvalNote: options.note || record.approvalNote,
         status: 'pending_checkout_approval',
         workDurationMinutes: durationMinutes,
+        breaks: finalBreaks,
+        isOnBreak: false,
+        currentBreakStartTime: undefined,
+        totalBreakMinutes,
       };
 
       const updatedRecords = [...attendanceRecords];
@@ -3380,6 +3401,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // Inside allowed radius (Normal on-site check-out)
+    let finalBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+    let totalBreakMinutes = record.totalBreakMinutes || 0;
+    if (record.isOnBreak && finalBreaks.length > 0) {
+      const lastIndex = finalBreaks.length - 1;
+      const bStart = record.currentBreakStartTime || finalBreaks[lastIndex].startTime;
+      const bDuration = Math.max(1, Math.round((checkOutTime - bStart) / 60000));
+      finalBreaks[lastIndex] = {
+        ...finalBreaks[lastIndex],
+        endTime: checkOutTime,
+        durationMinutes: bDuration,
+      };
+      totalBreakMinutes = finalBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+    }
+
     const updatedRecord: AttendanceRecord = {
       ...record,
       checkOutTime,
@@ -3391,6 +3426,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       checkOutApprovalStatus: 'approved',
       status: 'completed',
       workDurationMinutes: durationMinutes,
+      breaks: finalBreaks,
+      isOnBreak: false,
+      currentBreakStartTime: undefined,
+      totalBreakMinutes,
     };
 
     const updatedRecords = [...attendanceRecords];
@@ -3411,6 +3450,115 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       success: true,
       distance,
       message: `İşten çıkışınız onaylandı! Toplam mesai süreniz: ${durationText}.`,
+    };
+  };
+
+  // Staff break tracking: startBreak (0ms instant optimistic UI reflex)
+  const startBreak = async (note?: string): Promise<{ success: boolean; message: string }> => {
+    if (!user) {
+      return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const recordIndex = attendanceRecords.findIndex(
+      (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
+    );
+
+    if (recordIndex === -1) {
+      return { success: false, message: 'Aktif bir mesai kaydınız bulunmuyor. Önce işe giriş yapmalısınız.' };
+    }
+
+    const record = attendanceRecords[recordIndex];
+    if (record.isOnBreak) {
+      return { success: false, message: 'Zaten moladasınız.' };
+    }
+
+    const now = Date.now();
+    const newBreak: BreakItem = {
+      id: generateId(),
+      startTime: now,
+      note: note || 'Mola',
+    };
+
+    const existingBreaks = Array.isArray(record.breaks) ? record.breaks : [];
+    const updatedRecord: AttendanceRecord = {
+      ...record,
+      isOnBreak: true,
+      currentBreakStartTime: now,
+      breaks: [...existingBreaks, newBreak],
+    };
+
+    const updated = [...attendanceRecords];
+    updated[recordIndex] = updatedRecord;
+
+    // Optimistic instant state update (0ms UI latency!)
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+
+    return {
+      success: true,
+      message: 'Molaya çıkışınız kaydedildi. İyi dinlenmeler!',
+    };
+  };
+
+  // Staff break tracking: endBreak (0ms instant optimistic UI reflex)
+  const endBreak = async (): Promise<{ success: boolean; message: string }> => {
+    if (!user) {
+      return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const recordIndex = attendanceRecords.findIndex(
+      (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
+    );
+
+    if (recordIndex === -1) {
+      return { success: false, message: 'Aktif bir mesai kaydınız bulunmuyor.' };
+    }
+
+    const record = attendanceRecords[recordIndex];
+    if (!record.isOnBreak) {
+      return { success: false, message: 'Aktif bir molanız bulunmuyor.' };
+    }
+
+    const now = Date.now();
+    const startTime =
+      record.currentBreakStartTime ||
+      (record.breaks && record.breaks.length > 0
+        ? record.breaks[record.breaks.length - 1].startTime
+        : now);
+    const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
+
+    const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+    if (existingBreaks.length > 0) {
+      const lastIndex = existingBreaks.length - 1;
+      existingBreaks[lastIndex] = {
+        ...existingBreaks[lastIndex],
+        endTime: now,
+        durationMinutes,
+      };
+    }
+
+    const totalBreakMinutes = existingBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+
+    const updatedRecord: AttendanceRecord = {
+      ...record,
+      isOnBreak: false,
+      currentBreakStartTime: undefined,
+      breaks: existingBreaks,
+      totalBreakMinutes,
+    };
+
+    const updated = [...attendanceRecords];
+    updated[recordIndex] = updatedRecord;
+
+    // Optimistic instant state update (0ms UI latency!)
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+
+    return {
+      success: true,
+      message: `Molanız sonlandırıldı (${durationMinutes} dakika). Mesainize başarıyla döndünüz!`,
     };
   };
 
@@ -4397,6 +4545,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         assignStaffToBranch,
         checkInStaff,
         checkOutStaff,
+        startBreak,
+        endBreak,
         approveAttendance,
         rejectAttendance,
         cancelAttendanceRequest,

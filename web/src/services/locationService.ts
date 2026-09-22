@@ -28,13 +28,15 @@ export const LocationService = {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
-          let address = '';
+          let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           try {
-            // Non-blocking fast reverse geocoding with strict 1.5s timeout
-            address = await LocationService.reverseGeocode(latitude, longitude);
+            // Fast reverse geocoding with strict 700ms timeout to ensure instant UI response
+            const geocodePromise = LocationService.reverseGeocode(latitude, longitude);
+            const timeoutPromise = new Promise<string>((res) => setTimeout(() => res(''), 700));
+            const fastAddr = await Promise.race([geocodePromise, timeoutPromise]);
+            if (fastAddr) address = fastAddr;
           } catch (e) {
-            console.warn('Reverse geocoding failed/skipped:', e);
-            address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            console.warn('Reverse geocoding skipped/timeout:', e);
           }
 
           resolve({
@@ -59,8 +61,8 @@ export const LocationService = {
         },
         {
           enableHighAccuracy: true,
-          timeout: 8000,
-          maximumAge: 15000, // Reuse fresh location (<15s) for instant response
+          timeout: 6000,
+          maximumAge: 30000, // Reuse fresh location (<30s) for instant response
           ...options,
         }
       );

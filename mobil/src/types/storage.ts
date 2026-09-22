@@ -193,6 +193,14 @@ export type AttendanceStatus =
   | 'pending_checkout_approval'
   | 'on_leave';
 
+export interface BreakItem {
+  id: string;
+  startTime: number;
+  endTime?: number;
+  durationMinutes?: number;
+  note?: string;
+}
+
 export interface AttendanceRecord {
   id: string;
   userId: string;
@@ -229,6 +237,12 @@ export interface AttendanceRecord {
   workDurationMinutes?: number;
   approvalNote?: string;
   notes?: string;
+
+  // Mola (Break) Tracking
+  breaks?: BreakItem[];
+  isOnBreak?: boolean;
+  currentBreakStartTime?: number;
+  totalBreakMinutes?: number;
 }
 
 export interface BackupData {
