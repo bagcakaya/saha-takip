@@ -212,9 +212,11 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // App Badging API: Foreground App -> Service Worker badge synchronization
-self.addEventListener('message', (event) => {
+self.addEventListener('message', async (event) => {
   if (event.data && event.data.type === 'saha:set-badge') {
     const count = Number(event.data.count) || 0;
+    
+    // 1. Desktop & iOS W3C Badging API
     if (typeof self.navigator !== 'undefined' && 'setAppBadge' in self.navigator) {
       if (count > 0) {
         self.navigator.setAppBadge(count).catch(() => {});
@@ -222,11 +224,35 @@ self.addEventListener('message', (event) => {
         self.navigator.clearAppBadge().catch(() => {});
       }
     }
+
+    // 2. Android OS Launcher Badge Sync (Android OS ties launcher icon badges to active system tray notifications)
+    try {
+      if (count > 0) {
+        await self.registration.showNotification('İş Takip', {
+          body: count === 1 ? '1 bekleyen bildirim veya işlem var' : `${count} bekleyen bildirim veya işlem var`,
+          icon: '/icon.png',
+          badge: '/favicon.png',
+          tag: 'saha-takip-badge',
+          renotify: false,
+          silent: true,
+          data: {
+            url: '/?tab=notes&filter=pending',
+            tab: 'notes',
+            filter: 'pending',
+          },
+        });
+      } else {
+        const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
+        activeNotifs.forEach((n) => n.close());
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 });
 
 // App Badging API: Background Push Notification badge count handler
-self.addEventListener('push', (event) => {
+self.addEventListener('push', async (event) => {
   try {
     let count = 1;
     if (event.data) {
@@ -240,5 +266,22 @@ self.addEventListener('push', (event) => {
     if (typeof self.navigator !== 'undefined' && 'setAppBadge' in self.navigator) {
       self.navigator.setAppBadge(count).catch(() => {});
     }
+    try {
+      if (count > 0) {
+        await self.registration.showNotification('İş Takip', {
+          body: count === 1 ? '1 bekleyen bildirim veya işlem var' : `${count} bekleyen bildirim veya işlem var`,
+          icon: '/icon.png',
+          badge: '/favicon.png',
+          tag: 'saha-takip-badge',
+          renotify: false,
+          silent: true,
+          data: {
+            url: '/?tab=notes&filter=pending',
+            tab: 'notes',
+            filter: 'pending',
+          },
+        });
+      }
+    } catch (e) {}
   } catch (err) {}
 });

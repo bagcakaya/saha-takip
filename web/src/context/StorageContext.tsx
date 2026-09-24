@@ -4503,13 +4503,45 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.debug('App Badging API not supported:', e);
       }
 
-      // 2. Sync badge with Service Worker registration so launcher icon badge persists in background
+      // 2. Sync badge with Service Worker & Android OS Launcher Notification
       try {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'saha:set-badge',
-            count: badgeCount,
-          });
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(async (reg) => {
+            if (reg.active) {
+              reg.active.postMessage({
+                type: 'saha:set-badge',
+                count: badgeCount,
+              });
+            }
+
+            // Android OS Launcher Rozeti için:
+            // Android işletim sistemi ana ekran simgesindeki rozeti (sayı veya nokta)
+            // bildirim çubuğundaki (Notification Drawer) aktif bildirimden besler!
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              try {
+                if (badgeCount > 0) {
+                  await (reg as any).showNotification('İş Takip', {
+                    body: badgeCount === 1 ? '1 bekleyen bildirim veya işlem var' : `${badgeCount} bekleyen bildirim veya işlem var`,
+                    icon: '/icon.png',
+                    badge: '/favicon.png',
+                    tag: 'saha-takip-badge',
+                    renotify: false,
+                    silent: true,
+                    data: {
+                      url: '/?tab=notes&filter=pending',
+                      tab: 'notes',
+                      filter: 'pending',
+                    },
+                  } as any);
+                } else {
+                  const activeNotifs = await reg.getNotifications({ tag: 'saha-takip-badge' });
+                  activeNotifs.forEach((n) => n.close());
+                }
+              } catch (e) {
+                // ignore
+              }
+            }
+          }).catch(() => {});
         }
       } catch (e) {
         // ignore
