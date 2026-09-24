@@ -1030,20 +1030,7 @@ export default function AttendanceScreen() {
         {/* 1. ANA MENÜ LAUNCHER GÖRÜNÜMÜ (activeSection === 'menu') */}
         {/* ============================================================ */}
         {activeSection === 'menu' && (
-          <View style={{ gap: 16 }}>
-            {/* HERO BANNER */}
-            <View style={styles.heroBanner}>
-              <View style={styles.geofencePill}>
-                <Users size={13} color="#ffffff" />
-                <Text style={styles.geofencePillText}>PERSONEL VE MESAİ YÖNETİMİ</Text>
-              </View>
-
-              <Text style={styles.heroTitle}>Personel Takibi & Mesai</Text>
-              <Text style={styles.heroSubtitle}>
-                İşe giriş-çıkış, mola yönetimi, mesai özetleri ve personel izin takibi tek ekranda.
-              </Text>
-            </View>
-
+          <View style={{ paddingTop: 8 }}>
             {/* ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
             <View style={styles.attendanceLauncherGrid}>
               {[

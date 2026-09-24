@@ -61,7 +61,6 @@ export const StaffTrackingView: React.FC = () => {
     rejectAttendance,
     cancelAttendanceRequest,
     deleteAttendanceRecord,
-    refreshAttendance,
     leaveRequests,
     requestLeave,
     approveLeaveRequest,
@@ -1187,72 +1186,12 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-800 rounded-3xl p-5 sm:p-7 text-white shadow-xl shadow-emerald-500/10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          {activeSection !== 'menu' && (
-            <button
-              type="button"
-              onClick={() => setActiveSection('menu')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-black backdrop-blur-md border border-white/20 transition-all cursor-pointer mb-2.5 active:scale-95"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>← Personel Takibi Menüsü</span>
-            </button>
-          )}
-
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-black uppercase tracking-wider mb-2 border border-white/20">
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>GPS Geofencing Takip</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight">
-            {activeSection !== 'menu' && SECTION_INFO_WEB[activeSection]
-              ? SECTION_INFO_WEB[activeSection].title
-              : 'Personel Giriş / Çıkış Takibi'}
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-1">
-            {activeSection !== 'menu' && SECTION_INFO_WEB[activeSection]
-              ? SECTION_INFO_WEB[activeSection].subtitle
-              : 'İşe giriş ve çıkışlar, yöneticinin belirlediği 20 metre çap doğrulaması ile anlık denetlenir.'}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
-          {activeSection !== 'menu' && (
-            <button
-              type="button"
-              onClick={() => setActiveSection('menu')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/20 hover:bg-white/30 active:scale-95 text-white text-xs font-black backdrop-blur-md border border-white/30 transition-all cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Menüye Dön</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleOpenLeaveModal}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-emerald-900 hover:bg-emerald-50 active:scale-95 text-xs font-black shadow-lg shadow-black/10 transition-all cursor-pointer"
-          >
-            <CalendarPlus className="w-4 h-4 text-emerald-600" />
-            <span>İzin Talebi Oluştur</span>
-          </button>
-          <button
-            onClick={() => refreshAttendance()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/20 hover:bg-white/30 active:scale-95 text-white text-xs font-black backdrop-blur-md border border-white/30 transition-all cursor-pointer"
-            title="Kayıtları Yenile"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>Yenile</span>
-          </button>
-        </div>
-      </div>
-
       {/* ============================================================ */}
       {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (activeSection === 'menu') */}
       {/* ============================================================ */}
       {activeSection === 'menu' && (
-        <div className="pt-2 pb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-6 gap-x-4 sm:gap-6 py-4">
+        <div className="pt-4 pb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-8 gap-x-4 sm:gap-6 py-6">
             {[
               {
                 id: 'checkin_checkout' as const,
@@ -1338,9 +1277,6 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   {/* İkon Altındaki Başlık */}
                   <span className="mt-3 text-sm font-extrabold text-center leading-tight text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                     {mod.title}
-                  </span>
-                  <span className="text-[11px] text-slate-400 text-center mt-0.5">
-                    Modüle giriş yap →
                   </span>
                 </button>
               );
