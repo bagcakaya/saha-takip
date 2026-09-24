@@ -7,7 +7,6 @@ import {
   Sparkles,
   Bell,
   Wrench,
-  Settings,
   UserCheck,
   Megaphone,
   ShieldAlert,
@@ -20,7 +19,7 @@ import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
-import { NotificationStatusModal } from '../components/common/NotificationStatusModal';
+import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
 import { getRemainingDays } from '../utils/dateUtils';
 
@@ -57,8 +56,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     securityLogs,
     unreadLogsCount,
     timedFollowUps,
+    badgeCount,
+    lastReadTime,
+    markAllAsRead,
   } = useStorage();
-  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
 
   const canManageLicenses = canUserManageLicenses(user);
@@ -310,16 +312,17 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       visible: true,
     },
     {
-      id: 'notification-settings',
-      title: 'Bildirim Ayarları',
+      id: 'notifications',
+      title: 'Gelen Bildirimler',
       shortTitle: 'Bildirimler',
-      description: 'Kilit ekranı izni, test gönderimi ve cihaz kontrolü',
-      icon: Settings,
-      gradient: 'bg-gradient-to-br from-indigo-600 via-slate-800 to-slate-900',
-      borderColor: 'border-indigo-400/40',
-      glowColor: 'text-indigo-400',
-      badgeText: 'Canlı Durum',
-      action: () => setIsNotificationSettingsOpen(true),
+      description: 'Saha güncellemeleri, onaylar ve sistem bildirimleri',
+      icon: Bell,
+      gradient: 'bg-gradient-to-br from-amber-600 via-orange-700 to-slate-900',
+      borderColor: 'border-amber-400/40',
+      glowColor: 'text-amber-400',
+      badgeText: badgeCount > 0 ? `${badgeCount} Bildirim` : '0 Bildirim',
+      activeCount: badgeCount > 0 ? badgeCount : undefined,
+      action: () => setIsNotificationListOpen(true),
       visible: true,
     },
     {
@@ -426,11 +429,29 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         </div>
       </div>
 
-      {/* Notification Settings Modal */}
-      {isNotificationSettingsOpen && (
-        <NotificationStatusModal
-          isOpen={isNotificationSettingsOpen}
-          onClose={() => setIsNotificationSettingsOpen(false)}
+
+
+      {/* Realtime Notification Drawer / List Modal */}
+      {isNotificationListOpen && (
+        <NotificationListModal
+          isOpen={isNotificationListOpen}
+          onClose={() => setIsNotificationListOpen(false)}
+          lastReadTime={lastReadTime}
+          onMarkAllAsRead={markAllAsRead}
+          onNavigate={(tab, filter) => {
+            onNavigate(tab);
+            if (filter) {
+              if (tab === 'staff_tracking') {
+                window.dispatchEvent(
+                  new CustomEvent('saha:set-staff-subtab', { detail: { subTab: filter } })
+                );
+              } else if (tab === 'notes') {
+                window.dispatchEvent(
+                  new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+                );
+              }
+            }
+          }}
         />
       )}
 

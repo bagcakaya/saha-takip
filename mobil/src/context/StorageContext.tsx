@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../api/supabaseClient';
 import { useAuth } from './AuthContext';
 import { StorageService } from '../services/storageService';
 import { LocationService } from '../services/locationService';
-import { parseDueDateTime } from '../utils/dateUtils';
+import { parseDueDateTime, getRemainingDays } from '../utils/dateUtils';
 import { MobilePushService } from '../services/pushService';
 import {
   LocationItem,
@@ -167,6 +168,10 @@ interface StorageContextType {
   carilerDatabase: string | null;
   importCarilerFromExcelBuffer: (buffer: ArrayBuffer, fileName?: string) => Promise<{ success: boolean; total: number; message: string }>;
   exportCarilerToExcel: (fileName?: string) => Promise<void>;
+  // Notifications
+  lastReadTime: number;
+  unreadNotificationsCount: number;
+  markAllNotificationsAsRead: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -1409,6 +1414,86 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     StorageService.exportCarilerToExcel(cariler, fileName);
   };
 
+  // 14. Notifications & Unread Tracking
+  const LAST_READ_NOTIFICATIONS_KEY = '@sahatakip_last_read_notifications_time';
+  const [lastReadTime, setLastReadTime] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
+
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_READ_NOTIFICATIONS_KEY).then((val) => {
+      if (val) {
+        const parsed = Number(val);
+        if (!isNaN(parsed) && parsed > 0) {
+          setLastReadTime(parsed);
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(async () => {
+    const now = Date.now();
+    setLastReadTime(now);
+    try {
+      await AsyncStorage.setItem(LAST_READ_NOTIFICATIONS_KEY, now.toString());
+      await markSecurityLogsAsRead();
+    } catch (e) {
+      console.warn('Could not save last read notifications time', e);
+    }
+  }, [markSecurityLogsAsRead]);
+
+  const unreadNotificationsCount = useMemo(() => {
+    if (!user) return 0;
+    let count = 0;
+    const isAdmin = user.role === 'admin';
+
+    // 1. Attendance: Records checkIn / checkOut newer than lastReadTime
+    count += (attendanceRecords || []).filter(
+      (a) => (a.checkInTime && a.checkInTime > lastReadTime) || (a.checkOutTime && a.checkOutTime > lastReadTime)
+    ).length;
+
+    // 2. Notes / Work orders:
+    count += (notes || []).filter((n) => {
+      if (!n) return false;
+      const isNew = n.createdAt > lastReadTime || (n.completedAt && n.completedAt > lastReadTime);
+      if (isAdmin) {
+        return isNew || n.status === 'pending_approval';
+      }
+      return isNew && (n.targetUserId === user.id || n.targetUserId === 'all' || !n.targetUserId);
+    }).length;
+
+    // 3. Leave Requests:
+    count += (leaveRequests || []).filter((r) => {
+      if (!r) return false;
+      if (isAdmin) {
+        return r.status === 'pending' || r.requestedAt > lastReadTime;
+      }
+      return r.userId === user.id && r.requestedAt > lastReadTime;
+    }).length;
+
+    // 4. Services:
+    count += (services || []).filter((s) => s && s.createdAt > lastReadTime).length;
+
+    // 5. Locations / Installations:
+    count += (locations || []).filter((l) => l && l.createdAt > lastReadTime).length;
+
+    // 6. Return / Warranty:
+    count += (returnWarrantyItems || []).filter((r) => r && r.createdAt > lastReadTime).length;
+
+    // 7. Security Logs:
+    count += (securityLogs || []).filter((l) => l && !l.read && l.timestamp > lastReadTime).length;
+
+    // 8. Timed Follow Ups:
+    count += (timedFollowUps || []).filter((f) => {
+      if (!f || f.status !== 'pending') return false;
+      const remDays = getRemainingDays(f.snoozedUntil || f.dueDate);
+      return remDays !== null && remDays <= 3;
+    }).length;
+
+    // 9. Admin Reminders:
+    count += (adminReminders || []).filter((rem) => rem && rem.createdAt > lastReadTime).length;
+
+    return count;
+  }, [user, attendanceRecords, notes, leaveRequests, services, locations, returnWarrantyItems, securityLogs, timedFollowUps, adminReminders, lastReadTime]);
+
   return (
     <StorageContext.Provider
       value={{
@@ -1475,6 +1560,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resetStandardTasks,
         importCarilerFromExcelBuffer,
         exportCarilerToExcel,
+        lastReadTime,
+        unreadNotificationsCount,
+        markAllNotificationsAsRead,
       }}
     >
       {children}

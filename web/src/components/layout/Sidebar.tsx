@@ -10,7 +10,6 @@ import {
   Crown,
   MapPin,
   Home,
-  Bell,
   Wrench,
   UserCheck,
   Megaphone,
@@ -19,6 +18,7 @@ import {
   Clock,
   Server,
   UserX,
+  Settings,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -29,8 +29,7 @@ import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
 import { WeatherData, isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches } from '../../types/auth';
 import { getRemainingDays } from '../../utils/dateUtils';
-import { OneSignalService } from '../../services/oneSignalService';
-import { NotificationListModal } from '../common/NotificationListModal';
+import { NotificationStatusModal } from '../common/NotificationStatusModal';
 import { CariListModal } from '../common/CariListModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
@@ -53,15 +52,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     leaveRequests,
     unreadLogsCount,
     cariler,
-    lastReadTime,
-    markAllAsRead,
-    badgeCount,
     timedFollowUps,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
-  const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
@@ -93,30 +89,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     };
   }, []);
 
-  const [permission, setPermission] = useState<NotificationPermission>(() => {
+  const [permission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       return Notification.permission;
     }
     return 'default';
   });
 
-  const handleNotificationClick = () => {
-    if (typeof window === 'undefined') return;
 
-    // 1. Mark all notifications as read immediately so the badge count clears!
-    markAllAsRead();
-
-    // 2. Open notification list modal
-    setIsNotificationListOpen(true);
-
-    // Sync in background non-blocking
-    if (user) {
-      OneSignalService.loginUser(user.id, user.name, user.role);
-    }
-    if ('Notification' in window) {
-      setPermission(Notification.permission);
-    }
-  };
 
   const remindersCount = notes.filter((n) => n.reminderActive && n.reminderDate).length;
   const todayStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -588,29 +568,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={handleNotificationClick}
+                  onClick={() => setIsNotificationSettingsOpen(true)}
                   className={`p-2 rounded-xl transition-all relative cursor-pointer ${
                     permission === 'granted'
-                      ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-                      : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-pulse'
+                      ? 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
-                  title={
-                    badgeCount > 0
-                      ? `${badgeCount} bekleyen iş / bildirim`
-                      : permission === 'granted'
-                      ? 'Kilit Ekranı Bildirimleri Aktif'
-                      : 'Bildirimler Kapalı - Tıklayıp Açın'
-                  }
-                  aria-label="Bildirim Durumu"
+                  title="Bildirim ve Cihaz Ayarları"
+                  aria-label="Bildirim ve Cihaz Ayarları"
                 >
-                  <Bell className="w-4 h-4" />
-                  {badgeCount > 0 ? (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-in zoom-in">
-                      {badgeCount > 99 ? '99+' : badgeCount}
-                    </span>
-                  ) : permission !== 'granted' ? (
+                  <Settings className="w-4 h-4" />
+                  {permission !== 'granted' && (
                     <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
-                  ) : null}
+                  )}
                 </button>
                 {canManageServer && (
                   <button
@@ -683,33 +653,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         />
       )}
 
-      {/* Realtime Notification Drawer / List Modal */}
-      <NotificationListModal
-        isOpen={isNotificationListOpen}
-        onClose={() => setIsNotificationListOpen(false)}
-        lastReadTime={lastReadTime}
-        onMarkAllAsRead={markAllAsRead}
-        onNavigate={(tab, filter) => {
-          setActiveTab(tab);
-          if (filter) {
-            if (tab === 'staff_tracking') {
-              window.dispatchEvent(
-                new CustomEvent('saha:set-staff-subtab', { detail: { subTab: filter } })
-              );
-            } else if (tab === 'notes') {
-              window.dispatchEvent(
-                new CustomEvent('saha:set-notes-filter', { detail: { filter } })
-              );
-            }
-          }
-        }}
-      />
+
 
       {/* Cari Listesi Modal */}
       <CariListModal
         isOpen={isCariListOpen}
         onClose={() => setIsCariListOpen(false)}
       />
+
+      {/* Notification Status & Settings Modal */}
+      {isNotificationSettingsOpen && (
+        <NotificationStatusModal
+          isOpen={isNotificationSettingsOpen}
+          onClose={() => setIsNotificationSettingsOpen(false)}
+        />
+      )}
 
       {/* Server Settings Modal (Only for Authorized Admins: admin, murat) */}
       {canManageServer && (

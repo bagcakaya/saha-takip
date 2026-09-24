@@ -35,6 +35,7 @@ import {
   Sun,
   Moon,
   ArrowLeft,
+  Settings,
   FileSpreadsheet,
   FileText,
   Check,
@@ -56,6 +57,7 @@ import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
 import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
+import { NotificationStatusModal } from '../../components/NotificationStatusModal';
 import {
   exportAttendanceToExcel,
   exportAttendanceToPdf,
@@ -366,6 +368,7 @@ export default function AttendanceScreen() {
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   // Workplace Geofencing Admin Form
   const [wpAddress, setWpAddress] = useState(
@@ -1025,11 +1028,11 @@ export default function AttendanceScreen() {
             )}
 
             <TouchableOpacity
-              style={styles.topIconBtnNotif}
-              onPress={() => setIsNotifModalOpen(true)}
+              style={styles.topIconBtnSettings}
+              onPress={() => setIsNotificationSettingsOpen(true)}
               activeOpacity={0.7}
             >
-              <Bell size={17} color="#10b981" />
+              <Settings size={17} color="#818cf8" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -3394,6 +3397,10 @@ export default function AttendanceScreen() {
         visible={isNotifModalOpen}
         onClose={() => setIsNotifModalOpen(false)}
       />
+      <NotificationStatusModal
+        visible={isNotificationSettingsOpen}
+        onClose={() => setIsNotificationSettingsOpen(false)}
+      />
     </View>
   );
 }
@@ -3455,6 +3462,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(59, 130, 246, 0.15)',
     borderWidth: 1.2,
     borderColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topIconBtnSettings: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },

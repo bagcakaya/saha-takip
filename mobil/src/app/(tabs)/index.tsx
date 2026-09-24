@@ -75,6 +75,7 @@ export default function HomeDashboardScreen() {
     adminReminders,
     securityLogs,
     standardTasks,
+    unreadNotificationsCount,
   } = useStorage();
   const { isDark, toggleTheme, colors } = useAppTheme();
   const router = useRouter();
@@ -257,15 +258,16 @@ export default function HomeDashboardScreen() {
       visible: true,
     },
     {
-      id: 'notification-settings',
-      title: 'Bildirim Ayarları',
+      id: 'notifications',
+      title: 'Gelen Bildirimler',
       shortTitle: 'Bildirimler',
-      description: 'Kilit ekranı izni, test gönderimi ve OneSignal cihaz kontrolü',
-      icon: Settings,
-      color: '#312e81',
-      glowColor: '#a5b4fc',
-      badgeText: 'Canlı Durum',
-      action: handleNotificationSettings,
+      description: 'Saha güncellemeleri, onaylar ve sistem bildirimleri',
+      icon: Bell,
+      color: '#0284c7',
+      glowColor: '#38bdf8',
+      badgeText: unreadNotificationsCount > 0 ? `${unreadNotificationsCount} Bildirim` : '0 Bildirim',
+      activeCount: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
+      action: () => setIsNotifModalOpen(true),
       visible: true,
     },
     {
@@ -323,11 +325,11 @@ export default function HomeDashboardScreen() {
             )}
 
             <TouchableOpacity
-              style={styles.topIconBtnNotif}
-              onPress={() => setIsNotifModalOpen(true)}
+              style={styles.topIconBtnSettings}
+              onPress={() => setIsNotificationSettingsOpen(true)}
               activeOpacity={0.7}
             >
-              <Bell size={17} color="#10b981" />
+              <Settings size={17} color="#818cf8" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -536,6 +538,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
     borderWidth: 1.2,
     borderColor: '#f59e0b',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topIconBtnSettings: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -63,6 +63,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     timedFollowUps,
     adminReminders,
     markSecurityLogsAsRead,
+    markAllNotificationsAsRead,
+    lastReadTime,
   } = useStorage();
   const { isDark } = useAppTheme();
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -293,7 +295,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
   const handleMarkAllRead = async () => {
     try {
-      await markSecurityLogsAsRead?.();
+      await markAllNotificationsAsRead?.();
     } catch {
       // ignore
     }
@@ -451,6 +453,9 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                   {/* Top line: Name + Role + Time */}
                   <View style={styles.itemTopLine}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {item.createdAt > lastReadTime && (
+                        <View style={styles.unreadDot} />
+                      )}
                       <Text style={[styles.senderName, { color: isDark ? '#ffffff' : '#0f172a' }]}>
                         {item.senderName}
                       </Text>
@@ -622,6 +627,12 @@ const styles = StyleSheet.create({
   senderName: {
     fontSize: 14,
     fontWeight: '900',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3b82f6',
   },
   roleTag: {
     paddingHorizontal: 6,
