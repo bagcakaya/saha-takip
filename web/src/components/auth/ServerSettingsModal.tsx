@@ -85,7 +85,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-white">Sunucu Bağlantı Ayarları</h3>
               <p className="text-xs text-slate-400">
-                SQL Server (Windows Server 2022) & Bulut Geçişi
+                SQL Server (Windows Server 2022) & Bulut Geçişi • <span className="text-emerald-400 font-semibold">v2.1</span>
               </p>
             </div>
           </div>
