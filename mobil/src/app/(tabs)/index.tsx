@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,6 @@ import {
   Platform,
   Alert,
   Image,
-  Modal,
-  Animated,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -27,7 +24,6 @@ import {
   Calendar,
   Bell,
   Sparkles,
-  ArrowRight,
   Sun,
   Moon,
   LogOut,
@@ -38,7 +34,6 @@ import {
   Megaphone,
   Settings,
   Shield,
-  X,
 } from 'lucide-react-native';
 import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
@@ -92,11 +87,6 @@ export default function HomeDashboardScreen() {
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
 
-  // Enlarged Card Pop-up state (Görsel-2 on tap with blurred backdrop)
-  const [selectedModule, setSelectedModule] = useState<HomeModule | null>(null);
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
   const isAdmin = user?.role === 'admin';
@@ -133,56 +123,6 @@ export default function HomeDashboardScreen() {
 
   const handleNotificationSettings = () => {
     setIsNotificationSettingsOpen(true);
-  };
-
-  // Open the enlarged card modal with smooth spring animation
-  const handleOpenModule = (module: HomeModule) => {
-    setSelectedModule(module);
-    scaleAnim.setValue(0.75);
-    opacityAnim.setValue(0);
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 7,
-        tension: 65,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  // Close the enlarged card modal
-  const handleCloseModule = (onDone?: () => void) => {
-    Animated.parallel([
-      Animated.timing(scaleAnim, {
-        toValue: 0.8,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setSelectedModule(null);
-      if (onDone) onDone();
-    });
-  };
-
-  // Trigger the module's action when user clicks the enlarged card
-  const handleExecuteAction = () => {
-    if (!selectedModule) return;
-    const actionToRun = selectedModule.action;
-    handleCloseModule(() => {
-      setTimeout(() => {
-        actionToRun();
-      }, 50);
-    });
   };
 
   // All 12 system modules list (Görsel-1 layout)
@@ -452,7 +392,7 @@ export default function HomeDashboardScreen() {
               <TouchableOpacity
                 key={mod.id}
                 style={styles.launcherItem}
-                onPress={() => handleOpenModule(mod)}
+                onPress={() => mod.action()}
                 activeOpacity={0.75}
               >
                 {/* Glowing Circular App Icon */}
@@ -505,95 +445,6 @@ export default function HomeDashboardScreen() {
           })}
         </View>
       </ScrollView>
-
-      {/* 4. Görsel-2: Enlarged Card Pop-up with Blurred Flu Backdrop */}
-      <Modal
-        visible={!!selectedModule}
-        transparent
-        animationType="none"
-        onRequestClose={() => handleCloseModule()}
-      >
-        <TouchableWithoutFeedback onPress={() => handleCloseModule()}>
-          <Animated.View
-            style={[
-              styles.modalBackdrop,
-              {
-                opacity: opacityAnim,
-              },
-            ]}
-          >
-            {/* Modal Inner Container - Stops Propagation */}
-            <TouchableWithoutFeedback>
-              <Animated.View
-                style={[
-                  styles.enlargedCardContainer,
-                  {
-                    transform: [{ scale: scaleAnim }],
-                  },
-                ]}
-              >
-                {selectedModule && (
-                  <View
-                    style={[
-                      styles.enlargedCard,
-                      {
-                        backgroundColor: selectedModule.color,
-                        borderColor: selectedModule.glowColor + '70',
-                      },
-                    ]}
-                  >
-                    {/* Top Row: Squircle Icon & Badge */}
-                    <View style={styles.enlargedTopRow}>
-                      <View style={styles.enlargedSquircleIcon}>
-                        <selectedModule.icon size={26} color="#ffffff" />
-                      </View>
-
-                      <View style={styles.enlargedBadgePill}>
-                        <Text style={styles.enlargedBadgeText}>
-                          {selectedModule.badgeText}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Middle: Title with Arrow & Full Description */}
-                    <View style={styles.enlargedContentBox}>
-                      <View style={styles.enlargedTitleRow}>
-                        <Text style={styles.enlargedTitle} numberOfLines={1}>
-                          {selectedModule.title}
-                        </Text>
-                        <ArrowRight size={20} color="#ffffff" />
-                      </View>
-
-                      <Text style={styles.enlargedDesc} numberOfLines={3}>
-                        {selectedModule.description}
-                      </Text>
-                    </View>
-
-                    {/* Bottom CTA Action Button */}
-                    <TouchableOpacity
-                      style={styles.enlargedActionBtn}
-                      onPress={handleExecuteAction}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.enlargedActionBtnText}>Bölüme Giriş Yap</Text>
-                      <ArrowRight size={16} color="#ffffff" />
-                    </TouchableOpacity>
-
-                    {/* Close 'X' Button at Top Right corner of the card */}
-                    <TouchableOpacity
-                      style={styles.enlargedCloseBtn}
-                      onPress={() => handleCloseModule()}
-                      activeOpacity={0.8}
-                    >
-                      <X size={16} color="#ffffff" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </Animated.View>
-        </TouchableWithoutFeedback>
-      </Modal>
 
       {/* User Management Modal */}
       <UserManagementModal

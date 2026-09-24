@@ -4,7 +4,6 @@ import {
   ClipboardList,
   RotateCcw,
   ListTodo,
-  ArrowRight,
   Sparkles,
   Bell,
   Wrench,
@@ -14,7 +13,6 @@ import {
   ShieldAlert,
   Store,
   Clock,
-  X,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../types/auth';
@@ -62,7 +60,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   } = useStorage();
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
-  const [selectedModule, setSelectedModule] = useState<HomeModule | null>(null);
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
@@ -402,7 +399,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <button
                 key={mod.id}
                 type="button"
-                onClick={() => setSelectedModule(mod)}
+                onClick={() => mod.action()}
                 className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95"
               >
                 {/* Dairesel Neon Çerçeveli İkon */}
@@ -428,63 +425,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           })}
         </div>
       </div>
-
-      {/* 3. Görsel-2: Tıklandığında Büyüyen Kart ve Flu Arka Plan Pop-up */}
-      {selectedModule && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setSelectedModule(null)}
-        >
-          <div
-            className={`relative max-w-sm w-full rounded-3xl p-6 shadow-2xl text-white border transition-all animate-in zoom-in-95 duration-200 ${selectedModule.gradient} ${selectedModule.borderColor}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Top Row: Squircle Icon & Badge */}
-            <div className="flex items-start justify-between mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-inner">
-                <selectedModule.icon className="w-6 h-6" />
-              </div>
-              <span className="px-3 py-1 rounded-full text-xs font-black bg-black/35 text-white border border-white/20 backdrop-blur-xs">
-                {selectedModule.badgeText}
-              </span>
-            </div>
-
-            {/* Middle: Title with Arrow & Full Description */}
-            <div className="space-y-2 mb-6">
-              <h4 className="text-xl font-black tracking-tight flex items-center gap-2">
-                <span>{selectedModule.title}</span>
-                <ArrowRight className="w-5 h-5 text-white/90" />
-              </h4>
-              <p className="text-sm text-white/90 font-medium leading-relaxed">
-                {selectedModule.description}
-              </p>
-            </div>
-
-            {/* Bottom CTA Action Button */}
-            <button
-              type="button"
-              onClick={() => {
-                const act = selectedModule.action;
-                setSelectedModule(null);
-                act();
-              }}
-              className="w-full py-3 rounded-2xl bg-white/20 hover:bg-white/30 active:bg-white/40 border border-white/30 text-white font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer shadow-md"
-            >
-              <span>Bölüme Giriş Yap</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            {/* Close 'X' Button */}
-            <button
-              type="button"
-              onClick={() => setSelectedModule(null)}
-              className="absolute top-3.5 right-3.5 w-7 h-7 rounded-full bg-black/25 hover:bg-black/40 text-white/80 hover:text-white flex items-center justify-center transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Notification Settings Modal */}
       {isNotificationSettingsOpen && (
