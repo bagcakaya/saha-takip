@@ -5,7 +5,13 @@ export interface GeolocationResult {
   latitude: number;
   longitude: number;
   address?: string;
+  accuracy?: number | null;
+  isMocked?: boolean;
+  timestamp?: number;
 }
+
+// Son bilinen ve doğrulanmış fiziksel konum (Teleportation / Işınlanma tespiti için)
+let lastVerifiedPosition: { latitude: number; longitude: number; timestamp: number } | null = null;
 
 export const LocationService = {
   async requestPermissions(): Promise<boolean> {
@@ -17,17 +23,115 @@ export const LocationService = {
     }
   },
 
+  /**
+   * Cihazın orijinal fiziksel GPS konumunu alır.
+   * İkinci parti sahte konum (Mock Location / Fake GPS) yazılımları donanımsal ve işletim sistemi düzeyinde tespit edilerek engellenir.
+   */
   async getCurrentPosition(): Promise<GeolocationResult> {
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) {
       throw new Error('Konum izni verilmedi. Lütfen cihaz ayarlarından konum iznini açın.');
     }
 
+    // 1. Cihazın genel konum servisleri açık mı?
+    const hasServices = await Location.hasServicesEnabledAsync();
+    if (!hasServices) {
+      const err: any = new Error('Cihazınızın konum servisleri (GPS) kapalı. Lütfen telefonunuzun ayarlarından konum servisini açın.');
+      err.isLocationDisabled = true;
+      throw err;
+    }
+
+    // 2. Android için Sağlayıcı Durumu Kontrolü
+    if (Platform.OS === 'android') {
+      try {
+        const providerStatus = await Location.getProviderStatusAsync();
+        if (!providerStatus.locationServicesEnabled) {
+          const err: any = new Error('Cihazınızın konum servisleri kapalı.');
+          err.isLocationDisabled = true;
+          throw err;
+        }
+      } catch (e: any) {
+        if (e?.isLocationDisabled) throw e;
+      }
+    }
+
+    // 3. En yüksek donanım doğruluğuyla (GPS uydularından) konumu talep et
     const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
+      accuracy: Location.Accuracy.Highest,
+      mayShowUserSettingsDialog: true,
     });
 
-    const { latitude, longitude } = pos.coords;
+    const { latitude, longitude, accuracy } = pos.coords;
+    const now = Date.now();
+
+    // 4. KONTROL 1: Android OS Seviyesi Sahte Konum (Mock Location Provider) Tespiti
+    // Android işletim sistemi, geliştirici seçeneklerinden atanan 'Sahte Konum' uygulamalarını 'mocked' olarak bayraklar.
+    const isMockedByOS = !!(
+      pos.mocked === true ||
+      (pos.coords as any)?.mocked === true ||
+      (pos as any)?.isFromMockProvider === true
+    );
+
+    if (isMockedByOS) {
+      const err: any = new Error(
+        '🚨 SAHTE KONUM TESPİT EDİLDİ!\n\nCihazınızda ikinci parti bir sahte konum (Mock Location / Fake GPS) uygulaması açık olduğu belirlendi. Güvenlik nedeniyle sisteme yalnızca Android/iOS işletim sisteminin doğrudan GPS uydularından aldığı orijinal konum kabul edilmektedir.\n\nLütfen sahte konum uygulamasını kapatıp telefonun kendi konumunu açın.'
+      );
+      err.isMockLocation = true;
+      throw err;
+    }
+
+    // 5. KONTROL 2: Sentetik / Sıfır Sapma (Zero Accuracy) Anomalisi (iOS & Android)
+    // Fiziksel bir GPS alıcısı, atmosferik iyonosfer gecikmelerinden dolayı asla tam 0.00000 m sapma veremez.
+    // Sahte konum yazılımları sıklıkla 0 veya negatif accuracy değeri enjekte eder.
+    if (accuracy !== null && accuracy !== undefined) {
+      if (accuracy <= 0.0001) {
+        const err: any = new Error(
+          '🚨 SAHTE KONUM TESPİT EDİLDİ (Sentetik GPS Sinyali)!\n\nCihazınızdan alınan konum verisi fiziksel GPS uydularından değil, yapay bir simülasyon yazılımından üretilmiş görünüyor. Lütfen sahte konum uygulamalarını kapatın.'
+        );
+        err.isMockLocation = true;
+        throw err;
+      }
+    }
+
+    // 6. KONTROL 3: Zaman Damgası (Timestamp Freshness) & Replay Koruması
+    // Alınan konumun zaman damgası cihazın mevcut saatinden 35 saniyeden daha eskiyse (önceden enjekte edilmiş statik koordinat)
+    if (pos.timestamp && Math.abs(now - pos.timestamp) > 35000) {
+      const err: any = new Error(
+        '🚨 Konum zaman aşımı ve sinyal uyuşmazlığı tespit edildi!\n\nLütfen açık havaya çıkarak gerçek GPS sinyalinin güncellenmesini bekleyin ve tekrar deneyin.'
+      );
+      err.isMockLocation = true;
+      throw err;
+    }
+
+    // 7. KONTROL 4: Işınlanma / Aşırı Hızlı Yer Değiştirme (Teleportation Check)
+    // Personel son 1 dakika içinde 500 metreden fazla ve 250 km/s üzeri mantıksız bir hızla yer değiştirdiyse (sahte GPS joystick zıplaması)
+    if (lastVerifiedPosition) {
+      const timeDiffSec = (now - lastVerifiedPosition.timestamp) / 1000;
+      if (timeDiffSec > 0 && timeDiffSec < 60) {
+        const dist = this.calculateDistance(
+          lastVerifiedPosition.latitude,
+          lastVerifiedPosition.longitude,
+          latitude,
+          longitude
+        );
+        const speedKmh = (dist / timeDiffSec) * 3.6;
+        if (dist > 500 && speedKmh > 250) {
+          const err: any = new Error(
+            '🚨 Şüpheli ani konum değişikliği tespit edildi (Işınlanma engellendi)!\n\nKonumunuz anlık olarak mantıksız bir mesafeye sıçradı. Lütfen sahte konum araçlarını kapatın ve orijinal GPS konumunuzu kullanın.'
+          );
+          err.isMockLocation = true;
+          throw err;
+        }
+      }
+    }
+
+    // Başarılı doğrulama: Son geçerli fiziksel konumu kaydet
+    lastVerifiedPosition = {
+      latitude,
+      longitude,
+      timestamp: now,
+    };
+
     let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 
     try {

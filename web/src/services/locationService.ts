@@ -2,6 +2,8 @@ export interface GeolocationResult {
   latitude: number;
   longitude: number;
   address?: string;
+  accuracy?: number | null;
+  isMocked?: boolean;
 }
 
 export interface AddressSearchResult {
@@ -13,9 +15,13 @@ export interface AddressSearchResult {
 // Memory cache for reverse-geocoded addresses to avoid repeat network requests
 const geocodeCache = new Map<string, string>();
 
+// Son doğrulanmış konum (Işınlanma / ani sıçrama tespiti)
+let lastVerifiedPositionWeb: { latitude: number; longitude: number; timestamp: number } | null = null;
+
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
+   * Sahte konum (Mock Location / GPS spoofing) eklenti veya emülatörleri engellenir.
    */
   async getCurrentPosition(options?: PositionOptions): Promise<GeolocationResult> {
     if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -27,7 +33,51 @@ export const LocationService = {
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
-          const { latitude, longitude } = position.coords;
+          const { latitude, longitude, accuracy } = position.coords;
+          const now = Date.now();
+
+          // 1. Sentetik / Sıfır Accuracy Kontrolü (DevTools Geolocation Spoofing tespiti)
+          if (accuracy !== null && accuracy !== undefined && accuracy <= 0.0001) {
+            const err: any = new Error(
+              '🚨 SAHTE KONUM TESPİT EDİLDİ (Sentetik GPS / Tarayıcı Emülatör Sinyali)!\n\nTarayıcı veya üçüncü parti eklenti tarafından üretilen yapay konum saptandı. Yalnızca cihazın orijinal GPS konumu kabul edilmektedir.'
+            );
+            err.isMockLocation = true;
+            reject(err);
+            return;
+          }
+
+          // 2. Zaman damgası tutarlılığı
+          if (position.timestamp && Math.abs(now - position.timestamp) > 40000) {
+            const err: any = new Error('🚨 Konum sinyali zaman aşımı tespit edildi. Lütfen GPS sinyalinizin güncel olduğundan emin olun.');
+            err.isMockLocation = true;
+            reject(err);
+            return;
+          }
+
+          // 3. Işınlanma / Teleportation kontrolü
+          if (lastVerifiedPositionWeb) {
+            const timeDiffSec = (now - lastVerifiedPositionWeb.timestamp) / 1000;
+            if (timeDiffSec > 0 && timeDiffSec < 60) {
+              const dist = LocationService.calculateDistance(
+                lastVerifiedPositionWeb.latitude,
+                lastVerifiedPositionWeb.longitude,
+                latitude,
+                longitude
+              );
+              const speedKmh = (dist / timeDiffSec) * 3.6;
+              if (dist > 500 && speedKmh > 250) {
+                const err: any = new Error(
+                  '🚨 Şüpheli ani konum değişikliği tespit edildi (Işınlanma engellendi)! Lütfen sahte konum yazılımlarını kapatın.'
+                );
+                err.isMockLocation = true;
+                reject(err);
+                return;
+              }
+            }
+          }
+
+          lastVerifiedPositionWeb = { latitude, longitude, timestamp: now };
+
           let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           try {
             // Fast reverse geocoding with strict 700ms timeout to ensure instant UI response
@@ -42,6 +92,7 @@ export const LocationService = {
           resolve({
             latitude,
             longitude,
+            accuracy,
             address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
           });
         },

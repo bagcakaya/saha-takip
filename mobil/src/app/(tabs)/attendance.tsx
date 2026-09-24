@@ -286,6 +286,7 @@ export default function AttendanceScreen() {
   // Live GPS
   const [currentPos, setCurrentPos] = useState<GeolocationResult | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
+  const [mockWarning, setMockWarning] = useState<string>('');
   const [actionLoading, setActionLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -314,11 +315,18 @@ export default function AttendanceScreen() {
 
   const fetchGps = async () => {
     setGpsLoading(true);
+    setMockWarning('');
     try {
       const pos = await LocationService.getCurrentPosition();
       setCurrentPos(pos);
     } catch (e: any) {
-      console.warn('GPS error:', e);
+      if (e?.isMockLocation) {
+        setMockWarning(e.message);
+        setCurrentPos(null);
+        Alert.alert('🚨 Sahte Konum Uyarısı', e.message);
+      } else {
+        console.warn('GPS error:', e);
+      }
     } finally {
       setGpsLoading(false);
     }
@@ -486,9 +494,15 @@ export default function AttendanceScreen() {
     const res = await checkInStaff();
     setActionLoading(false);
     if (res.success) {
+      setMockWarning('');
       Alert.alert('Mesai Başladı', res.message);
     } else {
-      Alert.alert('Bilgi', res.message);
+      if (res.isMockLocation) {
+        setMockWarning(res.message);
+        Alert.alert('🚨 Sahte Konum Engellendi', res.message);
+      } else {
+        Alert.alert('Bilgi', res.message);
+      }
     }
   };
 
@@ -502,9 +516,15 @@ export default function AttendanceScreen() {
           const res = await checkOutStaff();
           setActionLoading(false);
           if (res.success) {
+            setMockWarning('');
             Alert.alert('Mesai Tamamlandı', res.message);
           } else {
-            Alert.alert('Bilgi', res.message);
+            if (res.isMockLocation) {
+              setMockWarning(res.message);
+              Alert.alert('🚨 Sahte Konum Engellendi', res.message);
+            } else {
+              Alert.alert('Bilgi', res.message);
+            }
           }
         },
       },
@@ -1319,6 +1339,26 @@ export default function AttendanceScreen() {
                       : `⚠️ İş Yeri Dışındasınız (${currentDistanceKm} km)`}
                   </Text>
                 </View>
+
+                {!!mockWarning && (
+                  <View
+                    style={{
+                      backgroundColor: isDark ? '#450a0a' : '#fef2f2',
+                      borderColor: '#ef4444',
+                      borderWidth: 1,
+                      borderRadius: 12,
+                      padding: 10,
+                      marginTop: 8,
+                    }}
+                  >
+                    <Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 11 }}>
+                      🚨 SAHTE KONUM (FAKE GPS) ENGELLENDİ
+                    </Text>
+                    <Text style={{ color: isDark ? '#fca5a5' : '#b91c1c', fontSize: 10, marginTop: 3 }}>
+                      Yalnızca Android / iOS işletim sisteminin orijinal GPS uydularından aldığı gerçek konum geçerlidir. Lütfen sahte konum uygulamasını kapatın.
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
 

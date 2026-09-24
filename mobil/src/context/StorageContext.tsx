@@ -39,8 +39,8 @@ interface StorageContextType {
   cariler: string[];
   isLoading: boolean;
   refreshData: () => Promise<void>;
-  checkInStaff: (branchId?: string) => Promise<{ success: boolean; message: string }>;
-  checkOutStaff: (notes?: string) => Promise<{ success: boolean; message: string }>;
+  checkInStaff: (branchId?: string) => Promise<{ success: boolean; message: string; isMockLocation?: boolean }>;
+  checkOutStaff: (notes?: string) => Promise<{ success: boolean; message: string; isMockLocation?: boolean }>;
   startBreak: (note?: string) => Promise<{ success: boolean; message: string }>;
   endBreak: () => Promise<{ success: boolean; message: string }>;
   approveAttendance: (recordId: string, actionType: 'checkin' | 'checkout') => Promise<{ success: boolean; message: string }>;
@@ -369,7 +369,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       return { success: true, message: msg };
     } catch (e: any) {
-      return { success: false, message: e?.message || 'Konum alınamadı.' };
+      return { success: false, message: e?.message || 'Konum alınamadı.', isMockLocation: !!e?.isMockLocation };
     }
   };
 
@@ -461,7 +461,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       return { success: true, message: 'Mesai çıkışı başarıyla kaydedildi.' };
     } catch (e: any) {
-      return { success: false, message: e?.message || 'Konum alınamadı.' };
+      return { success: false, message: e?.message || 'Konum alınamadı.', isMockLocation: !!e?.isMockLocation };
     }
   };
 

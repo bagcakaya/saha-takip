@@ -2811,6 +2811,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       userPos = await LocationService.getCurrentPosition();
     } catch (err: any) {
+      if (err?.isMockLocation) {
+        return {
+          success: false,
+          message: err.message,
+        };
+      }
       return {
         success: false,
         isLocationDisabled: true,
@@ -3278,6 +3284,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       userPos = await LocationService.getCurrentPosition();
     } catch (err: any) {
+      if (err?.isMockLocation) {
+        return {
+          success: false,
+          message: err.message,
+        };
+      }
       return {
         success: false,
         isLocationDisabled: true,
