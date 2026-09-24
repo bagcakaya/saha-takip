@@ -38,8 +38,10 @@ export function getResolvedApiUrl(targetBaseUrl: string, endpoint: string): stri
   return `${cleanBase}${cleanEp}`;
 }
 
+const MIGRATION_KEY = '@saha_takip_migrated_to_local_v1';
+
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  mode: 'cloud',
+  mode: 'local',
   localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
@@ -53,11 +55,30 @@ export const ServerConfigService = {
   getConfig(): ServerConfig {
     if (inMemoryConfig) return inMemoryConfig;
     try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SERVER_CONFIG_KEY) : null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed, localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl) };
-        return inMemoryConfig!;
+      if (typeof localStorage !== 'undefined') {
+        const migrated = localStorage.getItem(MIGRATION_KEY);
+        if (!migrated) {
+          // Bir defalık otomatik geçiş: Tüm kullanıcıları doğrudan yerel sunucuya geçir
+          localStorage.setItem(MIGRATION_KEY, 'true');
+          const currentRaw = localStorage.getItem(SERVER_CONFIG_KEY);
+          const currentParsed = currentRaw ? JSON.parse(currentRaw) : {};
+          const migratedConfig: ServerConfig = {
+            ...DEFAULT_SERVER_CONFIG,
+            ...currentParsed,
+            mode: 'local',
+            localUrl: 'http://81.213.219.69:3001',
+          };
+          localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(migratedConfig));
+          inMemoryConfig = migratedConfig;
+          return inMemoryConfig;
+        }
+
+        const raw = localStorage.getItem(SERVER_CONFIG_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed, localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl) };
+          return inMemoryConfig!;
+        }
       }
     } catch {
       // ignore

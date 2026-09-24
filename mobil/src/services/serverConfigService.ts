@@ -25,8 +25,10 @@ export function normalizeServerUrl(url: string): string {
   return 'http://' + cleaned;
 }
 
+const MIGRATION_KEY = '@saha_takip_migrated_to_local_v1';
+
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  mode: 'cloud',
+  mode: 'local',
   localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
@@ -40,6 +42,24 @@ export const MobileServerConfigService = {
   async init(): Promise<ServerConfig> {
     if (isLoaded) return inMemoryConfig;
     try {
+      const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
+      if (!migrated) {
+        // Bir defalık otomatik geçiş: Tüm kullanıcıları doğrudan yerel sunucuya geçir
+        await AsyncStorage.setItem(MIGRATION_KEY, 'true');
+        const currentRaw = await AsyncStorage.getItem(SERVER_CONFIG_KEY);
+        const currentParsed = currentRaw ? JSON.parse(currentRaw) : {};
+        const migratedConfig: ServerConfig = {
+          ...DEFAULT_SERVER_CONFIG,
+          ...currentParsed,
+          mode: 'local',
+          localUrl: 'http://81.213.219.69:3001',
+        };
+        await AsyncStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(migratedConfig));
+        inMemoryConfig = migratedConfig;
+        isLoaded = true;
+        return inMemoryConfig;
+      }
+
       const raw = await AsyncStorage.getItem(SERVER_CONFIG_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
