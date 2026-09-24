@@ -74,17 +74,17 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-3xl p-6 shadow-2xl text-white space-y-5 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-4 sm:space-y-5 animate-in zoom-in-95 duration-200 my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 sm:pb-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
               <Server className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Sunucu Bağlantı Ayarları</h3>
-              <p className="text-xs text-slate-400">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold text-white truncate">Sunucu Bağlantı Ayarları</h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 SQL Server (Windows Server 2022) & Bulut Geçişi • <span className="text-emerald-400 font-semibold">v2.1</span>
               </p>
             </div>
@@ -92,22 +92,22 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Server Mode Selector */}
-        <div className="space-y-3">
-          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+        <div className="space-y-2.5 sm:space-y-3">
+          <label className="text-[11px] sm:text-xs font-semibold text-slate-300 uppercase tracking-wider block">
             Sunucu Modu: [Bulut (Firebase)] / [Yerel Sunucu]
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
             {/* Mode 1: Cloud */}
             <div
               onClick={() => setMode('cloud')}
-              className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+              className={`p-3 sm:p-3.5 rounded-2xl border cursor-pointer transition-all ${
                 mode === 'cloud'
                   ? 'bg-blue-600/15 border-blue-500 shadow-sm shadow-blue-500/20 ring-1 ring-blue-500'
                   : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800'
@@ -128,7 +128,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             {/* Mode 2: Local Server (SQL Server) */}
             <div
               onClick={() => setMode('local')}
-              className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+              className={`p-3 sm:p-3.5 rounded-2xl border cursor-pointer transition-all ${
                 mode === 'local'
                   ? 'bg-emerald-600/15 border-emerald-500 shadow-sm shadow-emerald-500/20 ring-1 ring-emerald-500'
                   : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800'
@@ -149,7 +149,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         </div>
 
         {/* Local Server URL input (Always visible or highlighted when local) */}
-        <div className={`space-y-2 rounded-2xl p-3.5 border transition-all ${
+        <div className={`space-y-2 rounded-2xl p-3 sm:p-3.5 border transition-all ${
           mode === 'local'
             ? 'bg-slate-800/90 border-emerald-500/40 ring-1 ring-emerald-500/20'
             : 'bg-slate-800/30 border-slate-700/40 opacity-70'
@@ -162,19 +162,19 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             <span className="text-[10px] text-slate-400">Port: 3001</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <input
               type="text"
               value={localUrl}
               onChange={(e) => setLocalUrl(e.target.value)}
               placeholder="http://81.213.219.69:3001"
-              className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              className="flex-1 min-w-0 w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all truncate"
             />
             <button
               type="button"
               onClick={handleTest}
               disabled={isTesting || !localUrl.trim()}
-              className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shrink-0 shadow-sm min-h-[40px]"
               title="Bağlantıyı Test Et"
             >
               {isTesting ? (
@@ -186,7 +186,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             </button>
           </div>
 
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-400 leading-relaxed">
             Ofis içindeyken yerel ağdan, sahadayken veya mobil verideyken Statik IP (<code className="text-blue-300">http://81.213.219.69:3001</code>) üzerinden bağlanılır.
           </p>
 
@@ -215,20 +215,20 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-2.5 pt-2 border-t border-slate-800">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer text-center"
           >
             Vazgeç
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-emerald-900/30 transition-all cursor-pointer flex items-center gap-1.5"
+            className="w-full sm:w-auto px-5 py-2.5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-emerald-900/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
           >
-            <ShieldCheck className="w-4 h-4" />
+            <ShieldCheck className="w-4 h-4 shrink-0" />
             <span>Ayarları Kaydet ve Uygula</span>
           </button>
         </div>
