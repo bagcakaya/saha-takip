@@ -15,6 +15,7 @@ export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'note
 interface HeaderProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  onBackToHome?: () => void;
   subtitle: string;
   title: string;
   actionButton?: React.ReactNode;
@@ -23,6 +24,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
+  onBackToHome,
   subtitle,
   title,
   actionButton,
@@ -286,7 +288,11 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('home');
+                  if (onBackToHome) {
+                    onBackToHome();
+                  } else {
+                    setActiveTab('home');
+                  }
                   if (typeof window !== 'undefined') {
                     window.scrollTo(0, 0);
                   }

@@ -981,9 +981,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
   };
 
-  // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak 'menu' başlar)
+  // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
   type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
-  const [activeSection, setActiveSection] = useState<ActiveSection>('menu');
+  const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const sec = params.get('section');
+        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace'].includes(sec)) {
+          return sec as ActiveSection;
+        }
+      } catch {}
+    }
+    return 'menu';
+  });
 
   const SECTION_INFO_WEB: Record<string, { title: string; subtitle: string; icon: any; color: string; bg: string }> = {
     checkin_checkout: {
@@ -1028,8 +1039,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     setActiveSection(section);
     if (typeof window !== 'undefined' && section !== 'menu') {
       try {
-        window.history.pushState({ staffSection: section }, '');
+        window.history.pushState(
+          { tab: 'staff_tracking', staffSection: section },
+          '',
+          `?tab=staff_tracking&section=${section}`
+        );
       } catch {}
+    }
+  };
+
+  const handleBackToSectionMenu = () => {
+    if (typeof window !== 'undefined' && window.history.state?.staffSection) {
+      window.history.back();
+    } else {
+      setActiveSection('menu');
     }
   };
 
@@ -1047,27 +1070,31 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
   // Android Geri Tuşu (Browser popstate) Desteği
   useEffect(() => {
-    const handlePopState = () => {
-      if (activeSection !== 'menu') {
-        setActiveSection('menu');
+    const handlePopState = (e: PopStateEvent) => {
+      const section = e.state?.staffSection;
+      if (section && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace'].includes(section)) {
+        setActiveSection(section);
       } else {
-        window.dispatchEvent(new CustomEvent('saha:navigate', { detail: { tab: 'home' } }));
+        // If not in a sub-section state, return to staff tracking menu
+        setActiveSection('menu');
       }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeSection]);
+  }, []);
 
   // iOS ve Mobil Cihazlar için Sağa Kaydırma (Swipe Right) Desteği
   useEffect(() => {
     let touchStartX = 0;
     let touchStartY = 0;
+    let touchStartTime = 0;
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches && e.touches.length > 0) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
       }
     };
 
@@ -1077,13 +1104,19 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         const touchEndY = e.changedTouches[0].clientY;
         const deltaX = touchEndX - touchStartX;
         const deltaY = touchEndY - touchStartY;
+        const timeDiff = Date.now() - touchStartTime;
 
-        // Sağa kaydırma: yatay hareket 50px'den büyük ve dikey hareketten en az 1.5 kat fazla
-        if (deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+        // Sağa kaydırma: yatay hareket 50px'den büyük ve dikey hareketten en az 1.4 kat fazla
+        if (deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
           if (activeSection !== 'menu') {
-            setActiveSection('menu');
+            handleBackToSectionMenu();
           } else {
-            window.dispatchEvent(new CustomEvent('saha:navigate', { detail: { tab: 'home' } }));
+            // Ana Menüye dön
+            if (typeof window !== 'undefined' && window.history.length > 1 && !window.history.state?.isRoot) {
+              window.history.back();
+            } else {
+              window.dispatchEvent(new CustomEvent('saha:navigate', { detail: { tab: 'home' } }));
+            }
           }
         }
       }
@@ -1371,7 +1404,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
           <button
             type="button"
-            onClick={() => setActiveSection('menu')}
+            onClick={handleBackToSectionMenu}
             className="inline-flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
           >
             <ArrowLeft className="w-4 h-4 stroke-[2.5]" />

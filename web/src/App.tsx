@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { StorageProvider, useStorage } from './context/StorageContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -28,6 +28,7 @@ import { isUserAdmin, canUserManageInstitutionsAndBranches } from './types/auth'
 import {
   normalizeTab,
   extractTabAndFilterFromUrl,
+  VALID_TABS,
 } from './utils/navigationUtils';
 
 const MainApp: React.FC = () => {
@@ -71,6 +72,118 @@ const MainApp: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
+  // --- 1. History & Navigation Management for Android Back Button & iOS Swipe Back ---
+  const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean }) => {
+    setActiveTab((prev) => {
+      if (prev === nextTab) return prev;
+      if (typeof window !== 'undefined') {
+        const url = nextTab === 'home' ? window.location.pathname : `?tab=${nextTab}`;
+        try {
+          if (options?.replace) {
+            window.history.replaceState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
+          } else {
+            window.history.pushState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
+          }
+        } catch (err) {
+          console.warn('History navigation error:', err);
+        }
+      }
+      return nextTab;
+    });
+  }, []);
+
+  const handleBackToHome = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      if (window.history.length > 1 && !window.history.state?.isRoot) {
+        window.history.back();
+        return;
+      }
+    }
+    navigateToTab('home', { replace: true });
+  }, [navigateToTab]);
+
+  // Initial history state configuration
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const { tab: urlTab } = extractTabAndFilterFromUrl(window.location.href);
+      const initialTab = urlTab || activeTab || 'home';
+      if (initialTab === 'home') {
+        window.history.replaceState({ tab: 'home', isRoot: true }, '', window.location.pathname);
+      } else {
+        // If app opened directly on a sub-tab (e.g. from push notification or shared link),
+        // set root as 'home' and push the active tab so Android Back button returns to Ana Menü!
+        window.history.replaceState({ tab: 'home', isRoot: true }, '', window.location.pathname);
+        window.history.pushState({ tab: initialTab, isRoot: false }, '', `?tab=${initialTab}`);
+      }
+    } catch (e) {
+      console.warn('Initial history setup error:', e);
+    }
+  }, []);
+
+  // Popstate Listener (Hardware Back Button & System Back Gesture)
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      // If modal was open and user pressed back, close modal first
+      if (isDetailModalOpen) {
+        setIsDetailModalOpen(false);
+        setPreviewLocation(null);
+        return;
+      }
+
+      const stateTab = event.state?.tab;
+      if (stateTab && VALID_TABS.includes(stateTab)) {
+        setActiveTab(stateTab);
+      } else {
+        const { tab: urlTab } = extractTabAndFilterFromUrl(window.location.href);
+        setActiveTab(urlTab || 'home');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDetailModalOpen]);
+
+  // Swipe Right Gesture for Mobile / iOS PWA
+  useEffect(() => {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 0) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      // Home has nowhere to go back to, and staff_tracking has internal sub-section swipe logic
+      if (activeTab === 'home' || activeTab === 'staff_tracking') return;
+      if (e.changedTouches && e.changedTouches.length > 0) {
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+        const timeDiff = Date.now() - touchStartTime;
+
+        // Edge swipe right: starts within first 60px from left edge, moves > 50px right, horizontal
+        if (touchStartX <= 60 && deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
+          handleBackToHome();
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [activeTab, handleBackToHome]);
+
   // Automatically scroll back to top when switching tabs (prevents mobile/iOS Safari viewport offset glitches)
   useEffect(() => {
     if (mainScrollRef.current) {
@@ -84,12 +197,12 @@ const MainApp: React.FC = () => {
   // Guard against non-admin accessing branches tab
   useEffect(() => {
     if (user && !isAdmin && activeTab === 'branches') {
-      setActiveTab('home');
+      navigateToTab('home', { replace: true });
     }
-  }, [user, isAdmin, activeTab]);
+  }, [user, isAdmin, activeTab, navigateToTab]);
 
-  // Deep-linking URL handler (for push notifications opened from lock screen / notification drawer)
-  React.useEffect(() => {
+  // Deep-linking URL handler & in-app navigation
+  useEffect(() => {
     const handleDeepLink = () => {
       if (typeof window === 'undefined') return;
       try {
@@ -103,8 +216,8 @@ const MainApp: React.FC = () => {
         if (pendingTab) sessionStorage.removeItem('@saha_takip_pending_tab');
         if (pendingFilter) sessionStorage.removeItem('@saha_takip_pending_filter');
 
-        if (resolvedTab) {
-          setActiveTab(resolvedTab);
+        if (resolvedTab && resolvedTab !== activeTab) {
+          navigateToTab(resolvedTab);
         }
 
         if (resolvedFilter) {
@@ -119,17 +232,11 @@ const MainApp: React.FC = () => {
             new CustomEvent('saha:set-notes-filter', { detail: { filter: resolvedFilter } })
           );
         }
-
-        if (window.location.search && (urlTab || urlFilter)) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
       } catch (err) {
         console.warn('Deep link parse error:', err);
       }
     };
 
-    handleDeepLink();
-    window.addEventListener('popstate', handleDeepLink);
     window.addEventListener('focus', handleDeepLink);
 
     const handleVisibilityChange = () => {
@@ -145,7 +252,7 @@ const MainApp: React.FC = () => {
       const filter = e.detail?.filter;
       const tab = normalizeTab(rawTab);
       if (tab) {
-        setActiveTab(tab);
+        navigateToTab(tab);
       }
       if (filter) {
         if (user?.id) {
@@ -173,7 +280,7 @@ const MainApp: React.FC = () => {
           if (!activeFilter) activeFilter = parsed.filter;
         }
         if (tab) {
-          setActiveTab(tab);
+          navigateToTab(tab);
         }
         if (activeFilter) {
           if (user?.id) {
@@ -194,7 +301,6 @@ const MainApp: React.FC = () => {
     }
 
     return () => {
-      window.removeEventListener('popstate', handleDeepLink);
       window.removeEventListener('focus', handleDeepLink);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('saha:navigate' as any, handleNavigate);
@@ -202,7 +308,7 @@ const MainApp: React.FC = () => {
         navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
       }
     };
-  }, [user]);
+  }, [user, activeTab, navigateToTab]);
 
   // If user is not authenticated, show Login Screen
   if (!isAuthenticated) {
@@ -289,12 +395,25 @@ const MainApp: React.FC = () => {
   const handleOpenDetailModal = (location: LocationItem) => {
     setPreviewLocation(location);
     setIsDetailModalOpen(true);
+    if (typeof window !== 'undefined') {
+      try {
+        window.history.pushState({ tab: activeTab, modal: 'location_detail' }, '', window.location.href);
+      } catch {}
+    }
+  };
+
+  const handleCloseDetailModal = () => {
+    setIsDetailModalOpen(false);
+    setPreviewLocation(null);
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'location_detail') {
+      window.history.back();
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex w-full transition-colors overflow-x-hidden max-w-[100vw]">
       {/* 1. Left Sidebar (Desktop lg/xl/2xl) */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={navigateToTab} />
 
       {/* 2. Center Content Area (Fluid full width) */}
       <div
@@ -304,7 +423,8 @@ const MainApp: React.FC = () => {
         {/* Mobile / Tablet Header (< lg screens) */}
         <Header
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={navigateToTab}
+          onBackToHome={handleBackToHome}
           subtitle={headerInfo.subtitle}
           title={headerInfo.title}
         />
@@ -316,13 +436,13 @@ const MainApp: React.FC = () => {
             paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)',
           }}
         >
-          <ErrorBoundary onReset={() => setActiveTab('home')}>
-            {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />}
+          <ErrorBoundary onReset={() => navigateToTab('home')}>
+            {activeTab === 'home' && <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />}
             {activeTab === 'branches' &&
               (canManageInstitutionsAndBranches ? (
                 <BranchesView />
               ) : (
-                <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}
             {activeTab === 'installations' && <InstallationsView />}
             {activeTab === 'services' && <ServicesView />}
@@ -332,7 +452,7 @@ const MainApp: React.FC = () => {
               (isAdmin ? (
                 <TimedFollowUpsView />
               ) : (
-                <HomeDashboardView onNavigate={(tab) => setActiveTab(tab)} />
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}
             {activeTab === 'reminders' && <RemindersView />}
             {activeTab === 'returns' && <ReturnWarrantyView />}
@@ -354,12 +474,11 @@ const MainApp: React.FC = () => {
       <LocationDetailModal
         location={previewLocation}
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
+        onClose={handleCloseDetailModal}
         onDelete={() => {
           if (previewLocation) {
             deleteLocation(previewLocation.id);
-            setIsDetailModalOpen(false);
-            setPreviewLocation(null);
+            handleCloseDetailModal();
           }
         }}
         onUpdateStatus={(taskId, status) => {
@@ -406,9 +525,9 @@ const MainApp: React.FC = () => {
         onClose={dismissToast}
         onClick={() => {
           if (activeToast?.tab) {
-            setActiveTab(activeToast.tab);
+            navigateToTab(activeToast.tab);
           } else {
-            setActiveTab('notes');
+            navigateToTab('notes');
           }
           if (activeToast?.filter) {
             if (user?.id) {

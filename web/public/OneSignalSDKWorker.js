@@ -210,3 +210,35 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+// App Badging API: Foreground App -> Service Worker badge synchronization
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'saha:set-badge') {
+    const count = Number(event.data.count) || 0;
+    if (typeof self.navigator !== 'undefined' && 'setAppBadge' in self.navigator) {
+      if (count > 0) {
+        self.navigator.setAppBadge(count).catch(() => {});
+      } else {
+        self.navigator.clearAppBadge().catch(() => {});
+      }
+    }
+  }
+});
+
+// App Badging API: Background Push Notification badge count handler
+self.addEventListener('push', (event) => {
+  try {
+    let count = 1;
+    if (event.data) {
+      try {
+        const json = event.data.json();
+        if (json && typeof json.badge === 'number') {
+          count = json.badge;
+        }
+      } catch (e) {}
+    }
+    if (typeof self.navigator !== 'undefined' && 'setAppBadge' in self.navigator) {
+      self.navigator.setAppBadge(count).catch(() => {});
+    }
+  } catch (err) {}
+});

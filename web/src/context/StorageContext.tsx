@@ -4483,6 +4483,107 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     lastReadTime,
   ]);
 
+  // --- App Badging API & Dynamic Launcher / Favicon Badge ---
+  useEffect(() => {
+    // 1. W3C App Badging API (Android PWA Launcher Icon / iOS 16.4+ / Windows & Mac Desktop PWA)
+    if (typeof navigator !== 'undefined') {
+      try {
+        if ('setAppBadge' in navigator) {
+          if (badgeCount > 0) {
+            (navigator as any).setAppBadge(badgeCount).catch((err: any) => {
+              console.debug('setAppBadge error:', err);
+            });
+          } else {
+            (navigator as any).clearAppBadge().catch((err: any) => {
+              console.debug('clearAppBadge error:', err);
+            });
+          }
+        }
+      } catch (e) {
+        console.debug('App Badging API not supported:', e);
+      }
+
+      // 2. Sync badge with Service Worker registration so launcher icon badge persists in background
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'saha:set-badge',
+            count: badgeCount,
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 3. Dynamic Title Update (e.g. "(3) İş Takip Portalı")
+    if (typeof document !== 'undefined') {
+      try {
+        const baseTitle = 'İş Takip Sistemi';
+        if (badgeCount > 0) {
+          document.title = `(${badgeCount}) ${baseTitle}`;
+        } else {
+          document.title = baseTitle;
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // 4. Dynamic Favicon Badge for Browser Tabs
+      try {
+        const link = document.querySelector<HTMLLinkElement>("link[rel*='icon']");
+        if (link) {
+          if (badgeCount <= 0) {
+            link.href = '/favicon.png';
+          } else {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = '/favicon.png';
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+
+                // Draw base icon
+                ctx.drawImage(img, 0, 0, 64, 64);
+
+                // Draw notification circle in top-right
+                const radius = 18;
+                const x = 46;
+                const y = 18;
+
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ef4444'; // Red badge
+                ctx.fill();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+
+                // Draw badge count text
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const text = badgeCount > 99 ? '99+' : String(badgeCount);
+                ctx.fillText(text, x, y + 1);
+
+                link.href = canvas.toDataURL('image/png');
+              } catch (e) {
+                // ignore
+              }
+            };
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [badgeCount]);
+
   return (
     <StorageContext.Provider
       value={{
