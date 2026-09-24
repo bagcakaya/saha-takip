@@ -12,6 +12,8 @@ import {
   Platform,
   Modal,
   Dimensions,
+  BackHandler,
+  PanResponder,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStorage } from '../../context/StorageContext';
@@ -118,6 +120,42 @@ export default function AttendanceScreen() {
   // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak 'menu' başlar)
   type AttendanceSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
   const [activeSection, setActiveSection] = useState<AttendanceSection>('menu');
+
+  // Android donanım geri tuşu dinleyicisi (Önceki menüye / Ana Menüye dönüş)
+  useEffect(() => {
+    const onBackPress = () => {
+      if (activeSection !== 'menu') {
+        setActiveSection('menu');
+        return true;
+      }
+      router.push('/(tabs)');
+      return true;
+    };
+
+    const backHandlerSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandlerSubscription.remove();
+  }, [activeSection, router]);
+
+  // iOS ve dokunmatik sağa kaydırma (Swipe Right) ile bir önceki menüye dönüş
+  const swipePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Yatay sağa kaydırma: dx > 25 ve yatay hareket dikey hareketten en az 1.8 kat baskın
+          return gestureState.dx > 25 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.8;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx > 50 || (gestureState.dx > 25 && gestureState.vx > 0.35)) {
+            if (activeSection !== 'menu') {
+              setActiveSection('menu');
+            } else {
+              router.push('/(tabs)');
+            }
+          }
+        },
+      }),
+    [activeSection, router]
+  );
 
   const SECTION_INFO: Record<string, { title: string; subtitle: string; icon: any; color: string }> = {
     checkin_checkout: {
@@ -928,7 +966,10 @@ export default function AttendanceScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#020617' : '#f8fafc' }]}>
+    <View
+      style={[styles.container, { backgroundColor: isDark ? '#020617' : '#f8fafc' }]}
+      {...swipePanResponder.panHandlers}
+    >
       {/* 1. Top Navigation Bar (Consistent with Görsel-1 format) */}
       <View
         style={[
@@ -955,7 +996,7 @@ export default function AttendanceScreen() {
             }}
             activeOpacity={0.8}
           >
-            <ArrowLeft size={16} color="#ffffff" />
+            <ArrowLeft size={18} color="#ffffff" />
             <Text style={styles.homeBtnText}>
               {activeSection !== 'menu' ? 'Geri' : 'Ana Menü'}
             </Text>
@@ -3375,16 +3416,22 @@ const styles = StyleSheet.create({
   homeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     backgroundColor: '#2563eb',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 11,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderRadius: 14,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
   },
   homeBtnText: {
     color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 12,
+    fontWeight: '900',
+    fontSize: 14,
   },
   topBarIconsRow: {
     flexDirection: 'row',

@@ -323,10 +323,10 @@ export const Header: React.FC<HeaderProps> = ({
                     window.scrollTo(0, 0);
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+                className="flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm sm:text-base font-black shadow-lg shadow-blue-600/30 transition-all active:scale-95 shrink-0 cursor-pointer min-h-[44px]"
                 title="Ana Menüye Dön"
               >
-                <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+                <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
                 <span>Ana Menü</span>
               </button>
 

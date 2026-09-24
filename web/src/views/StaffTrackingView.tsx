@@ -1024,17 +1024,79 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   };
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
+  const navigateToSection = (section: ActiveSection) => {
+    setActiveSection(section);
+    if (typeof window !== 'undefined' && section !== 'menu') {
+      try {
+        window.history.pushState({ staffSection: section }, '');
+      } catch {}
+    }
+  };
+
   useEffect(() => {
     const handleSetSubTab = (e: any) => {
       if (e?.detail?.subTab === 'leaves' || e?.detail?.filter === 'leaves') {
-        setActiveSection('leaves');
+        navigateToSection('leaves');
       } else if (e?.detail?.subTab === 'attendance' || e?.detail?.filter === 'attendance') {
-        setActiveSection('checkin_checkout');
+        navigateToSection('checkin_checkout');
       }
     };
     window.addEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
     return () => window.removeEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
   }, []);
+
+  // Android Geri Tuşu (Browser popstate) Desteği
+  useEffect(() => {
+    const handlePopState = () => {
+      if (activeSection !== 'menu') {
+        setActiveSection('menu');
+      } else {
+        window.dispatchEvent(new CustomEvent('saha:navigate', { detail: { tab: 'home' } }));
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeSection]);
+
+  // iOS ve Mobil Cihazlar için Sağa Kaydırma (Swipe Right) Desteği
+  useEffect(() => {
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 0) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.changedTouches && e.changedTouches.length > 0) {
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+
+        // Sağa kaydırma: yatay hareket 50px'den büyük ve dikey hareketten en az 1.5 kat fazla
+        if (deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+          if (activeSection !== 'menu') {
+            setActiveSection('menu');
+          } else {
+            window.dispatchEvent(new CustomEvent('saha:navigate', { detail: { tab: 'home' } }));
+          }
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [activeSection]);
 
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
@@ -1250,7 +1312,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 <button
                   key={mod.id}
                   type="button"
-                  onClick={() => setActiveSection(mod.id)}
+                  onClick={() => navigateToSection(mod.id)}
                   className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95 p-4 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
                 >
                   {/* Dairesel Neon Çerçeveli İkon */}
@@ -1310,9 +1372,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           <button
             type="button"
             onClick={() => setActiveSection('menu')}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
             <span>Personel Takibi Menüsü</span>
           </button>
         </div>
