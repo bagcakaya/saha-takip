@@ -49,10 +49,15 @@ interface StorageContextType {
   requestLeave: (params: {
     startDate: string;
     endDate?: string;
+    startTime?: string;
+    endTime?: string;
     leaveType?: 'daily' | 'hourly';
     durationText?: string;
     reason: string;
   }) => Promise<{ success: boolean; message: string }>;
+  approveLeaveRequest: (requestId: string) => Promise<{ success: boolean; message: string }>;
+  rejectLeaveRequest: (requestId: string, reason?: string) => Promise<{ success: boolean; message: string }>;
+  cancelLeaveRequest: (requestId: string) => Promise<{ success: boolean; message: string }>;
   addService: (params: {
     companyName: string;
     cariName?: string;
@@ -659,6 +664,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const requestLeave = async (params: {
     startDate: string;
     endDate?: string;
+    startTime?: string;
+    endTime?: string;
     leaveType?: 'daily' | 'hourly';
     durationText?: string;
     reason: string;
@@ -673,6 +680,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       leaveType: params.leaveType || (params.endDate && params.endDate !== params.startDate ? 'daily' : 'daily'),
       date: params.startDate,
       endDate: params.endDate || params.startDate,
+      startTime: params.startTime,
+      endTime: params.endTime,
       durationText: params.durationText || '1 Gün',
       reason: params.reason,
       status: 'pending',
@@ -683,6 +692,55 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setLeaveRequests(updated);
     await StorageService.saveLeaveRequests(updated);
     return { success: true, message: 'İzin talebiniz yönetici onayına iletildi.' };
+  };
+
+  const approveLeaveRequest = async (requestId: string) => {
+    if (!user) return { success: false, message: 'Oturum açılmamış.' };
+    const req = leaveRequests.find((r) => r.id === requestId);
+    if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
+
+    const updated = leaveRequests.map((r) =>
+      r.id === requestId
+        ? {
+            ...r,
+            status: 'approved' as const,
+            reviewedBy: user.name,
+            reviewedAt: Date.now(),
+          }
+        : r
+    );
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+    return { success: true, message: `${req.userName} kullanıcısının izin talebi onaylandı.` };
+  };
+
+  const rejectLeaveRequest = async (requestId: string, reason?: string) => {
+    if (!user) return { success: false, message: 'Oturum açılmamış.' };
+    const req = leaveRequests.find((r) => r.id === requestId);
+    if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
+
+    const updated = leaveRequests.map((r) =>
+      r.id === requestId
+        ? {
+            ...r,
+            status: 'rejected' as const,
+            reviewedBy: user.name,
+            reviewedAt: Date.now(),
+            reviewNote: reason,
+          }
+        : r
+    );
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+    return { success: true, message: `${req.userName} kullanıcısının izin talebi reddedildi.` };
+  };
+
+  const cancelLeaveRequest = async (requestId: string) => {
+    if (!user) return { success: false, message: 'Oturum açılmamış.' };
+    const updated = leaveRequests.filter((r) => r.id !== requestId);
+    setLeaveRequests(updated);
+    await StorageService.saveLeaveRequests(updated);
+    return { success: true, message: 'İzin talebi iptal edildi.' };
   };
 
   // 4. SERVIS EKLE
@@ -1380,6 +1438,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rejectAttendance,
         deleteAttendanceRecord,
         requestLeave,
+        approveLeaveRequest,
+        rejectLeaveRequest,
+        cancelLeaveRequest,
         addService,
         deleteService,
         addLocation,

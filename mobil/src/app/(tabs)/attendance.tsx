@@ -11,6 +11,7 @@ import {
   RefreshControl,
   Platform,
   Modal,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStorage } from '../../context/StorageContext';
@@ -45,6 +46,8 @@ import {
   Trash2,
   Coffee,
   Play,
+  Plus,
+  Send,
 } from 'lucide-react-native';
 import { AttendanceRecord, WorkplaceLocation } from '../../types/storage';
 import { UserManagementModal } from '../../components/UserManagementModal';
@@ -83,6 +86,10 @@ const getTodayIsoDate = () => {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 };
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_PADDING = 16;
+const ITEM_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2) / 3;
+
 export default function AttendanceScreen() {
   const {
     attendanceRecords,
@@ -95,43 +102,134 @@ export default function AttendanceScreen() {
     endBreak,
     approveAttendance,
     rejectAttendance,
+    requestLeave,
+    approveLeaveRequest,
+    rejectLeaveRequest,
+    cancelLeaveRequest,
     refreshData,
     updateWorkplaceLocation,
   } = useStorage();
-  const { user, users, logout, deleteUser } = useAuth();
+  const { user, users, logout } = useAuth();
   const { isDark, toggleTheme } = useAppTheme();
   const router = useRouter();
 
   const isAdmin = user?.role === 'admin';
 
-  const deletableStaffList = useMemo(() => {
-    if (!user) return [];
-    const compCode = (user.companyCode || 'POLATLAR').toUpperCase();
-    return users.filter(
-      (u) =>
-        (u.companyCode || 'POLATLAR').toUpperCase() === compCode &&
-        u.id !== user.id &&
-        u.username.toLowerCase() !== 'admin'
-    );
-  }, [users, user]);
+  // Ana Menü stili 5 alt bölüm yönetimi
+  type AttendanceSection = 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
+  const [activeSection, setActiveSection] = useState<AttendanceSection>('checkin_checkout');
 
-  const [isDeleteStaffModalOpen, setIsDeleteStaffModalOpen] = useState(false);
+  // İzin Takibi Durumları
+  const [leaveFilter, setLeaveFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [newLeaveType, setNewLeaveType] = useState<'daily' | 'hourly'>('daily');
+  const [newLeaveStartDate, setNewLeaveStartDate] = useState(() => getTodayIsoDate());
+  const [newLeaveEndDate, setNewLeaveEndDate] = useState(() => getTodayIsoDate());
+  const [newLeaveStartTime, setNewLeaveStartTime] = useState('09:00');
+  const [newLeaveEndTime, setNewLeaveEndTime] = useState('13:00');
+  const [newLeaveDuration, setNewLeaveDuration] = useState('1 Gün');
+  const [newLeaveReason, setNewLeaveReason] = useState('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
 
-  const handleDeleteStaff = (staffId: string, staffName: string) => {
+  const handleOpenNewLeaveModal = () => {
+    const today = getTodayIsoDate();
+    setNewLeaveStartDate(today);
+    setNewLeaveEndDate(today);
+    setNewLeaveStartTime('09:00');
+    setNewLeaveEndTime('13:00');
+    setNewLeaveType('daily');
+    setNewLeaveDuration('1 Gün');
+    setNewLeaveReason('');
+    setIsLeaveModalOpen(true);
+  };
+
+  const handleSaveLeaveRequest = async () => {
+    if (!newLeaveReason.trim()) {
+      Alert.alert('Eksik Bilgi', 'Lütfen izin alma gerekçenizi / mazeretinizi belirtin.');
+      return;
+    }
+    setIsSubmittingLeave(true);
+    try {
+      const res = await requestLeave({
+        startDate: newLeaveStartDate,
+        endDate: newLeaveType === 'daily' ? newLeaveEndDate : newLeaveStartDate,
+        startTime: newLeaveType === 'hourly' ? newLeaveStartTime : undefined,
+        endTime: newLeaveType === 'hourly' ? newLeaveEndTime : undefined,
+        leaveType: newLeaveType,
+        durationText: newLeaveDuration,
+        reason: newLeaveReason.trim(),
+      });
+      setIsSubmittingLeave(false);
+      if (res.success) {
+        setIsLeaveModalOpen(false);
+        Alert.alert('Başarılı', res.message || 'İzin talebiniz oluşturuldu.');
+      } else {
+        Alert.alert('Hata', res.message);
+      }
+    } catch (err: any) {
+      setIsSubmittingLeave(false);
+      Alert.alert('Hata', err?.message || 'İzin talebi gönderilemedi.');
+    }
+  };
+
+  const handleApproveLeave = (requestId: string, staffName: string) => {
     Alert.alert(
-      'Personel Hesabını Sil',
-      `"${staffName}" personeli işten ayrıldığı için hesabı sistemden kalıcı olarak silinecektir.\n\nGiriş yetkileri, şifresi ve telefon cihaz kilidi tamamen iptal edilir. Bu işlem geri alınamaz.\n\nOnaylıyor musunuz?`,
+      'İzin Onayı',
+      `"${staffName}" personeline ait izin talebini onaylamak istiyor musunuz?`,
       [
         { text: 'Vazgeç', style: 'cancel' },
         {
-          text: 'Hesabı Sil',
+          text: 'Onayla',
+          onPress: async () => {
+            const res = await approveLeaveRequest(requestId);
+            if (res.success) {
+              Alert.alert('Başarılı', res.message);
+            } else {
+              Alert.alert('Hata', res.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRejectLeave = (requestId: string, staffName: string) => {
+    Alert.alert(
+      'İzin Reddi',
+      `"${staffName}" personeline ait izin talebini reddetmek istiyor musunuz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Reddet',
           style: 'destructive',
           onPress: async () => {
-            const res = await deleteUser(staffId);
+            const res = await rejectLeaveRequest(requestId, 'Yönetici tarafından reddedildi.');
             if (res.success) {
-              Alert.alert('Başarılı', `"${staffName}" kullanıcısının hesabı silindi.`);
+              Alert.alert('Bilgi', res.message);
             } else {
-              Alert.alert('İşlem Başarısız', res.error || 'Personel silinemedi.');
+              Alert.alert('Hata', res.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCancelLeave = (requestId: string) => {
+    Alert.alert(
+      'İzin Talebini İptal Et',
+      'İzin talebinizi geri çekmek istediğinize emin misiniz?',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'İptal Et',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await cancelLeaveRequest(requestId);
+            if (res.success) {
+              Alert.alert('Bilgi', res.message);
+            } else {
+              Alert.alert('Hata', res.message);
             }
           },
         },
@@ -178,30 +276,6 @@ export default function AttendanceScreen() {
               Alert.alert('Bilgi', res.message);
             } else {
               Alert.alert('Hata', res.message);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleDeleteAccount = () => {
-    if (!user) return;
-    Alert.alert(
-      'Hesabınızı Silmek İstiyor Musunuz?',
-      'Bu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.\n\nDevam etmek istediğinize emin misiniz?',
-      [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Hesabımı Sil',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteUser(user.id);
-            if (res.success) {
-              logout();
-              Alert.alert('Hesap Silindi', 'Hesabınız başarıyla silindi ve oturumunuz kapatıldı.');
-            } else {
-              Alert.alert('İşlem Başarısız', res.error || 'Hesap silinirken bir hata oluştu.');
             }
           },
         },
@@ -325,6 +399,26 @@ export default function AttendanceScreen() {
   const isCheckedIn = Boolean(todayRecord && todayRecord.checkInTime && !todayRecord.checkOutTime);
   const isCheckedOut = Boolean(todayRecord && todayRecord.checkOutTime);
   const isOnBreak = Boolean(todayRecord?.isOnBreak);
+
+  // Rozet sayıları
+  const pendingLeaveCount = useMemo(() => {
+    return leaveRequests.filter((l) => l.status === 'pending').length;
+  }, [leaveRequests]);
+
+  const pendingAttendanceCount = useMemo(() => {
+    if (!isAdmin) return 0;
+    return attendanceRecords.filter(
+      (r) =>
+        r.status === 'pending_checkin_approval' ||
+        r.status === 'pending_checkout_approval' ||
+        (r.checkInOutside && r.checkInApprovalStatus === 'pending') ||
+        (r.checkOutOutside && r.checkOutApprovalStatus === 'pending')
+    ).length;
+  }, [attendanceRecords, isAdmin]);
+
+  const activeStaffOnBreak = useMemo(() => {
+    return attendanceRecords.filter((r) => r.date === todayStr && r.isOnBreak);
+  }, [attendanceRecords, todayStr]);
 
   const [isProcessingBreak, setIsProcessingBreak] = useState(false);
   const [liveBreakTimerText, setLiveBreakTimerText] = useState('');
@@ -871,485 +965,872 @@ export default function AttendanceScreen() {
         {/* ============================================================ */}
         {/* GÖRSEL-1: GPS GEOFENCING TAKİP HERO BANNER */}
         {/* ============================================================ */}
+        {/* ============================================================ */}
+        {/* 1. HERO BANNER */}
+        {/* ============================================================ */}
         <View style={styles.heroBanner}>
           <View style={styles.geofencePill}>
             <Users size={13} color="#ffffff" />
-            <Text style={styles.geofencePillText}>GPS GEOFENCİNG TAKİP</Text>
+            <Text style={styles.geofencePillText}>PERSONEL VE MESAİ YÖNETİMİ</Text>
           </View>
 
-          <Text style={styles.heroTitle}>Personel Giriş / Çıkış Takibi</Text>
+          <Text style={styles.heroTitle}>Personel Takibi & Mesai</Text>
           <Text style={styles.heroSubtitle}>
-            İşe giriş ve çıkışlar, yöneticinin belirlediği 20 metre çap doğrulaması ile
-            anlık denetlenir.
+            İşe giriş-çıkış, mola yönetimi, mesai özetleri ve personel izin takibi tek ekranda.
           </Text>
-
-          <View style={styles.heroButtonsRow}>
-            <TouchableOpacity
-              style={styles.leaveRequestBtn}
-              onPress={() => router.push('/leave-request')}
-              activeOpacity={0.85}
-            >
-              <CalendarDays size={16} color="#064e3b" />
-              <Text style={styles.leaveRequestBtnText}>İzin Talebi Oluştur</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.heroRefreshBtn}
-              onPress={fetchGps}
-              disabled={gpsLoading}
-              activeOpacity={0.8}
-            >
-              {gpsLoading ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <RotateCw size={15} color="#ffffff" />
-                  <Text style={styles.heroRefreshBtnText}>Yenile</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* ============================================================ */}
-        {/* GÖRSEL-1: İŞ YERİ / MERKEZ LOKASYONU (YÖNETİCİ YETKİSİ) */}
+        {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
         {/* ============================================================ */}
-        {isAdmin && (
-          <View
-            style={[
-              styles.cardBox,
-              {
-                backgroundColor: isDark ? '#0c152e' : '#ffffff',
-                borderColor: isDark ? '#1e293b' : '#e2e8f0',
-              },
-            ]}
-          >
-            {/* Header with Shield Icon */}
-            <View style={styles.wpHeaderRow}>
-              <View style={styles.wpIconCircle}>
-                <Shield size={18} color="#f59e0b" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text
-                    style={[
-                      styles.wpTitle,
-                      { color: isDark ? '#f8fafc' : '#0f172a' },
-                    ]}
-                  >
-                    İş Yeri / Merkez Lokasyonu
-                  </Text>
-                  <View style={styles.adminBadgePill}>
-                    <Text style={styles.adminBadgeText}>Yönetici Yetkisi</Text>
-                  </View>
-                </View>
-                <Text style={styles.wpSubtitle}>
-                  Personelin 20 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
-                </Text>
-              </View>
-            </View>
-
-            {/* Radius Row */}
-            <View style={styles.radiusRow}>
-              <Text style={styles.radiusLabel}>Yarıçap:</Text>
-              <View style={styles.radiusFixedBadge}>
-                <Text style={styles.radiusFixedText}>20 Metre (Sabit)</Text>
-              </View>
-            </View>
-
-            {/* Address / Coordinate Input */}
-            <View style={{ gap: 6 }}>
-              <Text style={styles.fieldLabel}>İŞ YERİ ADRESİ / KOORDİNATI</Text>
-              <View style={styles.inputWithButtonsRow}>
-                <TextInput
+        <View style={styles.attendanceLauncherGrid}>
+          {[
+            {
+              id: 'checkin_checkout' as const,
+              title: 'İşe Giriş / Çıkış',
+              icon: UserCheck,
+              glowColor: '#10b981',
+              badgeText: isCheckedIn ? 'Mesaide' : isCheckedOut ? 'Çıkış' : undefined,
+              badgeCount: isAdmin && pendingAttendanceCount > 0 ? pendingAttendanceCount : undefined,
+            },
+            {
+              id: 'breaks' as const,
+              title: 'Mola',
+              icon: Coffee,
+              glowColor: '#f59e0b',
+              badgeText: isOnBreak ? 'MOLADA' : undefined,
+              badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
+            },
+            {
+              id: 'summary' as const,
+              title: 'Mesai Özeti',
+              icon: Clock,
+              glowColor: '#3b82f6',
+            },
+            {
+              id: 'leaves' as const,
+              title: 'İzin Takibi',
+              icon: CalendarDays,
+              glowColor: '#8b5cf6',
+              badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
+            },
+            ...(isAdmin
+              ? [
+                  {
+                    id: 'workplace' as const,
+                    title: 'Merkez İş Yeri',
+                    icon: Building2,
+                    glowColor: '#0d9488',
+                    badgeText: '20m',
+                  },
+                ]
+              : []),
+          ].map((mod) => {
+            const IconComponent = mod.icon;
+            const isSelected = activeSection === mod.id;
+            return (
+              <TouchableOpacity
+                key={mod.id}
+                style={styles.attendanceLauncherItem}
+                onPress={() => setActiveSection(mod.id)}
+                activeOpacity={0.75}
+              >
+                <View
                   style={[
-                    styles.wpInput,
+                    styles.attendanceLauncherCircle,
                     {
-                      backgroundColor: isDark ? '#080e21' : '#f8fafc',
-                      color: isDark ? '#f8fafc' : '#0f172a',
+                      borderColor: isSelected ? mod.glowColor : (isDark ? '#334155' : '#cbd5e1'),
+                      backgroundColor: isSelected
+                        ? (isDark ? '#1e293b' : '#f1f5f9')
+                        : (isDark ? '#0f172a' : '#ffffff'),
+                      shadowColor: mod.glowColor,
+                      borderWidth: isSelected ? 2.5 : 1.5,
+                      elevation: isSelected ? 6 : 2,
                     },
                   ]}
-                  value={wpAddress}
-                  onChangeText={setWpAddress}
-                  placeholder="İş yeri açık adresi..."
-                  placeholderTextColor="#64748b"
-                />
-                <TouchableOpacity
-                  style={styles.gpsActionBtn}
-                  onPress={handleGetGpsForWorkplace}
-                  activeOpacity={0.8}
                 >
-                  <Compass size={18} color="#ffffff" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.mapActionBtn}
-                  onPress={() => LocationService.openInMaps(wpAddress, wpLat, wpLon)}
-                  activeOpacity={0.8}
+                  <View
+                    style={[
+                      styles.attendanceLauncherIconInner,
+                      { backgroundColor: mod.glowColor + (isSelected ? '28' : '15') },
+                    ]}
+                  >
+                    <IconComponent size={26} color={mod.glowColor} />
+                  </View>
+
+                  {/* Active Badge */}
+                  {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
+                    <View style={styles.launcherBadgeRed}>
+                      <Text style={styles.launcherBadgeRedText}>
+                        {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
+                      </Text>
+                    </View>
+                  ) : mod.badgeText ? (
+                    <View style={[styles.launcherBadgePill, { backgroundColor: mod.glowColor }]}>
+                      <Text style={styles.launcherBadgePillText}>{mod.badgeText}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <Text
+                  style={[
+                    styles.attendanceLauncherLabel,
+                    {
+                      color: isSelected ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                      fontWeight: isSelected ? '900' : '700',
+                    },
+                  ]}
+                  numberOfLines={2}
                 >
-                  <MapPin size={18} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Coordinate Status Line */}
-            <View style={styles.coordStatusRow}>
-              <CheckCircle2 size={15} color="#10b981" />
-              <Text style={styles.coordStatusText}>
-                Coğrafi konum işaretlendi ({wpLat.toFixed(5)}, {wpLon.toFixed(5)})
-              </Text>
-            </View>
-
-            {/* Save Button */}
-            <TouchableOpacity
-              style={styles.saveWpBtn}
-              onPress={handleSaveWorkplace}
-              disabled={savingWp}
-              activeOpacity={0.85}
-            >
-              {savingWp ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <Check size={16} color="#ffffff" />
-                  <Text style={styles.saveWpBtnText}>Konumu Kaydet & Güncelle</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ============================================================ */}
-        {/* GÖRSEL-1: MERKEZ İŞ YERİ (CANLI MESAFE KARTI) */}
-        {/* ============================================================ */}
-        <View
-          style={[
-            styles.cardBox,
-            {
-              backgroundColor: isDark ? '#0c152e' : '#ffffff',
-              borderColor: isDark ? '#1e293b' : '#e2e8f0',
-            },
-          ]}
-        >
-          <View style={styles.centerWpHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <MapPin size={18} color="#10b981" />
-              <Text style={[styles.centerWpTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                Merkez İş Yeri
-              </Text>
-            </View>
-            <TouchableOpacity onPress={fetchGps} activeOpacity={0.7}>
-              <RotateCw size={16} color="#94a3b8" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.centerAddressRow}>
-            <Text style={styles.fieldLabel}>MERKEZ ADRESİ</Text>
-            <View style={styles.limit20mBadge}>
-              <Text style={styles.limit20mText}>20 Metre Sınırı</Text>
-            </View>
-          </View>
-          <Text style={[styles.centerAddressText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-            {workplaceLocation?.address || wpAddress}
-          </Text>
-
-          {/* Anlık Mesafe Kapsülü */}
-          <View
-            style={[
-              styles.distanceAlertContainer,
-              { backgroundColor: isDark ? '#080e21' : '#f1f5f9' },
-            ]}
-          >
-            <View style={styles.distanceTopRow}>
-              <Text style={styles.distanceLabel}>Anlık Mesafe:</Text>
-              <Text style={[styles.distanceValue, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                {currentDistanceKm >= 1 ? `${currentDistanceKm} km` : `${Math.round(currentDistanceKm * 1000)} metre`}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.distanceWarningPill,
-                isWithinGeofence ? styles.distanceSuccessPill : styles.distanceDangerPill,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.distanceWarningText,
-                  isWithinGeofence ? { color: '#34d399' } : { color: '#fb923c' },
-                ]}
-              >
-                {isWithinGeofence
-                  ? `✓ İş Yeri Alanındasınız (${currentDistanceKm} km)`
-                  : `⚠️ İş Yeri Dışındasınız (${currentDistanceKm} km)`}
-              </Text>
-            </View>
-          </View>
+                  {mod.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* ============================================================ */}
-        {/* GÖRSEL-2: BUGÜNKÜ MESAİ DURUMUNUZ & 2 BÜYÜK AKSİYON KARTI */}
+        {/* MODÜL 5: MERKEZ İŞ YERİ (SADECE YÖNETİCİLER İÇİN) */}
         {/* ============================================================ */}
-        <View
-          style={[
-            styles.cardBox,
-            {
-              backgroundColor: isDark ? '#0c152e' : '#ffffff',
-              borderColor: isDark ? '#1e293b' : '#e2e8f0',
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={styles.todayHeaderRow}>
-            <View>
-              <Text style={[styles.todayTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                Bugünkü Mesai Durumunuz ({new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })})
-              </Text>
-              <Text style={styles.todaySubtitle}>
-                Personel: <Text style={{ color: isDark ? '#cbd5e1' : '#334155' }}>{user?.name || 'Sistem Yöneticisi'}</Text>
-              </Text>
-            </View>
-
-            <View style={[styles.todayStatusBadge, isOnBreak && { backgroundColor: '#f59e0b' }]}>
-              <Text style={[styles.todayStatusBadgeText, isOnBreak && { color: '#ffffff' }]}>
-                {isCheckedOut
-                  ? 'Çıkış Yapıldı'
-                  : isOnBreak
-                  ? '🟡 Molada'
-                  : isCheckedIn
-                  ? 'Mesaide'
-                  : 'Henüz Giriş Yapılmadı'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Kart 1: İŞE GELDİM (Yeşil Geniş Kart) */}
-          <TouchableOpacity
-            style={[
-              styles.checkInCard,
-              isCheckedIn && styles.checkInCardDisabled,
-            ]}
-            onPress={handleCheckIn}
-            disabled={isCheckedIn || actionLoading}
-            activeOpacity={0.85}
-          >
-            <View style={styles.actionCardTop}>
-              <View style={styles.actionUserCircle}>
-                <Users size={18} color="#ffffff" />
-              </View>
-              <View style={styles.actionPillWhite}>
-                <Text style={styles.actionPillWhiteText}>GİRİŞ YAP</Text>
-              </View>
-            </View>
-
-            <View style={styles.actionRadioRow}>
-              <View style={styles.radioDotGreen} />
-              <Text style={styles.actionMainTitle}>İşe Geldim</Text>
-            </View>
-            <Text style={styles.actionDescText}>
-              İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.
-            </Text>
-          </TouchableOpacity>
-
-          {/* Kart 2: İŞTEN ÇIKIŞ YAPTIM (Koyu Kart) */}
-          <TouchableOpacity
-            style={[
-              styles.checkOutCard,
-              !isCheckedIn && styles.checkOutCardDisabled,
-            ]}
-            onPress={handleCheckOut}
-            disabled={!isCheckedIn || isCheckedOut || actionLoading}
-            activeOpacity={0.85}
-          >
-            <View style={styles.actionCardTop}>
-              <View style={styles.actionUserCircleDark}>
-                <LogOut size={18} color="#94a3b8" />
-              </View>
-              <View style={styles.actionPillDark}>
-                <Text style={styles.actionPillDarkText}>ÇIKIŞ YAP</Text>
-              </View>
-            </View>
-
-            <View style={styles.actionRadioRow}>
-              <View style={styles.radioDotRed} />
-              <Text style={[styles.actionMainTitle, { color: isCheckedIn ? '#f87171' : '#94a3b8' }]}>
-                İşten Çıkış Yaptım
-              </Text>
-            </View>
-            <Text style={styles.actionDescTextDark}>
-              İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.
-            </Text>
-          </TouchableOpacity>
-
-          {/* Mola Yönetim Kartı (İşe girmiş personeller için canlı mola paneli) */}
-          {isCheckedIn && !isCheckedOut && (
+        {activeSection === 'workplace' && isAdmin && (
+          <View style={{ gap: 12 }}>
             <View
               style={[
-                styles.molaBox,
-                isOnBreak
-                  ? styles.molaBoxActive
-                  : { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb', borderColor: isDark ? '#b45309' : '#fde68a' },
+                styles.cardBox,
+                {
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                },
               ]}
             >
-              <View style={styles.molaHeaderRow}>
-                <View style={[styles.molaIconContainer, isOnBreak && styles.molaIconContainerActive]}>
-                  <Coffee size={20} color={isOnBreak ? '#ffffff' : '#d97706'} />
+              <View style={styles.wpHeaderRow}>
+                <View style={styles.wpIconCircle}>
+                  <Shield size={18} color="#f59e0b" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.molaTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                      {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
+                    <Text
+                      style={[
+                        styles.wpTitle,
+                        { color: isDark ? '#f8fafc' : '#0f172a' },
+                      ]}
+                    >
+                      İş Yeri / Merkez Lokasyonu
                     </Text>
-                    <View style={[styles.molaBadge, isOnBreak ? styles.molaBadgePulse : styles.molaBadgeNormal]}>
-                      <Text style={[styles.molaBadgeText, isOnBreak && { color: '#ffffff' }]}>
-                        {isOnBreak ? 'Canlı Mola' : 'Mesaide Aktif'}
-                      </Text>
+                    <View style={styles.adminBadgePill}>
+                      <Text style={styles.adminBadgeText}>Yönetici Yetkisi</Text>
                     </View>
                   </View>
-                  <Text style={[styles.molaSubtitle, { color: isDark ? '#94a3b8' : '#64748b' }]}>
-                    {isOnBreak ? (
-                      <Text style={{ color: '#d97706', fontWeight: '700' }}>
-                        Geçen Mola: <Text style={{ fontWeight: '900', color: '#b45309' }}>{liveBreakTimerText || 'Hesaplanıyor...'}</Text>
-                      </Text>
-                    ) : (
-                      `Bugün: ${
-                        todayRecord?.breaks && todayRecord.breaks.length > 0
-                          ? `${todayRecord.breaks.length} mola (${calculateRecordBreakMinutes(todayRecord)} dk)`
-                          : 'Henüz molaya çıkılmadı'
-                      }`
-                    )}
+                  <Text style={styles.wpSubtitle}>
+                    Personelin 20 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
                   </Text>
                 </View>
               </View>
 
+              <View style={styles.radiusRow}>
+                <Text style={styles.radiusLabel}>Yarıçap:</Text>
+                <View style={styles.radiusFixedBadge}>
+                  <Text style={styles.radiusFixedText}>20 Metre (Sabit)</Text>
+                </View>
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <Text style={styles.fieldLabel}>İŞ YERİ ADRESİ / KOORDİNATI</Text>
+                <View style={styles.inputWithButtonsRow}>
+                  <TextInput
+                    style={[
+                      styles.wpInput,
+                      {
+                        backgroundColor: isDark ? '#080e21' : '#f8fafc',
+                        color: isDark ? '#f8fafc' : '#0f172a',
+                      },
+                    ]}
+                    value={wpAddress}
+                    onChangeText={setWpAddress}
+                    placeholder="İş yeri açık adresi..."
+                    placeholderTextColor="#64748b"
+                  />
+                  <TouchableOpacity
+                    style={styles.gpsActionBtn}
+                    onPress={handleGetGpsForWorkplace}
+                    activeOpacity={0.8}
+                  >
+                    <Compass size={18} color="#ffffff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.mapActionBtn}
+                    onPress={() => LocationService.openInMaps(wpAddress, wpLat, wpLon)}
+                    activeOpacity={0.8}
+                  >
+                    <MapPin size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.coordStatusRow}>
+                <CheckCircle2 size={15} color="#10b981" />
+                <Text style={styles.coordStatusText}>
+                  Coğrafi konum işaretlendi ({wpLat.toFixed(5)}, {wpLon.toFixed(5)})
+                </Text>
+              </View>
+
               <TouchableOpacity
-                style={[
-                  styles.molaActionBtn,
-                  isOnBreak ? styles.molaActionBtnEnd : styles.molaActionBtnStart,
-                ]}
-                onPress={isOnBreak ? handleEndBreak : handleStartBreak}
-                disabled={isProcessingBreak}
+                style={styles.saveWpBtn}
+                onPress={handleSaveWorkplace}
+                disabled={savingWp}
                 activeOpacity={0.85}
               >
-                {isProcessingBreak ? (
-                  <ActivityIndicator size="small" color={isOnBreak ? '#ffffff' : '#78350f'} />
-                ) : isOnBreak ? (
-                  <>
-                    <Play size={16} color="#ffffff" fill="#ffffff" />
-                    <Text style={styles.molaActionBtnEndText}>Molayı Bitir ve Mesaiye Dön</Text>
-                  </>
+                {savingWp ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
                   <>
-                    <Coffee size={16} color="#78350f" />
-                    <Text style={styles.molaActionBtnStartText}>Molaya Çık</Text>
+                    <Check size={16} color="#ffffff" />
+                    <Text style={styles.saveWpBtnText}>Konumu Kaydet & Güncelle</Text>
                   </>
                 )}
               </TouchableOpacity>
             </View>
-          )}
 
-          {/* Bugünkü Giriş & Çıkış Detay Kartı */}
-          {todayRecord && (
+            {/* Canlı Geofence ve Mesafe Doğrulama Test Kartı */}
             <View
               style={[
-                styles.todaySummaryBox,
+                styles.cardBox,
                 {
-                  backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                  borderColor: isDark ? '#334155' : '#e2e8f0',
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
                 },
               ]}
             >
-              {todayRecord.branchName && (
-                <View style={styles.todayBranchRow}>
-                  <Store size={14} color="#0d9488" />
-                  <Text style={[styles.todayBranchText, { color: isDark ? '#5eead4' : '#0f766e' }]}>
-                    Mesai Şubesi: <Text style={{ fontWeight: '900' }}>{todayRecord.branchName}</Text>
+              <View style={styles.centerWpHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MapPin size={18} color="#10b981" />
+                  <Text style={[styles.centerWpTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    Merkez Konumu Canlı Mesafe Testi
                   </Text>
                 </View>
-              )}
+                <TouchableOpacity onPress={fetchGps} activeOpacity={0.7}>
+                  <RotateCw size={16} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
 
-              <View style={styles.todaySummaryGrid}>
-                {/* Giriş Saati */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>GİRİŞ SAATİ</Text>
-                  <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    {formatTime(todayRecord.checkInTime)}
-                  </Text>
-                </View>
+              <Text style={[styles.centerAddressText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                {workplaceLocation?.address || wpAddress}
+              </Text>
 
-                {/* Giriş Mesafesi */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>GİRİŞ MESAFESİ</Text>
-                  <Text style={[styles.todayGridVal, { color: '#10b981' }]}>
-                    {todayRecord.checkInDistance !== undefined
-                      ? `${Math.round(todayRecord.checkInDistance)} m`
-                      : '≤ 20 m'}
-                  </Text>
-                </View>
-
-                {/* Çıkış Saati */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>ÇIKIŞ SAATİ</Text>
-                  <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    {todayRecord.checkOutTime ? formatTime(todayRecord.checkOutTime) : (isOnBreak ? 'Molada' : 'Devam ediyor')}
+              <View
+                style={[
+                  styles.distanceAlertContainer,
+                  { backgroundColor: isDark ? '#080e21' : '#f1f5f9' },
+                ]}
+              >
+                <View style={styles.distanceTopRow}>
+                  <Text style={styles.distanceLabel}>Anlık Mesafe:</Text>
+                  <Text style={[styles.distanceValue, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    {currentDistanceKm >= 1 ? `${currentDistanceKm} km` : `${Math.round(currentDistanceKm * 1000)} metre`}
                   </Text>
                 </View>
 
-                {/* Brüt Mesai */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>BRÜT MESAİ</Text>
-                  <Text style={[styles.todayGridVal, { color: '#0284c7' }]}>
-                    {formatMinutesToDuration(calculateRecordDurationMinutes(todayRecord))}
-                  </Text>
-                </View>
-
-                {/* Toplam Mola */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>TOPLAM MOLA</Text>
-                  <Text style={[styles.todayGridVal, { color: '#d97706' }]}>
-                    {formatMinutesToDuration(calculateRecordBreakMinutes(todayRecord))}
-                  </Text>
-                </View>
-
-                {/* Net Çalışma */}
-                <View style={styles.todayGridCol}>
-                  <Text style={styles.todayGridLabel}>NET ÇALIŞMA</Text>
-                  <Text style={[styles.todayGridVal, { color: '#10b981', fontWeight: '900' }]}>
-                    {formatMinutesToDuration(calculateRecordNetWorkMinutes(todayRecord))}
+                <View
+                  style={[
+                    styles.distanceWarningPill,
+                    isWithinGeofence ? styles.distanceSuccessPill : styles.distanceDangerPill,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.distanceWarningText,
+                      isWithinGeofence ? { color: '#34d399' } : { color: '#fb923c' },
+                    ]}
+                  >
+                    {isWithinGeofence
+                      ? `✓ İş Yeri Alanındasınız (${currentDistanceKm} km)`
+                      : `⚠️ İş Yeri Dışındasınız (${currentDistanceKm} km)`}
                   </Text>
                 </View>
               </View>
             </View>
-          )}
-        </View>
-
-        {/* ============================================================ */}
-        {/* GÖRSEL-2: BUTONLAR & DÖNEM / PERSONEL FİLTRE BARI */}
-        {/* ============================================================ */}
-        <View
-          style={[
-            styles.cardBox,
-            {
-              backgroundColor: isDark ? '#0c152e' : '#ffffff',
-              borderColor: isDark ? '#1e293b' : '#e2e8f0',
-            },
-          ]}
-        >
-          {/* 2 Navigation Segment Buttons */}
-          <View style={styles.navSegmentsRow}>
-            <TouchableOpacity style={styles.activeTabBtn} activeOpacity={0.8}>
-              <Clock size={15} color="#ffffff" />
-              <Text style={styles.activeTabBtnText}>Mesai Tablosu</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.inactiveTabBtn}
-              onPress={() => router.push('/leave-request')}
-              activeOpacity={0.8}
-            >
-              <FileText size={15} color="#94a3b8" />
-              <Text style={styles.inactiveTabBtnText}>İzin Talepleri</Text>
-            </TouchableOpacity>
           </View>
+        )}
+
+        {/* ============================================================ */}
+        {/* MODÜL 1: İŞE GİRİŞ VE ÇIKIŞ KISMI */}
+        {/* ============================================================ */}
+        {activeSection === 'checkin_checkout' && (
+          <View style={{ gap: 12 }}>
+            {/* Canlı Mesafe Kartı */}
+            <View
+              style={[
+                styles.cardBox,
+                {
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                },
+              ]}
+            >
+              <View style={styles.centerWpHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MapPin size={18} color="#10b981" />
+                  <Text style={[styles.centerWpTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    Merkez İş Yeri
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={fetchGps} activeOpacity={0.7}>
+                  <RotateCw size={16} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.centerAddressRow}>
+                <Text style={styles.fieldLabel}>MERKEZ ADRESİ</Text>
+                <View style={styles.limit20mBadge}>
+                  <Text style={styles.limit20mText}>20 Metre Sınırı</Text>
+                </View>
+              </View>
+              <Text style={[styles.centerAddressText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                {workplaceLocation?.address || wpAddress}
+              </Text>
+
+              <View
+                style={[
+                  styles.distanceAlertContainer,
+                  { backgroundColor: isDark ? '#080e21' : '#f1f5f9' },
+                ]}
+              >
+                <View style={styles.distanceTopRow}>
+                  <Text style={styles.distanceLabel}>Anlık Mesafe:</Text>
+                  <Text style={[styles.distanceValue, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    {currentDistanceKm >= 1 ? `${currentDistanceKm} km` : `${Math.round(currentDistanceKm * 1000)} metre`}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.distanceWarningPill,
+                    isWithinGeofence ? styles.distanceSuccessPill : styles.distanceDangerPill,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.distanceWarningText,
+                      isWithinGeofence ? { color: '#34d399' } : { color: '#fb923c' },
+                    ]}
+                  >
+                    {isWithinGeofence
+                      ? `✓ İş Yeri Alanındasınız (${currentDistanceKm} km)`
+                      : `⚠️ İş Yeri Dışındasınız (${currentDistanceKm} km)`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Yönetici Onayı Bekleyen Giriş/Çıkış Talepleri */}
+            {isAdmin && pendingAttendanceCount > 0 && (
+              <View
+                style={[
+                  styles.cardBox,
+                  {
+                    backgroundColor: isDark ? 'rgba(245, 158, 11, 0.1)' : '#fffbeb',
+                    borderColor: '#f59e0b',
+                    borderWidth: 1.5,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <Shield size={16} color="#d97706" />
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: isDark ? '#ffffff' : '#0f172a' }}>
+                    Onay Bekleyen Personel Mesaileri ({pendingAttendanceCount})
+                  </Text>
+                </View>
+                {attendanceRecords
+                  .filter(
+                    (r) =>
+                      r.status === 'pending_checkin_approval' ||
+                      r.status === 'pending_checkout_approval' ||
+                      (r.checkInOutside && r.checkInApprovalStatus === 'pending') ||
+                      (r.checkOutOutside && r.checkOutApprovalStatus === 'pending')
+                  )
+                  .map((rec) => {
+                    const isCheckIn = rec.status === 'pending_checkin_approval' || (rec.checkInOutside && rec.checkInApprovalStatus === 'pending');
+                    return (
+                      <View
+                        key={rec.id}
+                        style={{
+                          padding: 10,
+                          borderRadius: 10,
+                          backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                          borderWidth: 1,
+                          borderColor: isDark ? '#334155' : '#e2e8f0',
+                          marginBottom: 8,
+                          gap: 6,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                            {rec.userName}
+                          </Text>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: isCheckIn ? '#10b981' : '#ef4444' }}>
+                            {isCheckIn ? '🟢 Giriş Talebi' : '🔴 Çıkış Talebi'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 11, color: '#f59e0b', fontWeight: '600' }}>
+                          ⚠️ Konum dışından ({isCheckIn ? `${Math.round(rec.checkInDistance || 0)}m` : `${Math.round(rec.checkOutDistance || 0)}m`})
+                        </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                          <TouchableOpacity
+                            style={styles.leaveActionRejectBtn}
+                            onPress={() => handleActionReject(rec, isCheckIn ? 'checkin' : 'checkout')}
+                            activeOpacity={0.8}
+                          >
+                            <X size={12} color="#ef4444" />
+                            <Text style={styles.leaveActionRejectBtnText}>Reddet</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.leaveActionApproveBtn}
+                            onPress={() => handleActionApprove(rec, isCheckIn ? 'checkin' : 'checkout')}
+                            activeOpacity={0.8}
+                          >
+                            <Check size={12} color="#ffffff" />
+                            <Text style={styles.leaveActionApproveBtnText}>Onayla</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+              </View>
+            )}
+
+            {/* Bugünkü Mesai Durumunuz & 2 Büyük Aksiyon Kartı */}
+            <View
+              style={[
+                styles.cardBox,
+                {
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                },
+              ]}
+            >
+              <View style={styles.todayHeaderRow}>
+                <View>
+                  <Text style={[styles.todayTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    Bugünkü Mesai Durumunuz ({new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })})
+                  </Text>
+                  <Text style={styles.todaySubtitle}>
+                    Personel: <Text style={{ color: isDark ? '#cbd5e1' : '#334155' }}>{user?.name || 'Sistem Yöneticisi'}</Text>
+                  </Text>
+                </View>
+
+                <View style={[styles.todayStatusBadge, isOnBreak && { backgroundColor: '#f59e0b' }]}>
+                  <Text style={[styles.todayStatusBadgeText, isOnBreak && { color: '#ffffff' }]}>
+                    {isCheckedOut
+                      ? 'Çıkış Yapıldı'
+                      : isOnBreak
+                      ? '🟡 Molada'
+                      : isCheckedIn
+                      ? 'Mesaide'
+                      : 'Henüz Giriş Yapılmadı'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Kart 1: İŞE GELDİM */}
+              <TouchableOpacity
+                style={[
+                  styles.checkInCard,
+                  isCheckedIn && styles.checkInCardDisabled,
+                ]}
+                onPress={handleCheckIn}
+                disabled={isCheckedIn || actionLoading}
+                activeOpacity={0.85}
+              >
+                <View style={styles.actionCardTop}>
+                  <View style={styles.actionUserCircle}>
+                    <Users size={18} color="#ffffff" />
+                  </View>
+                  <View style={styles.actionPillWhite}>
+                    <Text style={styles.actionPillWhiteText}>GİRİŞ YAP</Text>
+                  </View>
+                </View>
+
+                <View style={styles.actionRadioRow}>
+                  <View style={styles.radioDotGreen} />
+                  <Text style={styles.actionMainTitle}>İşe Geldim</Text>
+                </View>
+                <Text style={styles.actionDescText}>
+                  İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.
+                </Text>
+              </TouchableOpacity>
+
+              {/* Kart 2: İŞTEN ÇIKIŞ YAPTIM */}
+              <TouchableOpacity
+                style={[
+                  styles.checkOutCard,
+                  !isCheckedIn && styles.checkOutCardDisabled,
+                ]}
+                onPress={handleCheckOut}
+                disabled={!isCheckedIn || isCheckedOut || actionLoading}
+                activeOpacity={0.85}
+              >
+                <View style={styles.actionCardTop}>
+                  <View style={styles.actionUserCircleDark}>
+                    <LogOut size={18} color="#94a3b8" />
+                  </View>
+                  <View style={styles.actionPillDark}>
+                    <Text style={styles.actionPillDarkText}>ÇIKIŞ YAP</Text>
+                  </View>
+                </View>
+
+                <View style={styles.actionRadioRow}>
+                  <View style={styles.radioDotRed} />
+                  <Text style={[styles.actionMainTitle, { color: isCheckedIn ? '#f87171' : '#94a3b8' }]}>
+                    İşten Çıkış Yaptım
+                  </Text>
+                </View>
+                <Text style={styles.actionDescTextDark}>
+                  İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.
+                </Text>
+              </TouchableOpacity>
+
+              {/* Bugünkü Giriş & Çıkış Detay Kartı */}
+              {todayRecord && (
+                <View
+                  style={[
+                    styles.todaySummaryBox,
+                    {
+                      backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                      borderColor: isDark ? '#334155' : '#e2e8f0',
+                    },
+                  ]}
+                >
+                  {todayRecord.branchName && (
+                    <View style={styles.todayBranchRow}>
+                      <Store size={14} color="#0d9488" />
+                      <Text style={[styles.todayBranchText, { color: isDark ? '#5eead4' : '#0f766e' }]}>
+                        Mesai Şubesi: <Text style={{ fontWeight: '900' }}>{todayRecord.branchName}</Text>
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.todaySummaryGrid}>
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>GİRİŞ SAATİ</Text>
+                      <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {formatTime(todayRecord.checkInTime)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>GİRİŞ MESAFESİ</Text>
+                      <Text style={[styles.todayGridVal, { color: '#10b981' }]}>
+                        {todayRecord.checkInDistance !== undefined
+                          ? `${Math.round(todayRecord.checkInDistance)} m`
+                          : '≤ 20 m'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>ÇIKIŞ SAATİ</Text>
+                      <Text style={[styles.todayGridVal, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {todayRecord.checkOutTime ? formatTime(todayRecord.checkOutTime) : (isOnBreak ? 'Molada' : 'Devam ediyor')}
+                      </Text>
+                    </View>
+
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>BRÜT MESAİ</Text>
+                      <Text style={[styles.todayGridVal, { color: '#0284c7' }]}>
+                        {formatMinutesToDuration(calculateRecordDurationMinutes(todayRecord))}
+                      </Text>
+                    </View>
+
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>TOPLAM MOLA</Text>
+                      <Text style={[styles.todayGridVal, { color: '#d97706' }]}>
+                        {formatMinutesToDuration(calculateRecordBreakMinutes(todayRecord))}
+                      </Text>
+                    </View>
+
+                    <View style={styles.todayGridCol}>
+                      <Text style={styles.todayGridLabel}>NET ÇALIŞMA</Text>
+                      <Text style={[styles.todayGridVal, { color: '#10b981', fontWeight: '900' }]}>
+                        {formatMinutesToDuration(calculateRecordNetWorkMinutes(todayRecord))}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* ============================================================ */}
+        {/* MODÜL 2: MOLA KISMI */}
+        {/* ============================================================ */}
+        {activeSection === 'breaks' && (
+          <View style={{ gap: 12 }}>
+            {/* Personel Mola Yönetim Kartı */}
+            {isCheckedIn ? (
+              <View
+                style={[
+                  styles.molaBox,
+                  isOnBreak
+                    ? styles.molaBoxActive
+                    : {
+                        backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb',
+                        borderColor: isDark ? '#b45309' : '#fde68a',
+                      },
+                ]}
+              >
+                <View style={styles.molaHeaderRow}>
+                  <View style={[styles.molaIconContainer, isOnBreak && styles.molaIconContainerActive]}>
+                    <Coffee size={22} color={isOnBreak ? '#ffffff' : '#d97706'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.molaTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                        {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
+                      </Text>
+                      <View style={[styles.molaBadge, isOnBreak ? styles.molaBadgePulse : styles.molaBadgeNormal]}>
+                        <Text style={[styles.molaBadgeText, isOnBreak && { color: '#ffffff' }]}>
+                          {isOnBreak ? 'Canlı Mola' : 'Mesaide Aktif'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.molaSubtitle, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+                      {isOnBreak ? (
+                        <Text style={{ color: '#d97706', fontWeight: '700' }}>
+                          Geçen Mola: <Text style={{ fontWeight: '900', color: '#b45309' }}>{liveBreakTimerText || 'Hesaplanıyor...'}</Text>
+                        </Text>
+                      ) : (
+                        `Bugün: ${
+                          todayRecord?.breaks && todayRecord.breaks.length > 0
+                            ? `${todayRecord.breaks.length} mola (${calculateRecordBreakMinutes(todayRecord)} dk)`
+                            : 'Henüz molaya çıkılmadı'
+                        }`
+                      )}
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.molaActionBtn,
+                    isOnBreak ? styles.molaActionBtnEnd : styles.molaActionBtnStart,
+                  ]}
+                  onPress={isOnBreak ? handleEndBreak : handleStartBreak}
+                  disabled={isProcessingBreak}
+                  activeOpacity={0.85}
+                >
+                  {isProcessingBreak ? (
+                    <ActivityIndicator size="small" color={isOnBreak ? '#ffffff' : '#78350f'} />
+                  ) : isOnBreak ? (
+                    <>
+                      <Play size={16} color="#ffffff" fill="#ffffff" />
+                      <Text style={styles.molaActionBtnEndText}>Molayı Bitir ve Mesaiye Dön</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Coffee size={16} color="#78350f" />
+                      <Text style={styles.molaActionBtnStartText}>Molaya Çık</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Bugünkü Kendi Molalarınız Dökümü */}
+                {todayRecord?.breaks && todayRecord.breaks.length > 0 && (
+                  <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(217, 119, 6, 0.2)' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 8 }}>
+                      Bugünkü Molalarınız ({todayRecord.breaks.length} Adet - Toplam {calculateRecordBreakMinutes(todayRecord)} dk)
+                    </Text>
+                    <View style={{ gap: 6 }}>
+                      {todayRecord.breaks.map((b, idx) => {
+                        const bStart = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                        const bEnd = b.endTime ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam ediyor';
+                        const bDur = b.durationMinutes || (b.endTime ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000)) : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+                        return (
+                          <View
+                            key={b.id || idx}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: 8,
+                              borderRadius: 8,
+                              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                              borderWidth: 1,
+                              borderColor: isDark ? '#334155' : '#e2e8f0',
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: isDark ? '#ffffff' : '#0f172a' }}>
+                              ☕ {idx + 1}. Mola: {bStart} - {bEnd}
+                            </Text>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#d97706' }}>
+                              {bDur} dk
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.cardBox,
+                  {
+                    backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                    borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                    alignItems: 'center',
+                    paddingVertical: 24,
+                  },
+                ]}
+              >
+                <Coffee size={32} color="#f59e0b" />
+                <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a', marginTop: 8 }}>
+                  Henüz İşe Giriş Yapmadınız
+                </Text>
+                <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', textAlign: 'center', marginTop: 4, maxWidth: 260 }}>
+                  Molaya çıkabilmek için önce işe giriş yapmış olmanız gerekmektedir.
+                </Text>
+                <TouchableOpacity
+                  style={{
+                    marginTop: 14,
+                    backgroundColor: '#10b981',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                  }}
+                  onPress={() => setActiveSection('checkin_checkout')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '800' }}>
+                    İşe Giriş Bölümüne Git
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* YÖNETİCİ İÇİN: Mola Takip Paneli */}
+            {isAdmin && (
+              <View
+                style={[
+                  styles.cardBox,
+                  {
+                    backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                    borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Users size={16} color="#f59e0b" />
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: isDark ? '#ffffff' : '#0f172a' }}>
+                    Personel Mola Detayları (Yönetici Paneli)
+                  </Text>
+                </View>
+
+                {/* Canlı Moladaki Personeller */}
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#f59e0b', marginBottom: 6 }}>
+                  🟡 Şu Anda Canlı Molada Olanlar ({activeStaffOnBreak.length})
+                </Text>
+                {activeStaffOnBreak.length === 0 ? (
+                  <Text style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginBottom: 12 }}>
+                    Şu anda molada olan personel bulunmuyor.
+                  </Text>
+                ) : (
+                  <View style={{ gap: 6, marginBottom: 12 }}>
+                    {activeStaffOnBreak.map((rec) => {
+                      const startTime = rec.currentBreakStartTime ? new Date(rec.currentBreakStartTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-';
+                      const durMins = rec.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - rec.currentBreakStartTime) / 60000)) : 1;
+                      return (
+                        <View
+                          key={rec.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 10,
+                            borderRadius: 10,
+                            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.1)' : '#fffbeb',
+                            borderWidth: 1,
+                            borderColor: '#f59e0b',
+                          }}
+                        >
+                          <View>
+                            <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                              {rec.userName}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: '#94a3b8' }}>
+                              Başlangıç: {startTime}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontSize: 11, fontWeight: '900', color: '#b45309' }}>
+                              {durMins} dk'dır molada
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Bugünkü Personel Mola Özeti */}
+                <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 6 }}>
+                  ☕ Bugünkü Personel Mola Dökümleri
+                </Text>
+                {(() => {
+                  const todayBreakStaff = attendanceRecords.filter((r) => r.date === todayStr && r.breaks && r.breaks.length > 0);
+                  if (todayBreakStaff.length === 0) {
+                    return (
+                      <Text style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                        Bugün henüz hiçbir personel molaya çıkmadı.
+                      </Text>
+                    );
+                  }
+                  return (
+                    <View style={{ gap: 6 }}>
+                      {todayBreakStaff.map((rec) => (
+                        <View
+                          key={rec.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 8,
+                            borderRadius: 8,
+                            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                            borderWidth: 1,
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                          }}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#ffffff' : '#0f172a' }}>
+                            {rec.userName}
+                          </Text>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#d97706' }}>
+                            {rec.breaks!.length} Mola ({calculateRecordBreakMinutes(rec)} dk)
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  );
+                })()}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ============================================================ */}
+        {/* MODÜL 3: MESAİ ÖZETİ KISMI */}
+        {/* ============================================================ */}
+        {activeSection === 'summary' && (
+          <View style={{ gap: 12 }}>
+            <View
+              style={[
+                styles.cardBox,
+                {
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                },
+              ]}
+            >
 
           {/* 2 Export Download Buttons */}
           <View style={styles.exportButtonsRow}>
@@ -2060,35 +2541,290 @@ export default function AttendanceScreen() {
             </ScrollView>
           </View>
         </View>
+        </View>
+        )}
 
-        {/* En Alt: Kalıcı Hesabı Sil Butonları */}
-        {user && (
-          <View style={styles.deleteAccountContainer}>
-            {isAdmin && (
-              <TouchableOpacity
-                style={styles.deleteStaffAdminBtn}
-                onPress={() => setIsDeleteStaffModalOpen(true)}
-                activeOpacity={0.8}
-              >
-                <UserX size={16} color="#ffffff" />
-                <Text style={styles.deleteStaffAdminBtnText}>Personel Hesabı Sil (Yönetici)</Text>
-              </TouchableOpacity>
-            )}
-
+        {/* ============================================================ */}
+        {/* MODÜL 4: İZİN TAKİBİ */}
+        {/* ============================================================ */}
+        {activeSection === 'leaves' && (
+          <View style={{ gap: 12 }}>
+            {/* Üst Eylem Butonu: Yeni İzin Talebi Oluştur */}
             <TouchableOpacity
-              style={styles.deleteAccountBtn}
-              onPress={handleDeleteAccount}
-              activeOpacity={0.8}
+              style={styles.leaveCreateHeaderBtn}
+              onPress={handleOpenNewLeaveModal}
+              activeOpacity={0.85}
             >
-              <UserX size={15} color="#ef4444" />
-              <Text style={styles.deleteAccountBtnText}>Kendi Hesabımı Sil</Text>
+              <Plus size={18} color="#ffffff" />
+              <Text style={styles.leaveCreateHeaderBtnText}>Yeni İzin Talebi Oluştur</Text>
             </TouchableOpacity>
 
-            <Text style={[styles.deleteAccountSubtext, { color: isDark ? '#94a3b8' : '#64748b' }]}>
-              {isAdmin
-                ? 'İşten ayrılan personellerin hesaplarını silebilir veya kendi hesabınızı kapatabilirsiniz.'
-                : 'İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde kalıcı olarak silebilirsiniz.'}
-            </Text>
+            {/* İzin Filtre Hapları */}
+            <View
+              style={[
+                styles.cardBox,
+                {
+                  backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                  borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                  paddingVertical: 10,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <CalendarDays size={16} color="#8b5cf6" />
+                <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                  Filtrele:
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                  {[
+                    { id: 'all' as const, label: `Tümü (${leaveRequests.length})` },
+                    { id: 'pending' as const, label: `Bekleyen (${pendingLeaveCount})` },
+                    { id: 'approved' as const, label: `Onaylanan (${leaveRequests.filter((l) => l.status === 'approved').length})` },
+                    { id: 'rejected' as const, label: `Reddedilen (${leaveRequests.filter((l) => l.status === 'rejected').length})` },
+                  ].map((f) => (
+                    <TouchableOpacity
+                      key={f.id}
+                      style={[
+                        styles.periodPill,
+                        leaveFilter === f.id
+                          ? { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }
+                          : styles.periodPillInactive,
+                      ]}
+                      onPress={() => setLeaveFilter(f.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.periodPillText,
+                          leaveFilter === f.id && { color: '#ffffff', fontWeight: '900' },
+                        ]}
+                      >
+                        {f.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* İzin Talepleri Listesi */}
+            {(() => {
+              const filteredLeaves = leaveRequests.filter((l) => {
+                if (leaveFilter === 'all') return true;
+                return l.status === leaveFilter;
+              });
+
+              if (filteredLeaves.length === 0) {
+                return (
+                  <View
+                    style={[
+                      styles.cardBox,
+                      {
+                        backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                        borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                        alignItems: 'center',
+                        paddingVertical: 32,
+                      },
+                    ]}
+                  >
+                    <CalendarDays size={36} color="#8b5cf6" style={{ opacity: 0.6 }} />
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: '800',
+                        color: isDark ? '#ffffff' : '#0f172a',
+                        marginTop: 10,
+                      }}
+                    >
+                      İzin Kaydı Bulunmuyor
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: isDark ? '#94a3b8' : '#64748b',
+                        textAlign: 'center',
+                        marginTop: 4,
+                      }}
+                    >
+                      {leaveFilter === 'pending'
+                        ? 'Onay bekleyen izin talebi bulunmuyor.'
+                        : 'Bu filtre kriterinde kayıtlı izin bulunamadı.'}
+                    </Text>
+                  </View>
+                );
+              }
+
+              return (
+                <View style={{ gap: 10 }}>
+                  {filteredLeaves.map((leave) => {
+                    const isMyLeave = leave.userId === user?.id || leave.userName === user?.name;
+                    const isPending = leave.status === 'pending';
+                    const isApproved = leave.status === 'approved';
+                    const isRejected = leave.status === 'rejected';
+                    const isCancelled = leave.status === 'cancelled';
+
+                    const statusBg = isApproved
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : isRejected
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : isCancelled
+                      ? 'rgba(100, 116, 139, 0.12)'
+                      : 'rgba(245, 158, 11, 0.12)';
+
+                    const statusTextColor = isApproved
+                      ? '#10b981'
+                      : isRejected
+                      ? '#ef4444'
+                      : isCancelled
+                      ? '#94a3b8'
+                      : '#f59e0b';
+
+                    const statusText = isApproved
+                      ? 'Onaylandı'
+                      : isRejected
+                      ? 'Reddedildi'
+                      : isCancelled
+                      ? 'İptal Edildi'
+                      : 'Onay Bekliyor';
+
+                    const typeLabel =
+                      leave.leaveType === 'hourly'
+                        ? `Saatlik İzin (${leave.startTime || ''} - ${leave.endTime || ''})`
+                        : `Günlük İzin (${leave.durationText || '1 Gün'})`;
+
+                    return (
+                      <View
+                        key={leave.id}
+                        style={[
+                          styles.leaveCardItem,
+                          {
+                            backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                            borderColor: isPending
+                              ? 'rgba(245, 158, 11, 0.4)'
+                              : isApproved
+                              ? 'rgba(16, 185, 129, 0.3)'
+                              : isDark ? '#334155' : '#e2e8f0',
+                          },
+                        ]}
+                      >
+                        {/* Top: İsim & Durum Rozeti */}
+                        <View style={styles.leaveCardTop}>
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text
+                                style={[
+                                  styles.leaveCardStaffName,
+                                  { color: isDark ? '#ffffff' : '#0f172a' },
+                                ]}
+                              >
+                                {leave.userName}
+                              </Text>
+                              {isMyLeave && (
+                                <View
+                                  style={{
+                                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 1,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 9, fontWeight: '900', color: '#3b82f6' }}>
+                                    BEN
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={[styles.leaveCardDates, { color: isDark ? '#94a3b8' : '#64748b' }]}>
+                              📅 {leave.date} {leave.endDate && leave.endDate !== leave.date ? `➔ ${leave.endDate}` : ''} • {typeLabel}
+                            </Text>
+                          </View>
+
+                          <View style={[styles.leaveStatusPill, { backgroundColor: statusBg }]}>
+                            {isApproved ? (
+                              <Check size={12} color={statusTextColor} />
+                            ) : isRejected ? (
+                              <X size={12} color={statusTextColor} />
+                            ) : (
+                              <Clock size={12} color={statusTextColor} />
+                            )}
+                            <Text style={[styles.leaveStatusPillText, { color: statusTextColor }]}>
+                              {statusText}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Orta: Gerekçe / Mazeret */}
+                        <View
+                          style={[
+                            styles.leaveCardReasonBox,
+                            {
+                              backgroundColor: isDark ? '#080e21' : '#f8fafc',
+                              borderColor: isDark ? '#1e293b' : '#f1f5f9',
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.leaveCardReasonText,
+                              { color: isDark ? '#cbd5e1' : '#334155' },
+                            ]}
+                          >
+                            {leave.reason || 'Açıklama belirtilmedi.'}
+                          </Text>
+                        </View>
+
+                        {/* Alt: Yönetici veya Kullanıcı Aksiyonları */}
+                        <View style={styles.leaveCardBottom}>
+                          <Text style={{ fontSize: 10, color: '#64748b' }}>
+                            {new Date(leave.requestedAt).toLocaleDateString('tr-TR', {
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </Text>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            {/* Personel İptal Butonu (beklemedeyse) */}
+                            {isPending && isMyLeave && (
+                              <TouchableOpacity
+                                style={styles.leaveActionCancelBtn}
+                                onPress={() => handleCancelLeave(leave.id)}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={styles.leaveActionCancelBtnText}>İptal Et</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {/* Yönetici Onay / Ret Butonları (beklemedeyse) */}
+                            {isPending && isAdmin && (
+                              <>
+                                <TouchableOpacity
+                                  style={styles.leaveActionRejectBtn}
+                                  onPress={() => handleRejectLeave(leave.id, leave.userName)}
+                                  activeOpacity={0.8}
+                                >
+                                  <X size={12} color="#ef4444" />
+                                  <Text style={styles.leaveActionRejectBtnText}>Reddet</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.leaveActionApproveBtn}
+                                  onPress={() => handleApproveLeave(leave.id, leave.userName)}
+                                  activeOpacity={0.8}
+                                >
+                                  <Check size={12} color="#ffffff" />
+                                  <Text style={styles.leaveActionApproveBtnText}>Onayla</Text>
+                                </TouchableOpacity>
+                              </>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </View>
         )}
       </ScrollView>
@@ -2101,9 +2837,9 @@ export default function AttendanceScreen() {
         onRequestClose={() => setIsStaffPickerOpen(false)}
       >
         <View style={styles.pickerBackdrop}>
-          <View style={styles.pickerCard}>
+          <View style={[styles.pickerCard, { backgroundColor: isDark ? '#0f172a' : '#ffffff' }]}>
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Personel Filtrele</Text>
+              <Text style={[styles.pickerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>Personel Filtrele</Text>
               <TouchableOpacity onPress={() => setIsStaffPickerOpen(false)}>
                 <X size={20} color="#94a3b8" />
               </TouchableOpacity>
@@ -2142,98 +2878,221 @@ export default function AttendanceScreen() {
         </View>
       </Modal>
 
-      {/* Delete Staff Modal for Admin */}
-      {isAdmin && (
-        <Modal
-          visible={isDeleteStaffModalOpen}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setIsDeleteStaffModalOpen(false)}
-        >
-          <View style={styles.pickerBackdrop}>
-            <View style={[styles.pickerCard, { backgroundColor: isDark ? '#0f172a' : '#ffffff', maxHeight: '80%' }]}>
-              <View style={styles.pickerHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <UserX size={18} color="#ef4444" />
-                  <Text style={[styles.pickerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
-                    Personel Hesabını Sil
+      {/* Create Leave Request Modal */}
+      <Modal
+        visible={isLeaveModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsLeaveModalOpen(false)}
+      >
+        <View style={styles.pickerBackdrop}>
+          <View style={[styles.leaveModalCard, { backgroundColor: isDark ? '#0f172a' : '#ffffff' }]}>
+            <View style={styles.pickerHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <CalendarDays size={20} color="#8b5cf6" />
+                <Text style={[styles.pickerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                  İzin Talebi Oluştur
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsLeaveModalOpen(false)}>
+                <X size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+              {/* İzin Türü Seçimi */}
+              <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569' }]}>
+                İZİN TÜRÜ
+              </Text>
+              <View style={styles.leaveTypeRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.leaveTypeBtn,
+                    newLeaveType === 'daily' && styles.leaveTypeBtnActive,
+                    { borderColor: newLeaveType === 'daily' ? '#10b981' : (isDark ? '#334155' : '#cbd5e1') },
+                  ]}
+                  onPress={() => {
+                    setNewLeaveType('daily');
+                    setNewLeaveDuration('1 Gün');
+                  }}
+                >
+                  <Calendar size={16} color={newLeaveType === 'daily' ? '#10b981' : '#64748b'} />
+                  <Text
+                    style={[
+                      styles.leaveTypeBtnText,
+                      { color: newLeaveType === 'daily' ? '#10b981' : '#64748b' },
+                    ]}
+                  >
+                    Günlük İzin
                   </Text>
-                </View>
-                <TouchableOpacity onPress={() => setIsDeleteStaffModalOpen(false)}>
-                  <X size={20} color="#94a3b8" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.leaveTypeBtn,
+                    newLeaveType === 'hourly' && styles.leaveTypeBtnActive,
+                    { borderColor: newLeaveType === 'hourly' ? '#10b981' : (isDark ? '#334155' : '#cbd5e1') },
+                  ]}
+                  onPress={() => {
+                    setNewLeaveType('hourly');
+                    setNewLeaveDuration('2 Saat');
+                  }}
+                >
+                  <Clock size={16} color={newLeaveType === 'hourly' ? '#10b981' : '#64748b'} />
+                  <Text
+                    style={[
+                      styles.leaveTypeBtnText,
+                      { color: newLeaveType === 'hourly' ? '#10b981' : '#64748b' },
+                    ]}
+                  >
+                    Saatlik İzin
+                  </Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', marginBottom: 12, lineHeight: 17 }}>
-                İşten ayrılan personelin hesabını kalıcı olarak silebilirsiniz. Telefon cihaz kilidi ve sisteme giriş izinleri anında iptal edilir.
+              {/* Tarihler */}
+              <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginTop: 12 }]}>
+                {newLeaveType === 'daily' ? 'BAŞLANGIÇ TARİHİ' : 'İZİN TARİHİ'}
               </Text>
+              <TextInput
+                style={[
+                  styles.leaveModalInput,
+                  {
+                    backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                    borderColor: isDark ? '#334155' : '#cbd5e1',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  },
+                ]}
+                value={newLeaveStartDate}
+                onChangeText={setNewLeaveStartDate}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#64748b"
+              />
 
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
-                {deletableStaffList.length === 0 ? (
-                  <Text style={{ textAlign: 'center', padding: 20, color: '#94a3b8', fontSize: 12 }}>
-                    Silinebilecek kayıtlı personel bulunamadı.
+              {newLeaveType === 'daily' && (
+                <>
+                  <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginTop: 12 }]}>
+                    BİTİŞ TARİHİ
                   </Text>
-                ) : (
-                  deletableStaffList.map((st) => (
-                    <View
-                      key={st.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        borderBottomWidth: 1,
-                        borderBottomColor: isDark ? '#1e293b' : '#f1f5f9',
-                      }}
-                    >
-                      <View style={{ flex: 1, marginRight: 10 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#ffffff' : '#0f172a' }}>
-                          {st.name}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#94a3b8', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
-                          @{st.username} • {st.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
-                        </Text>
-                      </View>
+                  <TextInput
+                    style={[
+                      styles.leaveModalInput,
+                      {
+                        backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                        borderColor: isDark ? '#334155' : '#cbd5e1',
+                        color: isDark ? '#f8fafc' : '#0f172a',
+                      },
+                    ]}
+                    value={newLeaveEndDate}
+                    onChangeText={setNewLeaveEndDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#64748b"
+                  />
+                </>
+              )}
 
-                      <TouchableOpacity
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                          backgroundColor: '#fee2e2',
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          borderRadius: 8,
-                        }}
-                        onPress={() => handleDeleteStaff(st.id, st.name)}
-                      >
-                        <Trash2 size={12} color="#dc2626" />
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: '#dc2626' }}>Sil</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
+              {newLeaveType === 'hourly' && (
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569' }]}>
+                      BAŞLANGIÇ SAATİ
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.leaveModalInput,
+                        {
+                          backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                          borderColor: isDark ? '#334155' : '#cbd5e1',
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                        },
+                      ]}
+                      value={newLeaveStartTime}
+                      onChangeText={setNewLeaveStartTime}
+                      placeholder="09:00"
+                      placeholderTextColor="#64748b"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569' }]}>
+                      BİTİŞ SAATİ
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.leaveModalInput,
+                        {
+                          backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                          borderColor: isDark ? '#334155' : '#cbd5e1',
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                        },
+                      ]}
+                      value={newLeaveEndTime}
+                      onChangeText={setNewLeaveEndTime}
+                      placeholder="13:00"
+                      placeholderTextColor="#64748b"
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Süre */}
+              <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginTop: 12 }]}>
+                SÜRE (Örn: 1 Gün, 3 Gün, 2 Saat)
+              </Text>
+              <TextInput
+                style={[
+                  styles.leaveModalInput,
+                  {
+                    backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                    borderColor: isDark ? '#334155' : '#cbd5e1',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  },
+                ]}
+                value={newLeaveDuration}
+                onChangeText={setNewLeaveDuration}
+                placeholder="1 Gün"
+                placeholderTextColor="#64748b"
+              />
+
+              {/* Mazeret / Gerekçe */}
+              <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginTop: 12 }]}>
+                İZİN GEREKÇESİ / MAZERET *
+              </Text>
+              <TextInput
+                style={[
+                  styles.leaveModalTextArea,
+                  {
+                    backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                    borderColor: isDark ? '#334155' : '#cbd5e1',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  },
+                ]}
+                value={newLeaveReason}
+                onChangeText={setNewLeaveReason}
+                placeholder="İzin gerekçenizi belirtiniz..."
+                placeholderTextColor="#64748b"
+                multiline
+                numberOfLines={3}
+              />
 
               <TouchableOpacity
-                style={{
-                  marginTop: 14,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
-                  alignItems: 'center',
-                }}
-                onPress={() => setIsDeleteStaffModalOpen(false)}
+                style={[styles.leaveSubmitBtn, isSubmittingLeave && { opacity: 0.6 }]}
+                onPress={handleSaveLeaveRequest}
+                disabled={isSubmittingLeave}
+                activeOpacity={0.85}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#cbd5e1' : '#475569' }}>
-                  Kapat
-                </Text>
+                {isSubmittingLeave ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <Send size={16} color="#ffffff" />
+                    <Text style={styles.leaveSubmitBtnText}>Talebi Gönder</Text>
+                  </>
+                )}
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
-        </Modal>
-      )}
+        </View>
+      </Modal>
 
       {/* Top Bar Modals */}
       <UserManagementModal
@@ -3545,6 +4404,271 @@ const styles = StyleSheet.create({
   breakActivePillText: {
     color: '#ffffff',
     fontSize: 8,
+    fontWeight: '900',
+  },
+
+  /* Ana Menü Stili 5 Buton Launcher */
+  attendanceLauncherGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    rowGap: 16,
+    marginBottom: 16,
+  },
+  attendanceLauncherItem: {
+    width: ITEM_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 4,
+  },
+  attendanceLauncherCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    position: 'relative',
+  },
+  attendanceLauncherIconInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attendanceLauncherLabel: {
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 14,
+    maxWidth: 95,
+  },
+  launcherBadgeRed: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
+  },
+  launcherBadgeRedText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#ffffff',
+  },
+  launcherBadgePill: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
+  },
+  launcherBadgePillText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#ffffff',
+  },
+
+  /* İzin Yönetim Stilleri */
+  leaveFieldLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    marginBottom: 5,
+  },
+  leaveTypeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  leaveTypeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  leaveTypeBtnActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  leaveTypeBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  leaveModalCard: {
+    width: '92%',
+    maxWidth: 440,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  leaveModalInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  leaveModalTextArea: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlignVertical: 'top',
+    minHeight: 65,
+  },
+  leaveSubmitBtn: {
+    marginTop: 16,
+    backgroundColor: '#8b5cf6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  leaveSubmitBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  leaveCardItem: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+    marginBottom: 10,
+  },
+  leaveCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  leaveCardStaffName: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  leaveCardDates: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  leaveCardReasonBox: {
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  leaveCardReasonText: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  leaveCardBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(148, 163, 184, 0.15)',
+  },
+  leaveStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  leaveStatusPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  leaveActionCancelBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  leaveActionCancelBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#ef4444',
+  },
+  leaveActionApproveBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#10b981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  leaveActionApproveBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  leaveActionRejectBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  leaveActionRejectBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#ef4444',
+  },
+  leaveCreateHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#8b5cf6',
+    paddingVertical: 12,
+    borderRadius: 14,
+    marginBottom: 14,
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  leaveCreateHeaderBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
     fontWeight: '900',
   },
 });

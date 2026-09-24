@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Loader2,
   Shield,
-  History,
   Trash2,
   AlertTriangle,
   Send,
@@ -47,7 +46,7 @@ import {
 import { StaffMultiSelect } from '../components/common/StaffMultiSelect';
 
 export const StaffTrackingView: React.FC = () => {
-  const { user, users, company, deleteUser, logout } = useAuth();
+  const { user, users, company } = useAuth();
   const {
     workplaceLocation,
     branches,
@@ -981,16 +980,17 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
   };
 
-  // --- 6. Staff Leave Requests State & Handlers ---
-  const [activeSubTab, setActiveSubTab] = useState<'attendance' | 'leaves'>('attendance');
+  // Ana Menü stili 5 alt bölüm yönetimi
+  type ActiveSection = 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
+  const [activeSection, setActiveSection] = useState<ActiveSection>('checkin_checkout');
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
   useEffect(() => {
     const handleSetSubTab = (e: any) => {
       if (e?.detail?.subTab === 'leaves' || e?.detail?.filter === 'leaves') {
-        setActiveSubTab('leaves');
+        setActiveSection('leaves');
       } else if (e?.detail?.subTab === 'attendance' || e?.detail?.filter === 'attendance') {
-        setActiveSubTab('attendance');
+        setActiveSection('checkin_checkout');
       }
     };
     window.addEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
@@ -1141,50 +1141,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return leaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length;
   }, [leaveRequests, isAdmin, user]);
 
-  const deletableStaffList = useMemo(() => {
-    if (!user) return [];
-    const compCode = (user.companyCode || 'POLATLAR').toUpperCase();
-    return users.filter(
-      (u) =>
-        (u.companyCode || 'POLATLAR').toUpperCase() === compCode &&
-        u.id !== user.id &&
-        u.username.toLowerCase() !== 'admin'
-    );
-  }, [users, user]);
-
-  const [isDeleteStaffModalOpen, setIsDeleteStaffModalOpen] = useState(false);
-
-  const handleDeleteStaff = async (staffId: string, staffName: string) => {
-    if (
-      window.confirm(
-        `"${staffName}" personeli işten ayrıldığı için hesabı sistemden kalıcı olarak silinecektir.\n\nGiriş yetkileri, şifresi ve telefon cihaz kilidi tamamen iptal edilir. Bu işlem geri alınamaz.\n\nOnaylıyor musunuz?`
-      )
-    ) {
-      const res = await deleteUser(staffId);
-      if (res.success) {
-        alert(`"${staffName}" kullanıcısının hesabı başarıyla silindi.`);
-      } else {
-        alert('İşlem Başarısız: ' + (res.error || 'Personel silinemedi.'));
-      }
-    }
-  };
-
-  const handleDeleteAccount = async () => {
-    if (!user) return;
-    if (
-      window.confirm(
-        'Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.'
-      )
-    ) {
-      const res = await deleteUser(user.id);
-      if (res.success) {
-        alert('Hesabınız başarıyla silindi.');
-        logout();
-      } else {
-        alert('İşlem Başarısız: ' + (res.error || 'Hesap silinemedi.'));
-      }
-    }
-  };
+  // Canlı moladaki personeller (Yönetici için)
+  const activeStaffOnBreak = useMemo(() => {
+    return attendanceRecords.filter((r) => r.date === todayStr && r.isOnBreak && r.status === 'checked_in');
+  }, [attendanceRecords, todayStr]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1223,8 +1183,116 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         </div>
       </div>
 
+      {/* ============================================================ */}
+      {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
+      {/* ============================================================ */}
+      <div className="pt-1 pb-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-6 gap-x-3 sm:gap-6 py-2">
+          {[
+            {
+              id: 'checkin_checkout' as const,
+              title: 'İşe Giriş / Çıkış',
+              icon: UserCheck,
+              glowColor: 'text-emerald-500',
+              borderColor: 'border-emerald-500',
+              bgGlow: 'bg-emerald-500/15',
+              badgeText: isCheckedIn ? 'Mesaide' : isCompletedToday ? 'Çıkış' : undefined,
+              badgeCount: isAdmin && pendingRequests.length > 0 ? pendingRequests.length : undefined,
+            },
+            {
+              id: 'breaks' as const,
+              title: 'Mola',
+              icon: Coffee,
+              glowColor: 'text-amber-500',
+              borderColor: 'border-amber-500',
+              bgGlow: 'bg-amber-500/15',
+              badgeText: isOnBreak ? 'MOLADA' : undefined,
+              badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
+            },
+            {
+              id: 'summary' as const,
+              title: 'Mesai Özeti',
+              icon: Clock,
+              glowColor: 'text-blue-500',
+              borderColor: 'border-blue-500',
+              bgGlow: 'bg-blue-500/15',
+            },
+            {
+              id: 'leaves' as const,
+              title: 'İzin Takibi',
+              icon: CalendarRange,
+              glowColor: 'text-purple-500',
+              borderColor: 'border-purple-500',
+              bgGlow: 'bg-purple-500/15',
+              badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
+            },
+            ...(isAdmin
+              ? [
+                  {
+                    id: 'workplace' as const,
+                    title: 'Merkez İş Yeri',
+                    icon: Store,
+                    glowColor: 'text-teal-500',
+                    borderColor: 'border-teal-500',
+                    bgGlow: 'bg-teal-500/15',
+                    badgeText: '20m',
+                  },
+                ]
+              : []),
+          ].map((mod) => {
+            const Icon = mod.icon;
+            const isSelected = activeSection === mod.id;
+            return (
+              <button
+                key={mod.id}
+                type="button"
+                onClick={() => setActiveSection(mod.id)}
+                className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95"
+              >
+                {/* Dairesel Neon Çerçeveli İkon */}
+                <div
+                  className={`relative w-16 h-16 sm:w-18 sm:h-18 rounded-full transition-all duration-200 flex items-center justify-center shadow-lg shadow-black/30 ${
+                    isSelected
+                      ? `bg-slate-900 ring-2 ring-offset-2 ring-offset-slate-900 ${mod.borderColor} scale-105`
+                      : 'bg-slate-900/90 dark:bg-slate-900 border-2 border-slate-700/60 hover:scale-105 hover:border-slate-500'
+                  }`}
+                >
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? mod.bgGlow : 'bg-white/5'}`}>
+                    <Icon className={`w-6 h-6 sm:w-7 sm:h-7 ${mod.glowColor}`} />
+                  </div>
+
+                  {/* Rozet */}
+                  {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
+                    <span className="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black border-2 border-slate-950 shadow-md">
+                      {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
+                    </span>
+                  ) : mod.badgeText ? (
+                    <span className={`absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black border border-slate-950 text-white ${
+                      mod.id === 'breaks' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                    }`}>
+                      {mod.badgeText}
+                    </span>
+                  ) : null}
+                </div>
+
+                {/* İkon Altındaki Başlık */}
+                <span
+                  className={`mt-2 text-xs sm:text-sm font-bold text-center leading-tight max-w-[100px] transition-colors ${
+                    isSelected
+                      ? 'text-slate-900 dark:text-white font-black'
+                      : 'text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200'
+                  }`}
+                >
+                  {mod.title}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ --- */}
-      {isAdmin && pendingRequests.length > 0 && (
+      {activeSection === 'checkin_checkout' && isAdmin && pendingRequests.length > 0 && (
         <div className="bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-orange-500/15 dark:from-amber-950/50 dark:via-slate-900 dark:to-orange-950/50 rounded-3xl p-5 sm:p-6 border-2 border-amber-400 dark:border-amber-600 shadow-xl shadow-amber-500/10 space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-amber-200 dark:border-amber-800/80 pb-3">
             <div className="flex items-center gap-3">
@@ -1363,7 +1431,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- ADMIN: ONAY BEKLEYEN İZİN TALEPLERİ PANELİ --- */}
-      {isAdmin && pendingLeaveCount > 0 && (
+      {activeSection === 'leaves' && isAdmin && pendingLeaveCount > 0 && (
         <div className="bg-gradient-to-br from-blue-500/15 via-indigo-500/5 to-purple-500/15 dark:from-blue-950/50 dark:via-slate-900 dark:to-indigo-950/50 rounded-3xl p-5 sm:p-6 border-2 border-blue-400 dark:border-blue-600 shadow-xl shadow-blue-500/10 space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-blue-200 dark:border-blue-800/80 pb-3">
             <div className="flex items-center gap-3">
@@ -1385,7 +1453,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
             <button
               type="button"
-              onClick={() => setActiveSubTab('leaves')}
+              onClick={() => setActiveSection('leaves')}
               className="text-xs font-bold text-blue-700 dark:text-blue-300 underline cursor-pointer"
             >
               Tümünü Gör
@@ -1460,7 +1528,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- SECTION 1: YÖNETİCİ LOKASYON BELİRLEME (Görsel-1 Tasarımı) --- */}
-      {isAdmin && (
+      {activeSection === 'workplace' && isAdmin && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -1569,7 +1637,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- SECTION 2: CANLI MESAFE KARTI & İŞE GİRİŞ / ÇIKIŞ BUTONLARI --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {activeSection === 'checkin_checkout' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Sol Kolon: Canlı Geofence ve Şube / İş Yeri Bilgisi */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
           <div>
@@ -2099,51 +2168,247 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           )}
         </div>
       </div>
+      )}
 
-      {/* --- SECTION 3: CANLI İZLEME TABLOSU VE GEÇMİŞ KAYITLAR --- */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800 w-fit">
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('attendance')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                activeSubTab === 'attendance'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <History className="w-4 h-4 text-emerald-600" />
-              <span>{isAdmin ? 'Mesai Tablosu' : 'Mesai Geçmişim'}</span>
-            </button>
+      {/* ============================================================ */}
+      {/* MODÜL 2: MOLA YÖNETİMİ VE TAKİP PANELİ */}
+      {/* ============================================================ */}
+      {activeSection === 'breaks' && (
+        <div className="space-y-5">
+          {/* Personel Mola Kartı */}
+          {isCheckedIn ? (
+            <div className={`p-5 rounded-3xl border-2 transition-all duration-200 ${
+              isOnBreak
+                ? 'bg-amber-500/10 dark:bg-amber-950/40 border-amber-500 shadow-xl shadow-amber-500/15'
+                : 'bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-800 shadow-sm'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${
+                    isOnBreak
+                      ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/40 animate-pulse'
+                      : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                  }`}>
+                    <Coffee className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100">
+                        {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
+                      </h3>
+                      {isOnBreak ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white animate-pulse">
+                          Canlı Mola
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          Mesaide Aktif
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+                      {isOnBreak ? (
+                        <span className="font-semibold text-amber-700 dark:text-amber-300">
+                          Geçen Mola Süresi: <span className="font-black text-base tracking-wide text-amber-600 dark:text-amber-400">{liveBreakTimerText || 'Hesaplanıyor...'}</span>
+                        </span>
+                      ) : (
+                        <span>
+                          Bugünkü mola özeti:{' '}
+                          <strong className="text-slate-800 dark:text-slate-200">
+                            {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0
+                              ? `${currentUserTodayRecord.breaks.length} mola (${currentUserTodayRecord.totalBreakMinutes || currentUserTodayRecord.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0)} dk)`
+                              : 'Henüz molaya çıkılmadı'}
+                          </strong>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('leaves')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                activeSubTab === 'leaves'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <FileText className="w-4 h-4 text-blue-600" />
-              <span>{isAdmin ? 'İzin Talepleri' : 'İzinlerim'}</span>
-              {pendingLeaveCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black animate-pulse">
-                  {pendingLeaveCount}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {isOnBreak ? (
+                    <button
+                      type="button"
+                      onClick={handleEndBreak}
+                      disabled={isProcessingBreak}
+                      className="w-full sm:w-auto px-6 py-3 rounded-2xl font-black text-xs sm:text-sm text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
+                      <span>Molayı Bitir ve Mesaiye Dön</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStartBreak}
+                      disabled={isProcessingBreak}
+                      className="w-full sm:w-auto px-6 py-3 rounded-2xl font-black text-xs sm:text-sm text-amber-900 dark:text-amber-100 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/60 dark:hover:bg-amber-900/90 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                    >
+                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Coffee className="w-4 h-4 text-amber-700 dark:text-amber-300" />}
+                      <span>Molaya Çık</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Bugünkü Molalarım Dökümü */}
+              {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-amber-200 dark:border-amber-800/60">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    Bugünkü Molalarınız ({currentUserTodayRecord.breaks.length} Adet)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    {currentUserTodayRecord.breaks.map((b, idx) => {
+                      const bStart = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                      const bEnd = b.endTime ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam ediyor';
+                      const bDur = b.durationMinutes || (b.endTime ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000)) : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+                      return (
+                        <div
+                          key={b.id || idx}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
+                        >
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            ☕ {idx + 1}. Mola: {bStart} - {bEnd}
+                          </span>
+                          <span className="font-black text-amber-600 dark:text-amber-400">
+                            {bDur} dk
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
-            </button>
-          </div>
+            </div>
+          ) : (
+            <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3 shadow-sm">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <Coffee className="w-7 h-7" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                Henüz İşe Giriş Yapmadınız
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                Molaya çıkabilmek için önce işe giriş yapmış olmanız gerekmektedir.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveSection('checkin_checkout')}
+                className="mt-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer inline-flex items-center gap-2"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>İşe Giriş Bölümüne Git</span>
+              </button>
+            </div>
+          )}
 
-          {activeSubTab === 'attendance' ? (
-            /* Dışa Aktarma Butonları (Yönetici & Personel) */
+          {/* YÖNETİCİ PANELİ: Personel Mola Detayları */}
+          {isAdmin && (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <span>Personel Mola Detayları (Yönetici Paneli)</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                      {activeStaffOnBreak.length} Molada
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Tüm personellerin anlık mola durumları ve gün içindeki toplam mola süreleri.
+                  </p>
+                </div>
+              </div>
+
+              {/* Canlı Moladaki Personeller */}
+              <div className="space-y-2.5">
+                <h4 className="text-xs font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  <span>Şu Anda Canlı Molada Olanlar ({activeStaffOnBreak.length})</span>
+                </h4>
+                {activeStaffOnBreak.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-2">Şu anda molada olan personel bulunmuyor.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {activeStaffOnBreak.map((rec) => {
+                      const startTime = rec.currentBreakStartTime ? new Date(rec.currentBreakStartTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-';
+                      const durMins = rec.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - rec.currentBreakStartTime) / 60000)) : 1;
+                      return (
+                        <div key={rec.id} className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                          <div>
+                            <div className="font-black text-xs text-slate-900 dark:text-slate-100">{rec.userName}</div>
+                            <div className="text-[10px] text-slate-500">Başlangıç: {startTime}</div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500 text-white shadow-xs animate-pulse">
+                            {durMins} dk'dır molada
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Bugünkü Personel Mola Dökümleri */}
+              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  ☕ Bugünkü Personel Mola Dökümleri
+                </h4>
+                {(() => {
+                  const todayBreakStaff = attendanceRecords.filter((r) => r.date === todayStr && r.breaks && r.breaks.length > 0);
+                  if (todayBreakStaff.length === 0) {
+                    return <p className="text-xs text-slate-400 italic py-2">Bugün henüz hiçbir personel molaya çıkmadı.</p>;
+                  }
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {todayBreakStaff.map((rec) => (
+                        <div key={rec.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">{rec.userName}</div>
+                            <div className="text-[10px] text-slate-400">{rec.breaks!.length} defa molaya çıktı</div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-lg text-xs font-black text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60">
+                            Toplam {rec.totalBreakMinutes || rec.breaks!.reduce((a, b) => a + (b.durationMinutes || 0), 0)} dk
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODÜL 3: MESAİ ÖZETİ KISMI */}
+      {/* ============================================================ */}
+      {activeSection === 'summary' && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100">
+                  {isAdmin ? 'Personel Mesai Tablosu ve Dönem Özetleri' : 'Mesai Geçmişim ve Süreler'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  {isAdmin ? 'Personellerin çalışma saatleri, dönem özetleri ve mola detayları.' : 'Giriş-çıkış saatleriniz, brüt ve net mesai süreleriniz.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Dışa Aktarma Butonları (Yönetici & Personel) */}
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={handleExportExcel}
                 disabled={isExportingExcel || filteredRecords.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
                 title="Excel (.xlsx) olarak indir"
               >
                 {isExportingExcel ? (
@@ -2158,7 +2423,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 type="button"
                 onClick={handleExportPdf}
                 disabled={isExportingPdf || filteredRecords.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
                 title="PDF Raporu olarak indir"
               >
                 {isExportingPdf ? (
@@ -2169,58 +2434,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 <span>PDF Raporu İndir</span>
               </button>
             </div>
-          ) : (
-            /* İzin Filtresi ve Yeni İzin Butonu */
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setLeaveStatusFilter('all')}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                    leaveStatusFilter === 'all'
-                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Tümü ({leaveRequests.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLeaveStatusFilter('pending')}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                    leaveStatusFilter === 'pending'
-                      ? 'bg-amber-500 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Bekleyen ({leaveRequests.filter((l) => l.status === 'pending').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLeaveStatusFilter('approved')}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                    leaveStatusFilter === 'approved'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Onaylanan
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleOpenLeaveModal}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
-              >
-                <CalendarPlus className="w-3.5 h-3.5" />
-                <span>İzin Al</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        {activeSubTab === 'attendance' && (
+          </div>
           <>
             {/* 1. Tarih Aralığı Filtre Barı ve Hızlı Seçim Butonları */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-3">
@@ -3032,11 +3246,96 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               </div>
             )}
           </>
-        )}
+        </div>
+      )}
 
-    {/* SUB-TAB 2: İZİN TALEPLERİ */}
-    {activeSubTab === 'leaves' && (
-      <div className="space-y-4">
+      {/* ============================================================ */}
+      {/* MODÜL 4: İZİN TAKİBİ */}
+      {/* ============================================================ */}
+      {activeSection === 'leaves' && (
+        <div className="space-y-5">
+          {/* Üst Bar: Başlık ve Yeni İzin Butonu */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                <CalendarRange className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Personel İzin Yönetimi ve Talepler</span>
+                  {pendingLeaveCount > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-purple-600 text-white">
+                      {pendingLeaveCount} Bekleyen
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  Saatlik ve günlük izin başvuruları, yönetici onayları ve geçmiş izin takibi.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleOpenLeaveModal}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white text-xs font-black shadow-lg shadow-purple-600/25 transition-all cursor-pointer"
+            >
+              <CalendarPlus className="w-4 h-4" />
+              <span>Yeni İzin Talebi Oluştur</span>
+            </button>
+          </div>
+
+          {/* İzin Filtresi ve İzin Talepleri Tablosu */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-2 flex-wrap pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">İzin Durumu:</span>
+              <div className="flex items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    leaveStatusFilter === 'all'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Tümü ({leaveRequests.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('pending')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    leaveStatusFilter === 'pending'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Bekleyen ({leaveRequests.filter((l) => l.status === 'pending').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('approved')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    leaveStatusFilter === 'approved'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Onaylanan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaveStatusFilter('rejected')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    leaveStatusFilter === 'rejected'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Reddedilen
+                </button>
+              </div>
+            </div>
         {userLeaveRequests.length === 0 ? (
           <div className="py-12 text-center text-slate-400 dark:text-slate-500">
             <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -3262,120 +3561,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           </div>
         )}
       </div>
-    )}
-
-    {/* En Alt: Kalıcı Hesabı Sil Bölümü */}
-    {user && (
-      <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-3 border-t border-slate-200/80 dark:border-slate-800 mt-6">
-        <div className="flex items-center gap-3 flex-wrap justify-center">
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setIsDeleteStaffModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black text-white bg-red-600 hover:bg-red-700 shadow-md shadow-red-600/25 transition-all cursor-pointer active:scale-95"
-              title="İşten ayrılan personelin hesabını kalıcı olarak sil"
-            >
-              <UserX className="w-4 h-4" />
-              <span>Personel Hesabı Sil (Yönetici)</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleDeleteAccount}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 bg-red-50/80 dark:bg-red-950/40 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white border border-red-200 dark:border-red-900/60 shadow-xs transition-all cursor-pointer group"
-            title="Kendi oturum açtığınız hesabı kalıcı olarak silin"
-          >
-            <UserX className="w-4 h-4 text-red-600 dark:text-red-400 group-hover:text-white transition-colors" />
-            <span>Kendi Hesabımı Sil</span>
-          </button>
-        </div>
-
-        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-md">
-          {isAdmin
-            ? 'İşten ayrılan personellerin hesaplarını silebilir veya kendi hesabınızı tamamen kapatabilirsiniz.'
-            : 'İşten ayrılma veya hesabınızı tamamen kapatmak istediğinizde hesabınızı kalıcı olarak silebilirsiniz.'}
-        </p>
-      </div>
-    )}
-  </div>
-
-      {/* --- MODAL: YÖNETİCİ İÇİN İŞTEN AYRILAN PERSONEL HESABINI SİLME MODALI --- */}
-      {isAdmin && isDeleteStaffModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-red-200 dark:border-red-900/60 space-y-4">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-950/60 border border-red-200 dark:border-red-800 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
-                  <UserX className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
-                    Personel Hesabını Kalıcı Olarak Sil
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    İşten ayrılan personeli sistemden ve cihazlardan tamamen kaldırın.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsDeleteStaffModalOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              İşten ayrılan personelin hesabı silindiğinde şifresi iptal edilir, kayıtlı telefonu sistemden çıkarılır ve uygulamaya bir daha asla giriş yapamaz.
-            </p>
-
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {deletableStaffList.length === 0 ? (
-                <div className="p-6 text-center text-xs text-slate-400">
-                  Silinebilecek kayıtlı personel bulunamadı.
-                </div>
-              ) : (
-                deletableStaffList.map((st) => (
-                  <div
-                    key={st.id}
-                    className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
-                        {st.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        @{st.username} • {st.role === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteStaff(st.id, st.name)}
-                      className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-600 text-red-600 hover:text-white dark:bg-red-950/50 dark:hover:bg-red-600 dark:text-red-400 dark:hover:text-white border border-red-200 dark:border-red-900/60 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Hesabı Sil</span>
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-2 flex justify-end border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setIsDeleteStaffModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                Kapat
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+    </div>
+  )}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (
