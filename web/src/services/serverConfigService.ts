@@ -12,10 +12,30 @@ export function normalizeServerUrl(url: string): string {
   if (!cleaned) return '';
   // Fix accidental dot before port, e.g. 81.213.219.69.3001 -> 81.213.219.69:3001
   cleaned = cleaned.replace(/\.3001$/, ':3001');
+  if (cleaned.endsWith(':')) {
+    cleaned += '3001';
+  } else if (/^https?:\/\/\d+\.\d+\.\d+\.\d+$/i.test(cleaned)) {
+    cleaned += ':3001';
+  }
   if (!/^https?:\/\//i.test(cleaned)) {
     cleaned = 'http://' + cleaned;
   }
   return cleaned;
+}
+
+export function shouldProxy(targetUrl: string): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.protocol === 'https:' && targetUrl.startsWith('http:');
+}
+
+export function getResolvedApiUrl(targetBaseUrl: string, endpoint: string): string {
+  if (shouldProxy(targetBaseUrl)) {
+    const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `/api/proxy?endpoint=${encodeURIComponent(cleanEp)}&target=${encodeURIComponent(targetBaseUrl.replace(/\/+$/, ''))}`;
+  }
+  const cleanBase = targetBaseUrl.replace(/\/+$/, '');
+  const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${cleanBase}${cleanEp}`;
 }
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
@@ -88,9 +108,9 @@ export const ServerConfigService = {
       return { success: false, message: 'Sunucu adresi boş olamaz.' };
     }
 
-    const healthUrl = `${rawUrl}/api/health`;
+    const healthUrl = getResolvedApiUrl(rawUrl, '/api/health');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000); // 7s timeout
+    const timer = setTimeout(() => controller.abort(), 9000); // 9s timeout
 
     try {
       const res = await fetch(healthUrl, {
@@ -125,7 +145,7 @@ export const ServerConfigService = {
       if (err.name === 'AbortError') {
         return {
           success: false,
-          message: 'Zaman aşımı (7sn). Sunucuya ulaşılamadı. IP adresini ve 3001 portunu kontrol edin.',
+          message: 'Zaman aşımı (9sn). Sunucuya ulaşılamadı. IP adresini ve 3001 portunu kontrol edin.',
         };
       }
       return {
@@ -138,8 +158,9 @@ export const ServerConfigService = {
   async apiGet<T>(endpoint: string): Promise<{ data: T | null; error?: string }> {
     const baseUrl = this.getActiveApiUrl();
     if (!baseUrl) return { data: null, error: 'Not in local mode' };
+    const requestUrl = getResolvedApiUrl(baseUrl, endpoint);
     try {
-      const res = await fetch(`${baseUrl}${endpoint}`, {
+      const res = await fetch(requestUrl, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
       });
@@ -154,8 +175,9 @@ export const ServerConfigService = {
   async apiPost<T>(endpoint: string, body: any): Promise<{ data: T | null; error?: string }> {
     const baseUrl = this.getActiveApiUrl();
     if (!baseUrl) return { data: null, error: 'Not in local mode' };
+    const requestUrl = getResolvedApiUrl(baseUrl, endpoint);
     try {
-      const res = await fetch(`${baseUrl}${endpoint}`, {
+      const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(body),
