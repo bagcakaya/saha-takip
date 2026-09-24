@@ -479,6 +479,7 @@ export const StaffTrackingView: React.FC = () => {
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [breakAdminDate, setBreakAdminDate] = useState<string>(todayStr);
 
   // Quick Date Preset Handler
   const applyPreset = (
@@ -2022,83 +2023,6 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </button>
           </div>
 
-          {/* Mola Yönetim Kartı (İşe girmiş personeller için canlı mola paneli) */}
-          {isCheckedIn && (
-            <div className={`p-4 rounded-2xl border-2 transition-all duration-200 ${
-              isOnBreak
-                ? 'bg-amber-500/10 dark:bg-amber-950/40 border-amber-500 shadow-md shadow-amber-500/15'
-                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
-                    isOnBreak
-                      ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30 animate-pulse'
-                      : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
-                  }`}>
-                    <Coffee className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                        {isOnBreak ? '☕ Şu Anda Moladasınız' : 'Personel Mola Yönetimi'}
-                      </h4>
-                      {isOnBreak ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
-                          Canlı Mola
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                          Mesaide Aktif
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {isOnBreak ? (
-                        <span className="font-semibold text-amber-700 dark:text-amber-300">
-                          Geçen Mola Süresi: <span className="font-black text-sm tracking-wide">{liveBreakTimerText || 'Hesaplanıyor...'}</span>
-                        </span>
-                      ) : (
-                        <span>
-                          Bugünkü mola özeti:{' '}
-                          <strong>
-                            {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0
-                              ? `${currentUserTodayRecord.breaks.length} mola (${currentUserTodayRecord.totalBreakMinutes || currentUserTodayRecord.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0)} dk)`
-                              : 'Henüz molaya çıkılmadı'}
-                          </strong>
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {isOnBreak ? (
-                    <button
-                      type="button"
-                      onClick={handleEndBreak}
-                      disabled={isProcessingBreak}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-black text-xs text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 shadow-md shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
-                      <span>Molayı Bitir ve Mesaiye Dön</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleStartBreak}
-                      disabled={isProcessingBreak}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-black text-xs text-amber-900 dark:text-amber-100 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/60 dark:hover:bg-amber-900/90 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-                    >
-                      {isProcessingBreak ? <Loader2 className="w-4 h-4 animate-spin" /> : <Coffee className="w-4 h-4 text-amber-700 dark:text-amber-300" />}
-                      <span>Molaya Çık</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Bugünkü Giriş & Çıkış Detay Kartı */}
           {currentUserTodayRecord && (
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2.5">
@@ -2327,44 +2251,102 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
           )}
 
-          {/* YÖNETİCİ PANELİ: Personel Mola Detayları */}
+          {/* YÖNETİCİ PANELİ: Personel Mola Detayları ve Ayrı Ayrı Alt Alta Döküm */}
           {isAdmin && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
-                  <Users className="w-5 h-5" />
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              {/* Başlık ve Tarih Filtresi */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <span>Personel Mola Detayları ve Dökümü</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                        Yönetici Paneli
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Personellerin molaya giriş ve çıkış saatleri, süreleri ve günlük mola dökümleri.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    <span>Personel Mola Detayları (Yönetici Paneli)</span>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-                      {activeStaffOnBreak.length} Molada
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Tüm personellerin anlık mola durumları ve gün içindeki toplam mola süreleri.
-                  </p>
+
+                {/* Tarih Seçimi Butonları & Date Input */}
+                <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setBreakAdminDate(todayStr)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      breakAdminDate === todayStr
+                        ? 'bg-amber-500 text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Bugün
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const y = new Date();
+                      y.setDate(y.getDate() - 1);
+                      setBreakAdminDate(y.toISOString().split('T')[0]);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      (() => {
+                        const y = new Date();
+                        y.setDate(y.getDate() - 1);
+                        return breakAdminDate === y.toISOString().split('T')[0];
+                      })()
+                        ? 'bg-amber-500 text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Dün
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={breakAdminDate}
+                      onChange={(e) => setBreakAdminDate(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Canlı Moladaki Personeller */}
-              <div className="space-y-2.5">
-                <h4 className="text-xs font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <span>Şu Anda Canlı Molada Olanlar ({activeStaffOnBreak.length})</span>
-                </h4>
-                {activeStaffOnBreak.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic py-2">Şu anda molada olan personel bulunmuyor.</p>
-                ) : (
+              {/* Canlı Moladaki Personeller (Eğer varsa öne çıkar) */}
+              {breakAdminDate === todayStr && activeStaffOnBreak.length > 0 && (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border-2 border-amber-400 dark:border-amber-600 space-y-3 shadow-md shadow-amber-500/10">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider flex items-center gap-2">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                      </span>
+                      <span>Şu Anda Canlı Molada Olan Personeller ({activeStaffOnBreak.length})</span>
+                    </h4>
+                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                      Canlı Takip
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {activeStaffOnBreak.map((rec) => {
                       const startTime = rec.currentBreakStartTime ? new Date(rec.currentBreakStartTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-';
                       const durMins = rec.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - rec.currentBreakStartTime) / 60000)) : 1;
                       return (
-                        <div key={rec.id} className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                        <div key={rec.id} className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700 flex items-center justify-between shadow-xs">
                           <div>
-                            <div className="font-black text-xs text-slate-900 dark:text-slate-100">{rec.userName}</div>
-                            <div className="text-[10px] text-slate-500">Başlangıç: {startTime}</div>
+                            <div className="font-black text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                              <Coffee className="w-3.5 h-3.5 text-amber-500" />
+                              <span>{rec.userName}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              Molaya Giriş: <strong>{startTime}</strong>
+                            </div>
                           </div>
                           <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500 text-white shadow-xs animate-pulse">
                             {durMins} dk'dır molada
@@ -2373,36 +2355,214 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       );
                     })}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Bugünkü Personel Mola Dökümleri */}
-              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  ☕ Bugünkü Personel Mola Dökümleri
-                </h4>
-                {(() => {
-                  const todayBreakStaff = attendanceRecords.filter((r) => r.date === todayStr && r.breaks && r.breaks.length > 0);
-                  if (todayBreakStaff.length === 0) {
-                    return <p className="text-xs text-slate-400 italic py-2">Bugün henüz hiçbir personel molaya çıkmadı.</p>;
-                  }
-                  return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {todayBreakStaff.map((rec) => (
-                        <div key={rec.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">{rec.userName}</div>
-                            <div className="text-[10px] text-slate-400">{rec.breaks!.length} defa molaya çıktı</div>
-                          </div>
-                          <span className="px-2.5 py-1 rounded-lg text-xs font-black text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60">
-                            Toplam {rec.totalBreakMinutes || rec.breaks!.reduce((a, b) => a + (b.durationMinutes || 0), 0)} dk
-                          </span>
-                        </div>
-                      ))}
+              {/* Günün Mola İstatistikleri ve Detaylı Personel Mola Dökümleri */}
+              {(() => {
+                const dateStaffRecords = attendanceRecords.filter((r) => r.date === breakAdminDate && ((r.breaks && r.breaks.length > 0) || r.isOnBreak));
+                const totalBreaksTaken = dateStaffRecords.reduce((acc, r) => acc + (r.breaks?.length || 0), 0);
+                const totalBreakMinsAll = dateStaffRecords.reduce((acc, r) => acc + calculateRecordBreakMinutes(r), 0);
+
+                return (
+                  <div className="space-y-4">
+                    {/* Özet Mini Sayaçlar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Mola Alan Personel</span>
+                        <span className="text-lg font-black text-slate-900 dark:text-slate-100 mt-0.5 block">
+                          {dateStaffRecords.length} Kişi
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Toplam Mola Adedi</span>
+                        <span className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5 block">
+                          {totalBreaksTaken} Defa
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Toplam Mola Süresi</span>
+                        <span className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5 block">
+                          {totalBreakMinsAll} dk ({formatMinutesToDuration(totalBreakMinsAll)})
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Seçili Tarih</span>
+                        <span className="text-xs font-black text-slate-700 dark:text-slate-300 mt-1 block truncate">
+                          {new Date(breakAdminDate + 'T00:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
-                  );
-                })()}
-              </div>
+
+                    {/* Personellerin Ayrı Ayrı Alt Alta Mola Dökümleri */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                          <Coffee className="w-4 h-4 text-amber-500" />
+                          <span>Detaylı Personel Mola Döküm Listesi</span>
+                        </h4>
+                        <span className="text-xs text-slate-400">
+                          {dateStaffRecords.length} personel mola kaydı
+                        </span>
+                      </div>
+
+                      {dateStaffRecords.length === 0 ? (
+                        <div className="p-8 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 text-center space-y-2">
+                          <Coffee className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+                          <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                            Seçilen tarihte ({new Date(breakAdminDate + 'T00:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}) mola kullanan personel bulunmuyor.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {dateStaffRecords.map((rec) => {
+                            const recBreakTotal = calculateRecordBreakMinutes(rec);
+                            const breaksCount = rec.breaks?.length || 0;
+
+                            return (
+                              <div
+                                key={rec.id}
+                                className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-700/70 shadow-xs space-y-3.5"
+                              >
+                                {/* Personel Üst Kartı */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 flex items-center justify-center font-black text-sm shrink-0">
+                                      {rec.userName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">
+                                          {rec.userName}
+                                        </span>
+                                        {rec.userRole && (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                            {rec.userRole}
+                                          </span>
+                                        )}
+                                        {rec.branchName && (
+                                          <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-400 flex items-center gap-1">
+                                            <Store className="w-3 h-3" />
+                                            {rec.branchName}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-3">
+                                        <span>İşe Giriş: <strong>{new Date(rec.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                        {rec.checkOutTime && (
+                                          <span>İşten Çıkış: <strong>{new Date(rec.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                                    {rec.isOnBreak ? (
+                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-white animate-pulse shadow-xs">
+                                        <Coffee className="w-3.5 h-3.5" />
+                                        <span>Şu Anda Canlı Molada</span>
+                                      </span>
+                                    ) : rec.status === 'checked_in' ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                        <span>Mesaide Aktif</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                        <span>Mesai Tamamlandı</span>
+                                      </span>
+                                    )}
+
+                                    <span className="px-3 py-1 rounded-xl text-xs font-black bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                      Toplam Mola: {recBreakTotal} dk ({breaksCount} Adet)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Ayrı Ayrı Alt Alta Mola Tablosu */}
+                                {rec.breaks && rec.breaks.length > 0 ? (
+                                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-xs">
+                                    <table className="w-full text-left text-xs">
+                                      <thead>
+                                        <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-800/70 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                                          <th className="py-2.5 px-3.5">Mola No</th>
+                                          <th className="py-2.5 px-3.5">Molaya Giriş Saati</th>
+                                          <th className="py-2.5 px-3.5">Moladan Çıkış Saati</th>
+                                          <th className="py-2.5 px-3.5">Mola Süresi</th>
+                                          <th className="py-2.5 px-3.5">Not / Açıklama</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {rec.breaks.map((b, bIdx) => {
+                                          const isCurrentBreak = rec.isOnBreak && (!b.endTime || (bIdx === rec.breaks!.length - 1 && !b.endTime));
+                                          const startStr = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                                          const endStr = b.endTime
+                                            ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+                                            : (isCurrentBreak ? '🟡 Halen Molada' : '-');
+                                          const durMins = b.durationMinutes !== undefined
+                                            ? b.durationMinutes
+                                            : (b.endTime
+                                                ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000))
+                                                : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+
+                                          return (
+                                            <tr
+                                              key={b.id || bIdx}
+                                              className={isCurrentBreak ? 'bg-amber-500/10 font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}
+                                            >
+                                              <td className="py-2.5 px-3.5 font-black text-slate-800 dark:text-slate-200">
+                                                <div className="flex items-center gap-1.5">
+                                                  <Coffee className="w-3.5 h-3.5 text-amber-500" />
+                                                  <span>{bIdx + 1}. Mola</span>
+                                                </div>
+                                              </td>
+                                              <td className="py-2.5 px-3.5 font-bold text-slate-700 dark:text-slate-300">
+                                                {startStr}
+                                              </td>
+                                              <td className="py-2.5 px-3.5">
+                                                {isCurrentBreak ? (
+                                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-black animate-pulse">
+                                                    <Clock className="w-3 h-3" />
+                                                    <span>Halen Molada (Devam Ediyor)</span>
+                                                  </span>
+                                                ) : (
+                                                  <span className="font-bold text-slate-700 dark:text-slate-300">{endStr}</span>
+                                                )}
+                                              </td>
+                                              <td className="py-2.5 px-3.5">
+                                                <span
+                                                  className={`px-2.5 py-0.5 rounded-lg text-xs font-black inline-block ${
+                                                    isCurrentBreak
+                                                      ? 'bg-amber-500 text-white shadow-xs animate-pulse'
+                                                      : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                                                  }`}
+                                                >
+                                                  {durMins} dakika {isCurrentBreak && '(canlı)'}
+                                                </span>
+                                              </td>
+                                              <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400">
+                                                {b.note || 'Mola'}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="py-2 px-3 text-xs text-slate-400 italic">
+                                    Mola detayı bulunmuyor.
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>

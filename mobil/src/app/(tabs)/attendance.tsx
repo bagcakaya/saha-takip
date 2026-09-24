@@ -1905,43 +1905,152 @@ export default function AttendanceScreen() {
                   </View>
                 )}
 
-                {/* Bugünkü Personel Mola Özeti */}
-                <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 6 }}>
-                  ☕ Bugünkü Personel Mola Dökümleri
+                {/* Bugünkü Personel Mola Dökümleri */}
+                <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 8, marginTop: 4 }}>
+                  ☕ Personel Mola Dökümleri (Alt Alta Detay Listesi)
                 </Text>
                 {(() => {
-                  const todayBreakStaff = attendanceRecords.filter((r) => r.date === todayStr && r.breaks && r.breaks.length > 0);
+                  const todayBreakStaff = attendanceRecords.filter((r) => r.date === todayStr && ((r.breaks && r.breaks.length > 0) || r.isOnBreak));
                   if (todayBreakStaff.length === 0) {
                     return (
-                      <Text style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
-                        Bugün henüz hiçbir personel molaya çıkmadı.
-                      </Text>
+                      <View style={{ padding: 16, alignItems: 'center', backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderRadius: 10, borderWidth: 1, borderColor: isDark ? '#334155' : '#e2e8f0' }}>
+                        <Coffee size={24} color="#94a3b8" />
+                        <Text style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginTop: 4 }}>
+                          Bugün henüz hiçbir personel molaya çıkmadı.
+                        </Text>
+                      </View>
                     );
                   }
                   return (
-                    <View style={{ gap: 6 }}>
-                      {todayBreakStaff.map((rec) => (
-                        <View
-                          key={rec.id}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: 8,
-                            borderRadius: 8,
-                            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
-                            borderWidth: 1,
-                            borderColor: isDark ? '#334155' : '#e2e8f0',
-                          }}
-                        >
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#ffffff' : '#0f172a' }}>
-                            {rec.userName}
-                          </Text>
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#d97706' }}>
-                            {rec.breaks!.length} Mola ({calculateRecordBreakMinutes(rec)} dk)
-                          </Text>
-                        </View>
-                      ))}
+                    <View style={{ gap: 10 }}>
+                      {todayBreakStaff.map((rec) => {
+                        const totalMins = calculateRecordBreakMinutes(rec);
+                        const breaksCount = rec.breaks?.length || 0;
+
+                        return (
+                          <View
+                            key={rec.id}
+                            style={{
+                              padding: 12,
+                              borderRadius: 12,
+                              backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                              borderWidth: 1,
+                              borderColor: isDark ? '#334155' : '#e2e8f0',
+                              gap: 8,
+                            }}
+                          >
+                            {/* Personel Başlık Satırı */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <Text style={{ fontSize: 13, fontWeight: '900', color: isDark ? '#ffffff' : '#0f172a' }}>
+                                    {rec.userName}
+                                  </Text>
+                                  {rec.userRole && (
+                                    <View style={{ backgroundColor: isDark ? '#334155' : '#e2e8f0', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                                      <Text style={{ fontSize: 9, fontWeight: '700', color: isDark ? '#cbd5e1' : '#475569' }}>
+                                        {rec.userRole}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                                {rec.branchName && (
+                                  <Text style={{ fontSize: 10, color: '#0d9488', fontWeight: '700', marginTop: 1 }}>
+                                    Şube: {rec.branchName}
+                                  </Text>
+                                )}
+                              </View>
+
+                              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                                {rec.isOnBreak && (
+                                  <View style={{ backgroundColor: '#f59e0b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                    <Text style={{ fontSize: 9, fontWeight: '900', color: '#ffffff' }}>
+                                      🟡 Molada
+                                    </Text>
+                                  </View>
+                                )}
+                                <Text style={{ fontSize: 11, fontWeight: '900', color: '#d97706' }}>
+                                  Toplam: {totalMins} dk ({breaksCount} Mola)
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* Ayrı Ayrı Alt Alta Mola Dökümü */}
+                            {rec.breaks && rec.breaks.length > 0 && (
+                              <View style={{ gap: 6, marginTop: 4, borderTopWidth: 1, borderTopColor: isDark ? '#334155' : '#e2e8f0', paddingTop: 8 }}>
+                                {rec.breaks.map((b, bIdx) => {
+                                  const isCurrentBreak = rec.isOnBreak && (!b.endTime || (bIdx === rec.breaks!.length - 1 && !b.endTime));
+                                  const startStr = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                                  const endStr = b.endTime
+                                    ? new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+                                    : (isCurrentBreak ? '🟡 Halen Molada' : '-');
+                                  const durMins = b.durationMinutes !== undefined
+                                    ? b.durationMinutes
+                                    : (b.endTime
+                                        ? Math.max(1, Math.round((b.endTime - b.startTime) / 60000))
+                                        : Math.max(1, Math.round((Date.now() - b.startTime) / 60000)));
+
+                                  return (
+                                    <View
+                                      key={b.id || bIdx}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: 8,
+                                        borderRadius: 8,
+                                        backgroundColor: isCurrentBreak
+                                          ? (isDark ? 'rgba(245, 158, 11, 0.15)' : '#fffbeb')
+                                          : (isDark ? '#0f172a' : '#ffffff'),
+                                        borderWidth: 1,
+                                        borderColor: isCurrentBreak ? '#f59e0b' : (isDark ? '#334155' : '#e2e8f0'),
+                                      }}
+                                    >
+                                      <View style={{ gap: 2 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                          <Coffee size={12} color="#f59e0b" />
+                                          <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                                            {bIdx + 1}. Mola
+                                          </Text>
+                                        </View>
+                                        <Text style={{ fontSize: 10, color: isDark ? '#94a3b8' : '#64748b' }}>
+                                          Giriş: <Text style={{ fontWeight: '800', color: isDark ? '#cbd5e1' : '#334155' }}>{startStr}</Text> ➔ Çıkış: <Text style={{ fontWeight: '800', color: isCurrentBreak ? '#f59e0b' : (isDark ? '#cbd5e1' : '#334155') }}>{endStr}</Text>
+                                        </Text>
+                                        {b.note && b.note !== 'Mola' && (
+                                          <Text style={{ fontSize: 9, color: isDark ? '#64748b' : '#94a3b8', fontStyle: 'italic' }}>
+                                            Not: {b.note}
+                                          </Text>
+                                        )}
+                                      </View>
+
+                                      <View style={{ alignItems: 'flex-end' }}>
+                                        <View
+                                          style={{
+                                            backgroundColor: isCurrentBreak ? '#f59e0b' : (isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7'),
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 3,
+                                            borderRadius: 6,
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: '900',
+                                              color: isCurrentBreak ? '#ffffff' : '#b45309',
+                                            }}
+                                          >
+                                            {durMins} dk {isCurrentBreak && '(canlı)'}
+                                          </Text>
+                                        </View>
+                                      </View>
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
                   );
                 })()}
