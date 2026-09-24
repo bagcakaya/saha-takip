@@ -12,17 +12,17 @@ const SERVER_CONFIG_KEY = '@saha_takip_server_config';
 export function normalizeServerUrl(url: string): string {
   let cleaned = (url || '').trim().replace(/\/+$/, '');
   if (!cleaned) return '';
+  // Strip any existing protocol and any leading slashes (e.g. //81.213.219.69:3001 or http:////...)
+  cleaned = cleaned.replace(/^https?:\/*/i, '');
+  cleaned = cleaned.replace(/^\/+/, '');
   // Fix accidental dot before port, e.g. 81.213.219.69.3001 -> 81.213.219.69:3001
   cleaned = cleaned.replace(/\.3001$/, ':3001');
   if (cleaned.endsWith(':')) {
     cleaned += '3001';
-  } else if (/^https?:\/\/\d+\.\d+\.\d+\.\d+$/i.test(cleaned)) {
+  } else if (/^\d+\.\d+\.\d+\.\d+$/i.test(cleaned)) {
     cleaned += ':3001';
   }
-  if (!/^https?:\/\//i.test(cleaned)) {
-    cleaned = 'http://' + cleaned;
-  }
-  return cleaned;
+  return 'http://' + cleaned;
 }
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
