@@ -28,6 +28,7 @@ import {
   ChevronDown,
   Coffee,
   Play,
+  ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -980,9 +981,47 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
   };
 
-  // Ana Menü stili 5 alt bölüm yönetimi
-  type ActiveSection = 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
-  const [activeSection, setActiveSection] = useState<ActiveSection>('checkin_checkout');
+  // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak 'menu' başlar)
+  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
+  const [activeSection, setActiveSection] = useState<ActiveSection>('menu');
+
+  const SECTION_INFO_WEB: Record<string, { title: string; subtitle: string; icon: any; color: string; bg: string }> = {
+    checkin_checkout: {
+      title: 'İşe Giriş & Çıkış',
+      subtitle: 'GPS doğrulaması ile anlık işe geliş ve çıkış kayıtları',
+      icon: UserCheck,
+      color: 'text-emerald-500',
+      bg: 'bg-emerald-500/15',
+    },
+    breaks: {
+      title: 'Mola Yönetimi',
+      subtitle: 'Canlı mola sayacı ve günlük mola takibi',
+      icon: Coffee,
+      color: 'text-amber-500',
+      bg: 'bg-amber-500/15',
+    },
+    summary: {
+      title: 'Mesai Özeti & Tablo',
+      subtitle: 'Çalışma geçmişi, dönem filtreleri ve raporlar',
+      icon: Clock,
+      color: 'text-blue-500',
+      bg: 'bg-blue-500/15',
+    },
+    leaves: {
+      title: 'İzin Takibi',
+      subtitle: 'Saatlik ve günlük izin talepleri ve yönetici onayları',
+      icon: CalendarRange,
+      color: 'text-purple-500',
+      bg: 'bg-purple-500/15',
+    },
+    workplace: {
+      title: 'Merkez İş Yeri Lokasyonu',
+      subtitle: '20 metre toleranslı merkez GPS koordinatları',
+      icon: Store,
+      color: 'text-teal-500',
+      bg: 'bg-teal-500/15',
+    },
+  };
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
   useEffect(() => {
@@ -1151,19 +1190,44 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-800 rounded-3xl p-5 sm:p-7 text-white shadow-xl shadow-emerald-500/10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
+          {activeSection !== 'menu' && (
+            <button
+              type="button"
+              onClick={() => setActiveSection('menu')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-black backdrop-blur-md border border-white/20 transition-all cursor-pointer mb-2.5 active:scale-95"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>← Personel Takibi Menüsü</span>
+            </button>
+          )}
+
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-black uppercase tracking-wider mb-2 border border-white/20">
             <UserCheck className="w-3.5 h-3.5" />
             <span>GPS Geofencing Takip</span>
           </div>
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight">
-            Personel Giriş / Çıkış Takibi
+            {activeSection !== 'menu' && SECTION_INFO_WEB[activeSection]
+              ? SECTION_INFO_WEB[activeSection].title
+              : 'Personel Giriş / Çıkış Takibi'}
           </h1>
           <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-1">
-            İşe giriş ve çıkışlar, yöneticinin belirlediği 20 metre çap doğrulaması ile anlık denetlenir.
+            {activeSection !== 'menu' && SECTION_INFO_WEB[activeSection]
+              ? SECTION_INFO_WEB[activeSection].subtitle
+              : 'İşe giriş ve çıkışlar, yöneticinin belirlediği 20 metre çap doğrulaması ile anlık denetlenir.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          {activeSection !== 'menu' && (
+            <button
+              type="button"
+              onClick={() => setActiveSection('menu')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/20 hover:bg-white/30 active:scale-95 text-white text-xs font-black backdrop-blur-md border border-white/30 transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Menüye Dön</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleOpenLeaveModal}
@@ -1184,112 +1248,138 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       </div>
 
       {/* ============================================================ */}
-      {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
+      {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (activeSection === 'menu') */}
       {/* ============================================================ */}
-      <div className="pt-1 pb-2">
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-6 gap-x-3 sm:gap-6 py-2">
-          {[
-            {
-              id: 'checkin_checkout' as const,
-              title: 'İşe Giriş / Çıkış',
-              icon: UserCheck,
-              glowColor: 'text-emerald-500',
-              borderColor: 'border-emerald-500',
-              bgGlow: 'bg-emerald-500/15',
-              badgeText: isCheckedIn ? 'Mesaide' : isCompletedToday ? 'Çıkış' : undefined,
-              badgeCount: isAdmin && pendingRequests.length > 0 ? pendingRequests.length : undefined,
-            },
-            {
-              id: 'breaks' as const,
-              title: 'Mola',
-              icon: Coffee,
-              glowColor: 'text-amber-500',
-              borderColor: 'border-amber-500',
-              bgGlow: 'bg-amber-500/15',
-              badgeText: isOnBreak ? 'MOLADA' : undefined,
-              badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
-            },
-            {
-              id: 'summary' as const,
-              title: 'Mesai Özeti',
-              icon: Clock,
-              glowColor: 'text-blue-500',
-              borderColor: 'border-blue-500',
-              bgGlow: 'bg-blue-500/15',
-            },
-            {
-              id: 'leaves' as const,
-              title: 'İzin Takibi',
-              icon: CalendarRange,
-              glowColor: 'text-purple-500',
-              borderColor: 'border-purple-500',
-              bgGlow: 'bg-purple-500/15',
-              badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
-            },
-            ...(isAdmin
-              ? [
-                  {
-                    id: 'workplace' as const,
-                    title: 'Merkez İş Yeri',
-                    icon: Store,
-                    glowColor: 'text-teal-500',
-                    borderColor: 'border-teal-500',
-                    bgGlow: 'bg-teal-500/15',
-                    badgeText: '20m',
-                  },
-                ]
-              : []),
-          ].map((mod) => {
-            const Icon = mod.icon;
-            const isSelected = activeSection === mod.id;
-            return (
-              <button
-                key={mod.id}
-                type="button"
-                onClick={() => setActiveSection(mod.id)}
-                className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95"
-              >
-                {/* Dairesel Neon Çerçeveli İkon */}
-                <div
-                  className={`relative w-16 h-16 sm:w-18 sm:h-18 rounded-full transition-all duration-200 flex items-center justify-center shadow-lg shadow-black/30 ${
-                    isSelected
-                      ? `bg-slate-900 ring-2 ring-offset-2 ring-offset-slate-900 ${mod.borderColor} scale-105`
-                      : 'bg-slate-900/90 dark:bg-slate-900 border-2 border-slate-700/60 hover:scale-105 hover:border-slate-500'
-                  }`}
+      {activeSection === 'menu' && (
+        <div className="pt-2 pb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-6 gap-x-4 sm:gap-6 py-4">
+            {[
+              {
+                id: 'checkin_checkout' as const,
+                title: 'İşe Giriş / Çıkış',
+                icon: UserCheck,
+                glowColor: 'text-emerald-500',
+                borderColor: 'border-emerald-500',
+                bgGlow: 'bg-emerald-500/15',
+                badgeText: isCheckedIn ? 'Mesaide' : isCompletedToday ? 'Çıkış' : undefined,
+                badgeCount: isAdmin && pendingRequests.length > 0 ? pendingRequests.length : undefined,
+              },
+              {
+                id: 'breaks' as const,
+                title: 'Mola',
+                icon: Coffee,
+                glowColor: 'text-amber-500',
+                borderColor: 'border-amber-500',
+                bgGlow: 'bg-amber-500/15',
+                badgeText: isOnBreak ? 'MOLADA' : undefined,
+                badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
+              },
+              {
+                id: 'summary' as const,
+                title: 'Mesai Özeti',
+                icon: Clock,
+                glowColor: 'text-blue-500',
+                borderColor: 'border-blue-500',
+                bgGlow: 'bg-blue-500/15',
+              },
+              {
+                id: 'leaves' as const,
+                title: 'İzin Takibi',
+                icon: CalendarRange,
+                glowColor: 'text-purple-500',
+                borderColor: 'border-purple-500',
+                bgGlow: 'bg-purple-500/15',
+                badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
+              },
+              ...(isAdmin
+                ? [
+                    {
+                      id: 'workplace' as const,
+                      title: 'Merkez İş Yeri',
+                      icon: Store,
+                      glowColor: 'text-teal-500',
+                      borderColor: 'border-teal-500',
+                      bgGlow: 'bg-teal-500/15',
+                      badgeText: '20m',
+                    },
+                  ]
+                : []),
+            ].map((mod) => {
+              const Icon = mod.icon;
+              return (
+                <button
+                  key={mod.id}
+                  type="button"
+                  onClick={() => setActiveSection(mod.id)}
+                  className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95 p-4 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
                 >
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? mod.bgGlow : 'bg-white/5'}`}>
-                    <Icon className={`w-6 h-6 sm:w-7 sm:h-7 ${mod.glowColor}`} />
+                  {/* Dairesel Neon Çerçeveli İkon */}
+                  <div className="relative w-20 h-20 sm:w-22 sm:h-22 rounded-full transition-all duration-200 flex items-center justify-center shadow-xl shadow-black/20 bg-slate-900 border-2 border-slate-700/60 group-hover:scale-105 group-hover:border-emerald-500">
+                    <div className="w-14 h-14 rounded-full flex items-center justify-center bg-white/5 group-hover:bg-emerald-500/15 transition-colors">
+                      <Icon className={`w-8 h-8 ${mod.glowColor}`} />
+                    </div>
+
+                    {/* Rozet */}
+                    {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
+                      <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[11px] font-black border-2 border-slate-950 shadow-md">
+                        {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
+                      </span>
+                    ) : mod.badgeText ? (
+                      <span
+                        className={`absolute -top-1 -right-1 px-2 py-0.5 rounded-full text-[10px] font-black border border-slate-950 text-white ${
+                          mod.id === 'breaks' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                        }`}
+                      >
+                        {mod.badgeText}
+                      </span>
+                    ) : null}
                   </div>
 
-                  {/* Rozet */}
-                  {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
-                    <span className="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black border-2 border-slate-950 shadow-md">
-                      {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
-                    </span>
-                  ) : mod.badgeText ? (
-                    <span className={`absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black border border-slate-950 text-white ${
-                      mod.id === 'breaks' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
-                    }`}>
-                      {mod.badgeText}
-                    </span>
-                  ) : null}
-                </div>
-
-                {/* İkon Altındaki Başlık */}
-                <span
-                  className={`mt-2 text-xs sm:text-sm font-bold text-center leading-tight max-w-[100px] transition-colors ${
-                    isSelected
-                      ? 'text-slate-900 dark:text-white font-black'
-                      : 'text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200'
-                  }`}
-                >
-                  {mod.title}
-                </span>
-              </button>
-            );
-          })}
+                  {/* İkon Altındaki Başlık */}
+                  <span className="mt-3 text-sm font-extrabold text-center leading-tight text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                    {mod.title}
+                  </span>
+                  <span className="text-[11px] text-slate-400 text-center mt-0.5">
+                    Modüle giriş yap →
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* SEÇİLEN MODÜL İÇİNDE ÜST KART (activeSection !== 'menu') */}
+      {/* ============================================================ */}
+      {activeSection !== 'menu' && (
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mb-2">
+          <div className="flex items-center gap-3">
+            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${SECTION_INFO_WEB[activeSection]?.bg || 'bg-emerald-500/15'}`}>
+              {React.createElement(SECTION_INFO_WEB[activeSection]?.icon || UserCheck, {
+                className: `w-6 h-6 ${SECTION_INFO_WEB[activeSection]?.color || 'text-emerald-500'}`,
+              })}
+            </div>
+            <div>
+              <div className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <span>{SECTION_INFO_WEB[activeSection]?.title}</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {SECTION_INFO_WEB[activeSection]?.subtitle}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('menu')}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Personel Takibi Menüsü</span>
+          </button>
+        </div>
+      )}
 
       {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ --- */}
       {activeSection === 'checkin_checkout' && isAdmin && pendingRequests.length > 0 && (

@@ -115,9 +115,42 @@ export default function AttendanceScreen() {
 
   const isAdmin = user?.role === 'admin';
 
-  // Ana Menü stili 5 alt bölüm yönetimi
-  type AttendanceSection = 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
-  const [activeSection, setActiveSection] = useState<AttendanceSection>('checkin_checkout');
+  // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak 'menu' başlar)
+  type AttendanceSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
+  const [activeSection, setActiveSection] = useState<AttendanceSection>('menu');
+
+  const SECTION_INFO: Record<string, { title: string; subtitle: string; icon: any; color: string }> = {
+    checkin_checkout: {
+      title: 'İşe Giriş & Çıkış',
+      subtitle: 'GPS doğrulaması ile anlık işe geliş ve çıkış kayıtları',
+      icon: UserCheck,
+      color: '#10b981',
+    },
+    breaks: {
+      title: 'Mola Yönetimi',
+      subtitle: 'Canlı mola sayacı ve günlük mola takibi',
+      icon: Coffee,
+      color: '#f59e0b',
+    },
+    summary: {
+      title: 'Mesai Özeti & Tablo',
+      subtitle: 'Çalışma geçmişi, dönem filtreleri ve raporlar',
+      icon: Clock,
+      color: '#3b82f6',
+    },
+    leaves: {
+      title: 'İzin Takibi',
+      subtitle: 'Saatlik ve günlük izin talepleri ve yönetici onayları',
+      icon: CalendarDays,
+      color: '#8b5cf6',
+    },
+    workplace: {
+      title: 'Merkez İş Yeri Lokasyonu',
+      subtitle: '20 metre toleranslı merkez GPS koordinatları',
+      icon: Building2,
+      color: '#0d9488',
+    },
+  };
 
   // İzin Takibi Durumları
   const [leaveFilter, setLeaveFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -907,14 +940,25 @@ export default function AttendanceScreen() {
         ]}
       >
         <View style={styles.topBarContainer}>
-          {/* Ana Menü Button */}
+          {/* Ana Menü / Personel Takibi Menüsü Geri Butonu */}
           <TouchableOpacity
-            style={styles.homeBtn}
-            onPress={() => router.push('/(tabs)')}
+            style={[
+              styles.homeBtn,
+              activeSection !== 'menu' && { backgroundColor: '#3b82f6' },
+            ]}
+            onPress={() => {
+              if (activeSection !== 'menu') {
+                setActiveSection('menu');
+              } else {
+                router.push('/(tabs)');
+              }
+            }}
             activeOpacity={0.8}
           >
             <ArrowLeft size={16} color="#ffffff" />
-            <Text style={styles.homeBtnText}>Ana Menü</Text>
+            <Text style={styles.homeBtnText}>
+              {activeSection !== 'menu' ? 'Geri' : 'Ana Menü'}
+            </Text>
           </TouchableOpacity>
 
           {/* Right 5 Icon Buttons */}
@@ -983,131 +1027,193 @@ export default function AttendanceScreen() {
         }
       >
         {/* ============================================================ */}
-        {/* GÖRSEL-1: GPS GEOFENCING TAKİP HERO BANNER */}
+        {/* 1. ANA MENÜ LAUNCHER GÖRÜNÜMÜ (activeSection === 'menu') */}
         {/* ============================================================ */}
-        {/* ============================================================ */}
-        {/* 1. HERO BANNER */}
-        {/* ============================================================ */}
-        <View style={styles.heroBanner}>
-          <View style={styles.geofencePill}>
-            <Users size={13} color="#ffffff" />
-            <Text style={styles.geofencePillText}>PERSONEL VE MESAİ YÖNETİMİ</Text>
-          </View>
+        {activeSection === 'menu' && (
+          <View style={{ gap: 16 }}>
+            {/* HERO BANNER */}
+            <View style={styles.heroBanner}>
+              <View style={styles.geofencePill}>
+                <Users size={13} color="#ffffff" />
+                <Text style={styles.geofencePillText}>PERSONEL VE MESAİ YÖNETİMİ</Text>
+              </View>
 
-          <Text style={styles.heroTitle}>Personel Takibi & Mesai</Text>
-          <Text style={styles.heroSubtitle}>
-            İşe giriş-çıkış, mola yönetimi, mesai özetleri ve personel izin takibi tek ekranda.
-          </Text>
-        </View>
+              <Text style={styles.heroTitle}>Personel Takibi & Mesai</Text>
+              <Text style={styles.heroSubtitle}>
+                İşe giriş-çıkış, mola yönetimi, mesai özetleri ve personel izin takibi tek ekranda.
+              </Text>
+            </View>
 
-        {/* ============================================================ */}
-        {/* 2. ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
-        {/* ============================================================ */}
-        <View style={styles.attendanceLauncherGrid}>
-          {[
-            {
-              id: 'checkin_checkout' as const,
-              title: 'İşe Giriş / Çıkış',
-              icon: UserCheck,
-              glowColor: '#10b981',
-              badgeText: isCheckedIn ? 'Mesaide' : isCheckedOut ? 'Çıkış' : undefined,
-              badgeCount: isAdmin && pendingAttendanceCount > 0 ? pendingAttendanceCount : undefined,
-            },
-            {
-              id: 'breaks' as const,
-              title: 'Mola',
-              icon: Coffee,
-              glowColor: '#f59e0b',
-              badgeText: isOnBreak ? 'MOLADA' : undefined,
-              badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
-            },
-            {
-              id: 'summary' as const,
-              title: 'Mesai Özeti',
-              icon: Clock,
-              glowColor: '#3b82f6',
-            },
-            {
-              id: 'leaves' as const,
-              title: 'İzin Takibi',
-              icon: CalendarDays,
-              glowColor: '#8b5cf6',
-              badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
-            },
-            ...(isAdmin
-              ? [
-                  {
-                    id: 'workplace' as const,
-                    title: 'Merkez İş Yeri',
-                    icon: Building2,
-                    glowColor: '#0d9488',
-                    badgeText: '20m',
-                  },
-                ]
-              : []),
-          ].map((mod) => {
-            const IconComponent = mod.icon;
-            const isSelected = activeSection === mod.id;
-            return (
-              <TouchableOpacity
-                key={mod.id}
-                style={styles.attendanceLauncherItem}
-                onPress={() => setActiveSection(mod.id)}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[
-                    styles.attendanceLauncherCircle,
-                    {
-                      borderColor: isSelected ? mod.glowColor : (isDark ? '#334155' : '#cbd5e1'),
-                      backgroundColor: isSelected
-                        ? (isDark ? '#1e293b' : '#f1f5f9')
-                        : (isDark ? '#0f172a' : '#ffffff'),
-                      shadowColor: mod.glowColor,
-                      borderWidth: isSelected ? 2.5 : 1.5,
-                      elevation: isSelected ? 6 : 2,
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.attendanceLauncherIconInner,
-                      { backgroundColor: mod.glowColor + (isSelected ? '28' : '15') },
-                    ]}
+            {/* ANA MENÜ STİLİ LAUNCHER BUTONLARI (5 MODÜL) */}
+            <View style={styles.attendanceLauncherGrid}>
+              {[
+                {
+                  id: 'checkin_checkout' as const,
+                  title: 'İşe Giriş / Çıkış',
+                  icon: UserCheck,
+                  glowColor: '#10b981',
+                  badgeText: isCheckedIn ? 'Mesaide' : isCheckedOut ? 'Çıkış' : undefined,
+                  badgeCount: isAdmin && pendingAttendanceCount > 0 ? pendingAttendanceCount : undefined,
+                },
+                {
+                  id: 'breaks' as const,
+                  title: 'Mola',
+                  icon: Coffee,
+                  glowColor: '#f59e0b',
+                  badgeText: isOnBreak ? 'MOLADA' : undefined,
+                  badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
+                },
+                {
+                  id: 'summary' as const,
+                  title: 'Mesai Özeti',
+                  icon: Clock,
+                  glowColor: '#3b82f6',
+                },
+                {
+                  id: 'leaves' as const,
+                  title: 'İzin Takibi',
+                  icon: CalendarDays,
+                  glowColor: '#8b5cf6',
+                  badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
+                },
+                ...(isAdmin
+                  ? [
+                      {
+                        id: 'workplace' as const,
+                        title: 'Merkez İş Yeri',
+                        icon: Building2,
+                        glowColor: '#0d9488',
+                        badgeText: '20m',
+                      },
+                    ]
+                  : []),
+              ].map((mod) => {
+                const IconComponent = mod.icon;
+                return (
+                  <TouchableOpacity
+                    key={mod.id}
+                    style={styles.attendanceLauncherItem}
+                    onPress={() => setActiveSection(mod.id)}
+                    activeOpacity={0.75}
                   >
-                    <IconComponent size={26} color={mod.glowColor} />
-                  </View>
+                    <View
+                      style={[
+                        styles.attendanceLauncherCircle,
+                        {
+                          borderColor: isDark ? '#334155' : '#cbd5e1',
+                          backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                          shadowColor: mod.glowColor,
+                          borderWidth: 1.5,
+                          elevation: 3,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.attendanceLauncherIconInner,
+                          { backgroundColor: mod.glowColor + '18' },
+                        ]}
+                      >
+                        <IconComponent size={28} color={mod.glowColor} />
+                      </View>
 
-                  {/* Active Badge */}
-                  {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
-                    <View style={styles.launcherBadgeRed}>
-                      <Text style={styles.launcherBadgeRedText}>
-                        {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
-                      </Text>
+                      {/* Active Badge */}
+                      {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
+                        <View style={styles.launcherBadgeRed}>
+                          <Text style={styles.launcherBadgeRedText}>
+                            {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
+                          </Text>
+                        </View>
+                      ) : mod.badgeText ? (
+                        <View style={[styles.launcherBadgePill, { backgroundColor: mod.glowColor }]}>
+                          <Text style={styles.launcherBadgePillText}>{mod.badgeText}</Text>
+                        </View>
+                      ) : null}
                     </View>
-                  ) : mod.badgeText ? (
-                    <View style={[styles.launcherBadgePill, { backgroundColor: mod.glowColor }]}>
-                      <Text style={styles.launcherBadgePillText}>{mod.badgeText}</Text>
-                    </View>
-                  ) : null}
-                </View>
 
-                <Text
-                  style={[
-                    styles.attendanceLauncherLabel,
-                    {
-                      color: isSelected ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                      fontWeight: isSelected ? '900' : '700',
-                    },
-                  ]}
-                  numberOfLines={2}
+                    <Text
+                      style={[
+                        styles.attendanceLauncherLabel,
+                        {
+                          color: isDark ? '#ffffff' : '#0f172a',
+                          fontWeight: '800',
+                        },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {mod.title}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ============================================================ */}
+        {/* SEÇİLEN MODÜL BAŞLIK KARTI (activeSection !== 'menu') */}
+        {/* ============================================================ */}
+        {activeSection !== 'menu' && (
+          <View
+            style={[
+              styles.cardBox,
+              {
+                backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                marginBottom: 6,
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <View
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 14,
+                    backgroundColor: (SECTION_INFO[activeSection]?.color || '#10b981') + '22',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  {mod.title}
+                  {React.createElement(SECTION_INFO[activeSection]?.icon || UserCheck, {
+                    size: 22,
+                    color: SECTION_INFO[activeSection]?.color || '#10b981',
+                  })}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: isDark ? '#ffffff' : '#0f172a' }}>
+                    {SECTION_INFO[activeSection]?.title}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }} numberOfLines={1}>
+                    {SECTION_INFO[activeSection]?.subtitle}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+                  paddingVertical: 7,
+                  paddingHorizontal: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: isDark ? '#334155' : '#cbd5e1',
+                }}
+                onPress={() => setActiveSection('menu')}
+                activeOpacity={0.7}
+              >
+                <ArrowLeft size={13} color={isDark ? '#cbd5e1' : '#475569'} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569' }}>
+                  Menü
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </View>
+            </View>
+          </View>
+        )}
 
         {/* ============================================================ */}
         {/* MODÜL 5: MERKEZ İŞ YERİ (SADECE YÖNETİCİLER İÇİN) */}
