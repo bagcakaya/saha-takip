@@ -148,14 +148,55 @@ export const NotificationService = {
     }
   },
 
+  recentNotifications: new Map<string, number>(),
+
   /**
    * Sends a browser / PWA service worker notification with audio chime
    * and automatic deep-linking to the relevant tab.
+   * Includes 30-second deduplication cache to prevent duplicate alerts.
    */
   async sendNotification(title: string, body: string, url?: string): Promise<void> {
-    this.playChime();
-
     if (typeof window === 'undefined') return;
+
+    // Deduplication key: normalize title and body
+    const normTitle = (title || '').trim();
+    const normBody = (body || '').trim();
+    const dedupKey = `${normTitle}:::${normBody}`;
+    const now = Date.now();
+
+    // 1. In-memory deduplication check (30s window)
+    const lastSent = this.recentNotifications.get(dedupKey);
+    if (lastSent && now - lastSent < 30000) {
+      console.log('Skipping duplicate local notification within 30s window:', normTitle);
+      return;
+    }
+
+    // 2. LocalStorage deduplication check (across tabs & reloads)
+    try {
+      const lsKey = '@saha_recent_local_notif';
+      const raw = localStorage.getItem(lsKey);
+      const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
+      if (cache[dedupKey] && now - cache[dedupKey] < 30000) {
+        console.log('Skipping duplicate local notification (cross-tab):', normTitle);
+        return;
+      }
+      cache[dedupKey] = now;
+      for (const [k, ts] of Object.entries(cache)) {
+        if (now - ts > 120000) delete cache[k];
+      }
+      localStorage.setItem(lsKey, JSON.stringify(cache));
+    } catch {
+      // ignore
+    }
+
+    this.recentNotifications.set(dedupKey, now);
+    if (this.recentNotifications.size > 50) {
+      for (const [k, ts] of this.recentNotifications.entries()) {
+        if (now - ts > 60000) this.recentNotifications.delete(k);
+      }
+    }
+
+    this.playChime();
 
     let targetUrl = url;
     let targetTab: string | null = null;
@@ -182,6 +223,8 @@ export const NotificationService = {
       filter: targetFilter || '',
     };
 
+    const safeTag = `st-${targetTab || 'main'}-${dedupKey.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}`;
+
     // 1. Try via Service Worker (Best for PWA / Mobile / Background)
     if ('serviceWorker' in navigator) {
       try {
@@ -193,8 +236,8 @@ export const NotificationService = {
             icon: '/icon.png',
             badge: '/favicon.png',
             vibrate: [200, 100, 200],
-            tag: `saha-takip-${targetTab}`,
-            renotify: true,
+            tag: safeTag,
+            renotify: false,
             data: payloadData,
           });
           return;

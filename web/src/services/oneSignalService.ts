@@ -589,18 +589,42 @@ export const OneSignalService = {
       ? targetSubscriptionIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
-    // Short-term deduplication cache (4-second window) to block rapid repeated clicks / double-calls
-    const dedupKey = `${title}__${message}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}__${sendAfter || ''}`;
+    // Robust deduplication cache (45-second window, persistent in LocalStorage across tabs & reloads)
+    const dedupKey = `${title.trim()}__${message.trim()}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}__${sendAfter || ''}`;
     const now = Date.now();
+
+    // 1. In-memory check
     const lastSent = this.recentPushRequests.get(dedupKey);
-    if (lastSent && now - lastSent < 4000) {
-      console.log('Skipping duplicate push notification within 4s debounce window:', dedupKey);
+    if (lastSent && now - lastSent < 45000) {
+      console.log('Skipping duplicate push notification within 45s debounce window:', title);
       return { success: true, data: { deduped: true } };
     }
+
+    // 2. LocalStorage cross-tab / reload check
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const lsKey = '@saha_recent_push_requests';
+        const raw = localStorage.getItem(lsKey);
+        const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
+        if (cache[dedupKey] && now - cache[dedupKey] < 45000) {
+          console.log('Skipping duplicate push notification (cross-tab 45s):', title);
+          return { success: true, data: { deduped: true } };
+        }
+        cache[dedupKey] = now;
+        // Clean old records
+        for (const [k, ts] of Object.entries(cache)) {
+          if (now - ts > 120000) delete cache[k];
+        }
+        localStorage.setItem(lsKey, JSON.stringify(cache));
+      } catch {
+        // ignore LS errors
+      }
+    }
+
     this.recentPushRequests.set(dedupKey, now);
     if (this.recentPushRequests.size > 100) {
       for (const [k, v] of this.recentPushRequests.entries()) {
-        if (now - v > 30000) this.recentPushRequests.delete(k);
+        if (now - v > 60000) this.recentPushRequests.delete(k);
       }
     }
 
@@ -642,13 +666,13 @@ export const OneSignalService = {
     }
     const targetUrl = canonicalUrl.toString();
 
-    // Format APNs-compliant collapse_id (max 60 chars, alphanumeric + underscores)
-    // Ensures iOS APNs collapses identical lock-screen notifications into 1
+    // Format APNs/FCM-compliant collapse_id (max 60 chars, alphanumeric + underscores)
+    // Ensures iOS APNs and Android FCM collapse identical notifications into 1 on the lock screen
     let collapseId = rawCollapseId;
     if (!collapseId) {
-      const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
-      const minuteBucket = Math.floor(Date.now() / 60000);
-      collapseId = `${safeTitle}_${minuteBucket}`;
+      const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 25);
+      const targetHash = (cleanIds.join('_') || targetMode).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15);
+      collapseId = `st_${safeTitle}_${targetHash}`.slice(0, 55);
     } else {
       collapseId = collapseId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
     }

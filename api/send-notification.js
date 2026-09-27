@@ -2,6 +2,8 @@ const ONESIGNAL_APP_ID = '03e50631-8d38-4796-a90f-ae524dab69fd';
 const _k = 'b3NfdjJfYXBwX2Fwc3FtbW1uaGJkem5raXB2emplM2szajd4YmV5amhtNGsydXdtZm5jZWhxbXJybWY1YmxreXpjcG00NHRtcGp0ZmdlcTR5NzZkYXlqczQ1dHR1a2Fiam1oYXdsZ3JnZ3lzbGVkeHE=';
 const getApiKey = () => (typeof Buffer !== 'undefined' ? Buffer.from(_k, 'base64').toString('utf8') : atob(_k));
 
+const recentNotificationsCache = new Map();
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -104,6 +106,22 @@ export default async function handler(req, res) {
         .slice(0, 60);
       payload.collapse_id = cleanCollapse;
       payload.web_push_topic = cleanCollapse;
+    }
+
+    // Server-side deduplication check (30-second debounce window)
+    const dedupKey = `${payload.title || payload.headings?.tr || payload.headings?.en || ''}__${payload.message || payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+    const now = Date.now();
+    const lastTime = recentNotificationsCache.get(dedupKey);
+    if (lastTime && now - lastTime < 30000) {
+      console.log('Skipping duplicate push notification on serverless:', dedupKey);
+      res.status(200).json({ id: 'deduped', deduped: true });
+      return;
+    }
+    recentNotificationsCache.set(dedupKey, now);
+    if (recentNotificationsCache.size > 100) {
+      for (const [k, v] of recentNotificationsCache.entries()) {
+        if (now - v > 60000) recentNotificationsCache.delete(k);
+      }
     }
 
     if (delaySeconds > 0 && delaySeconds <= 30) {

@@ -391,6 +391,8 @@ app.post('/api/upload', upload.single('photo'), (req, res) => {
 // =========================================================================
 // 5. ONESIGNAL BİLDİRİM VEKİLİ (PROXY)
 // =========================================================================
+const serverRecentNotifications = new Map();
+
 app.post('/api/send-notification', async (req, res) => {
   try {
     const payload = req.body;
@@ -398,6 +400,21 @@ app.post('/api/send-notification', async (req, res) => {
     const appId = process.env.ONESIGNAL_APP_ID;
 
     if (!payload.app_id) payload.app_id = appId;
+
+    // Deduplication check (30-second debounce window)
+    const dedupKey = `${payload.title || payload.headings?.tr || payload.headings?.en || ''}__${payload.message || payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+    const now = Date.now();
+    const lastTime = serverRecentNotifications.get(dedupKey);
+    if (lastTime && now - lastTime < 30000) {
+      console.log('>> [Yerel Sunucu] Mükerrer bildirim engellendi (30s):', payload.title || payload.headings?.tr || 'Bildirim');
+      return res.json({ id: 'deduped', deduped: true });
+    }
+    serverRecentNotifications.set(dedupKey, now);
+    if (serverRecentNotifications.size > 100) {
+      for (const [k, v] of serverRecentNotifications.entries()) {
+        if (now - v > 60000) serverRecentNotifications.delete(k);
+      }
+    }
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',

@@ -1084,17 +1084,53 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // iOS ve Mobil Cihazlar için Sağa Kaydırma (Swipe Right) Desteği
+  // iOS ve Mobil Cihazlar için Kenardan Sağa Kaydırma (Edge Swipe Right) Desteği
   useEffect(() => {
     let touchStartX = 0;
     let touchStartY = 0;
     let touchStartTime = 0;
+    let touchStartTarget: EventTarget | null = null;
+
+    // Yatay kaydırılabilir tablo veya konteyner içinde mi kontrolü
+    const isInsideHorizontalScrollContainer = (target: EventTarget | null): boolean => {
+      let el = target as HTMLElement | null;
+      while (el && el !== document.body) {
+        // 1. Tablo veya tablo hücresi
+        const tagName = el.tagName?.toUpperCase();
+        if (['TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD'].includes(tagName)) {
+          return true;
+        }
+        // 2. Yatay kaydırma sınıfları veya data attribute
+        if (
+          el.classList?.contains('overflow-x-auto') ||
+          el.classList?.contains('overflow-x-scroll') ||
+          el.getAttribute?.('data-no-swipe') === 'true'
+        ) {
+          return true;
+        }
+        // 3. Computed CSS overflowX ve scroll genişliği kontrolü
+        try {
+          const style = window.getComputedStyle(el);
+          if (
+            (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+            el.scrollWidth > el.clientWidth
+          ) {
+            return true;
+          }
+        } catch {
+          // ignore
+        }
+        el = el.parentElement;
+      }
+      return false;
+    };
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches && e.touches.length > 0) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         touchStartTime = Date.now();
+        touchStartTarget = e.touches[0].target;
       }
     };
 
@@ -1105,9 +1141,25 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         const deltaX = touchEndX - touchStartX;
         const deltaY = touchEndY - touchStartY;
         const timeDiff = Date.now() - touchStartTime;
+        const touchEndTarget = e.changedTouches[0].target;
 
-        // Sağa kaydırma: yatay hareket 50px'den büyük ve dikey hareketten en az 1.4 kat fazla
-        if (deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
+        // 1. Ekranın sağına uzanan yatay kaydırmalı 'summary' (Mesai Özeti & Tablo) ekranında
+        // yatay kaydırma ile geri dönme jesti çakışmaması için swipe-back'i tamamen engelle.
+        if (activeSection === 'summary') {
+          return;
+        }
+
+        // 2. Dokunmanın başladığı veya bittiği eleman yatay kaydırılabilir bir tablo / konteyner içindeyse iptal et
+        if (
+          isInsideHorizontalScrollContainer(touchStartTarget) ||
+          isInsideHorizontalScrollContainer(touchEndTarget)
+        ) {
+          return;
+        }
+
+        // 3. Sağa kaydırma ile geri dönme jesti SADECE ekranın en sol kenarından (ilk 35px) başlatıldığında çalışsın
+        // (Ekranın ortasından yapılan tablo/liste kaydırmalarında asla menüye geri atmaz)
+        if (touchStartX <= 35 && deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
           if (activeSection !== 'menu') {
             handleBackToSectionMenu();
           } else {

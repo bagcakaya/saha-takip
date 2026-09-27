@@ -149,12 +149,44 @@ const MainApp: React.FC = () => {
     let touchStartX = 0;
     let touchStartY = 0;
     let touchStartTime = 0;
+    let touchStartTarget: EventTarget | null = null;
+
+    const isInsideHorizontalScrollContainer = (target: EventTarget | null): boolean => {
+      let el = target as HTMLElement | null;
+      while (el && el !== document.body) {
+        const tagName = el.tagName?.toUpperCase();
+        if (['TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD'].includes(tagName)) {
+          return true;
+        }
+        if (
+          el.classList?.contains('overflow-x-auto') ||
+          el.classList?.contains('overflow-x-scroll') ||
+          el.getAttribute?.('data-no-swipe') === 'true'
+        ) {
+          return true;
+        }
+        try {
+          const style = window.getComputedStyle(el);
+          if (
+            (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+            el.scrollWidth > el.clientWidth
+          ) {
+            return true;
+          }
+        } catch {
+          // ignore
+        }
+        el = el.parentElement;
+      }
+      return false;
+    };
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches && e.touches.length > 0) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         touchStartTime = Date.now();
+        touchStartTarget = e.touches[0].target;
       }
     };
 
@@ -167,9 +199,18 @@ const MainApp: React.FC = () => {
         const deltaX = touchEndX - touchStartX;
         const deltaY = touchEndY - touchStartY;
         const timeDiff = Date.now() - touchStartTime;
+        const touchEndTarget = e.changedTouches[0].target;
 
-        // Edge swipe right: starts within first 60px from left edge, moves > 50px right, horizontal
-        if (touchStartX <= 60 && deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
+        // Yatay kaydırılabilir tablo veya konteyner içinden yapılan kaydırmalarda geri dönmeyi engelle
+        if (
+          isInsideHorizontalScrollContainer(touchStartTarget) ||
+          isInsideHorizontalScrollContainer(touchEndTarget)
+        ) {
+          return;
+        }
+
+        // Edge swipe right: starts within first 35px from left edge, moves > 50px right, horizontal
+        if (touchStartX <= 35 && deltaX > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && timeDiff < 650) {
           handleBackToHome();
         }
       }
