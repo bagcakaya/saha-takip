@@ -87,13 +87,26 @@ export default async function handler(req, res) {
       payload.contents = { en: payload.message, tr: payload.message };
     }
 
-    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases) {
+    if (!payload.headings || !payload.headings.en) {
+      const hText = payload.title || payload.headings?.tr || 'Bildirim';
+      payload.headings = { en: hText, tr: hText };
+    }
+    if (!payload.contents || !payload.contents.en) {
+      const cText = payload.message || payload.contents?.tr || 'Yeni bildirim';
+      payload.contents = { en: cText, tr: cText };
+    }
+
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';
     }
 
     const delaySeconds = Number(payload.delaySeconds) || 0;
     delete payload.delaySeconds;
+    if (delaySeconds > 0 && !payload.send_after) {
+      // OneSignal cloud scheduling: Phone locking won't kill network request
+      payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
+    }
 
     // High priority and sound for iOS APNs & Android FCM
     payload.priority = 10;
@@ -108,24 +121,23 @@ export default async function handler(req, res) {
       payload.web_push_topic = cleanCollapse;
     }
 
-    // Server-side deduplication check (30-second debounce window)
-    const dedupKey = `${payload.title || payload.headings?.tr || payload.headings?.en || ''}__${payload.message || payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
-    const now = Date.now();
-    const lastTime = recentNotificationsCache.get(dedupKey);
-    if (lastTime && now - lastTime < 30000) {
-      console.log('Skipping duplicate push notification on serverless:', dedupKey);
-      res.status(200).json({ id: 'deduped', deduped: true });
-      return;
-    }
-    recentNotificationsCache.set(dedupKey, now);
-    if (recentNotificationsCache.size > 100) {
-      for (const [k, v] of recentNotificationsCache.entries()) {
-        if (now - v > 60000) recentNotificationsCache.delete(k);
+    // Server-side deduplication check (30-second debounce window, test notifications exempt)
+    const isTest = payload.collapse_id?.startsWith('test_');
+    if (!isTest) {
+      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+      const now = Date.now();
+      const lastTime = recentNotificationsCache.get(dedupKey);
+      if (lastTime && now - lastTime < 30000) {
+        console.log('Skipping duplicate push notification on serverless:', dedupKey);
+        res.status(200).json({ id: 'deduped', deduped: true });
+        return;
       }
-    }
-
-    if (delaySeconds > 0 && delaySeconds <= 30) {
-      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+      recentNotificationsCache.set(dedupKey, now);
+      if (recentNotificationsCache.size > 100) {
+        for (const [k, v] of recentNotificationsCache.entries()) {
+          if (now - v > 60000) recentNotificationsCache.delete(k);
+        }
+      }
     }
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {

@@ -159,7 +159,18 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
       }
 
       // 3. Send remote hardware push notification via OneSignal REST API directly to this phone
-      const targetSubIds = details?.subscriptionId ? [details.subscriptionId] : undefined;
+      let activeSubId = details?.subscriptionId || (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_last_sub_id') : null);
+      try {
+        const healed = await OneSignalService.selfHealSubscription(user);
+        if (healed?.subscriptionId) {
+          activeSubId = healed.subscriptionId;
+          setDetails(healed);
+        }
+      } catch {
+        // ignore
+      }
+
+      const targetSubIds = activeSubId ? [activeSubId] : undefined;
 
       const res = await OneSignalService.sendPushNotification({
         title: '🔔 İş Takip Test Bildirimi',
@@ -226,9 +237,21 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }, 1000);
 
     try {
-      const targetSubIds = details?.subscriptionId ? [details.subscriptionId] : undefined;
+      // Refresh / Heal current device token right before sending
+      let activeSubId = details?.subscriptionId || (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_last_sub_id') : null);
+      try {
+        const healed = await OneSignalService.selfHealSubscription(user);
+        if (healed?.subscriptionId) {
+          activeSubId = healed.subscriptionId;
+          setDetails(healed);
+        }
+      } catch {
+        // ignore
+      }
 
-      // 3. Send delayed push through serverless API proxy (Server waits 5s so device locking won't freeze it)
+      const targetSubIds = activeSubId ? [activeSubId] : undefined;
+
+      // 3. Send delayed push through serverless API proxy (Server sets send_after so phone locking won't kill it)
       const res = await OneSignalService.sendPushNotification({
         title: '🔒 İş Takip Kilitli Ekran Testi',
         message: `${user.name}, telefonunuz kilitliyken donanım push bildirimi başarıyla ulaştı!`,
@@ -242,7 +265,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
       if (res && res.success) {
         setTestSentMessage(
-          '✅ 5 saniyelik kilitli ekran bildirimi sunucudan tetiklendi! Telefonunuz kilitliyken ekranınızın uyanıp titreyeceğini gözlemleyin.'
+          '✅ 5 saniyelik kilitli ekran bildirimi sunucudan zamanlandı! Lütfen ŞİMDİ telefonunuzu kilitleyin (ekranı kapatın) ve 5 saniye bekleyin.'
         );
       } else {
         setTestSentMessage(`⚠️ Bildirim uyarısı: ${res?.error || 'Gönderim sırasında hata oluştu'}`);
@@ -288,6 +311,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         message: `Merhaba! Bu bildirim "${dev.deviceName}" (${dev.deviceId}) cihazına özel olarak iletildi.`,
         targetMode: 'custom',
         targetUserIds: targetIds.length > 0 ? targetIds : (user?.id ? [user.id] : undefined),
+        targetSubscriptionIds: dev.pushSubscriptionId ? [dev.pushSubscriptionId] : undefined,
         url: 'https://saha-takip-beige.vercel.app',
         collapseId: `test_dev_${dev.deviceId}`,
       });

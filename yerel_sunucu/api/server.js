@@ -401,18 +401,41 @@ app.post('/api/send-notification', async (req, res) => {
 
     if (!payload.app_id) payload.app_id = appId;
 
-    // Deduplication check (30-second debounce window)
-    const dedupKey = `${payload.title || payload.headings?.tr || payload.headings?.en || ''}__${payload.message || payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
-    const now = Date.now();
-    const lastTime = serverRecentNotifications.get(dedupKey);
-    if (lastTime && now - lastTime < 30000) {
-      console.log('>> [Yerel Sunucu] Mükerrer bildirim engellendi (30s):', payload.title || payload.headings?.tr || 'Bildirim');
-      return res.json({ id: 'deduped', deduped: true });
+    if (!payload.headings || !payload.headings.en) {
+      const hText = payload.title || payload.headings?.tr || 'Bildirim';
+      payload.headings = { en: hText, tr: hText };
     }
-    serverRecentNotifications.set(dedupKey, now);
-    if (serverRecentNotifications.size > 100) {
-      for (const [k, v] of serverRecentNotifications.entries()) {
-        if (now - v > 60000) serverRecentNotifications.delete(k);
+    if (!payload.contents || !payload.contents.en) {
+      const cText = payload.message || payload.contents?.tr || 'Yeni bildirim';
+      payload.contents = { en: cText, tr: cText };
+    }
+
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids) {
+      payload.include_aliases = { external_id: payload.targetUserIds };
+      payload.target_channel = 'push';
+    }
+
+    const delaySeconds = Number(payload.delaySeconds) || 0;
+    delete payload.delaySeconds;
+    if (delaySeconds > 0 && !payload.send_after) {
+      payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
+    }
+
+    // Deduplication check (30-second debounce window, test notifications exempt)
+    const isTest = payload.collapse_id?.startsWith('test_');
+    if (!isTest) {
+      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+      const now = Date.now();
+      const lastTime = serverRecentNotifications.get(dedupKey);
+      if (lastTime && now - lastTime < 30000) {
+        console.log('>> [Yerel Sunucu] Mükerrer bildirim engellendi (30s):', payload.headings?.tr || 'Bildirim');
+        return res.json({ id: 'deduped', deduped: true });
+      }
+      serverRecentNotifications.set(dedupKey, now);
+      if (serverRecentNotifications.size > 100) {
+        for (const [k, v] of serverRecentNotifications.entries()) {
+          if (now - v > 60000) serverRecentNotifications.delete(k);
+        }
       }
     }
 

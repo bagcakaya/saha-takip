@@ -174,6 +174,34 @@ export const OneSignalService = {
           }
         });
       }
+
+      // Auto Opt-In & Identity Sync on startup if browser permission already granted
+      try {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const pushSub = OneSignal?.User?.PushSubscription || OneSignal?.User?.pushSubscription;
+          if (pushSub && typeof pushSub.optIn === 'function') {
+            await pushSub.optIn();
+          }
+          const storedUser = localStorage.getItem('@gorev_tamamlama_auth_user');
+          if (storedUser) {
+            const u = JSON.parse(storedUser);
+            if (u && u.id && OneSignal?.login) {
+              await OneSignal.login(u.id);
+              const compCode = (u.companyCode || localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
+              if (OneSignal.User?.addTags) {
+                await OneSignal.User.addTags({ userId: u.id, role: u.role, name: u.name, company_code: compCode });
+              }
+              const currentSubId = pushSub?.id || pushSub?.token;
+              if (currentSubId) {
+                localStorage.setItem('@saha_takip_last_sub_id', currentSubId);
+                localStorage.setItem(`@saha_takip_sub_${u.id}`, currentSubId);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('OneSignal auto opt-in notice:', err);
+      }
     });
   },
 
@@ -188,15 +216,23 @@ export const OneSignalService = {
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal: any) => {
       try {
-        await OneSignal.login(userId);
-        if (OneSignal.User && OneSignal.User.addTags) {
+        if (OneSignal?.login) {
+          await OneSignal.login(userId);
+        }
+        if (OneSignal?.User?.addTags) {
           await OneSignal.User.addTags({ name, role, userId, company_code: compCode });
         }
-        // If permission is already granted in browser, ensure push subscription is opted-in & active
+        // Push optIn - check both PushSubscription and pushSubscription
+        const pushSub = OneSignal?.User?.PushSubscription || OneSignal?.User?.pushSubscription;
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          if (OneSignal.User?.pushSubscription?.optIn) {
-            await OneSignal.User.pushSubscription.optIn();
+          if (pushSub && typeof pushSub.optIn === 'function') {
+            await pushSub.optIn();
           }
+        }
+        const currentSubId = pushSub?.id || pushSub?.token;
+        if (currentSubId) {
+          localStorage.setItem('@saha_takip_last_sub_id', currentSubId);
+          localStorage.setItem(`@saha_takip_sub_${userId}`, currentSubId);
         }
       } catch (e) {
         console.warn('OneSignal login hatası:', e);
@@ -732,14 +768,21 @@ export const OneSignalService = {
         return { success: true, data: res };
       }
 
-      // 3. Target: Explicit Hardware Player IDs ONLY (e.g. specific device test)
-      if (cleanSubIds.length > 0 && cleanIds.length === 0) {
-        const subPayload = {
-          ...basePayload,
-          include_player_ids: cleanSubIds,
-        };
-        const subRes = await this._postNotification(subPayload);
-        return { success: true, data: subRes };
+      // 3. Target: Explicit Hardware Player IDs (e.g. specific device test or locked screen test)
+      // When targetSubscriptionIds is explicitly supplied, try direct delivery to device first
+      if (cleanSubIds.length > 0) {
+        try {
+          const subPayload = {
+            ...basePayload,
+            include_player_ids: cleanSubIds,
+          };
+          const subRes = await this._postNotification(subPayload);
+          if (subRes && subRes.id) {
+            return { success: true, data: subRes };
+          }
+        } catch (subErr) {
+          console.warn('Direct subscription push failed, falling back to alias/tags:', subErr);
+        }
       }
 
       // 4. Target: Specific Users (Single-channel with waterfall fallback)
@@ -833,9 +876,6 @@ export const OneSignalService = {
       });
       if (proxyRes.ok) {
         const data = await proxyRes.json();
-        if (data?.id) {
-          return data;
-        }
         if (data && data.errors && (Array.isArray(data.errors) ? data.errors.length > 0 : Object.keys(data.errors).length > 0)) {
           const errMsg = Array.isArray(data.errors)
             ? data.errors.join(', ')
@@ -845,7 +885,10 @@ export const OneSignalService = {
           console.error('OneSignal API error from proxy:', data.errors);
           throw new Error(errMsg);
         }
-        return data;
+        if (data?.id) {
+          return data;
+        }
+        throw new Error(data?.error || 'OneSignal bildirim ID üretmedi.');
       }
     } catch (proxyErr) {
       console.warn('Proxy /api/send-notification unavailable or failed, falling back to direct REST:', proxyErr);
@@ -862,9 +905,6 @@ export const OneSignalService = {
         body: JSON.stringify(payload),
       });
       const result = await response.json();
-      if (result?.id) {
-        return result;
-      }
       if (result && result.errors && (Array.isArray(result.errors) ? result.errors.length > 0 : Object.keys(result.errors).length > 0)) {
         const errMsg = Array.isArray(result.errors)
           ? result.errors.join(', ')
@@ -874,7 +914,10 @@ export const OneSignalService = {
         console.error('OneSignal API returned error:', result.errors);
         throw new Error(errMsg);
       }
-      return result;
+      if (result?.id) {
+        return result;
+      }
+      throw new Error(result?.error || 'OneSignal REST API bildirim ID üretmedi.');
     } catch (e) {
       console.error('OneSignal REST API fetch failed:', e);
       throw e;
