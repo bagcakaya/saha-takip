@@ -22,7 +22,6 @@ import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
-import { PersonalNotesSection } from '../components/notes/PersonalNotesSection';
 import { getRemainingDays } from '../utils/dateUtils';
 
 interface HomeDashboardViewProps {
@@ -272,12 +271,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       glowColor: 'text-amber-400',
       badgeText: `${userPersonalNotes.length} Not`,
       activeCount: userPersonalNotes.length > 0 ? userPersonalNotes.length : undefined,
-      action: () => {
-        const el = document.getElementById('personal-notes-section');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      },
+      action: () => onNavigate('personal_notes'),
       visible: true,
     },
     {
@@ -373,7 +367,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
-              {isAdmin ? 'Sistem Yöneticisi' : 'Saha Yetkilisi'}
+              {isAdmin ? 'Sistem Yöneticisi' : 'Personel'}
             </span>
             <span className="text-xs text-slate-400 capitalize">{todayStr}</span>
           </div>
@@ -452,9 +446,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           })}
         </div>
       </div>
-
-      {/* 3. Kişisel ve Doğrudan Düzenlenebilir Notlar Alanı */}
-      <PersonalNotesSection />
 
       {/* Realtime Notification Drawer / List Modal */}
       {isNotificationListOpen && (

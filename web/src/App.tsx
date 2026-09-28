@@ -16,6 +16,7 @@ import { StaffTrackingView } from './views/StaffTrackingView';
 import { RemindersView } from './views/RemindersView';
 import { BranchesView } from './views/BranchesView';
 import { TimedFollowUpsView } from './views/TimedFollowUpsView';
+import { PersonalNotesView } from './views/PersonalNotesView';
 import { LoginView } from './views/LoginView';
 import { LicenseLockedView } from './components/licensing/LicenseLockedView';
 import { LocationItem } from './types/storage';
@@ -398,6 +399,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Görev & Takip',
           title: 'İş Emirleri & Hatırlatıcılar',
         };
+      case 'personal_notes':
+        return {
+          subtitle: 'Kişisel & Gizli Not Defteri',
+          title: 'Notlarım',
+        };
       case 'staff_tracking':
         return {
           subtitle: 'Giriş & Çıkış Takibi',
@@ -488,6 +494,7 @@ const MainApp: React.FC = () => {
             {activeTab === 'installations' && <InstallationsView />}
             {activeTab === 'services' && <ServicesView />}
             {activeTab === 'notes' && <NotesView />}
+            {activeTab === 'personal_notes' && <PersonalNotesView />}
             {activeTab === 'staff_tracking' && <StaffTrackingView />}
             {activeTab === 'timed_follow_ups' &&
               (isAdmin ? (

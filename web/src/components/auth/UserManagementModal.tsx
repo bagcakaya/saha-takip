@@ -78,6 +78,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     return list;
   }, [allBranchesMap]);
 
+  const userCompanyCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
+
+  // Filtered companies strictly visible to this user
+  // Non-POLATLAR company managers can ONLY see their own company, NEVER POLATLAR
+  const visibleCompanies = useMemo(() => {
+    if (!isPolatlarAdmin) {
+      return companies.filter(
+        (c) => c.code.toUpperCase() === userCompanyCode && c.code.toUpperCase() !== 'POLATLAR'
+      );
+    }
+    return companies;
+  }, [companies, isPolatlarAdmin, userCompanyCode]);
+
   // Load all companies and their branches
   const loadCompaniesAndBranches = useCallback(async () => {
     try {
@@ -86,11 +99,15 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setCompanies(compList);
 
       const map: Record<string, Branch[]> = {};
-      map['POLATLAR'] = branches;
+      if (isPolatlarAdmin) {
+        map['POLATLAR'] = branches;
+      }
 
       for (const comp of compList) {
         const code = comp.code.toUpperCase();
         if (code !== 'POLATLAR') {
+          // If not polatlar admin, only fetch branches for user's own company
+          if (!isPolatlarAdmin && code !== userCompanyCode) continue;
           try {
             const bList = await StorageService.getBranchesForCompany(code);
             map[code] = bList;
@@ -105,7 +122,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     } finally {
       setLoadingAllBranches(false);
     }
-  }, [branches]);
+  }, [branches, isPolatlarAdmin, userCompanyCode]);
 
   useEffect(() => {
     if (isOpen) {
@@ -283,61 +300,59 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     <Modal isOpen={isOpen} onClose={onClose} title="Kullanıcı ve Yetki Yönetimi" maxWidth="max-w-2xl">
       <div className="space-y-4">
         {/* Company Header Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-blue-50/90 dark:from-blue-950/50 dark:via-indigo-950/30 dark:to-blue-950/50 border border-blue-200/90 dark:border-blue-900/60 text-xs shadow-xs">
-          <div className="flex items-center gap-2.5 flex-1 min-w-[220px]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-blue-50/90 dark:from-blue-950/50 dark:via-indigo-950/30 dark:to-blue-950/50 border border-blue-200/90 dark:border-blue-900/60 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
             <Building2 className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-            <div className="flex items-center gap-2 flex-1">
-              <span className="font-extrabold text-blue-900 dark:text-blue-200 shrink-0 text-xs">
-                Kurum:
+            <span className="font-extrabold text-blue-900 dark:text-blue-200 shrink-0 text-xs">
+              Kurum:
+            </span>
+            {isPolatlarAdmin && visibleCompanies.length > 0 ? (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <select
+                  value={selectedCompanyCode}
+                  onChange={(e) => {
+                    const newCode = e.target.value.toUpperCase();
+                    setSelectedCompanyCode(newCode);
+                    setTargetAddCompanyCode(newCode);
+                  }}
+                  className="max-w-[190px] sm:max-w-xs truncate px-3 py-1.5 rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 text-xs font-black text-slate-900 dark:text-slate-100 shadow-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  title="Yönetmek istediğiniz kurumu seçin"
+                >
+                  {visibleCompanies.map((c) => (
+                    <option key={c.code} value={c.code.toUpperCase()}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => loadCompaniesAndBranches()}
+                  disabled={loadingAllBranches}
+                  className="p-1.5 text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg cursor-pointer disabled:opacity-50 transition-all shrink-0"
+                  title="Kurum ve şube listesini yenile"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAllBranches ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            ) : (
+              <span className="font-black text-blue-900 dark:text-blue-100 text-sm truncate">
+                {company?.name || currentUser?.companyCode || 'KURUM'}
               </span>
-              {isPolatlarAdmin && companies.length > 0 ? (
-                <div className="flex items-center gap-1.5">
-                  <select
-                    value={selectedCompanyCode}
-                    onChange={(e) => {
-                      const newCode = e.target.value.toUpperCase();
-                      setSelectedCompanyCode(newCode);
-                      setTargetAddCompanyCode(newCode);
-                    }}
-                    className="px-3 py-1.5 rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 text-xs font-black text-slate-900 dark:text-slate-100 shadow-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                    title="Yönetmek istediğiniz kurumu seçin"
-                  >
-                    {companies.map((c) => (
-                      <option key={c.code} value={c.code.toUpperCase()}>
-                        {c.name} ({c.code})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => loadCompaniesAndBranches()}
-                    disabled={loadingAllBranches}
-                    className="p-1.5 text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg cursor-pointer disabled:opacity-50 transition-all"
-                    title="Kurum ve şube listesini yenile"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loadingAllBranches ? 'animate-spin' : ''}`} />
-                  </button>
-                </div>
-              ) : (
-                <span className="font-black text-blue-900 dark:text-blue-100 text-sm">
-                  {company?.name || currentUser?.companyCode || 'POLATLAR'}
-                </span>
-              )}
-            </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {isPolatlarAdmin && (
               <button
                 type="button"
                 onClick={() => setIsCreateCompanyOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
                 title="Yeni bir müşteri firması/kurumu oluşturun"
               >
                 <Building2 className="w-3.5 h-3.5" />
                 <span>+ Yeni Kurum Ekle</span>
               </button>
             )}
-            <span className="px-2.5 py-1 rounded-xl font-black bg-blue-700 text-white text-[11px] tracking-wider shadow-xs">
+            <span className="px-2.5 py-1 rounded-xl font-black bg-blue-700 text-white text-[11px] tracking-wider shadow-xs shrink-0">
               KURUM KODU: {selectedCompanyCode}
             </span>
           </div>
@@ -483,7 +498,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                               title="Personelin bağlı olduğu şubeyi seçin"
                             >
                               <option value="">Şube: Atanmamış (Merkez)</option>
-                              {companies.map((comp) => {
+                              {visibleCompanies.map((comp) => {
                                 const compCode = comp.code.toUpperCase();
                                 const compBranches = allBranchesMap[compCode] || [];
                                 if (compBranches.length === 0) return null;
@@ -513,7 +528,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         title="Yetkiyi Değiştirmek İçin Tıklayın"
                       >
                         {isAdmin ? <ShieldCheck className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
-                        <span>{isAdmin ? 'Yönetici (Admin)' : 'Saha Yetkilisi'}</span>
+                        <span>{isAdmin ? 'Yönetici (Admin)' : 'Personel'}</span>
                       </button>
                     </div>
 
@@ -678,7 +693,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                  placeholder="Örn: ahmetyilmaz"
+                  placeholder="Örn: ayilmaz (veya mealyilmaz)"
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -720,12 +735,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   onChange={(e) => setNewRole(e.target.value as UserRole)}
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="staff">Saha Yetkilisi (Kurulum & Raporlama)</option>
+                  <option value="staff">Personel</option>
                   <option value="admin">Sistem Yöneticisi (Admin - Tam Yetkili)</option>
                 </select>
               </div>
 
-              {/* Branch Selection (All Institutions & All Branches) */}
+              {/* Branch Selection (Filtered by Accessible Institutions & Branches) */}
               <div className="sm:col-span-2">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
@@ -733,7 +748,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     <span>Bağlı Olacağı Şube (Mesai Takibi İçin)</span>
                   </label>
                   <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
-                    🌐 Tüm Kurum & Şubeler Listeleniyor
+                    {isPolatlarAdmin ? '🌐 Tüm Kurum & Şubeler' : '🏢 Kurum Şubeleri'}
                   </span>
                 </div>
                 <select
@@ -752,8 +767,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="">🏢 Şube Seçilmedi (Genel / Merkez)</option>
-                  {companies.length > 0 ? (
-                    companies.map((comp) => {
+                  {visibleCompanies.length > 0 ? (
+                    visibleCompanies.map((comp) => {
                       const compCode = comp.code.toUpperCase();
                       const compBranches = allBranchesMap[compCode] || [];
                       return (
@@ -791,7 +806,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 Yetki Bilgilendirmesi:
               </span>
               • <strong>Sistem Yöneticisi (Admin)</strong>: Diğer kullanıcıları yönetebilir, yeni kullanıcılar ekleyebilir ve yetkilerini değiştirebilir.
-              <br />• <strong>Saha Yetkilisi</strong>: Kurulumları, iş emirlerini ve şablonları yönetebilir fakat Kullanıcı Yönetim Paneline erişemez.
+              <br />• <strong>Personel</strong>: Kurulumları, iş emirlerini ve şablonları yönetebilir fakat Kullanıcı Yönetim Paneline erişemez.
             </div>
 
             <button

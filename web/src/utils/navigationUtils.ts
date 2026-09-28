@@ -6,6 +6,7 @@ export const VALID_TABS: TabType[] = [
   'installations',
   'services',
   'notes',
+  'personal_notes',
   'staff_tracking',
   'timed_follow_ups',
   'reminders',
@@ -39,6 +40,11 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
     notes: 'notes',
     notlar: 'notes',
     is_emirleri: 'notes',
+
+    personal_notes: 'personal_notes',
+    personalnotes: 'personal_notes',
+    kisisel_notlar: 'personal_notes',
+    notlarim: 'personal_notes',
     is_emri: 'notes',
 
     staff_tracking: 'staff_tracking',

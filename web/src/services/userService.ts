@@ -234,8 +234,11 @@ export const UserService = {
   },
 
   /**
-   * Converts Turkish Full Name into clean suggested username:
-   * "Ahmet Yılmaz" -> "ahmetyilmaz", if exists -> "ahmetyilmaz01", "ahmetyilmaz02"
+   * Converts Full Name into clean suggested username:
+   * - Single name: "Ahmet Yılmaz" -> "ayilmaz" (Adın ilk harfi + soyadın tamamı)
+   * - Two or more names: "Mehmet Ali Yılmaz" -> "mealyilmaz" (Her iki ismin ilk 2 harfi + soyadın tamamı)
+   * - "Ali Can Polat" -> "alcapolat"
+   * If exists -> "ayilmaz01", "ayilmaz02"
    */
   generateSuggestedUsername(fullName: string, companyCode: string = 'POLATLAR'): string {
     const trMap: { [k: string]: string } = {
@@ -251,23 +254,42 @@ export const UserService = {
     for (const [tr, en] of Object.entries(trMap)) {
       clean = clean.split(tr).join(en);
     }
-    clean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!clean) clean = 'personel';
+    clean = clean.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const parts = clean.split(/\s+/).filter(Boolean);
+
+    let base = 'personel';
+    if (parts.length === 1) {
+      base = parts[0];
+    } else if (parts.length === 2) {
+      // Tek isim + Soyisim: Adın ilk harfi + soyadın tamamı (Örn: Ahmet Yılmaz -> ayilmaz)
+      const firstNameInitial = parts[0].slice(0, 1);
+      const surname = parts[1];
+      base = `${firstNameInitial}${surname}`;
+    } else if (parts.length >= 3) {
+      // İki isim + Soyisim: Her iki ismin ilk ikişer harfi + soyadın tamamı (Örn: Mehmet Ali Yılmaz -> mealyilmaz)
+      const nameParts = parts.slice(0, parts.length - 1);
+      const surname = parts[parts.length - 1];
+      const initials = nameParts.map((p) => p.slice(0, 2)).join('');
+      base = `${initials}${surname}`;
+    }
+
+    base = base.replace(/[^a-z0-9]/g, '');
+    if (!base) base = 'personel';
 
     const users = this.getUsers().filter(
       (u) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCode.toUpperCase()
     );
     const existingUsernames = new Set(users.map((u) => u.username.toLowerCase()));
 
-    if (!existingUsernames.has(clean)) {
-      return clean;
+    if (!existingUsernames.has(base)) {
+      return base;
     }
 
     // Find next available suffix (01, 02, 03...)
     let counter = 1;
     while (true) {
       const suffix = counter < 10 ? `0${counter}` : `${counter}`;
-      const candidate = `${clean}${suffix}`;
+      const candidate = `${base}${suffix}`;
       if (!existingUsernames.has(candidate)) {
         return candidate;
       }
