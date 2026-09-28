@@ -84,14 +84,19 @@ export const BranchesView: React.FC = () => {
       setAvailableCompanies(compList);
 
       const map: Record<string, Branch[]> = {};
-      map['POLATLAR'] = branches;
+      try {
+        const polatlarBranches = await StorageService.getBranches();
+        map['POLATLAR'] = polatlarBranches && polatlarBranches.length > 0 ? polatlarBranches : branches;
+      } catch {
+        map['POLATLAR'] = branches;
+      }
 
       // Load branches for other companies
       for (const comp of compList) {
         const code = comp.code.toUpperCase();
         if (code !== 'POLATLAR') {
           try {
-            const bList = await StorageService.getBranchesForCompany(code);
+            const bList = await StorageService.getBranchesForCompany(code, comp.id);
             map[code] = bList;
           } catch {
             map[code] = [];

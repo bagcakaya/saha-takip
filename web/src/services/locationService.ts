@@ -156,9 +156,20 @@ export const LocationService = {
         const road = addr.road || addr.pedestrian || addr.street || '';
         const houseNumber = addr.house_number ? `No: ${addr.house_number}` : '';
         const roadWithNumber = [road, houseNumber].filter(Boolean).join(' ');
-        const suburb = addr.neighbourhood || addr.suburb || addr.quarter || '';
+        let suburb = addr.neighbourhood || addr.suburb || addr.quarter || '';
         const district = addr.district || addr.town || addr.county || '';
         const city = addr.city || addr.province || addr.state || '';
+
+        // Erzurum Palandöken 12 Mart Caddesi özelinde:
+        // OpenStreetMap sınırında Müftü Solakzade Mahallesi ile Adnan Menderes Mahallesi komşudur.
+        // Eğer display_name içerisinde Müftü Solakzade geçiyorsa veya cadde 12 Mart Caddesi ise ve kullanıcı Müftü Solakzade tarafındaysa:
+        if (
+          data.display_name &&
+          (data.display_name.toLowerCase().includes('müftü solakzade') || data.display_name.toLowerCase().includes('müftüsolakzade')) &&
+          suburb.toLowerCase().includes('adnan menderes')
+        ) {
+          suburb = 'Müftü Solakzade Mahallesi';
+        }
 
         const parts = [roadWithNumber, suburb, district, city].filter(Boolean);
         const resolved = parts.length > 0 ? parts.join(', ') : (data.display_name || fallbackCoord);

@@ -280,8 +280,21 @@ export const BranchModal: React.FC<BranchModalProps> = ({
     setLatInput(String(lat));
     setLonInput(String(lon));
     if (resolvedAddr) {
-      setAddress(resolvedAddr);
-      setAutoAddressResolved(true);
+      // Kullanıcının tercih ettiği veya yazdığı Müftü Solakzade mahallesini koru
+      const currentHasMuftu =
+        address &&
+        (address.toLowerCase().includes('müftü') ||
+         address.toLowerCase().includes('solakzade'));
+
+      let finalAddr = resolvedAddr;
+      if (currentHasMuftu && finalAddr.toLowerCase().includes('adnan menderes')) {
+        finalAddr = finalAddr.replace(/Adnan Menderes Mahallesi/gi, 'Müftü Solakzade Mahallesi');
+      }
+
+      if (!address || !address.trim() || autoAddressResolved || currentHasMuftu) {
+        setAddress(finalAddr);
+        setAutoAddressResolved(true);
+      }
     } else {
       triggerReverseGeocode(lat, lon);
     }
@@ -326,11 +339,26 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setLonInput(String(pair.lon));
       setLatitude(pair.lat);
       setLongitude(pair.lon);
-      handleForceReverseGeocode(pair.lat, pair.lon);
+      handleOpenMapPicker(false);
       return;
     }
 
-    // Normal metin adres arama
+    // Eğer şubenin zaten pinlenmiş geçerli koordinatları varsa, [Ara] butonuna tıklanınca
+    // mevcut pin koordinatını yol ortasına SIFIRLAMA! Haritayı mevcut pinde aç.
+    const hasExistingCoords =
+      typeof latitude === 'number' &&
+      typeof longitude === 'number' &&
+      !isNaN(latitude) &&
+      !isNaN(longitude) &&
+      latitude !== 0 &&
+      longitude !== 0;
+
+    if (hasExistingCoords) {
+      handleOpenMapPicker(false);
+      return;
+    }
+
+    // Henüz koordinat yoksa normal metin adres arama yap
     try {
       setIsSearchingAddress(true);
       setErrorMsg('');
@@ -341,7 +369,15 @@ export const BranchModal: React.FC<BranchModalProps> = ({
         setLongitude(first.longitude);
         setLatInput(String(first.latitude));
         setLonInput(String(first.longitude));
-        setAddress(first.displayName);
+
+        let display = first.displayName;
+        if (
+          trimmed.toLowerCase().includes('müftü') ||
+          trimmed.toLowerCase().includes('solakzade')
+        ) {
+          display = display.replace(/Adnan Menderes Mahallesi/gi, 'Müftü Solakzade Mahallesi');
+        }
+        setAddress(display);
         setAutoAddressResolved(true);
         handleOpenMapPicker(false);
       } else {

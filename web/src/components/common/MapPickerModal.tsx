@@ -155,7 +155,14 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
       setIsReverseGeocoding(true);
       const addr = await LocationService.reverseGeocode(lat, lon);
       if (addr) {
-        setCurrentAddress(addr);
+        let displayAddr = addr;
+        if (
+          (currentAddress && (currentAddress.toLowerCase().includes('müftü') || currentAddress.toLowerCase().includes('solakzade'))) ||
+          (searchQuery && (searchQuery.toLowerCase().includes('müftü') || searchQuery.toLowerCase().includes('solakzade')))
+        ) {
+          displayAddr = displayAddr.replace(/Adnan Menderes Mahallesi/gi, 'Müftü Solakzade Mahallesi');
+        }
+        setCurrentAddress(displayAddr);
       }
     } catch {
       // ignore
@@ -239,9 +246,12 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const startLat = currentLat || defaultLat;
-    const startLon = currentLon || defaultLon;
-    const zoom = currentLat && currentLon ? 18 : defaultZoom;
+    const validInitLat = typeof initialLat === 'number' && !isNaN(initialLat) && initialLat !== 0 ? initialLat : null;
+    const validInitLon = typeof initialLon === 'number' && !isNaN(initialLon) && initialLon !== 0 ? initialLon : null;
+
+    const startLat = validInitLat ?? currentLat ?? defaultLat;
+    const startLon = validInitLon ?? currentLon ?? defaultLon;
+    const zoom = (validInitLat || currentLat) && (validInitLon || currentLon) ? 18 : defaultZoom;
 
     const timer = setTimeout(() => {
       if (!mapContainerRef.current) return;
@@ -294,18 +304,20 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
       });
 
       // Check if valid initial coordinates exist
+      const targetLat = validInitLat ?? currentLat;
+      const targetLon = validInitLon ?? currentLon;
       const hasValidCoords =
-        typeof currentLat === 'number' &&
-        typeof currentLon === 'number' &&
-        !isNaN(currentLat) &&
-        !isNaN(currentLon) &&
-        currentLat !== 0 &&
-        currentLon !== 0;
+        typeof targetLat === 'number' &&
+        typeof targetLon === 'number' &&
+        !isNaN(targetLat) &&
+        !isNaN(targetLon) &&
+        targetLat !== 0 &&
+        targetLon !== 0;
 
       if (hasValidCoords) {
         // If coordinates already exist, ALWAYS place pin and circle at exact coordinates!
         // Never overwrite user's saved/pinned coordinates with autoSearch!
-        const marker = L.marker([currentLat!, currentLon!], {
+        const marker = L.marker([targetLat!, targetLon!], {
           icon: createPinIcon(),
           draggable: true,
         }).addTo(map);
@@ -317,7 +329,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
 
         markerRef.current = marker;
 
-        const circle = L.circle([currentLat!, currentLon!], {
+        const circle = L.circle([targetLat!, targetLon!], {
           radius: 20,
           color: '#0284c7',
           fillColor: '#38bdf8',
@@ -328,10 +340,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
 
         circleRef.current = circle;
       } else if (autoSearchOnOpen && initialAddress && initialAddress.trim().length > 2) {
-        // Auto-search initial address ONLY when coordinates are not yet set
-        executeSearch(initialAddress);
-      } else if (initialAddress && initialAddress.trim().length > 2) {
-        // Fallback auto-search initial address if no coordinates
+        // Auto-search initial address ONLY when coordinates are not set AND autoSearchOnOpen is explicitly true
         executeSearch(initialAddress);
       }
 

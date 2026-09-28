@@ -36,16 +36,32 @@ const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 
+const companyIdCache = new Map<string, number>([
+  ['POLATLAR', 1],
+  ['NESACOCUK', 2],
+]);
+
 function resolveCompanyId(code: string, currentId?: number): number {
   const clean = (code || 'POLATLAR').trim().toUpperCase();
   if (clean === 'POLATLAR') return 1;
-  if (currentId && currentId > 1) return currentId;
+  if (currentId && currentId > 1) {
+    companyIdCache.set(clean, currentId);
+    return currentId;
+  }
+  if (companyIdCache.has(clean)) {
+    return companyIdCache.get(clean)!;
+  }
 
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_companies_directory') : null;
     if (raw) {
       const list = JSON.parse(raw);
       if (Array.isArray(list)) {
+        list.forEach((c: any) => {
+          if (c && c.code && typeof c.id === 'number') {
+            companyIdCache.set(c.code.toUpperCase(), c.id);
+          }
+        });
         const found = list.find((c: any) => c.code && c.code.toUpperCase() === clean);
         if (found && typeof found.id === 'number' && found.id > 1) {
           return found.id;
@@ -240,23 +256,20 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
-        const res = await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
+        await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tasks: chunks }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-        if (res.ok) {
-          return;
-        }
       } catch (err) {
         console.warn(`[Yerel Sunucu] Slot ${slotId} kaydedilemedi, buluta aktarılıyor:`, err);
       }
     }
   }
 
-  // 2. Bulut (Supabase Cloud)
+  // 2. Bulut (Supabase Cloud) - Her zaman buluta da yazarak senkronizasyonu garanti et (Dual-Write)
   try {
     await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
   } catch (err) {
@@ -1622,8 +1635,15 @@ export const StorageService = {
     const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
     const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      // Sadece istenen kuruma ait şubeleri al (veya POLATLAR için companyCode'suz şubeler)
+      const filtered = cleanCode === 'POLATLAR'
+        ? cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === 'POLATLAR')
+        : cloudData.filter((b) => b.companyCode && b.companyCode.toUpperCase() === cleanCode);
+
+      if (filtered.length > 0 || cloudData.length === 0) {
+        await saveItem(localKey, filtered);
+        return filtered;
+      }
     }
     if (cleanCode !== 'POLATLAR' && notFound) {
       await saveItem(localKey, []);
