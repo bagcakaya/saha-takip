@@ -29,6 +29,7 @@ import {
   Coffee,
   Play,
   ArrowLeft,
+  Navigation,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -195,6 +196,7 @@ export const StaffTrackingView: React.FC = () => {
   const [isLocationDisabled, setIsLocationDisabled] = useState(false);
   const [locationErrorMessage, setLocationErrorMessage] = useState('');
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [locationModalIntent, setLocationModalIntent] = useState<'checkin' | 'checkout' | 'verify'>('verify');
 
   const checkLiveDistance = async (showSuccessFeedback = false) => {
     if (!targetLocation?.latitude || !targetLocation?.longitude) {
@@ -219,6 +221,55 @@ export const StaffTrackingView: React.FC = () => {
         setActionFeedback({
           type: 'success',
           text: 'Konum servisleri başarıyla açıldı ve doğrulandı! Şimdi işe giriş veya çıkış yapabilirsiniz.',
+          distance: dist,
+        });
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Cihazınızın konum servisleri (GPS) kapalı veya ulaşılamıyor.';
+      setDistanceError(msg);
+      setIsLocationDisabled(true);
+      setLocationErrorMessage(msg);
+      setCurrentDistance(null);
+    } finally {
+      setIsCheckingDistance(false);
+    }
+  };
+
+  const handleEnableLocation = async (autoProceed = false) => {
+    if (!targetLocation?.latitude || !targetLocation?.longitude) {
+      setDistanceError('İş yeri veya şube lokasyonu henüz belirlenmemiş.');
+      return;
+    }
+    try {
+      setIsCheckingDistance(true);
+      setDistanceError('');
+      // Force fresh high-accuracy position from browser GPS
+      const pos = await LocationService.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      });
+      const dist = LocationService.calculateDistance(
+        pos.latitude,
+        pos.longitude,
+        targetLocation.latitude,
+        targetLocation.longitude
+      );
+      setCurrentDistance(dist);
+      setIsLocationDisabled(false);
+      setLocationErrorMessage('');
+      setIsLocationModalOpen(false);
+
+      if (autoProceed) {
+        if (locationModalIntent === 'checkin') {
+          await handleCheckIn(false);
+        } else if (locationModalIntent === 'checkout') {
+          setShowCheckOutConfirmModal(true);
+        }
+      } else {
+        setActionFeedback({
+          type: 'success',
+          text: '📍 Konum servisiniz başarıyla etkinleştirildi ve doğrulandı! Şimdi mesainizi başlatabilirsiniz.',
           distance: dist,
         });
       }
@@ -267,6 +318,7 @@ export const StaffTrackingView: React.FC = () => {
   const handleCheckIn = async (allowOutside = false, customNote?: string) => {
     // If location is disabled, block check-in and display informative modal
     if (isLocationDisabled) {
+      setLocationModalIntent('checkin');
       setIsLocationModalOpen(true);
       return;
     }
@@ -280,6 +332,7 @@ export const StaffTrackingView: React.FC = () => {
         setIsLocationDisabled(true);
         setLocationErrorMessage(res.message);
         setCurrentDistance(null);
+        setLocationModalIntent('checkin');
         setIsLocationModalOpen(true);
         return;
       }
@@ -308,6 +361,7 @@ export const StaffTrackingView: React.FC = () => {
       if (e?.isLocationDisabled || e?.message?.toLowerCase().includes('konum')) {
         setIsLocationDisabled(true);
         setLocationErrorMessage(e?.message || 'Konum servisleri kapalı.');
+        setLocationModalIntent('checkin');
         setIsLocationModalOpen(true);
       } else {
         setActionFeedback({ type: 'error', text: e?.message || 'İşlem gerçekleştirilemedi.' });
@@ -320,6 +374,7 @@ export const StaffTrackingView: React.FC = () => {
   const handleCheckOut = async (allowOutside = false, customNote?: string) => {
     // If location is disabled, block check-out and display informative modal
     if (isLocationDisabled) {
+      setLocationModalIntent('checkout');
       setIsLocationModalOpen(true);
       return;
     }
@@ -333,6 +388,7 @@ export const StaffTrackingView: React.FC = () => {
         setIsLocationDisabled(true);
         setLocationErrorMessage(res.message);
         setCurrentDistance(null);
+        setLocationModalIntent('checkout');
         setIsLocationModalOpen(true);
         return;
       }
@@ -2070,19 +2126,22 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setIsLocationModalOpen(true)}
+                    onClick={() => {
+                      setLocationModalIntent('verify');
+                      setIsLocationModalOpen(true);
+                    }}
                     className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
                   >
                     Nasıl Açılır?
                   </button>
                   <button
                     type="button"
-                    onClick={() => checkLiveDistance(true)}
+                    onClick={() => handleEnableLocation(false)}
                     disabled={isCheckingDistance}
-                    className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-700 hover:to-red-800 text-white shadow-md shadow-rose-600/25 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-md shadow-emerald-600/25 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingDistance ? 'animate-spin' : ''}`} />
-                    <span>Konumu Açtım, Yeniden Dene</span>
+                    <Navigation className={`w-3.5 h-3.5 ${isCheckingDistance ? 'animate-spin' : ''}`} />
+                    <span>Konumu Etkinleştir</span>
                   </button>
                 </div>
               </div>
@@ -2096,6 +2155,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               type="button"
               onClick={() => {
                 if (isLocationDisabled) {
+                  setLocationModalIntent('checkin');
                   setIsLocationModalOpen(true);
                 } else {
                   handleCheckIn(false);
@@ -2106,7 +2166,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 isCheckedIn || isPendingCheckIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
                   : isLocationDisabled
-                  ? 'bg-gradient-to-br from-emerald-700/60 to-teal-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer'
+                  ? 'bg-gradient-to-br from-emerald-700/60 to-teal-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
                   : 'bg-gradient-to-br from-emerald-500 to-teal-700 hover:from-emerald-600 hover:to-teal-800 text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
               )}
             >
@@ -2119,9 +2179,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
                 <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
-                  isLocationDisabled ? 'bg-rose-500/80 text-white' : 'bg-white/20'
+                  isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
                 )}>
-                  {isLocationDisabled ? 'Konum Kapalı' : isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
+                  {isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
                 </span>
               </div>
               <div>
@@ -2129,9 +2189,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <span>🟢 İşe Geldim</span>
                   {isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
                 </h4>
-                <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
+                <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
                   {isLocationDisabled
-                    ? 'Konum kapalı olduğu için giriş yapılamaz. Açmak için dokunun.'
+                    ? '⚠️ Konumunuz kapalı. Mesaiye başlamak için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                     : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.'}
                 </p>
               </div>
@@ -2142,6 +2202,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               type="button"
               onClick={() => {
                 if (isLocationDisabled) {
+                  setLocationModalIntent('checkout');
                   setIsLocationModalOpen(true);
                 } else {
                   setShowCheckOutConfirmModal(true);
@@ -2152,7 +2213,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 !isCheckedIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
                   : isLocationDisabled
-                  ? 'bg-gradient-to-br from-rose-700/60 to-red-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer'
+                  ? 'bg-gradient-to-br from-rose-700/60 to-red-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
                   : 'bg-gradient-to-br from-rose-500 to-red-700 hover:from-rose-600 hover:to-red-800 text-white shadow-lg shadow-rose-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-pulse'
               )}
             >
@@ -2165,9 +2226,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
                 <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
-                  isLocationDisabled ? 'bg-rose-500/80 text-white' : 'bg-white/20'
+                  isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
                 )}>
-                  {isLocationDisabled ? 'Konum Kapalı' : isPendingCheckOut ? 'Onay Bekliyor' : 'Çıkış Yap'}
+                  {isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckOut ? 'Onay Bekliyor' : 'Çıkış Yap'}
                 </span>
               </div>
               <div>
@@ -2175,9 +2236,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <span>🔴 İşten Çıkış Yaptım</span>
                   {isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
                 </h4>
-                <p className="text-[11px] opacity-90 mt-1 leading-relaxed">
+                <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
                   {isLocationDisabled
-                    ? 'Konum kapalı olduğu için çıkış yapılamaz. Açmak için dokunun.'
+                    ? '⚠️ Konumunuz kapalı. Çıkış yapabilmek için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                     : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.'}
                 </p>
               </div>
@@ -4135,20 +4196,24 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
       {/* --- MODAL: KONUM SERVİSLERİ KAPALI / AÇILMASI GEREKİYOR BİLGİLENDİRME MODALI --- */}
       {isLocationModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-300 dark:border-rose-800 space-y-5 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-300 dark:border-rose-800 space-y-5 animate-in zoom-in-95 duration-150">
             {/* Modal Başlık */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0 shadow-sm">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0 shadow-sm animate-pulse">
                   <MapPinOff className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
-                    Konum Servisleri Kapalı
+                    {locationModalIntent === 'checkin'
+                      ? '📍 İşe Giriş İçin Konumu Etkinleştirin'
+                      : locationModalIntent === 'checkout'
+                      ? '📍 İşten Çıkış İçin Konumu Etkinleştirin'
+                      : '📍 Konum Servisini Etkinleştirin'}
                   </h3>
                   <span className="text-xs font-bold text-rose-600 dark:text-rose-400">
-                    İşe Giriş ve Çıkış Yapılamaz
+                    Mesai İşlemi İçin Konum Açılması Zorunludur
                   </span>
                 </div>
               </div>
@@ -4165,53 +4230,59 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 space-y-2">
               <div className="flex items-center gap-2 text-rose-900 dark:text-rose-200 font-black text-sm">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>Konum Servislerinin Açılması Gerekmektedir</span>
+                <span>Mesai Başlatabilmek İçin Konum Açılması Şarttır</span>
               </div>
               <p className="text-xs text-rose-800 dark:text-rose-300/90 leading-relaxed font-medium">
-                {locationErrorMessage || 'İşe giriş ve çıkış işlemlerinin doğrulanabilmesi için cihazınızın konum (GPS) servisinin açık olması zorunludur.'}
+                {locationErrorMessage || 'Şirket personel takip ve saha güvenlik kuralları gereği, mesaiye başlama (işe giriş) ve mesai bitirme işlemleri yalnızca gerçek GPS konumunuz doğrulanarak yapılabilir. Konum açılmadan işlem yapılamaz.'}
               </p>
             </div>
 
             {/* Nasıl Açılır Rehberi */}
-            <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+            <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60">
               <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                Nasıl Açılır?
+                <Compass className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                Konum Nasıl Etkinleştirilir?
               </span>
-              <ul className="space-y-1.5 pl-4 list-disc text-[11px] leading-relaxed">
+              <ul className="space-y-2 pl-4 list-disc text-[11px] leading-relaxed">
                 <li>
-                  <strong>Telefon veya Tablet:</strong> Bildirim çubuğunu / Denetim Merkezini aşağı kaydırıp <strong>"Konum" (GPS)</strong> simgesini açın.
+                  <strong>Telefon veya Tablet:</strong> Üst bildirim çubuğunu / Denetim Merkezini aşağı kaydırıp <strong>"Konum" (GPS)</strong> simgesini açın.
                 </li>
                 <li>
                   <strong>Tarayıcı İzni:</strong> Adres çubuğundaki kilit 🔒 veya site ayarları simgesine dokunup <strong>Konum</strong> iznini <em>"İzin Ver"</em> olarak ayarlayın.
                 </li>
                 <li>
-                  <strong>Bilgisayar:</strong> İşletim sistemi ayarlarından (Windows/Mac) Konum Servislerinin etkin olduğunu kontrol edin.
+                  <strong>Doğrudan Etkinleştirme:</strong> Aşağıdaki <strong>"Konumu Etkinleştir"</strong> butonuna dokunup tarayıcının ekranda çıkaracağı <em>"İzin Ver"</em> uyarısını onaylayın.
                 </li>
               </ul>
             </div>
 
             {/* Aksiyon Butonları */}
-            <div className="flex items-center justify-end gap-2.5 pt-1">
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setIsLocationModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
-                Kapat
+                Vazgeç
               </button>
               <button
                 type="button"
                 disabled={isCheckingDistance}
-                onClick={() => checkLiveDistance(true)}
-                className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-lg shadow-emerald-600/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                onClick={() => handleEnableLocation(true)}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {isCheckingDistance ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="w-4 h-4" />
+                  <Navigation className="w-4 h-4" />
                 )}
-                <span>Konumu Açtım, Yeniden Dene</span>
+                <span>
+                  {locationModalIntent === 'checkin'
+                    ? '📍 Konumu Etkinleştir ve İşe Giriş Yap'
+                    : locationModalIntent === 'checkout'
+                    ? '📍 Konumu Etkinleştir ve Çıkış Yap'
+                    : '📍 Konumu Etkinleştir ve Doğrula'}
+                </span>
               </button>
             </div>
           </div>

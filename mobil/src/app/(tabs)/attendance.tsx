@@ -14,7 +14,9 @@ import {
   Dimensions,
   BackHandler,
   PanResponder,
+  Linking,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -572,6 +574,40 @@ export default function AttendanceScreen() {
     }
   };
 
+  const promptEnableLocation = (actionTitle = 'İşe Giriş') => {
+    Alert.alert(
+      '📍 Konum Kapalı / İzin Gerekli',
+      `${actionTitle} yapabilmek için telefonunuzun konum (GPS) servisinin açık olması ve konum izni verilmesi zorunludur.\n\nKonum servisinizi şimdi etkinleştirmek ister misiniz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: '📍 Konumu Etkinleştir',
+          onPress: async () => {
+            try {
+              if (Platform.OS === 'android') {
+                try {
+                  await Location.enableNetworkProviderAsync();
+                  setTimeout(() => {
+                    if (actionTitle === 'İşe Giriş') {
+                      handleCheckIn();
+                    }
+                  }, 800);
+                  return;
+                } catch {
+                  await Linking.openSettings();
+                }
+              } else {
+                await Linking.openSettings();
+              }
+            } catch {
+              Linking.openSettings();
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleCheckIn = async () => {
     setActionLoading(true);
     const res = await checkInStaff();
@@ -583,6 +619,14 @@ export default function AttendanceScreen() {
       if (res.isMockLocation) {
         setMockWarning(res.message);
         Alert.alert('🚨 Sahte Konum Engellendi', res.message);
+      } else if (
+        res.isLocationDisabled ||
+        res.message?.toLowerCase().includes('konum') ||
+        res.message?.toLowerCase().includes('gps') ||
+        res.message?.toLowerCase().includes('kapalı') ||
+        res.message?.toLowerCase().includes('izin')
+      ) {
+        promptEnableLocation('İşe Giriş');
       } else {
         Alert.alert('Bilgi', res.message);
       }
@@ -605,6 +649,14 @@ export default function AttendanceScreen() {
             if (res.isMockLocation) {
               setMockWarning(res.message);
               Alert.alert('🚨 Sahte Konum Engellendi', res.message);
+            } else if (
+              res.isLocationDisabled ||
+              res.message?.toLowerCase().includes('konum') ||
+              res.message?.toLowerCase().includes('gps') ||
+              res.message?.toLowerCase().includes('kapalı') ||
+              res.message?.toLowerCase().includes('izin')
+            ) {
+              promptEnableLocation('İşten Çıkış');
             } else {
               Alert.alert('Bilgi', res.message);
             }
