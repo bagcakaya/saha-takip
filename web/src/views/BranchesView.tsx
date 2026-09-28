@@ -827,7 +827,14 @@ export const BranchesView: React.FC = () => {
         defaultCompanyCode={targetCompanyForBranch}
         onSave={async (data) => {
           if (editingBranch) {
-            await updateBranch(editingBranch.id, data);
+            await updateBranch(
+              editingBranch.id,
+              {
+                ...data,
+                companyCode: data.companyCode || editingBranch.companyCode,
+              },
+              editingBranch.companyCode || data.companyCode
+            );
             await loadAllCompaniesAndBranches();
           } else {
             await addBranch(data);

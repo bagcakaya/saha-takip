@@ -119,7 +119,11 @@ interface StorageContextType {
   addBranch: (
     branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }
   ) => Promise<Branch>;
-  updateBranch: (id: string, updates: Partial<Branch>) => Promise<void>;
+  updateBranch: (
+    id: string,
+    updates: Partial<Branch> & { companyCode?: string },
+    targetCompanyCode?: string
+  ) => Promise<void>;
   deleteBranch: (id: string, targetCompanyCode?: string) => Promise<void>;
   assignStaffToBranch: (branchId: string, userIds: string[], targetCompanyCode?: string) => Promise<void>;
   checkInStaff: (options?: {
@@ -3019,14 +3023,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return newBranch;
   };
 
-  const updateBranch = async (id: string, updates: Partial<Branch>) => {
+  const updateBranch = async (
+    id: string,
+    updates: Partial<Branch> & { companyCode?: string },
+    targetCompanyCode?: string
+  ) => {
     if (!canUserAddBranch(user)) {
       alert('Şube düzenleme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
       return;
     }
     const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const targetBranch = branches.find((b) => b.id === id);
-    const branchCompCode = (targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
+    const branchCompCode = (
+      targetCompanyCode ||
+      updates.companyCode ||
+      targetBranch?.companyCode ||
+      currentCompCode
+    ).trim().toUpperCase();
 
     if (branchCompCode === currentCompCode) {
       const updated = branches.map((b) =>
@@ -3036,10 +3049,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await StorageService.saveBranches(updated);
     } else {
       const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
-      const targetUpdated = targetExisting.map((b) =>
-        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
-      );
+      const isExistingInTarget = targetExisting.some((b) => b.id === id);
+      let targetUpdated: Branch[];
+      if (isExistingInTarget) {
+        targetUpdated = targetExisting.map((b) =>
+          b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+        );
+      } else {
+        targetUpdated = [
+          ...targetExisting,
+          { id, companyCode: branchCompCode, ...updates, updatedAt: Date.now() } as Branch,
+        ];
+      }
       await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
+
+      // Clean up from local state if it was in branches
+      if (branches.some((b) => b.id === id)) {
+        const cleaned = branches.filter((b) => b.id !== id);
+        setBranches(cleaned);
+        await StorageService.saveBranches(cleaned);
+      }
     }
   };
 

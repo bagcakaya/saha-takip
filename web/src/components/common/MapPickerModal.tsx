@@ -95,6 +95,19 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [searchError, setSearchError] = useState('');
 
+  // Sync state when modal opens or initial props change
+  useEffect(() => {
+    if (isOpen) {
+      const vLat = typeof initialLat === 'number' && !isNaN(initialLat) && initialLat !== 0 ? initialLat : null;
+      const vLon = typeof initialLon === 'number' && !isNaN(initialLon) && initialLon !== 0 ? initialLon : null;
+      setCurrentLat(vLat);
+      setCurrentLon(vLon);
+      setCurrentAddress(initialAddress || '');
+      setSearchQuery(initialAddress || '');
+      setSearchError('');
+    }
+  }, [isOpen, initialLat, initialLon, initialAddress]);
+
   // Initial location fallback (default to Turkey center if not provided)
   const defaultLat = 39.925533;
   const defaultLon = 32.866287;
@@ -280,12 +293,19 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         updatePinnedLocation(e.latlng.lat, e.latlng.lng, undefined, false);
       });
 
-      // If autoSearchOnOpen is active and address exists, search address immediately
-      if (autoSearchOnOpen && initialAddress && initialAddress.trim().length > 2) {
-        executeSearch(initialAddress);
-      } else if (currentLat && currentLon) {
-        // If initial coordinates exist, place pin and circle
-        const marker = L.marker([currentLat, currentLon], {
+      // Check if valid initial coordinates exist
+      const hasValidCoords =
+        typeof currentLat === 'number' &&
+        typeof currentLon === 'number' &&
+        !isNaN(currentLat) &&
+        !isNaN(currentLon) &&
+        currentLat !== 0 &&
+        currentLon !== 0;
+
+      if (hasValidCoords) {
+        // If coordinates already exist, ALWAYS place pin and circle at exact coordinates!
+        // Never overwrite user's saved/pinned coordinates with autoSearch!
+        const marker = L.marker([currentLat!, currentLon!], {
           icon: createPinIcon(),
           draggable: true,
         }).addTo(map);
@@ -297,7 +317,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
 
         markerRef.current = marker;
 
-        const circle = L.circle([currentLat, currentLon], {
+        const circle = L.circle([currentLat!, currentLon!], {
           radius: 20,
           color: '#0284c7',
           fillColor: '#38bdf8',
@@ -307,8 +327,11 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         }).addTo(map);
 
         circleRef.current = circle;
+      } else if (autoSearchOnOpen && initialAddress && initialAddress.trim().length > 2) {
+        // Auto-search initial address ONLY when coordinates are not yet set
+        executeSearch(initialAddress);
       } else if (initialAddress && initialAddress.trim().length > 2) {
-        // Auto-search initial address if no coordinates
+        // Fallback auto-search initial address if no coordinates
         executeSearch(initialAddress);
       }
 

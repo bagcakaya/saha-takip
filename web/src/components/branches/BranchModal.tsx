@@ -634,7 +634,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => handleOpenMapPicker(Boolean(address && address.trim().length > 2))}
+                  onClick={() => handleOpenMapPicker(false)}
                   className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all active:scale-95 shadow-xs cursor-pointer"
                 >
                   <MapPin className="w-4 h-4 text-blue-600" />
