@@ -138,6 +138,13 @@ export default function AttendanceScreen() {
     return () => backHandlerSubscription.remove();
   }, [activeSection, router]);
 
+  // Personel için Mesai Özeti sekmesini engelle ve Giriş/Çıkış sekmesine yönlendir
+  useEffect(() => {
+    if (!isAdmin && activeSection === 'summary') {
+      setActiveSection('checkin_checkout');
+    }
+  }, [isAdmin, activeSection]);
+
   // iOS ve dokunmatik sağa kaydırma (Swipe Right) ile bir önceki menüye dönüş
   const swipePanResponder = useMemo(
     () =>
@@ -179,8 +186,10 @@ export default function AttendanceScreen() {
       color: '#3b82f6',
     },
     leaves: {
-      title: 'İzin Takibi',
-      subtitle: 'Saatlik ve günlük izin talepleri ve yönetici onayları',
+      title: isAdmin ? 'İzin Yönetimi ve Talepler' : 'İzin Talebi',
+      subtitle: isAdmin
+        ? 'Saatlik ve günlük izin talepleri ve yönetici onayları'
+        : 'Yeni bir saatlik veya günlük izin talebinde bulunabilirsiniz',
       icon: CalendarDays,
       color: '#8b5cf6',
     },
@@ -1094,15 +1103,19 @@ export default function AttendanceScreen() {
                   badgeText: isOnBreak ? 'MOLADA' : undefined,
                   badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
                 },
-                {
-                  id: 'summary' as const,
-                  title: 'Mesai Özeti',
-                  icon: Clock,
-                  glowColor: '#3b82f6',
-                },
+                ...(isAdmin
+                  ? [
+                      {
+                        id: 'summary' as const,
+                        title: 'Mesai Özeti',
+                        icon: Clock,
+                        glowColor: '#3b82f6',
+                      },
+                    ]
+                  : []),
                 {
                   id: 'leaves' as const,
-                  title: 'İzin Takibi',
+                  title: isAdmin ? 'İzin Takibi' : 'İzin Talebi',
                   icon: CalendarDays,
                   glowColor: '#8b5cf6',
                   badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
@@ -1710,26 +1723,30 @@ export default function AttendanceScreen() {
                       </Text>
                     </View>
 
-                    <View style={styles.todayGridCol}>
-                      <Text style={styles.todayGridLabel}>BRÜT MESAİ</Text>
-                      <Text style={[styles.todayGridVal, { color: '#0284c7' }]}>
-                        {formatMinutesToDuration(calculateRecordDurationMinutes(todayRecord))}
-                      </Text>
-                    </View>
+                    {isAdmin && (
+                      <>
+                        <View style={styles.todayGridCol}>
+                          <Text style={styles.todayGridLabel}>BRÜT MESAİ</Text>
+                          <Text style={[styles.todayGridVal, { color: '#0284c7' }]}>
+                            {formatMinutesToDuration(calculateRecordDurationMinutes(todayRecord))}
+                          </Text>
+                        </View>
 
-                    <View style={styles.todayGridCol}>
-                      <Text style={styles.todayGridLabel}>TOPLAM MOLA</Text>
-                      <Text style={[styles.todayGridVal, { color: '#d97706' }]}>
-                        {formatMinutesToDuration(calculateRecordBreakMinutes(todayRecord))}
-                      </Text>
-                    </View>
+                        <View style={styles.todayGridCol}>
+                          <Text style={styles.todayGridLabel}>TOPLAM MOLA</Text>
+                          <Text style={[styles.todayGridVal, { color: '#d97706' }]}>
+                            {formatMinutesToDuration(calculateRecordBreakMinutes(todayRecord))}
+                          </Text>
+                        </View>
 
-                    <View style={styles.todayGridCol}>
-                      <Text style={styles.todayGridLabel}>NET ÇALIŞMA</Text>
-                      <Text style={[styles.todayGridVal, { color: '#10b981', fontWeight: '900' }]}>
-                        {formatMinutesToDuration(calculateRecordNetWorkMinutes(todayRecord))}
-                      </Text>
-                    </View>
+                        <View style={styles.todayGridCol}>
+                          <Text style={styles.todayGridLabel}>NET ÇALIŞMA</Text>
+                          <Text style={[styles.todayGridVal, { color: '#10b981', fontWeight: '900' }]}>
+                            {formatMinutesToDuration(calculateRecordNetWorkMinutes(todayRecord))}
+                          </Text>
+                        </View>
+                      </>
+                    )}
                   </View>
                 </View>
               )}
@@ -1775,12 +1792,14 @@ export default function AttendanceScreen() {
                         <Text style={{ color: '#d97706', fontWeight: '700' }}>
                           Geçen Mola: <Text style={{ fontWeight: '900', color: '#b45309' }}>{liveBreakTimerText || 'Hesaplanıyor...'}</Text>
                         </Text>
-                      ) : (
+                      ) : isAdmin ? (
                         `Bugün: ${
                           todayRecord?.breaks && todayRecord.breaks.length > 0
                             ? `${todayRecord.breaks.length} mola (${calculateRecordBreakMinutes(todayRecord)} dk)`
                             : 'Henüz molaya çıkılmadı'
                         }`
+                      ) : (
+                        'Molaya ayrılmak için butona dokunabilirsiniz.'
                       )}
                     </Text>
                   </View>
@@ -1810,8 +1829,8 @@ export default function AttendanceScreen() {
                   )}
                 </TouchableOpacity>
 
-                {/* Bugünkü Kendi Molalarınız Dökümü */}
-                {todayRecord?.breaks && todayRecord.breaks.length > 0 && (
+                {/* Bugünkü Kendi Molalarınız Dökümü (Yalnızca Yönetici) */}
+                {isAdmin && todayRecord?.breaks && todayRecord.breaks.length > 0 && (
                   <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(217, 119, 6, 0.2)' }}>
                     <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 8 }}>
                       Bugünkü Molalarınız ({todayRecord.breaks.length} Adet - Toplam {calculateRecordBreakMinutes(todayRecord)} dk)
@@ -2104,9 +2123,9 @@ export default function AttendanceScreen() {
         )}
 
         {/* ============================================================ */}
-        {/* MODÜL 3: MESAİ ÖZETİ KISMI */}
+        {/* MODÜL 3: MESAİ ÖZETİ KISMI (YALNIZCA YÖNETİCİ) */}
         {/* ============================================================ */}
-        {activeSection === 'summary' && (
+        {activeSection === 'summary' && isAdmin && (
           <View style={{ gap: 12 }}>
             <View
               style={[
@@ -2845,7 +2864,9 @@ export default function AttendanceScreen() {
               <Text style={styles.leaveCreateHeaderBtnText}>Yeni İzin Talebi Oluştur</Text>
             </TouchableOpacity>
 
-            {/* İzin Filtre Hapları */}
+            {isAdmin ? (
+              <>
+                {/* İzin Filtre Hapları */}
             <View
               style={[
                 styles.cardBox,
@@ -3111,6 +3132,134 @@ export default function AttendanceScreen() {
                 </View>
               );
             })()}
+              </>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {/* Personel Bilgilendirme Notu */}
+                <View
+                  style={[
+                    styles.cardBox,
+                    {
+                      backgroundColor: isDark ? '#1e1138' : '#f5f3ff',
+                      borderColor: isDark ? '#4c1d95' : '#ddd6fe',
+                      padding: 16,
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                    },
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 12,
+                      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.25)' : '#ede9fe',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: 2,
+                    }}
+                  >
+                    <CalendarDays size={20} color="#8b5cf6" />
+                  </View>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: isDark ? '#f5f3ff' : '#4c1d95' }}>
+                      İzin Özeti ve Bilgilendirme
+                    </Text>
+                    <Text style={{ fontSize: 12, lineHeight: 18, color: isDark ? '#ddd6fe' : '#6d28d9', fontWeight: '500' }}>
+                      Kullandığınız veya kalan izin haklarınıza ait özet bilgileri yöneticinizden sözlü olarak talep edebilirsiniz. Yeni bir saatlik veya günlük izin başvurusunda bulunmak için yukarıdaki "Yeni İzin Talebi Oluştur" butonunu kullanabilirsiniz.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Varsa Personelin Onay Bekleyen İzin Talepleri */}
+                {(() => {
+                  const myPendingLeaves = leaveRequests.filter(
+                    (l) => (l.userId === user?.id || l.userName === user?.name) && l.status === 'pending'
+                  );
+                  if (myPendingLeaves.length === 0) return null;
+
+                  return (
+                    <View
+                      style={[
+                        styles.cardBox,
+                        {
+                          backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                          borderColor: isDark ? 'rgba(245, 158, 11, 0.4)' : '#fef3c7',
+                          gap: 12,
+                        },
+                      ]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Clock size={16} color="#f59e0b" />
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                          Onay Bekleyen İzin Talepleriniz ({myPendingLeaves.length})
+                        </Text>
+                      </View>
+
+                      <View style={{ gap: 8 }}>
+                        {myPendingLeaves.map((leave) => {
+                          const typeLabel =
+                            leave.leaveType === 'hourly'
+                              ? `Saatlik İzin (${leave.startTime || ''} - ${leave.endTime || ''})`
+                              : `Günlük İzin (${leave.durationText || '1 Gün'})`;
+
+                          return (
+                            <View
+                              key={leave.id}
+                              style={{
+                                padding: 12,
+                                borderRadius: 12,
+                                backgroundColor: isDark ? '#080e21' : '#f8fafc',
+                                borderWidth: 1,
+                                borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                                gap: 6,
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a', flex: 1 }}>
+                                  📅 {leave.date} {leave.endDate && leave.endDate !== leave.date ? `➔ ${leave.endDate}` : ''}
+                                </Text>
+                                <View
+                                  style={{
+                                    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: '#f59e0b' }}>
+                                    Onay Bekliyor
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+                                {typeLabel}
+                              </Text>
+
+                              {leave.reason ? (
+                                <Text style={{ fontSize: 11, color: isDark ? '#cbd5e1' : '#334155', fontStyle: 'italic' }}>
+                                  "{leave.reason}"
+                                </Text>
+                              ) : null}
+
+                              <TouchableOpacity
+                                style={[styles.leaveActionCancelBtn, { alignSelf: 'flex-end', marginTop: 4 }]}
+                                onPress={() => handleCancelLeave(leave.id)}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={styles.leaveActionCancelBtnText}>Talebi İptal Et</Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })()}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>

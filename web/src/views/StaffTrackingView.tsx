@@ -1036,6 +1036,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
   const navigateToSection = (section: ActiveSection) => {
+    if (!isAdmin && section === 'summary') {
+      setActiveSection('checkin_checkout');
+      return;
+    }
     setActiveSection(section);
     if (typeof window !== 'undefined' && section !== 'menu') {
       try {
@@ -1047,6 +1051,12 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       } catch {}
     }
   };
+
+  useEffect(() => {
+    if (!isAdmin && activeSection === 'summary') {
+      setActiveSection('checkin_checkout');
+    }
+  }, [isAdmin, activeSection]);
 
   const handleBackToSectionMenu = () => {
     if (typeof window !== 'undefined' && window.history.state?.staffSection) {
@@ -1361,17 +1371,21 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 badgeText: isOnBreak ? 'MOLADA' : undefined,
                 badgeCount: isAdmin && activeStaffOnBreak.length > 0 ? activeStaffOnBreak.length : undefined,
               },
-              {
-                id: 'summary' as const,
-                title: 'Mesai Özeti',
-                icon: Clock,
-                glowColor: 'text-blue-500',
-                borderColor: 'border-blue-500',
-                bgGlow: 'bg-blue-500/15',
-              },
+              ...(isAdmin
+                ? [
+                    {
+                      id: 'summary' as const,
+                      title: 'Mesai Özeti',
+                      icon: Clock,
+                      glowColor: 'text-blue-500',
+                      borderColor: 'border-blue-500',
+                      bgGlow: 'bg-blue-500/15',
+                    },
+                  ]
+                : []),
               {
                 id: 'leaves' as const,
-                title: 'İzin Takibi',
+                title: isAdmin ? 'İzin Takibi' : 'İzin Talebi',
                 icon: CalendarRange,
                 glowColor: 'text-purple-500',
                 borderColor: 'border-purple-500',
@@ -1951,7 +1965,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               ) : isCheckedIn ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  Mesaidesiniz ({activeDurationText || 'Hesaplanıyor'})
+                  {isAdmin ? `Mesaidesiniz (${activeDurationText || 'Hesaplanıyor'})` : 'Mesaidesiniz'}
                 </span>
               ) : isCompletedToday ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
@@ -2186,7 +2200,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+              <div className={`grid ${isAdmin ? 'grid-cols-2 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3'} gap-2 text-xs`}>
               <div>
                 <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
                   GİRİŞ SAATİ
@@ -2230,36 +2244,40 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 </span>
               </div>
 
-              <div>
-                <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
-                  BRÜT MESAİ
-                </span>
-                <span className="font-black text-blue-600 dark:text-blue-400">
-                  {currentUserTodayRecord.workDurationMinutes
-                    ? (Math.floor(currentUserTodayRecord.workDurationMinutes / 60) + ' sa ' + (currentUserTodayRecord.workDurationMinutes % 60) + ' dk')
-                    : activeDurationText || '-'}
-                </span>
-              </div>
+              {isAdmin && (
+                <>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
+                      BRÜT MESAİ
+                    </span>
+                    <span className="font-black text-blue-600 dark:text-blue-400">
+                      {currentUserTodayRecord.workDurationMinutes
+                        ? (Math.floor(currentUserTodayRecord.workDurationMinutes / 60) + ' sa ' + (currentUserTodayRecord.workDurationMinutes % 60) + ' dk')
+                        : activeDurationText || '-'}
+                    </span>
+                  </div>
 
-              <div>
-                <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
-                  TOPLAM MOLA
-                </span>
-                <span className="font-black text-amber-600 dark:text-amber-400">
-                  {calculateRecordBreakMinutes(currentUserTodayRecord) > 0
-                    ? `${calculateRecordBreakMinutes(currentUserTodayRecord)} dk (${currentUserTodayRecord.breaks?.length || 0} mola)`
-                    : '-'}
-                </span>
-              </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
+                      TOPLAM MOLA
+                    </span>
+                    <span className="font-black text-amber-600 dark:text-amber-400">
+                      {calculateRecordBreakMinutes(currentUserTodayRecord) > 0
+                        ? `${calculateRecordBreakMinutes(currentUserTodayRecord)} dk (${currentUserTodayRecord.breaks?.length || 0} mola)`
+                        : '-'}
+                    </span>
+                  </div>
 
-              <div>
-                <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
-                  NET ÇALIŞMA
-                </span>
-                <span className="font-black text-emerald-600 dark:text-emerald-400">
-                  {formatMinutesToDuration(calculateRecordNetWorkMinutes(currentUserTodayRecord))}
-                </span>
-              </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 block font-semibold text-[10px]">
+                      NET ÇALIŞMA
+                    </span>
+                    <span className="font-black text-emerald-600 dark:text-emerald-400">
+                      {formatMinutesToDuration(calculateRecordNetWorkMinutes(currentUserTodayRecord))}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
             </div>
           )}
@@ -2308,7 +2326,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                         <span className="font-semibold text-amber-700 dark:text-amber-300">
                           Geçen Mola Süresi: <span className="font-black text-base tracking-wide text-amber-600 dark:text-amber-400">{liveBreakTimerText || 'Hesaplanıyor...'}</span>
                         </span>
-                      ) : (
+                      ) : isAdmin ? (
                         <span>
                           Bugünkü mola özeti:{' '}
                           <strong className="text-slate-800 dark:text-slate-200">
@@ -2316,6 +2334,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                               ? `${currentUserTodayRecord.breaks.length} mola (${currentUserTodayRecord.totalBreakMinutes || currentUserTodayRecord.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0)} dk)`
                               : 'Henüz molaya çıkılmadı'}
                           </strong>
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 dark:text-slate-400">
+                          Molaya ayrılmak için butona basabilirsiniz.
                         </span>
                       )}
                     </p>
@@ -2347,8 +2369,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 </div>
               </div>
 
-              {/* Bugünkü Molalarım Dökümü */}
-              {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0 && (
+              {/* Bugünkü Molalarım Dökümü (Yalnızca Yönetici) */}
+              {isAdmin && currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-amber-200 dark:border-amber-800/60">
                   <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                     Bugünkü Molalarınız ({currentUserTodayRecord.breaks.length} Adet)
@@ -2716,9 +2738,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* ============================================================ */}
-      {/* MODÜL 3: MESAİ ÖZETİ KISMI */}
+      {/* MODÜL 3: MESAİ ÖZETİ KISMI (YALNIZCA YÖNETİCİ) */}
       {/* ============================================================ */}
-      {activeSection === 'summary' && (
+      {activeSection === 'summary' && isAdmin && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -3595,7 +3617,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <span>Personel İzin Yönetimi ve Talepler</span>
+                  <span>{isAdmin ? 'Personel İzin Yönetimi ve Talepler' : 'İzin Talebi'}</span>
                   {pendingLeaveCount > 0 && (
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-purple-600 text-white">
                       {pendingLeaveCount} Bekleyen
@@ -3603,7 +3625,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  Saatlik ve günlük izin başvuruları, yönetici onayları ve geçmiş izin takibi.
+                  {isAdmin
+                    ? 'Saatlik ve günlük izin başvuruları, yönetici onayları ve geçmiş izin takibi.'
+                    : 'Yeni bir saatlik veya günlük izin talebinde bulunabilirsiniz.'}
                 </p>
               </div>
             </div>
@@ -3618,8 +3642,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </button>
           </div>
 
-          {/* İzin Filtresi ve İzin Talepleri Tablosu */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          {/* İzin Filtresi ve İzin Talepleri Tablosu (Yalnızca Yönetici) */}
+          {isAdmin ? (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between gap-2 flex-wrap pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">İzin Durumu:</span>
               <div className="flex items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
@@ -3894,8 +3919,61 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           </div>
         )}
       </div>
-    </div>
-  )}
+    ) : (
+      <div className="space-y-4">
+        {/* Personel Bilgilendirme Notu */}
+        <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/60 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0 mt-0.5">
+            <CalendarRange className="w-4 h-4" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-xs sm:text-sm font-bold text-purple-950 dark:text-purple-100">
+              İzin Özeti ve Bilgilendirme
+            </h4>
+            <p className="text-xs text-purple-800 dark:text-purple-300 leading-relaxed font-medium">
+              Kullanılan veya kalan izin haklarınıza ait özet bilgileri yöneticinizden sözlü olarak talep edebilirsiniz. Yeni bir saatlik veya günlük izin başvurusunda bulunmak için yukarıdaki <strong>"Yeni İzin Talebi Oluştur"</strong> butonunu kullanabilirsiniz.
+            </p>
+          </div>
+        </div>
+
+        {/* Varsa Personelin Onay Bekleyen İzin Talepleri */}
+        {userLeaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length > 0 && (
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-amber-200 dark:border-amber-800/60 shadow-sm space-y-3">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-black text-xs sm:text-sm">
+              <Clock className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+              <span>Onay Bekleyen İzin Talepleriniz</span>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {userLeaveRequests
+                .filter((r) => r.userId === user?.id && r.status === 'pending')
+                .map((req) => (
+                  <div key={req.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                        {req.leaveType === 'hourly'
+                          ? `Saatlik İzin (${req.date} ${req.startTime} - ${req.endTime})`
+                          : `Günlük İzin (${req.date} ${req.endDate && req.endDate !== req.date ? `➔ ${req.endDate}` : ''})`}
+                      </span>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Gerekçe: {req.reason || 'Belirtilmedi'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelMyLeave(req.id)}
+                      className="self-start sm:self-auto px-3 py-1.5 rounded-xl text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
+                    >
+                      Talebi İptal Et
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+)}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (
