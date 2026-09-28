@@ -45,6 +45,7 @@ interface AuthContextType {
     password: string;
     name: string;
     role: UserRole;
+    companyCode?: string;
   }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
     id: string,
@@ -415,8 +416,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string;
     name: string;
     role: UserRole;
+    companyCode?: string;
   }) => {
-    const currentCompCode = user?.companyCode || 'POLATLAR';
+    const currentCompCode = (params.companyCode || user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const res = await UserService.addUser({
       ...params,
       companyCode: currentCompCode,
