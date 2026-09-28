@@ -42,9 +42,9 @@ export function TimedFollowUpModal({ visible, onClose, onSuccess }: TimedFollowU
   const [cariName, setCariName] = useState('');
   const [description, setDescription] = useState('');
   
-  // Format current date + 1 hour as default string DD.MM.YYYY HH:mm
+  // Format current date + 3 hours as default string DD.MM.YYYY HH:mm (3 saat sonrasını göster)
   const getDefaultDateTime = () => {
-    const d = new Date(Date.now() + 60 * 60 * 1000);
+    const d = new Date(Date.now() + 3 * 60 * 60 * 1000);
     const day = String(d.getDate()).padStart(2, '0');
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = d.getFullYear();

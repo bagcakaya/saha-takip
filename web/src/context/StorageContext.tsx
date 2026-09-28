@@ -2227,9 +2227,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newNotes = allNotesRef.current.filter((n) => n.id !== id);
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
-    StorageService.saveNotes(newNotes).catch((err) => {
-      console.warn('saveNotes delete error:', err);
-    });
+    try {
+      await StorageService.deleteNote(id);
+    } catch (err) {
+      console.warn('StorageService.deleteNote error:', err);
+    }
   };
 
   // Mark note as completed by Staff (submits to Admin for approval)

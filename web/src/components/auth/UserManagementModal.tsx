@@ -254,7 +254,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   const handleRoleToggle = async (userId: string, currentRole: UserRole) => {
     const nextRole: UserRole = currentRole === 'admin' ? 'staff' : 'admin';
-    const roleName = nextRole === 'admin' ? 'Sistem Yöneticisi (Admin)' : 'Saha Yetkilisi';
+    const roleName = nextRole === 'admin' ? 'Sistem Yöneticisi (Admin)' : 'Personel';
 
     if (
       window.confirm(
@@ -693,7 +693,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                  placeholder="Örn: ayilmaz (veya mealyilmaz)"
+                  placeholder="Örn: ayilmaz (veya mayilmaz)"
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />

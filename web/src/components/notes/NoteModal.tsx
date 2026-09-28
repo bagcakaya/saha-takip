@@ -123,8 +123,11 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   };
 
   const setDefaultDateTime = () => {
-    const future = new Date(Date.now() + 10 * 60 * 1000);
-    setDateStr(future.toISOString().split('T')[0]);
+    const future = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const year = future.getFullYear();
+    const month = String(future.getMonth() + 1).padStart(2, '0');
+    const day = String(future.getDate()).padStart(2, '0');
+    setDateStr(`${year}-${month}-${day}`);
     const hh = String(future.getHours()).padStart(2, '0');
     const mm = String(future.getMinutes()).padStart(2, '0');
     setTimeStr(`${hh}:${mm}`);
@@ -134,6 +137,9 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     setReminderActive(checked);
     if (checked) {
       await NotificationService.requestPermission();
+      if (!dateStr || !timeStr) {
+        setDefaultDateTime();
+      }
     }
   };
 

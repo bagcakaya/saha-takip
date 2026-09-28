@@ -657,12 +657,6 @@ export const NotesView: React.FC = () => {
                 }
               }}
               onDelete={() => {
-                if (!isAdmin && note.createdBy !== currentUser?.id) {
-                  alert(
-                    'Bu iş emri yönetici tarafından eklenmiştir. Yalnızca oluşturan yetkili silebilir.'
-                  );
-                  return;
-                }
                 if (window.confirm('Bu iş emrini silmek istediğinize emin misiniz?')) {
                   deleteNote(note.id);
                 }

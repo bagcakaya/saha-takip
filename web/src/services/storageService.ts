@@ -579,18 +579,61 @@ export const StorageService = {
     }
   },
 
+  getDeletedNotesStorageKey(): string {
+    return `@deleted_note_ids_${activeCompanyCode}`;
+  },
+
+  async getDeletedNoteIds(): Promise<Set<string>> {
+    try {
+      const key = this.getDeletedNotesStorageKey();
+      const raw = await loadItem<string[]>(key);
+      if (Array.isArray(raw)) {
+        return new Set(raw);
+      }
+    } catch (e) {
+      console.warn('getDeletedNoteIds error:', e);
+    }
+    return new Set();
+  },
+
+  async markNoteAsDeleted(id: string): Promise<void> {
+    try {
+      const key = this.getDeletedNotesStorageKey();
+      const currentSet = await this.getDeletedNoteIds();
+      currentSet.add(id);
+      const list = Array.from(currentSet).slice(-500);
+      await saveItem(key, list);
+    } catch (e) {
+      console.warn('markNoteAsDeleted error:', e);
+    }
+  },
+
+  async unmarkNoteAsDeleted(id: string): Promise<void> {
+    try {
+      const key = this.getDeletedNotesStorageKey();
+      const currentSet = await this.getDeletedNoteIds();
+      if (currentSet.has(id)) {
+        currentSet.delete(id);
+        await saveItem(key, Array.from(currentSet));
+      }
+    } catch (e) {
+      console.warn('unmarkNoteAsDeleted error:', e);
+    }
+  },
+
   /**
    * Retrieves notes (Supabase cloud + local cache)
    */
   async getNotes(): Promise<GeneralNote[]> {
     const localKey = this.getStorageKey(NOTES_KEY);
+    const deletedIds = await this.getDeletedNoteIds();
 
     if (activeCompanyCode === 'POLATLAR') {
       // 1. Fetch fallback cloud sync slot (standard_tasks id: 4)
       let fallbackNotes: GeneralNote[] = [];
       const stFallback = await loadChunkedSlot<GeneralNote[]>(4);
       if (stFallback.data && Array.isArray(stFallback.data)) {
-        fallbackNotes = stFallback.data;
+        fallbackNotes = stFallback.data.filter((n) => !deletedIds.has(n.id));
       }
 
       // 2. Try fetching from Supabase native notes table
@@ -600,9 +643,17 @@ export const StorageService = {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
+          // If any deleted rows are returned from Supabase, purge them in background
+          const zombieRows = data.filter((r) => deletedIds.has(r.id));
+          if (zombieRows.length > 0) {
+            const zombieIds = zombieRows.map((r) => r.id);
+            supabase.from('notes').delete().in('id', zombieIds).then(undefined, console.warn);
+          }
+
+          const validRows = data.filter((r) => !deletedIds.has(r.id));
           const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
-          const mergedNotes: GeneralNote[] = data.map((row) => {
+          const mergedNotes: GeneralNote[] = validRows.map((row) => {
             const fb = fallbackMap.get(row.id);
             return {
               id: row.id,
@@ -636,10 +687,11 @@ export const StorageService = {
             };
           });
 
-          // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table
-          const dataIds = new Set(data.map((r) => r.id));
-          const missingFromTable = fallbackNotes.filter((fb) => !dataIds.has(fb.id));
-          const finalNotes = [...mergedNotes, ...missingFromTable];
+          // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table,
+          // ensuring we NEVER restore deleted ones!
+          const dataIds = new Set(validRows.map((r) => r.id));
+          const missingFromTable = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id));
+          const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
 
           await saveItem(localKey, finalNotes);
           return finalNotes;
@@ -649,19 +701,22 @@ export const StorageService = {
       }
 
       if (fallbackNotes.length > 0) {
-        await saveItem(localKey, fallbackNotes);
-        return fallbackNotes;
+        const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id));
+        await saveItem(localKey, filtered);
+        return filtered;
       }
 
-      return (await loadItem<GeneralNote[]>(localKey)) || [];
+      const localCached = (await loadItem<GeneralNote[]>(localKey)) || [];
+      return localCached.filter((n) => !deletedIds.has(n.id));
     }
 
     // Isolated chunked slot 4 for other companies
     const slotId = this.getSlotId(4);
     const { data: cloudData, notFound } = await loadChunkedSlot<GeneralNote[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const filtered = cloudData.filter((n) => !deletedIds.has(n.id));
+      await saveItem(localKey, filtered);
+      return filtered;
     }
 
     if (notFound) {
@@ -672,7 +727,7 @@ export const StorageService = {
     const localData = await loadItem<GeneralNote[]>(localKey);
     if (Array.isArray(localData)) {
       const sanitized = localData.filter(
-        (n) => n.createdByName !== 'Murat POLAT' && n.createdByName !== 'Azizcan ISIYEL'
+        (n) => !deletedIds.has(n.id) && n.createdByName !== 'Murat POLAT' && n.createdByName !== 'Azizcan ISIYEL'
       );
       if (sanitized.length !== localData.length) {
         await saveItem(localKey, sanitized);
@@ -688,12 +743,14 @@ export const StorageService = {
    * Saves notes to local cache and syncs with Supabase
    */
   async saveNotes(notes: GeneralNote[]): Promise<void> {
+    const deletedIds = await this.getDeletedNoteIds();
+    const cleanNotes = notes.filter((n) => !deletedIds.has(n.id));
     const localKey = this.getStorageKey(NOTES_KEY);
-    await saveItem(localKey, notes);
+    await saveItem(localKey, cleanNotes);
 
     if (activeCompanyCode === 'POLATLAR') {
       try {
-        const fullRows = notes.map((n) => ({
+        const fullRows = cleanNotes.map((n) => ({
           id: n.id,
           content: n.content,
           cari_name: n.cariName || null,
@@ -726,7 +783,7 @@ export const StorageService = {
           const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
           if (upsertErr) {
             console.warn('saveNotes primary upsert error, falling back to basic columns:', upsertErr);
-            const basicRows = notes.map((n) => ({
+            const basicRows = cleanNotes.map((n) => ({
               id: n.id,
               content: n.content,
               created_at: n.createdAt,
@@ -756,13 +813,13 @@ export const StorageService = {
             await supabase.from('notes').upsert(basicRows);
           }
 
-          const currentIds = notes.map((n) => n.id);
+          const currentIds = cleanNotes.map((n) => n.id);
           if (currentIds.length > 0) {
             const { data: cloudData } = await supabase.from('notes').select('id');
             if (cloudData) {
               const idsToDelete = cloudData
                 .map((c) => c.id)
-                .filter((id) => !currentIds.includes(id));
+                .filter((id) => !currentIds.includes(id) || deletedIds.has(id));
               if (idsToDelete.length > 0) {
                 await supabase.from('notes').delete().in('id', idsToDelete);
               }
@@ -770,13 +827,58 @@ export const StorageService = {
           } else {
             await supabase.from('notes').delete().neq('id', '___');
           }
+        } else {
+          await supabase.from('notes').delete().neq('id', '___');
         }
       } catch (err) {
         console.warn('Supabase save notes error:', err);
       }
-      await saveChunkedSlot(4, notes);
+      await saveChunkedSlot(4, cleanNotes);
     } else {
-      await saveChunkedSlot(this.getSlotId(4), notes);
+      await saveChunkedSlot(this.getSlotId(4), cleanNotes);
+    }
+  },
+
+  /**
+   * Permanently deletes a note across local cache, database, and cloud slots
+   */
+  async deleteNote(id: string): Promise<void> {
+    await this.markNoteAsDeleted(id);
+
+    // 1. Immediately update local storage
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const currentNotes = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const updatedNotes = currentNotes.filter((n) => n.id !== id);
+    await saveItem(localKey, updatedNotes);
+
+    // 2. Cloud delete
+    if (activeCompanyCode === 'POLATLAR') {
+      try {
+        await supabase.from('notes').delete().eq('id', id);
+      } catch (e) {
+        console.warn('Supabase deleteNote error:', e);
+      }
+
+      try {
+        const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
+        if (slot4Data && Array.isArray(slot4Data)) {
+          const cleaned = slot4Data.filter((n) => n.id !== id);
+          await saveChunkedSlot(4, cleaned);
+        }
+      } catch (e) {
+        console.warn('Slot 4 deleteNote error:', e);
+      }
+    } else {
+      try {
+        const slotId = this.getSlotId(4);
+        const { data: slotData } = await loadChunkedSlot<GeneralNote[]>(slotId);
+        if (slotData && Array.isArray(slotData)) {
+          const cleaned = slotData.filter((n) => n.id !== id);
+          await saveChunkedSlot(slotId, cleaned);
+        }
+      } catch (e) {
+        console.warn('Company slot deleteNote error:', e);
+      }
     }
   },
 
@@ -815,6 +917,7 @@ export const StorageService = {
    * Atomically saves a single note to local cache and Supabase without overwriting other notes
    */
   async saveSingleNote(note: GeneralNote): Promise<void> {
+    await this.unmarkNoteAsDeleted(note.id);
     const localKey = this.getStorageKey(NOTES_KEY);
     const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
     const idx = existing.findIndex((n) => n.id === note.id);

@@ -280,32 +280,25 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             <MessageCircle className="w-4 h-4" />
           </button>
 
-          {canModify ? (
-            <>
-              <button
-                onClick={onEdit}
-                className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                title="İş Emrini Düzenle / Hatırlatıcıyı Ertele"
-                aria-label="Düzenle"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={onDelete}
-                className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-                title="İş Emrini Sil"
-                aria-label="Sil"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-slate-400 text-[10px] font-bold">
-              <Lock className="w-3 h-3" />
-              <span>Kilitli</span>
-            </div>
+          {canModify && (
+            <button
+              onClick={onEdit}
+              className="p-1.5 rounded-lg text-blue-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+              title="İş Emrini Düzenle / Hatırlatıcıyı Ertele"
+              aria-label="Düzenle"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
           )}
+
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+            title="İş Emrini Sil"
+            aria-label="Sil"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

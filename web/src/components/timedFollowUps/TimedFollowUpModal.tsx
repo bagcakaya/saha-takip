@@ -47,8 +47,8 @@ export const TimedFollowUpModal: React.FC<TimedFollowUpModalProps> = ({
     } else {
       setCariName('');
       setDescription('');
-      // Default: 1 hour from now
-      const defaultTime = new Date(Date.now() + 60 * 60 * 1000);
+      // Default: 3 hours from now (O anki saatten 3 saat sonrası)
+      const defaultTime = new Date(Date.now() + 3 * 60 * 60 * 1000);
       setDueDate(toLocalDatetimeString(defaultTime));
       setSoundAlarm(true);
       setSendPush(true);

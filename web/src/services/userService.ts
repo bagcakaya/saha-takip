@@ -260,16 +260,13 @@ export const UserService = {
     let base = 'personel';
     if (parts.length === 1) {
       base = parts[0];
-    } else if (parts.length === 2) {
-      // Tek isim + Soyisim: Adın ilk harfi + soyadın tamamı (Örn: Ahmet Yılmaz -> ayilmaz)
-      const firstNameInitial = parts[0].slice(0, 1);
-      const surname = parts[1];
-      base = `${firstNameInitial}${surname}`;
-    } else if (parts.length >= 3) {
-      // İki isim + Soyisim: Her iki ismin ilk ikişer harfi + soyadın tamamı (Örn: Mehmet Ali Yılmaz -> mealyilmaz)
+    } else if (parts.length >= 2) {
+      // Tüm isimlerin ilk harfleri + soyadın tamamı
+      // Örn: Ahmet Yılmaz -> ayilmaz
+      // Örn: Mehmet Ali Yılmaz -> mayilmaz
       const nameParts = parts.slice(0, parts.length - 1);
       const surname = parts[parts.length - 1];
-      const initials = nameParts.map((p) => p.slice(0, 2)).join('');
+      const initials = nameParts.map((p) => p.slice(0, 1)).join('');
       base = `${initials}${surname}`;
     }
 

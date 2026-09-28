@@ -294,6 +294,16 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (!showReminderPicker && !remDate) {
+                  const future = new Date(Date.now() + 3 * 60 * 60 * 1000);
+                  const year = future.getFullYear();
+                  const month = String(future.getMonth() + 1).padStart(2, '0');
+                  const day = String(future.getDate()).padStart(2, '0');
+                  setRemDate(`${year}-${month}-${day}`);
+                  const hh = String(future.getHours()).padStart(2, '0');
+                  const mm = String(future.getMinutes()).padStart(2, '0');
+                  setRemTime(`${hh}:${mm}`);
+                }
                 setShowReminderPicker(!showReminderPicker);
                 setShowColorPicker(false);
               }}
@@ -625,12 +635,28 @@ export const PersonalNotesSection: React.FC = () => {
                 <input
                   type="date"
                   value={quickReminderDate}
-                  onChange={(e) => setQuickReminderDate(e.target.value)}
+                  onChange={(e) => {
+                    setQuickReminderDate(e.target.value);
+                    if (!quickReminderTime) {
+                      const future = new Date(Date.now() + 3 * 60 * 60 * 1000);
+                      const hh = String(future.getHours()).padStart(2, '0');
+                      const mm = String(future.getMinutes()).padStart(2, '0');
+                      setQuickReminderTime(`${hh}:${mm}`);
+                    }
+                  }}
                   className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
                 />
                 <input
                   type="time"
                   value={quickReminderTime}
+                  onFocus={() => {
+                    if (!quickReminderTime) {
+                      const future = new Date(Date.now() + 3 * 60 * 60 * 1000);
+                      const hh = String(future.getHours()).padStart(2, '0');
+                      const mm = String(future.getMinutes()).padStart(2, '0');
+                      setQuickReminderTime(`${hh}:${mm}`);
+                    }
+                  }}
                   onChange={(e) => setQuickReminderTime(e.target.value)}
                   className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
                 />
