@@ -153,31 +153,41 @@ export const NotificationService = {
   /**
    * Sends a browser / PWA service worker notification with audio chime
    * and automatic deep-linking to the relevant tab.
-   * Includes 30-second deduplication cache to prevent duplicate alerts.
+   * Includes 60-second deduplication cache and title normalization to prevent duplicate alerts.
    */
-  async sendNotification(title: string, body: string, url?: string): Promise<void> {
+  async sendNotification(
+    title: string,
+    body: string,
+    url?: string,
+    options?: { tag?: string; skipIfVisible?: boolean }
+  ): Promise<void> {
     if (typeof window === 'undefined') return;
 
-    // Deduplication key: normalize title and body
-    const normTitle = (title || '').trim();
-    const normBody = (body || '').trim();
-    const dedupKey = `${normTitle}:::${normBody}`;
+    // Deduplication key: normalize title variants ("İş Emriniz" vs "İş Emri", "Kurulumunuz" vs "Kurulum")
+    const normTitle = (title || '')
+      .trim()
+      .replace(/İş Emriniz/g, 'İş Emri')
+      .replace(/Kurulumunuz/g, 'Kurulum')
+      .toLowerCase();
+    const normBody = (body || '').trim().toLowerCase();
+    const explicitTag = options?.tag ? options.tag.trim() : '';
+    const dedupKey = explicitTag || `${normTitle}:::${normBody}`;
     const now = Date.now();
 
-    // 1. In-memory deduplication check (30s window)
+    // 1. In-memory deduplication check (60s window)
     const lastSent = this.recentNotifications.get(dedupKey);
-    if (lastSent && now - lastSent < 30000) {
-      console.log('Skipping duplicate local notification within 30s window:', normTitle);
+    if (lastSent && now - lastSent < 60000) {
+      console.log('Skipping duplicate local notification within 60s window:', normTitle);
       return;
     }
 
-    // 2. LocalStorage deduplication check (across tabs & reloads)
+    // 2. LocalStorage deduplication check (across tabs, workers & reloads)
     try {
       const lsKey = '@saha_recent_local_notif';
       const raw = localStorage.getItem(lsKey);
       const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
-      if (cache[dedupKey] && now - cache[dedupKey] < 30000) {
-        console.log('Skipping duplicate local notification (cross-tab):', normTitle);
+      if (cache[dedupKey] && now - cache[dedupKey] < 60000) {
+        console.log('Skipping duplicate local notification (cross-tab 60s):', normTitle);
         return;
       }
       cache[dedupKey] = now;
@@ -197,6 +207,13 @@ export const NotificationService = {
     }
 
     this.playChime();
+
+    // If document is actively focused and visible, in-app toast handles the alert.
+    // Avoid spawning an OS desktop tray popup right over the active tab by default.
+    const shouldSkipIfVisible = options?.skipIfVisible !== false;
+    if (shouldSkipIfVisible && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      return;
+    }
 
     let targetUrl = url;
     let targetTab: string | null = null;
@@ -223,7 +240,7 @@ export const NotificationService = {
       filter: targetFilter || '',
     };
 
-    const safeTag = `st-${targetTab || 'main'}-${dedupKey.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const safeTag = explicitTag || `st-${targetTab || 'main'}-${dedupKey.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}`;
 
     // 1. Try via Service Worker (Best for PWA / Mobile / Background)
     if ('serviceWorker' in navigator) {

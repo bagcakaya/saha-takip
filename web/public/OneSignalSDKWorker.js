@@ -1,6 +1,6 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v4';
+const CACHE_NAME = 'saha-takip-pwa-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -22,15 +22,30 @@ self.addEventListener('install', (event) => {
 // Activate Event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
       );
-    })
+      try {
+        const notifs = await self.registration.getNotifications();
+        notifs.forEach((n) => {
+          if (
+            n.tag === 'saha-takip-badge' ||
+            (n.body && n.body.includes('bekleyen bildirim')) ||
+            (n.title === 'İş Takip' && n.body && n.body.includes('bekleyen'))
+          ) {
+            n.close();
+          }
+        });
+      } catch (e) {
+        // ignore
+      }
+    })()
   );
   self.clients.claim();
 });
@@ -213,10 +228,17 @@ self.addEventListener('notificationclick', (event) => {
 
 // App Badging API: Foreground App -> Service Worker badge synchronization
 self.addEventListener('message', async (event) => {
-  if (event.data && event.data.type === 'saha:set-badge') {
+  if (!event.data) return;
+
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  if (event.data.type === 'saha:set-badge' || event.data.type === 'saha:clear-badge-notifications') {
     const count = Number(event.data.count) || 0;
     
-    // 1. Desktop & iOS W3C Badging API
+    // 1. Desktop & iOS W3C Badging API (only icon counter, no tray popups)
     if (typeof self.navigator !== 'undefined' && 'setAppBadge' in self.navigator) {
       if (count > 0) {
         self.navigator.setAppBadge(count).catch(() => {});
@@ -225,10 +247,18 @@ self.addEventListener('message', async (event) => {
       }
     }
 
-    // 2. Clear any lingering tray notifications with tag 'saha-takip-badge'
+    // 2. Firmly purge any lingering tray notifications with tag 'saha-takip-badge' or containing 'bekleyen bildirim'
     try {
-      const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
-      activeNotifs.forEach((n) => n.close());
+      const activeNotifs = await self.registration.getNotifications();
+      activeNotifs.forEach((n) => {
+        if (
+          n.tag === 'saha-takip-badge' ||
+          (n.body && n.body.includes('bekleyen bildirim')) ||
+          (n.title === 'İş Takip' && n.body && n.body.includes('bekleyen'))
+        ) {
+          n.close();
+        }
+      });
     } catch (e) {
       // ignore
     }
@@ -251,8 +281,16 @@ self.addEventListener('push', async (event) => {
       self.navigator.setAppBadge(count).catch(() => {});
     }
     try {
-      const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
-      activeNotifs.forEach((n) => n.close());
+      const activeNotifs = await self.registration.getNotifications();
+      activeNotifs.forEach((n) => {
+        if (
+          n.tag === 'saha-takip-badge' ||
+          (n.body && n.body.includes('bekleyen bildirim')) ||
+          (n.title === 'İş Takip' && n.body && n.body.includes('bekleyen'))
+        ) {
+          n.close();
+        }
+      });
     } catch (e) {}
   } catch (err) {}
 });

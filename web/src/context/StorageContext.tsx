@@ -842,7 +842,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             seenRemindersChanged = true;
 
             const title = '⏰ İş Emri Hatırlatıcısı';
-            NotificationService.sendNotification(title, n.content);
+            NotificationService.sendNotification(title, n.content, '/?tab=notes&filter=reminders', {
+              tag: `note_rem_${n.id}`,
+              skipIfVisible: true,
+            });
             setActiveToast({ title, body: n.content, tab: 'notes', filter: 'reminders' });
           }
         }
@@ -853,12 +856,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const n = newTargetedNotes[0];
       const sender = n.createdByName || 'Yönetici';
       const title = `📋 ${sender} Size Yeni Bir İş Emri İletti!`;
-      NotificationService.sendNotification(title, n.content);
+      NotificationService.sendNotification(title, n.content, '/?tab=notes&filter=pending', {
+        tag: `note_new_${n.id}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body: n.content, tab: 'notes', filter: 'pending' });
     } else if (newTargetedNotes.length > 1) {
       const title = `📋 Size ${newTargetedNotes.length} Yeni İş Emri İletildi!`;
       const body = `${newTargetedNotes.length} adet yeni iş emri atandı.`;
-      NotificationService.sendNotification(title, body);
+      NotificationService.sendNotification(title, body, '/?tab=notes&filter=pending', {
+        tag: `note_batch_new_${Date.now()}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
     }
 
@@ -1132,12 +1141,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const staffName = loc.createdByName || 'Saha Personeli';
       const title = '📍 Yeni Kurulum Eklendi!';
       const body = `${staffName}, "${loc.name}" için yeni bir kurulum kaydı oluşturdu.`;
-      NotificationService.sendNotification(title, body);
+      NotificationService.sendNotification(title, body, '/?tab=installations', {
+        tag: `loc_new_${loc.id}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body, tab: 'installations' });
     } else if (newLocsList.length > 1) {
       const title = `📍 ${newLocsList.length} Yeni Kurulum Eklendi!`;
       const body = `${newLocsList.length} adet yeni kurulum kaydı eklendi.`;
-      NotificationService.sendNotification(title, body);
+      NotificationService.sendNotification(title, body, '/?tab=installations', {
+        tag: `loc_batch_new_${Date.now()}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body, tab: 'installations' });
     }
 
@@ -1187,12 +1202,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const staffName = loc.createdByName || 'Saha Personeli';
       const title = '✅ Kurulum Tamamlandı!';
       const body = `${staffName}, "${loc.name}" kurulumundaki tüm görevleri tamamladı.`;
-      NotificationService.sendNotification(title, body);
+      NotificationService.sendNotification(title, body, '/?tab=installations', {
+        tag: `loc_alltasks_${loc.id}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body, tab: 'installations' });
     } else if (newDoneList.length > 1) {
       const title = `✅ ${newDoneList.length} Kurulum Tamamlandı!`;
       const body = `${newDoneList.length} adet kurulumdaki tüm görevler tamamlandı.`;
-      NotificationService.sendNotification(title, body);
+      NotificationService.sendNotification(title, body, '/?tab=installations', {
+        tag: `loc_batch_alltasks_${Date.now()}`,
+        skipIfVisible: true,
+      });
       setActiveToast({ title, body, tab: 'installations' });
     }
 
@@ -1293,12 +1314,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const staff = n.completedByName || 'Saha Personeli';
         const title = '📋 İş Emri Onay Bekliyor!';
         const body = `${staff}, "${n.content.slice(0, 50)}" iş emrini tamamladı.${n.completionNote ? ` Not: ${n.completionNote}` : ''}`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=pending', {
+          tag: `note_comp_${n.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
       } else if (newPendingNotes.length > 1) {
         const title = `📋 ${newPendingNotes.length} Yeni İş Emri Onay Bekliyor!`;
         const body = `${newPendingNotes.length} adet tamamlanan iş emri onayınızı bekliyor.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=pending', {
+          tag: `notes_batch_comp_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
       }
 
@@ -1363,28 +1390,40 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (newApproved.length === 1) {
         const n = newApproved[0];
         const admin = n.approvedByName || 'Yönetici';
-        const title = '✅ İş Emriniz Onaylandı!';
+        const title = '✅ İş Emri Onaylandı!';
         const body = `${admin}, "${n.content.slice(0, 50)}" iş emrinizi başarıyla onayladı.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=approved', {
+          tag: `note_app_${n.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
       } else if (newApproved.length > 1) {
-        const title = `✅ ${newApproved.length} İş Emriniz Onaylandı!`;
+        const title = `✅ ${newApproved.length} İş Emri Onaylandı!`;
         const body = `Yönetici ${newApproved.length} adet iş emrinizi onayladı.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=approved', {
+          tag: `notes_batch_app_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
       }
 
       if (newRejected.length === 1) {
         const n = newRejected[0];
         const admin = n.rejectedByName || 'Yönetici';
-        const title = '❌ İş Emriniz Reddedildi!';
+        const title = '❌ İş Emri Reddedildi!';
         const body = `${admin}, "${n.content.slice(0, 50)}" iş emrini reddetti. Gerekçe: ${n.rejectionReason || 'Eksikler var'}`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=rejected', {
+          tag: `note_rej_${n.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
       } else if (newRejected.length > 1) {
-        const title = `❌ ${newRejected.length} İş Emriniz Reddedildi!`;
+        const title = `❌ ${newRejected.length} İş Emri Reddedildi!`;
         const body = `Yönetici ${newRejected.length} adet iş emrinizi reddetti.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=notes&filter=rejected', {
+          tag: `notes_batch_rej_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
       }
 
@@ -1436,12 +1475,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const staff = loc.completedByName || 'Saha Personeli';
         const title = '📍 Kurulum Onay Bekliyor!';
         const body = `${staff}, "${loc.name}" kurulumunu tamamladı.${loc.completionNote ? ` Not: ${loc.completionNote}` : ''}`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=pending_approval', {
+          tag: `loc_comp_${loc.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
       } else if (newPendingLocations.length > 1) {
         const title = `📍 ${newPendingLocations.length} Kurulum Onay Bekliyor!`;
         const body = `${newPendingLocations.length} adet kurulum kaydı onayınızı bekliyor.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=pending_approval', {
+          tag: `loc_batch_comp_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
       }
 
@@ -1503,28 +1548,40 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (UpperApprovedLocs.length === 1) {
         const loc = UpperApprovedLocs[0];
         const admin = loc.approvedByName || 'Yönetici';
-        const title = '✅ Kurulumunuz Onaylandı!';
+        const title = '✅ Kurulum Onaylandı!';
         const body = `${admin}, "${loc.name}" kurulumunuzu başarıyla onayladı.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=approved', {
+          tag: `loc_app_${loc.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
       } else if (UpperApprovedLocs.length > 1) {
-        const title = `✅ ${UpperApprovedLocs.length} Kurulumunuz Onaylandı!`;
+        const title = `✅ ${UpperApprovedLocs.length} Kurulum Onaylandı!`;
         const body = `Yönetici ${UpperApprovedLocs.length} adet kurulum kaydınızı onayladı.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=approved', {
+          tag: `loc_batch_app_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
       }
 
       if (UpperRejectedLocs.length === 1) {
         const loc = UpperRejectedLocs[0];
         const admin = loc.rejectedByName || 'Yönetici';
-        const title = '❌ Kurulumunuz Reddedildi!';
+        const title = '❌ Kurulum Reddedildi!';
         const body = `${admin}, "${loc.name}" kurulumunu reddetti. Gerekçe: ${loc.rejectionReason || 'Eksikler var'}`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=rejected', {
+          tag: `loc_rej_${loc.id}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
       } else if (UpperRejectedLocs.length > 1) {
-        const title = `❌ ${UpperRejectedLocs.length} Kurulumunuz Reddedildi!`;
+        const title = `❌ ${UpperRejectedLocs.length} Kurulum Reddedildi!`;
         const body = `Yönetici ${UpperRejectedLocs.length} adet kurulum kaydınızı reddetti.`;
-        NotificationService.sendNotification(title, body);
+        NotificationService.sendNotification(title, body, '/?tab=installations&filter=rejected', {
+          tag: `loc_batch_rej_${Date.now()}`,
+          skipIfVisible: true,
+        });
         setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
       }
 
@@ -1601,6 +1658,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetMode: 'custom',
           targetUserIds: adminIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
+          collapseId: `loc_new_${newLocation.id}`,
         }).catch((err) => console.warn('OneSignal new loc push error:', err));
       }
     }
@@ -1671,6 +1729,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetMode: 'custom',
           targetUserIds: adminIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
+          collapseId: `loc_alltasks_${updatedTarget.id}`,
         }).catch((err) => console.warn('OneSignal complete task push error:', err));
       }
 
@@ -2078,6 +2137,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetMode,
         targetUserIds,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+        collapseId: `note_new_${newNote.id}`,
       }).catch((err) => console.warn('OneSignal addNote push error:', err));
 
       // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
@@ -2089,6 +2149,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetUserIds,
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
           sendAfter: new Date(reminderDate).toISOString(),
+          collapseId: `note_rem_${newNote.id}`,
         }).catch((err) => console.warn('OneSignal addNote reminder push error:', err));
       }
     }
@@ -4733,22 +4794,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.debug('App Badging API not supported:', e);
       }
 
-      // 2. Sync badge with Service Worker & Android OS Launcher Notification
+      // 2. Clear any lingering tray/pop-up badge notifications and sync icon badge only
       try {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready.then(async (reg) => {
             if (reg.active) {
               reg.active.postMessage({
-                type: 'saha:set-badge',
+                type: 'saha:clear-badge-notifications',
                 count: badgeCount,
               });
             }
 
-            // Eski 'saha-takip-badge' bildirimleri kalmışsa kapat (bildirim çekmecesine spam basılmaması için)
+            // Explicitly close ANY lingering or pop-up badge notifications across all tags
             if (typeof window !== 'undefined' && 'Notification' in window) {
               try {
-                const activeNotifs = await reg.getNotifications({ tag: 'saha-takip-badge' });
-                activeNotifs.forEach((n) => n.close());
+                const activeNotifs = await reg.getNotifications();
+                activeNotifs.forEach((n) => {
+                  if (
+                    n.tag === 'saha-takip-badge' ||
+                    (n.body && n.body.includes('bekleyen bildirim')) ||
+                    (n.title === 'İş Takip' && n.body && n.body.includes('bekleyen'))
+                  ) {
+                    n.close();
+                  }
+                });
               } catch (e) {
                 // ignore
               }
