@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   MapPin,
   X,
@@ -11,6 +11,8 @@ import {
   Info,
   Building2,
   Phone,
+  RotateCw,
+  Sparkles,
 } from 'lucide-react';
 import { Branch } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +29,51 @@ interface BranchModalProps {
   onSave: (branchData: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }) => Promise<void>;
 }
 
+/**
+ * Akıllı koordinat ayrıştırıcı:
+ * "41.0082, 28.9784", "41.0082 28.9784", "41,0082, 28,9784" veya Google Maps URL formatlarını ayrıştırır.
+ */
+function parseCoordinates(text: string): { lat: number; lon: number } | null {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+
+  // 1. Google Maps URL pattern: /@(-?\d+\.\d+),(-?\d+\.\d+) or ?q=(-?\d+\.\d+),(-?\d+\.\d+)
+  const urlMatch = trimmed.match(/[@?&]q?=?(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+  if (urlMatch) {
+    const lat = parseFloat(urlMatch[1]);
+    const lon = parseFloat(urlMatch[2]);
+    if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return { lat, lon };
+    }
+  }
+
+  // 2. Parantezleri kaldır ve ayrıştır
+  const cleaned = trimmed.replace(/[()]/g, '');
+
+  let parts: string[] = [];
+  if (cleaned.includes(';')) {
+    parts = cleaned.split(';').map((s) => s.trim());
+  } else if (cleaned.includes(',') && cleaned.split(',').length === 2) {
+    parts = cleaned.split(',').map((s) => s.trim());
+  } else if (cleaned.includes(',') && cleaned.split(',').length === 4) {
+    // 41,0082, 28,9784 (Türkçe virgüllü koordinat)
+    const sub = cleaned.split(',').map((s) => s.trim());
+    parts = [`${sub[0]}.${sub[1]}`, `${sub[2]}.${sub[3]}`];
+  } else if (cleaned.split(/\s+/).length === 2) {
+    parts = cleaned.split(/\s+/).map((s) => s.trim());
+  }
+
+  if (parts.length === 2) {
+    const lat = parseFloat(parts[0].replace(',', '.'));
+    const lon = parseFloat(parts[1].replace(',', '.'));
+    if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return { lat, lon };
+    }
+  }
+
+  return null;
+}
+
 export const BranchModal: React.FC<BranchModalProps> = ({
   isOpen,
   onClose,
@@ -40,6 +87,8 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [address, setAddress] = useState('');
   const [latitude, setLatitude] = useState<number | ''>('');
   const [longitude, setLongitude] = useState<number | ''>('');
+  const [latInput, setLatInput] = useState<string>('');
+  const [lonInput, setLonInput] = useState<string>('');
   const [radiusMeters, setRadiusMeters] = useState<number>(20);
   const [phone, setPhone] = useState('');
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
@@ -55,10 +104,22 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   // Geocoding & GPS states
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isResolvingAddress, setIsResolvingAddress] = useState(false);
+  const [autoAddressResolved, setAutoAddressResolved] = useState(false);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const reverseGeocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     CompanyService.fetchCompanies().then(setCompanies).catch(() => {});
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (reverseGeocodeTimer.current) clearTimeout(reverseGeocodeTimer.current);
+    };
   }, []);
 
   // Filter users for the target company
@@ -76,21 +137,133 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setAddress(branchToEdit.address || '');
       setLatitude(branchToEdit.latitude ?? '');
       setLongitude(branchToEdit.longitude ?? '');
+      setLatInput(branchToEdit.latitude != null ? String(branchToEdit.latitude) : '');
+      setLonInput(branchToEdit.longitude != null ? String(branchToEdit.longitude) : '');
       setRadiusMeters(branchToEdit.radiusMeters || 20);
       setPhone(branchToEdit.phone || '');
       setAssignedUserIds(branchToEdit.assignedUserIds || []);
+      setAutoAddressResolved(false);
     } else {
       setTargetCompanyCode(defaultCompanyCode || currentUser?.companyCode || 'POLATLAR');
       setName('');
       setAddress('');
       setLatitude('');
       setLongitude('');
+      setLatInput('');
+      setLonInput('');
       setRadiusMeters(20);
       setPhone('');
       setAssignedUserIds([]);
+      setAutoAddressResolved(false);
     }
     setErrorMsg('');
-  }, [branchToEdit, isOpen, currentUser?.companyCode]);
+  }, [branchToEdit, isOpen, currentUser?.companyCode, defaultCompanyCode]);
+
+  // Otomatik adres çözümleyici (Debounced reverse geocode)
+  const triggerReverseGeocode = useCallback((lat: number, lon: number) => {
+    if (isNaN(lat) || isNaN(lon)) return;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+    if (lat === 0 && lon === 0) return;
+
+    if (reverseGeocodeTimer.current) {
+      clearTimeout(reverseGeocodeTimer.current);
+    }
+
+    reverseGeocodeTimer.current = setTimeout(async () => {
+      try {
+        setIsResolvingAddress(true);
+        const resolved = await LocationService.reverseGeocode(lat, lon);
+        if (resolved && !resolved.includes(`${lat.toFixed(6)}`)) {
+          setAddress(resolved);
+          setAutoAddressResolved(true);
+        }
+      } catch (err) {
+        console.warn('Otomatik adres çözümlenemedi:', err);
+      } finally {
+        setIsResolvingAddress(false);
+      }
+    }, 500);
+  }, []);
+
+  // Manuel veya zorunlu adres çekme
+  const handleForceReverseGeocode = async (latVal?: number, lonVal?: number) => {
+    const targetLat = latVal !== undefined ? latVal : (typeof latitude === 'number' ? latitude : parseFloat(latInput.replace(',', '.')));
+    const targetLon = lonVal !== undefined ? lonVal : (typeof longitude === 'number' ? longitude : parseFloat(lonInput.replace(',', '.')));
+
+    if (isNaN(targetLat) || isNaN(targetLon) || targetLat < -90 || targetLat > 90 || targetLon < -180 || targetLon > 180) {
+      setErrorMsg('Lütfen geçerli enlem (-90 ile +90) ve boylam (-180 ile +180) değerleri girin.');
+      return;
+    }
+
+    try {
+      setIsResolvingAddress(true);
+      setErrorMsg('');
+      const resolved = await LocationService.reverseGeocode(targetLat, targetLon);
+      if (resolved) {
+        setAddress(resolved);
+        setAutoAddressResolved(true);
+      }
+    } catch (err: any) {
+      console.warn('Adres yenileme hatası:', err);
+    } finally {
+      setIsResolvingAddress(false);
+    }
+  };
+
+  // Enlem alanına değer girilince / yapıştırılınca
+  const handleLatChange = (value: string) => {
+    // Çift koordinat yapıştırma kontrolü (Örn: 41.0082, 28.9784)
+    const pair = parseCoordinates(value);
+    if (pair) {
+      setLatInput(String(pair.lat));
+      setLonInput(String(pair.lon));
+      setLatitude(pair.lat);
+      setLongitude(pair.lon);
+      setErrorMsg('');
+      triggerReverseGeocode(pair.lat, pair.lon);
+      return;
+    }
+
+    setLatInput(value);
+    const parsed = parseFloat(value.replace(',', '.'));
+    if (!isNaN(parsed) && parsed >= -90 && parsed <= 90) {
+      setLatitude(parsed);
+      setErrorMsg('');
+      if (typeof longitude === 'number' && !isNaN(longitude)) {
+        triggerReverseGeocode(parsed, longitude);
+      }
+    } else if (value.trim() === '') {
+      setLatitude('');
+      setAutoAddressResolved(false);
+    }
+  };
+
+  // Boylam alanına değer girilince / yapıştırılınca
+  const handleLonChange = (value: string) => {
+    const pair = parseCoordinates(value);
+    if (pair) {
+      setLatInput(String(pair.lat));
+      setLonInput(String(pair.lon));
+      setLatitude(pair.lat);
+      setLongitude(pair.lon);
+      setErrorMsg('');
+      triggerReverseGeocode(pair.lat, pair.lon);
+      return;
+    }
+
+    setLonInput(value);
+    const parsed = parseFloat(value.replace(',', '.'));
+    if (!isNaN(parsed) && parsed >= -180 && parsed <= 180) {
+      setLongitude(parsed);
+      setErrorMsg('');
+      if (typeof latitude === 'number' && !isNaN(latitude)) {
+        triggerReverseGeocode(latitude, parsed);
+      }
+    } else if (value.trim() === '') {
+      setLongitude('');
+      setAutoAddressResolved(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -104,8 +277,13 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const handleLocationPicked = (lat: number, lon: number, resolvedAddr?: string) => {
     setLatitude(lat);
     setLongitude(lon);
-    if (resolvedAddr && (!address || address.trim().length < 5)) {
+    setLatInput(String(lat));
+    setLonInput(String(lon));
+    if (resolvedAddr) {
       setAddress(resolvedAddr);
+      setAutoAddressResolved(true);
+    } else {
+      triggerReverseGeocode(lat, lon);
     }
     setErrorMsg('');
   };
@@ -118,13 +296,62 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       const pos = await LocationService.getCurrentPosition();
       setLatitude(pos.latitude);
       setLongitude(pos.longitude);
-      if (pos.address && !address) {
+      setLatInput(String(pos.latitude));
+      setLonInput(String(pos.longitude));
+      if (pos.address) {
         setAddress(pos.address);
+        setAutoAddressResolved(true);
+      } else {
+        triggerReverseGeocode(pos.latitude, pos.longitude);
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Cihazınızdan GPS konumu alınamadı.');
     } finally {
       setIsGettingGps(false);
+    }
+  };
+
+  // Adres arama butonu veya Enter tetiklemesi
+  const handleSearchAddress = async () => {
+    const trimmed = address.trim();
+    if (!trimmed) {
+      setErrorMsg('Lütfen aramak için bir adres veya koordinat girin.');
+      return;
+    }
+
+    // Koordinat yapıştırıldıysa doğrudan ayrıştır
+    const pair = parseCoordinates(trimmed);
+    if (pair) {
+      setLatInput(String(pair.lat));
+      setLonInput(String(pair.lon));
+      setLatitude(pair.lat);
+      setLongitude(pair.lon);
+      handleForceReverseGeocode(pair.lat, pair.lon);
+      return;
+    }
+
+    // Normal metin adres arama
+    try {
+      setIsSearchingAddress(true);
+      setErrorMsg('');
+      const results = await LocationService.searchAddress(trimmed);
+      if (results && results.length > 0) {
+        const first = results[0];
+        setLatitude(first.latitude);
+        setLongitude(first.longitude);
+        setLatInput(String(first.latitude));
+        setLonInput(String(first.longitude));
+        setAddress(first.displayName);
+        setAutoAddressResolved(true);
+        handleOpenMapPicker(false);
+      } else {
+        handleOpenMapPicker(true);
+      }
+    } catch (err: any) {
+      console.warn('Adres arama hatası, harita açılıyor:', err);
+      handleOpenMapPicker(true);
+    } finally {
+      setIsSearchingAddress(false);
     }
   };
 
@@ -143,8 +370,12 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setErrorMsg('Lütfen şube adını girin.');
       return;
     }
-    if (latitude === '' || longitude === '') {
-      setErrorMsg('Lütfen "Mevcut Konumu Pinle" veya "Adresten Konum Bul" butonu ile şube koordinatlarını belirleyin.');
+
+    const finalLat = typeof latitude === 'number' ? latitude : parseFloat(latInput.replace(',', '.'));
+    const finalLon = typeof longitude === 'number' ? longitude : parseFloat(lonInput.replace(',', '.'));
+
+    if (isNaN(finalLat) || isNaN(finalLon)) {
+      setErrorMsg('Lütfen şube lokasyon koordinatlarını (Enlem ve Boylam) girin veya haritadan pinleyin.');
       return;
     }
 
@@ -153,8 +384,8 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       await onSave({
         name: name.trim(),
         address: address.trim(),
-        latitude: Number(latitude),
-        longitude: Number(longitude),
+        latitude: finalLat,
+        longitude: finalLon,
         radiusMeters: Number(radiusMeters) || 20,
         phone: phone.trim() || undefined,
         assignedUserIds,
@@ -243,11 +474,114 @@ export const BranchModal: React.FC<BranchModalProps> = ({
             />
           </div>
 
-          {/* 2. Açık Adres ve Konum Bulma */}
+          {/* 2. Şube Lokasyon Koordinatları (Görsel-1) */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50/70 via-indigo-50/40 to-slate-50/50 dark:from-slate-800/80 dark:via-slate-800/50 dark:to-slate-900/50 border border-blue-200/80 dark:border-slate-700 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-blue-600" />
+                Şube Lokasyon Koordinatları
+              </span>
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-black bg-blue-600 text-white shadow-xs flex items-center gap-1">
+                20 Metre Mesai Alanı
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Enlem (Latitude) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  value={latInput}
+                  onChange={(e) => handleLatChange(e.target.value)}
+                  placeholder="Örn: 41.0082"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden transition-all shadow-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Boylam (Longitude) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  value={lonInput}
+                  onChange={(e) => handleLonChange(e.target.value)}
+                  placeholder="Örn: 28.9784"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden transition-all shadow-xs"
+                />
+              </div>
+            </div>
+
+            {/* Koordinat Durumu & Otomatik Adres Bildirimi */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+              {isResolvingAddress ? (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 animate-pulse">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                  <span>Açık adres koordinatlardan otomatik getiriliyor...</span>
+                </div>
+              ) : autoAddressResolved ? (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                  <span>Açık adres koordinatlardan otomatik getirildi</span>
+                </div>
+              ) : (
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  💡 Koordinat girdiğinizde veya yapıştırdığınızda açık adres otomatik doldurulur.
+                </span>
+              )}
+
+              {latitude !== '' && longitude !== '' && (
+                <button
+                  type="button"
+                  onClick={() => handleForceReverseGeocode()}
+                  disabled={isResolvingAddress}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline cursor-pointer disabled:opacity-50"
+                  title="Adresi koordinatlardan tekrar çözümle"
+                >
+                  <RotateCw className={`w-3 h-3 ${isResolvingAddress ? 'animate-spin' : ''}`} />
+                  <span>Adresi Yenile</span>
+                </button>
+              )}
+            </div>
+
+            {/* Koordinat Belirlendi Bildirimi */}
+            {latitude !== '' && longitude !== '' && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0 stroke-[3]" />
+                  <span className="font-bold">
+                    Konum İşaretlendi: <span className="font-mono">{latitude}, {longitude}</span>
+                  </span>
+                </div>
+                <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
+                  20 Metre Mesai Alanı Aktif
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-start gap-2 pt-1 text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+              <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+              <span>
+                Personel, yalnızca bu koordinatın <strong>20 metre</strong> yarıçapına girdiğinde doğrudan mesaiye başlayabilir. Başka şubede veya dışarıda ise yönetici onayına yönlendirilir.
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Açık Adres ve Konum Belirleme (Görsel-2) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                Açık Adres & Konum Belirleme
+              <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <span>Açık Adres & Konum Belirleme</span>
+                {autoAddressResolved && (
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-black flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-emerald-600" /> Koordinattan Otomatik Getirildi
+                  </span>
+                )}
               </label>
               <span className="text-[11px] text-slate-400 font-medium">
                 GPS pini veya adres araması ile
@@ -259,23 +593,35 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                 <input
                   type="text"
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    setAutoAddressResolved(false);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      handleOpenMapPicker(true);
+                      handleSearchAddress();
                     }
                   }}
-                  placeholder="Cadde, sokak, mahalle, ilçe, il..."
-                  className="w-full pl-4 pr-24 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden transition-all"
+                  placeholder="Cadde, sokak, mahalle, ilçe, il... (Koordinat girilince otomatik dolar)"
+                  className={`w-full pl-4 pr-24 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border ${
+                    autoAddressResolved
+                      ? 'border-emerald-400 dark:border-emerald-600 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 dark:border-slate-700'
+                  } text-sm font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden transition-all`}
                 />
                 <button
                   type="button"
-                  onClick={() => handleOpenMapPicker(true)}
-                  className="absolute right-2 top-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  onClick={handleSearchAddress}
+                  disabled={isSearchingAddress || !address.trim()}
+                  className="absolute right-2 top-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   title="Google Haritada Aç ve Pinle"
                 >
-                  <Search className="w-3.5 h-3.5" />
+                  {isSearchingAddress ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5" />
+                  )}
                   <span>Ara</span>
                 </button>
               </div>
@@ -320,72 +666,6 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                   </button>
                 )}
               </div>
-            </div>
-          </div>
-
-          {/* 3. Koordinatlar & 20 Metre Mesai Sınırı */}
-          <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-slate-800/50 border border-blue-100 dark:border-slate-700 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-blue-600" />
-                Şube Lokasyon Koordinatları
-              </span>
-              <span className="px-2.5 py-1 rounded-full text-[11px] font-black bg-blue-600 text-white shadow-xs flex items-center gap-1">
-                20 Metre Mesai Alanı
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-                  Enlem (Latitude) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  value={latitude}
-                  onChange={(e) => setLatitude(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  placeholder="Örn: 41.0082"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold font-mono text-slate-900 dark:text-slate-100"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-                  Boylam (Longitude) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  value={longitude}
-                  onChange={(e) => setLongitude(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  placeholder="Örn: 28.9784"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold font-mono text-slate-900 dark:text-slate-100"
-                />
-              </div>
-            </div>
-
-            {/* Koordinat Belirlendi Bildirimi */}
-            {latitude !== '' && longitude !== '' && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
-                <div className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="font-bold">
-                    Konum İşaretlendi: <span className="font-mono">{latitude}, {longitude}</span>
-                  </span>
-                </div>
-                <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
-                  20 Metre Mesai Alanı Aktif
-                </span>
-              </div>
-            )}
-
-            <div className="flex items-start gap-2 pt-1 text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
-              <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-              <span>
-                Personel, yalnızca bu koordinatın <strong>20 metre</strong> yarıçapına girdiğinde doğrudan mesaiye başlayabilir. Başka şubede veya dışarıda ise yönetici onayına yönlendirilir.
-              </span>
             </div>
           </div>
 

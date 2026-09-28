@@ -134,7 +134,7 @@ export const LocationService = {
 
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1500); // 1.5s strict timeout
+      const timer = setTimeout(() => controller.abort(), 3000); // 3s timeout for reliable network response
 
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`,
@@ -154,11 +154,13 @@ export const LocationService = {
       if (data && data.address) {
         const addr = data.address;
         const road = addr.road || addr.pedestrian || addr.street || '';
+        const houseNumber = addr.house_number ? `No: ${addr.house_number}` : '';
+        const roadWithNumber = [road, houseNumber].filter(Boolean).join(' ');
         const suburb = addr.neighbourhood || addr.suburb || addr.quarter || '';
         const district = addr.district || addr.town || addr.county || '';
         const city = addr.city || addr.province || addr.state || '';
 
-        const parts = [road, suburb, district, city].filter(Boolean);
+        const parts = [roadWithNumber, suburb, district, city].filter(Boolean);
         const resolved = parts.length > 0 ? parts.join(', ') : (data.display_name || fallbackCoord);
         geocodeCache.set(key, resolved);
         return resolved;
