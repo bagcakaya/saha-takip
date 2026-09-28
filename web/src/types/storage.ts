@@ -99,6 +99,8 @@ export interface PersonalNote {
   isPinned?: boolean;
   reminderDate?: string; // YYYY-MM-DD
   reminderTime?: string; // HH:mm
+  onesignalNotificationId?: string; // OneSignal cloud scheduled notification id for cancellation
+  notified?: boolean;
   createdAt: number;
   updatedAt: number;
 }

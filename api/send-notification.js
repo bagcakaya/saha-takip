@@ -121,9 +121,9 @@ export default async function handler(req, res) {
       payload.web_push_topic = cleanCollapse;
     }
 
-    // Server-side deduplication check (30-second debounce window, test notifications exempt)
-    const isTest = payload.collapse_id?.startsWith('test_');
-    if (!isTest) {
+    // Server-side deduplication check (30-second debounce window, test & scheduled notifications exempt)
+    const isExempt = payload.collapse_id?.startsWith('test_') || Boolean(payload.send_after);
+    if (!isExempt) {
       const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
       const now = Date.now();
       const lastTime = recentNotificationsCache.get(dedupKey);

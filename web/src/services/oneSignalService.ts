@@ -586,7 +586,7 @@ export const OneSignalService = {
     delaySeconds?: number;
     collapseId?: string;
   }): Promise<{ success: boolean; data?: any; error?: string }> {
-    const {
+    let {
       title,
       message,
       targetMode = 'all',
@@ -615,7 +615,31 @@ export const OneSignalService = {
       return { success: false, error: 'OneSignal yapılandırması eksik.' };
     }
 
-    if (targetMode === 'self') return { success: true };
+    if (targetMode === 'self') {
+      if (sendAfter) {
+        // Scheduled alarm/reminder for oneself! Deliver to current user's device!
+        let currentUserId: string | null = null;
+        if (typeof localStorage !== 'undefined') {
+          currentUserId = localStorage.getItem('@saha_takip_user_id');
+          if (!currentUserId) {
+            try {
+              const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+              currentUserId = u.id || null;
+            } catch {}
+          }
+        }
+        if (currentUserId && (!targetUserIds || targetUserIds.length === 0)) {
+          targetUserIds = [currentUserId];
+          targetMode = 'custom';
+        } else if (targetUserIds && targetUserIds.length > 0) {
+          targetMode = 'custom';
+        } else {
+          return { success: true };
+        }
+      } else {
+        return { success: true };
+      }
+    }
 
     const cleanIds = Array.isArray(targetUserIds)
       ? targetUserIds.map((id) => String(id).trim()).filter(Boolean)
@@ -626,41 +650,45 @@ export const OneSignalService = {
       : [];
 
     // Robust deduplication cache (45-second window, persistent in LocalStorage across tabs & reloads)
-    const dedupKey = `${title.trim()}__${message.trim()}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}__${sendAfter || ''}`;
-    const now = Date.now();
+    // Scheduled alarms (sendAfter) are exempted from deduplication so alarms are never dropped!
+    const isScheduled = Boolean(sendAfter);
+    if (!isScheduled) {
+      const dedupKey = `${title.trim()}__${message.trim()}__${targetMode}__${cleanIds.slice().sort().join(',')}__${targetCompanyCode}`;
+      const now = Date.now();
 
-    // 1. In-memory check
-    const lastSent = this.recentPushRequests.get(dedupKey);
-    if (lastSent && now - lastSent < 45000) {
-      console.log('Skipping duplicate push notification within 45s debounce window:', title);
-      return { success: true, data: { deduped: true } };
-    }
-
-    // 2. LocalStorage cross-tab / reload check
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const lsKey = '@saha_recent_push_requests';
-        const raw = localStorage.getItem(lsKey);
-        const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
-        if (cache[dedupKey] && now - cache[dedupKey] < 45000) {
-          console.log('Skipping duplicate push notification (cross-tab 45s):', title);
-          return { success: true, data: { deduped: true } };
-        }
-        cache[dedupKey] = now;
-        // Clean old records
-        for (const [k, ts] of Object.entries(cache)) {
-          if (now - ts > 120000) delete cache[k];
-        }
-        localStorage.setItem(lsKey, JSON.stringify(cache));
-      } catch {
-        // ignore LS errors
+      // 1. In-memory check
+      const lastSent = this.recentPushRequests.get(dedupKey);
+      if (lastSent && now - lastSent < 45000) {
+        console.log('Skipping duplicate push notification within 45s debounce window:', title);
+        return { success: true, data: { deduped: true } };
       }
-    }
 
-    this.recentPushRequests.set(dedupKey, now);
-    if (this.recentPushRequests.size > 100) {
-      for (const [k, v] of this.recentPushRequests.entries()) {
-        if (now - v > 60000) this.recentPushRequests.delete(k);
+      // 2. LocalStorage cross-tab / reload check
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const lsKey = '@saha_recent_push_requests';
+          const raw = localStorage.getItem(lsKey);
+          const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
+          if (cache[dedupKey] && now - cache[dedupKey] < 45000) {
+            console.log('Skipping duplicate push notification (cross-tab 45s):', title);
+            return { success: true, data: { deduped: true } };
+          }
+          cache[dedupKey] = now;
+          // Clean old records
+          for (const [k, ts] of Object.entries(cache)) {
+            if (now - ts > 120000) delete cache[k];
+          }
+          localStorage.setItem(lsKey, JSON.stringify(cache));
+        } catch {
+          // ignore LS errors
+        }
+      }
+
+      this.recentPushRequests.set(dedupKey, now);
+      if (this.recentPushRequests.size > 100) {
+        for (const [k, v] of this.recentPushRequests.entries()) {
+          if (now - v > 60000) this.recentPushRequests.delete(k);
+        }
       }
     }
 
@@ -673,6 +701,18 @@ export const OneSignalService = {
           cachedSubIds.push(cached);
         }
       });
+      // Also add current device's hardware player ID if current user is in cleanIds
+      let myUid: string | null = localStorage.getItem('@saha_takip_user_id');
+      if (!myUid) {
+        try {
+          const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+          myUid = u.id || null;
+        } catch {}
+      }
+      const mySub = localStorage.getItem('@saha_takip_last_sub_id');
+      if (mySub && myUid && cleanIds.includes(myUid) && !cleanSubIds.includes(mySub) && !cachedSubIds.includes(mySub)) {
+        cachedSubIds.push(mySub);
+      }
     }
     const allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
 

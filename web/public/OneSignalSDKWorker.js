@@ -113,6 +113,11 @@ function normalizeWorkerTab(raw) {
     subeler: 'branches',
     logs: 'logs',
     guvenlik: 'logs',
+    personal_notes: 'personal_notes',
+    personalnotes: 'personal_notes',
+    kisisel_notlar: 'personal_notes',
+    kisiselnotlar: 'personal_notes',
+    notlarim: 'personal_notes',
     template: 'template',
     sablon: 'template',
   };
@@ -122,6 +127,9 @@ function normalizeWorkerTab(raw) {
 // Helper to detect tab from notification text if not provided
 function detectWorkerTab(title, body) {
   const text = `${title || ''} ${body || ''}`.toLowerCase();
+  if (text.includes('kişisel not') || text.includes('kisisel not') || text.includes('notlarım') || text.includes('notlarim')) {
+    return { tab: 'personal_notes' };
+  }
   if (text.includes('süreli takip') || text.includes('sureli takip') || text.includes('⏰') || text.includes('alarm') || text.includes('cari takip')) {
     return { tab: 'timed_follow_ups' };
   }

@@ -2,6 +2,8 @@ const ONESIGNAL_APP_ID = '03e50631-8d38-4796-a90f-ae524dab69fd';
 const _k = 'b3NfdjJfYXBwX2Fwc3FtbW1uaGJkem5raXB2emplM2szajd4YmV5amhtNGsydXdtZm5jZWhxbXJybWY1YmxreXpjcG00NHRtcGp0ZmdlcTR5NzZkYXlqczQ1dHR1a2Fiam1oYXdsZ3JnZ3lzbGVkeHE=';
 const getApiKey = () => (typeof Buffer !== 'undefined' ? Buffer.from(_k, 'base64').toString('utf8') : atob(_k));
 
+const recentNotificationsCache = new Map();
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -85,13 +87,26 @@ export default async function handler(req, res) {
       payload.contents = { en: payload.message, tr: payload.message };
     }
 
-    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases) {
+    if (!payload.headings || !payload.headings.en) {
+      const hText = payload.title || payload.headings?.tr || 'Bildirim';
+      payload.headings = { en: hText, tr: hText };
+    }
+    if (!payload.contents || !payload.contents.en) {
+      const cText = payload.message || payload.contents?.tr || 'Yeni bildirim';
+      payload.contents = { en: cText, tr: cText };
+    }
+
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids && !payload.filters) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';
     }
 
     const delaySeconds = Number(payload.delaySeconds) || 0;
     delete payload.delaySeconds;
+    if (delaySeconds > 0 && !payload.send_after) {
+      // OneSignal cloud scheduling: Phone locking won't kill network request
+      payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
+    }
 
     // High priority and sound for iOS APNs & Android FCM
     payload.priority = 10;
@@ -106,8 +121,23 @@ export default async function handler(req, res) {
       payload.web_push_topic = cleanCollapse;
     }
 
-    if (delaySeconds > 0 && delaySeconds <= 30) {
-      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    // Server-side deduplication check (30-second debounce window, test & scheduled notifications exempt)
+    const isExempt = payload.collapse_id?.startsWith('test_') || Boolean(payload.send_after);
+    if (!isExempt) {
+      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+      const now = Date.now();
+      const lastTime = recentNotificationsCache.get(dedupKey);
+      if (lastTime && now - lastTime < 30000) {
+        console.log('Skipping duplicate push notification on serverless:', dedupKey);
+        res.status(200).json({ id: 'deduped', deduped: true });
+        return;
+      }
+      recentNotificationsCache.set(dedupKey, now);
+      if (recentNotificationsCache.size > 100) {
+        for (const [k, v] of recentNotificationsCache.entries()) {
+          if (now - v > 60000) recentNotificationsCache.delete(k);
+        }
+      }
     }
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {

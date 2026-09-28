@@ -2147,7 +2147,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
         : newNote.content;
 
-      // 1. Immediate arrival alert
+      // 1. Immediate arrival alert (if not self)
       OneSignalService.sendPushNotification({
         title: notifTitle,
         message: notifMsg,
@@ -2156,19 +2156,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
         collapseId: `note_new_${newNote.id}`,
       }).catch((err) => console.warn('OneSignal addNote push error:', err));
+    }
 
-      // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
-      if (reminderActive && reminderDate) {
-        OneSignalService.sendPushNotification({
-          title: newNote.cariName ? `⏰ [${newNote.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı (${newNote.createdByName})`,
-          message: notifMsg,
-          targetMode,
-          targetUserIds,
-          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
-          sendAfter: new Date(reminderDate).toISOString(),
-          collapseId: `note_rem_${newNote.id}`,
-        }).catch((err) => console.warn('OneSignal addNote reminder push error:', err));
-      }
+    // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
+    // Runs for all target modes including 'self' so the creator gets their alarm!
+    if (reminderActive && reminderDate) {
+      const isTargetSelf = targetMode === 'self';
+      const effectiveMode = isTargetSelf ? 'custom' : targetMode;
+      const effectiveUserIds = isTargetSelf ? (user?.id ? [user.id] : []) : targetUserIds;
+      const notifMsg = newNote.cariName
+        ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
+        : newNote.content;
+
+      OneSignalService.sendPushNotification({
+        title: newNote.cariName ? `⏰ [${newNote.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı`,
+        message: notifMsg,
+        targetMode: effectiveMode,
+        targetUserIds: effectiveUserIds,
+        companyCode: user?.companyCode || 'POLATLAR',
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
+        sendAfter: new Date(reminderDate).toISOString(),
+        collapseId: `note_rem_${newNote.id}`,
+      }).catch((err) => console.warn('OneSignal addNote reminder push error:', err));
     }
   };
 
@@ -2185,7 +2194,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     cariName?: string
   ) => {
     if (!content.trim()) return;
-    let targetUpdatedNote: GeneralNote | null = null;
     const newNotes = allNotesRef.current.map((n) => {
       if (n.id === id) {
         const nextMode = targetMode !== undefined ? targetMode : n.targetMode || 'self';
@@ -2206,7 +2214,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           photos: photos !== undefined ? photos : n.photos || [],
           notified: false,
         };
-        targetUpdatedNote = updated;
         return updated;
       }
       return n;
@@ -2215,15 +2222,40 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
 
-    if (targetUpdatedNote) {
-      StorageService.saveSingleNote(targetUpdatedNote).catch((err) => {
+    const noteToSave = newNotes.find((n) => n.id === id);
+    if (noteToSave) {
+      StorageService.saveSingleNote(noteToSave).catch((err) => {
         console.warn('saveSingleNote update error:', err);
       });
+
+      // Update or cancel scheduled reminder push
+      if (reminderActive && reminderDate) {
+        const isTargetSelf = noteToSave.targetMode === 'self';
+        const effectiveMode = isTargetSelf ? 'custom' : noteToSave.targetMode;
+        const effectiveUserIds = isTargetSelf ? (user?.id ? [user.id] : []) : noteToSave.targetUserIds;
+        const notifMsg = noteToSave.cariName
+          ? `🏢 CARİ: ${noteToSave.cariName}\n📝 ${noteToSave.content}`
+          : noteToSave.content;
+
+        OneSignalService.sendPushNotification({
+          title: noteToSave.cariName ? `⏰ [${noteToSave.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı`,
+          message: notifMsg,
+          targetMode: effectiveMode,
+          targetUserIds: effectiveUserIds,
+          companyCode: user?.companyCode || 'POLATLAR',
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
+          sendAfter: new Date(reminderDate).toISOString(),
+          collapseId: `note_rem_${id}`,
+        }).catch((err) => console.warn('OneSignal updateNote reminder push error:', err));
+      } else {
+        OneSignalService.cancelNotification(`note_rem_${id}`).catch(() => {});
+      }
     }
   };
 
   // Delete general note
   const deleteNote = async (id: string) => {
+    OneSignalService.cancelNotification(`note_rem_${id}`).catch(() => {});
     const newNotes = allNotesRef.current.filter((n) => n.id !== id);
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
@@ -4589,8 +4621,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addPersonalNote = async (initialData?: Partial<PersonalNote>): Promise<PersonalNote> => {
     if (!user) throw new Error('Oturum açılmamış');
     const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+    const newNoteId = generateId();
+
     const newNote: PersonalNote = {
-      id: generateId(),
+      id: newNoteId,
       userId: user.id,
       companyCode: compCode,
       title: initialData?.title || '',
@@ -4599,10 +4633,41 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isPinned: initialData?.isPinned || false,
       reminderDate: initialData?.reminderDate,
       reminderTime: initialData?.reminderTime,
+      notified: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ...initialData,
     };
+
+    // Pre-schedule cloud push notification via OneSignal send_after
+    // Delivers push even if app is killed / browser closed!
+    if (newNote.reminderDate) {
+      const timeStr = (newNote.reminderTime || '09:00').trim();
+      const normalizedTime = timeStr.length === 5 ? `${timeStr}:00` : timeStr;
+      const targetTime = new Date(`${newNote.reminderDate}T${normalizedTime}`);
+      if (!isNaN(targetTime.getTime()) && targetTime.getTime() > Date.now()) {
+        try {
+          const pushRes = await OneSignalService.sendPushNotification({
+            title: '⏰ Kişisel Not Hatırlatıcısı',
+            message: newNote.title
+              ? `${newNote.title}: ${newNote.content || 'Hatırlatma vakti geldi.'}`
+              : (newNote.content || 'Kişisel notunuz için hatırlatma vakti geldi.'),
+            targetMode: 'custom',
+            targetUserIds: [user.id],
+            companyCode: compCode,
+            url: 'https://saha-takip-beige.vercel.app/?tab=personal_notes',
+            sendAfter: targetTime.toISOString(),
+            collapseId: `pnote_${newNoteId}`,
+          });
+          if (pushRes?.data?.id) {
+            newNote.onesignalNotificationId = pushRes.data.id;
+          }
+        } catch (err) {
+          console.warn('Failed to schedule OneSignal push for personal note:', err);
+        }
+      }
+    }
+
     const updated = [newNote, ...personalNotes];
     setPersonalNotes(updated);
     StorageService.savePersonalNotes(user.id, updated).catch(console.error);
@@ -4611,10 +4676,67 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updatePersonalNote = async (id: string, updates: Partial<PersonalNote>) => {
     if (!user) return;
+    const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+    const existing = personalNotes.find((n) => n.id === id);
+    let newNotifId = updates.onesignalNotificationId ?? existing?.onesignalNotificationId;
+
+    const dateChanged = updates.reminderDate !== undefined && updates.reminderDate !== existing?.reminderDate;
+    const timeChanged = updates.reminderTime !== undefined && updates.reminderTime !== existing?.reminderTime;
+    const nextDate = updates.reminderDate !== undefined ? updates.reminderDate : existing?.reminderDate;
+    const nextTime = updates.reminderTime !== undefined ? updates.reminderTime : existing?.reminderTime;
+
+    const shouldReschedule = dateChanged || timeChanged || (Boolean(nextDate) && !newNotifId);
+
+    if (!nextDate && existing?.onesignalNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalNotificationId).catch(() => {});
+      newNotifId = undefined;
+    } else if (shouldReschedule && nextDate) {
+      if (existing?.onesignalNotificationId) {
+        OneSignalService.cancelNotification(existing.onesignalNotificationId).catch(() => {});
+        newNotifId = undefined;
+      }
+
+      const timeStr = (nextTime || '09:00').trim();
+      const normalizedTime = timeStr.length === 5 ? `${timeStr}:00` : timeStr;
+      const targetTime = new Date(`${nextDate}T${normalizedTime}`);
+      if (!isNaN(targetTime.getTime()) && targetTime.getTime() > Date.now()) {
+        const nextTitle = updates.title !== undefined ? updates.title : existing?.title;
+        const nextContent = updates.content !== undefined ? updates.content : existing?.content;
+        try {
+          const pushRes = await OneSignalService.sendPushNotification({
+            title: '⏰ Kişisel Not Hatırlatıcısı',
+            message: nextTitle
+              ? `${nextTitle}: ${nextContent || 'Hatırlatma vakti geldi.'}`
+              : (nextContent || 'Kişisel notunuz için hatırlatma vakti geldi.'),
+            targetMode: 'custom',
+            targetUserIds: [user.id],
+            companyCode: compCode,
+            url: 'https://saha-takip-beige.vercel.app/?tab=personal_notes',
+            sendAfter: targetTime.toISOString(),
+            collapseId: `pnote_${id}`,
+          });
+          if (pushRes?.data?.id) {
+            newNotifId = pushRes.data.id;
+          }
+        } catch (err) {
+          console.warn('Failed to reschedule OneSignal push for personal note:', err);
+        }
+      }
+    }
+
+    const updatedProps: Partial<PersonalNote> = {
+      ...updates,
+      onesignalNotificationId: newNotifId,
+      updatedAt: Date.now(),
+    };
+    if (dateChanged || timeChanged) {
+      updatedProps.notified = false;
+    }
+
     setPersonalNotes((prev) => {
       const next = prev.map((n) => {
         if (n.id === id) {
-          return { ...n, ...updates, updatedAt: Date.now() };
+          return { ...n, ...updatedProps };
         }
         return n;
       });
@@ -4627,6 +4749,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const deletePersonalNote = async (id: string) => {
     if (!user) return;
+    const target = personalNotes.find((n) => n.id === id);
+    if (target?.onesignalNotificationId) {
+      OneSignalService.cancelNotification(target.onesignalNotificationId).catch(() => {});
+    }
     const updated = personalNotes.filter((n) => n.id !== id);
     setPersonalNotes(updated);
     await StorageService.savePersonalNotes(user.id, updated);
@@ -4638,6 +4764,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!target) return;
     await updatePersonalNote(id, { isPinned: !target.isPinned });
   };
+
+  // Check personal notes reminders while app is open / foreground
+  useEffect(() => {
+    if (!user || !personalNotes || personalNotes.length === 0) return;
+
+    const checkPersonalNotesReminders = () => {
+      const now = Date.now();
+      const myNotes = personalNotes.filter((n) => n && n.userId === user.id);
+
+      for (const note of myNotes) {
+        if (!note.reminderDate || note.notified) continue;
+        const timeStr = note.reminderTime || '09:00';
+        const target = new Date(`${note.reminderDate}T${timeStr}:00`).getTime();
+        if (!isNaN(target) && target <= now && now - target < 2 * 60 * 60 * 1000) {
+          NotificationService.playAlarmSound();
+          const title = '⏰ Kişisel Not Hatırlatıcısı';
+          const body = note.title
+            ? `${note.title}: ${note.content || 'Hatırlatma vakti geldi.'}`
+            : (note.content || 'Kişisel notunuz için hatırlatma vakti geldi.');
+          NotificationService.sendNotification(
+            title,
+            body,
+            'https://saha-takip-beige.vercel.app/?tab=personal_notes'
+          );
+          updatePersonalNote(note.id, { notified: true });
+        }
+      }
+    };
+
+    checkPersonalNotesReminders();
+    const interval = setInterval(checkPersonalNotesReminders, 8000);
+    return () => clearInterval(interval);
+  }, [personalNotes, user?.id]);
 
   const [lastReadTime, setLastReadTime] = useState<number>(() => {
     if (typeof window !== 'undefined' && user?.id) {

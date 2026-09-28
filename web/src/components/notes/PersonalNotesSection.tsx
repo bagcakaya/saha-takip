@@ -12,10 +12,13 @@ import {
   Palette,
   X,
   Sparkles,
+  Bell,
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
 import { PersonalNote, PersonalNoteColor } from '../../types/storage';
+import { NotificationService } from '../../services/notificationService';
+import { OneSignalService } from '../../services/oneSignalService';
 
 const COLOR_STYLES: Record<
   PersonalNoteColor,
@@ -162,10 +165,17 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     setShowColorPicker(false);
   };
 
-  const handleSaveReminder = () => {
-    onUpdate(note.id, {
+  const handleSaveReminder = async () => {
+    try {
+      await NotificationService.requestPermission();
+      await OneSignalService.requestPermission();
+    } catch (e) {
+      console.warn('Permission request error:', e);
+    }
+    await onUpdate(note.id, {
       reminderDate: remDate || undefined,
       reminderTime: remTime || undefined,
+      notified: false,
     });
     setShowReminderPicker(false);
   };
@@ -176,6 +186,7 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     onUpdate(note.id, {
       reminderDate: undefined,
       reminderTime: undefined,
+      notified: false,
     });
     setShowReminderPicker(false);
   };
@@ -468,6 +479,15 @@ export const PersonalNotesSection: React.FC = () => {
   const [quickColor, setQuickColor] = useState<PersonalNoteColor>('amber');
   const [quickReminderDate, setQuickReminderDate] = useState('');
   const [quickReminderTime, setQuickReminderTime] = useState('');
+  const [hasPermission, setHasPermission] = useState<boolean>(() => {
+    return typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  });
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined') {
+      setHasPermission(Notification.permission === 'granted');
+    }
+  }, []);
 
   const quickInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -513,6 +533,15 @@ export const PersonalNotesSection: React.FC = () => {
     if (!quickTitle.trim() && !quickContent.trim()) {
       setIsQuickAdding(false);
       return;
+    }
+
+    if (quickReminderDate) {
+      try {
+        await NotificationService.requestPermission();
+        await OneSignalService.requestPermission();
+      } catch (e) {
+        console.warn('Permission request error:', e);
+      }
     }
 
     await addPersonalNote({
@@ -578,6 +607,28 @@ export const PersonalNotesSection: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 1.5 Notification Permission Activation Notice */}
+      {!hasPermission && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs">
+          <div className="flex items-center gap-2">
+            <Bell className="w-4 h-4 shrink-0 text-amber-500 animate-pulse" />
+            <span>
+              <strong>Uygulama Kapalıyken Alarmların Çalması İçin:</strong> Cihazınızda bildirim iznini aktif etmelisiniz.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await OneSignalService.requestPermission(user || undefined);
+              if (ok) setHasPermission(true);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition text-center"
+          >
+            Bildirim İznini Aç
+          </button>
+        </div>
+      )}
 
       {/* 2. Interactive Quick Add Expandable Box */}
       {isQuickAdding && (
