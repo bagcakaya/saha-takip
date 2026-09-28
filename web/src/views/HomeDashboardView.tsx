@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Store,
   Clock,
+  StickyNote,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../types/auth';
@@ -21,6 +22,7 @@ import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
+import { PersonalNotesSection } from '../components/notes/PersonalNotesSection';
 import { getRemainingDays } from '../utils/dateUtils';
 
 interface HomeDashboardViewProps {
@@ -56,6 +58,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     securityLogs,
     unreadLogsCount,
     timedFollowUps,
+    personalNotes,
     badgeCount,
     lastReadTime,
     markAllAsRead,
@@ -118,6 +121,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const safeStandardTasks = Array.isArray(standardTasks) ? standardTasks : [];
   const safeSecurityLogs = Array.isArray(securityLogs) ? securityLogs : [];
   const safeTimedFollowUps = Array.isArray(timedFollowUps) ? timedFollowUps : [];
+  const safePersonalNotes = Array.isArray(personalNotes) ? personalNotes : [];
+  const userPersonalNotes = safePersonalNotes.filter((n) => n && n.userId === user?.id);
 
   const isAdmin = isUserAdmin(user);
   const pendingReturns = safeReturnWarrantyItems.filter((i) => i && i.status === 'pending').length;
@@ -255,6 +260,25 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       activeCount: pendingTimedFollowUpsCount,
       action: () => onNavigate('timed_follow_ups'),
       visible: isAdmin,
+    },
+    {
+      id: 'personal_notes',
+      title: 'Kişisel Notlarım',
+      shortTitle: 'Notlarım',
+      description: 'Sadece size özel, hatırlatıcılı ve doğrudan düzenlenebilir notlar',
+      icon: StickyNote,
+      gradient: 'bg-gradient-to-br from-amber-500 via-amber-600 to-yellow-700',
+      borderColor: 'border-amber-400/40',
+      glowColor: 'text-amber-400',
+      badgeText: `${userPersonalNotes.length} Not`,
+      activeCount: userPersonalNotes.length > 0 ? userPersonalNotes.length : undefined,
+      action: () => {
+        const el = document.getElementById('personal-notes-section');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      },
+      visible: true,
     },
     {
       id: 'reminders',
@@ -429,7 +453,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         </div>
       </div>
 
-
+      {/* 3. Kişisel ve Doğrudan Düzenlenebilir Notlar Alanı */}
+      <PersonalNotesSection />
 
       {/* Realtime Notification Drawer / List Modal */}
       {isNotificationListOpen && (

@@ -87,6 +87,22 @@ export interface AdminReminder {
   readBy?: string[]; // Array of user IDs who acknowledged/read this reminder
 }
 
+export type PersonalNoteColor = 'amber' | 'blue' | 'emerald' | 'purple' | 'rose' | 'slate';
+
+export interface PersonalNote {
+  id: string;
+  userId: string; // The user who owns this note (Strictly private)
+  companyCode: string;
+  title: string;
+  content: string;
+  color?: PersonalNoteColor;
+  isPinned?: boolean;
+  reminderDate?: string; // YYYY-MM-DD
+  reminderTime?: string; // HH:mm
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type ReturnWarrantyType = 'warranty' | 'return';
 export type ReturnWarrantyStatus = 'pending' | 'completed';
 
@@ -244,6 +260,7 @@ export interface BackupData {
   leaveRequests?: LeaveRequest[];
   securityLogs?: SecurityLogItem[];
   timedFollowUps?: TimedFollowUp[];
+  personalNotes?: PersonalNote[];
 }
 
 export interface CariData {

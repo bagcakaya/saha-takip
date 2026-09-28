@@ -13,6 +13,7 @@ import {
   LeaveRequest,
   SecurityLogItem,
   TimedFollowUp,
+  PersonalNote,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -33,6 +34,7 @@ const CARILER_DATA_KEY = '@saha_takip_cariler_data';
 const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
+const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 
 function resolveCompanyId(code: string, currentId?: number): number {
   const clean = (code || 'POLATLAR').trim().toUpperCase();
@@ -1701,13 +1703,64 @@ export const StorageService = {
     return (await loadItem<TimedFollowUp[]>(localKey)) || [];
   },
 
-  /**
-   * Saves timed follow ups to cloud slot 16 and local cache
-   */
   async saveTimedFollowUps(items: TimedFollowUp[]): Promise<void> {
     const localKey = this.getStorageKey(TIMED_FOLLOW_UPS_KEY);
     await saveItem(localKey, items);
-    await saveChunkedSlot(this.getSlotId(16), items);
+
+    try {
+      const slotId = this.getSlotId(16);
+      await saveChunkedSlot(slotId, items);
+    } catch (e) {
+      console.warn('Timed follow ups cloud save error:', e);
+    }
+  },
+
+  /**
+   * Retrieves personal notes for a specific user (cloud slot 17 + local IndexedDB cache)
+   * Strictly filtered by userId so no other user can see them!
+   */
+  async getPersonalNotes(userId: string): Promise<PersonalNote[]> {
+    if (!userId) return [];
+    const localKey = `${PERSONAL_NOTES_KEY}_${activeCompanyCode}_${userId}`;
+    const slotId = this.getSlotId(17);
+
+    // 1. Check local cache first for instant render
+    const cached = await loadItem<PersonalNote[]>(localKey);
+
+    // 2. Fetch from cloud slot 17
+    try {
+      const { data: cloudData } = await loadChunkedSlot<PersonalNote[]>(slotId);
+      if (cloudData && Array.isArray(cloudData)) {
+        const userNotes = cloudData.filter((n) => n && n.userId === userId);
+        await saveItem(localKey, userNotes);
+        return userNotes;
+      }
+    } catch (e) {
+      console.warn('Personal notes cloud read error:', e);
+    }
+
+    return cached || [];
+  },
+
+  /**
+   * Saves personal notes for a specific user to cloud slot 17 and local cache
+   */
+  async savePersonalNotes(userId: string, userNotes: PersonalNote[]): Promise<void> {
+    if (!userId) return;
+    const localKey = `${PERSONAL_NOTES_KEY}_${activeCompanyCode}_${userId}`;
+    await saveItem(localKey, userNotes);
+
+    try {
+      const slotId = this.getSlotId(17);
+      const { data: cloudData } = await loadChunkedSlot<PersonalNote[]>(slotId);
+      const existingAll: PersonalNote[] = Array.isArray(cloudData) ? cloudData : [];
+      // Keep other users' notes untouched, replace this user's notes
+      const others = existingAll.filter((n) => n && n.userId !== userId);
+      const merged = [...others, ...userNotes];
+      await saveChunkedSlot(slotId, merged);
+    } catch (e) {
+      console.warn('Personal notes cloud save error:', e);
+    }
   },
 
   async exportBackup(): Promise<string> {

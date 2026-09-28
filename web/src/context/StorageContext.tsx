@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -197,6 +197,12 @@ interface StorageContextType {
   completeTimedFollowUp: (id: string) => Promise<void>;
   snoozeTimedFollowUp: (id: string, minutes?: number) => Promise<void>;
   dismissAlarm: () => Promise<void>;
+  personalNotes: PersonalNote[];
+  addPersonalNote: (initialData?: Partial<PersonalNote>) => Promise<PersonalNote>;
+  updatePersonalNote: (id: string, updates: Partial<PersonalNote>) => Promise<void>;
+  deletePersonalNote: (id: string) => Promise<void>;
+  togglePinPersonalNote: (id: string) => Promise<void>;
+  refreshPersonalNotes: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -261,6 +267,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [timedFollowUps, setTimedFollowUps] = useState<TimedFollowUp[]>([]);
+  const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -291,6 +298,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCarilerUpdatedAt(null);
       setCarilerTotal(0);
       setTimedFollowUps([]);
+      setPersonalNotes([]);
       setActiveRingingAlarm(null);
       setIsLoading(false);
       setDataCompanyCode('');
@@ -316,6 +324,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCarilerUpdatedAt(null);
     setCarilerTotal(0);
     setTimedFollowUps([]);
+    setPersonalNotes([]);
     setActiveRingingAlarm(null);
     setIsLoading(true);
     setDataCompanyCode('');
@@ -347,6 +356,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setCarilerUpdatedAt(cached.carilerData.updatedAt);
             setCarilerTotal(cached.carilerData.total);
           }
+          // Fast cached personal notes for this user
+          StorageService.getPersonalNotes(user.id).then((userCachedNotes) => {
+            if (isMounted && userCachedNotes && userCachedNotes.length > 0) {
+              setPersonalNotes(userCachedNotes);
+            }
+          }).catch(() => {});
           // If cached data was loaded, unlock the UI immediately
           if (
             (cached.locations && cached.locations.length > 0) ||
@@ -364,7 +379,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -378,6 +393,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getLeaveRequests(),
           StorageService.getSecurityLogs(),
           StorageService.getTimedFollowUps(),
+          StorageService.getPersonalNotes(user.id),
         ]);
         if (!isMounted) return;
 
@@ -540,6 +556,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCarilerUpdatedAt(cariData?.updatedAt);
         setCarilerTotal(cariData?.total || 0);
         setTimedFollowUps(followUps || []);
+        setPersonalNotes(myPersonalNotes || []);
         setDataCompanyCode(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
@@ -4557,6 +4574,69 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const refreshPersonalNotes = async () => {
+    if (!user) return;
+    try {
+      const notes = await StorageService.getPersonalNotes(user.id);
+      setPersonalNotes(notes);
+    } catch (e) {
+      console.warn('refreshPersonalNotes error:', e);
+    }
+  };
+
+  const addPersonalNote = async (initialData?: Partial<PersonalNote>): Promise<PersonalNote> => {
+    if (!user) throw new Error('Oturum açılmamış');
+    const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+    const newNote: PersonalNote = {
+      id: generateId(),
+      userId: user.id,
+      companyCode: compCode,
+      title: initialData?.title || '',
+      content: initialData?.content || '',
+      color: initialData?.color || 'amber',
+      isPinned: initialData?.isPinned || false,
+      reminderDate: initialData?.reminderDate,
+      reminderTime: initialData?.reminderTime,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...initialData,
+    };
+    const updated = [newNote, ...personalNotes];
+    setPersonalNotes(updated);
+    StorageService.savePersonalNotes(user.id, updated).catch(console.error);
+    return newNote;
+  };
+
+  const updatePersonalNote = async (id: string, updates: Partial<PersonalNote>) => {
+    if (!user) return;
+    setPersonalNotes((prev) => {
+      const next = prev.map((n) => {
+        if (n.id === id) {
+          return { ...n, ...updates, updatedAt: Date.now() };
+        }
+        return n;
+      });
+      StorageService.savePersonalNotes(user.id, next).catch((err) => {
+        console.warn('Error saving personal note updates:', err);
+      });
+      return next;
+    });
+  };
+
+  const deletePersonalNote = async (id: string) => {
+    if (!user) return;
+    const updated = personalNotes.filter((n) => n.id !== id);
+    setPersonalNotes(updated);
+    await StorageService.savePersonalNotes(user.id, updated);
+  };
+
+  const togglePinPersonalNote = async (id: string) => {
+    if (!user) return;
+    const target = personalNotes.find((n) => n.id === id);
+    if (!target) return;
+    await updatePersonalNote(id, { isPinned: !target.isPinned });
+  };
+
   const [lastReadTime, setLastReadTime] = useState<number>(() => {
     if (typeof window !== 'undefined' && user?.id) {
       const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
@@ -4926,6 +5006,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         completeTimedFollowUp,
         snoozeTimedFollowUp,
         dismissAlarm,
+        personalNotes,
+        addPersonalNote,
+        updatePersonalNote,
+        deletePersonalNote,
+        togglePinPersonalNote,
+        refreshPersonalNotes,
         isLoading,
         activeToast,
         dismissToast,
