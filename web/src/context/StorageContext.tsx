@@ -779,6 +779,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const seenNotes = getStoredSet(notesStorageKey);
       allNotes.forEach((n) => seenNotes.add(n.id));
       saveStoredSet(notesStorageKey, seenNotes);
+
+      // İlk girişte geçmiş hatırlatıcıların patlamasını da engelle
+      if (localStorage.getItem(remindersStorageKey) === null) {
+        const seenReminders = getStoredSet(remindersStorageKey);
+        const now = Date.now();
+        allNotes.forEach((n) => {
+          if (n.reminderActive && n.reminderDate) {
+            const reminderTime = new Date(n.reminderDate).getTime();
+            if (reminderTime <= now) {
+              seenReminders.add(n.id);
+            }
+          }
+        });
+        saveStoredSet(remindersStorageKey, seenReminders);
+      }
       return;
     }
 
@@ -787,6 +802,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const now = Date.now();
     let seenNotesChanged = false;
     let seenRemindersChanged = false;
+    const newTargetedNotes: typeof allNotes = [];
 
     allNotes.forEach((n) => {
       // 1. Check if note is targeted to this user
@@ -802,11 +818,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!seenNotes.has(n.id)) {
           seenNotes.add(n.id);
           seenNotesChanged = true;
-
-          const sender = n.createdByName || 'Yönetici';
-          const title = `📋 ${sender} Size Yeni Bir İş Emri İletti!`;
-          NotificationService.sendNotification(title, n.content);
-          setActiveToast({ title, body: n.content, tab: 'notes', filter: 'pending' });
+          newTargetedNotes.push(n);
         }
       } else if (n.createdBy === user.id) {
         // Mark creator's own note as already seen so creator never gets arrival alert
@@ -837,6 +849,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     });
 
+    if (newTargetedNotes.length === 1) {
+      const n = newTargetedNotes[0];
+      const sender = n.createdByName || 'Yönetici';
+      const title = `📋 ${sender} Size Yeni Bir İş Emri İletti!`;
+      NotificationService.sendNotification(title, n.content);
+      setActiveToast({ title, body: n.content, tab: 'notes', filter: 'pending' });
+    } else if (newTargetedNotes.length > 1) {
+      const title = `📋 Size ${newTargetedNotes.length} Yeni İş Emri İletildi!`;
+      const body = `${newTargetedNotes.length} adet yeni iş emri atandı.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+    }
+
     if (seenNotesChanged) {
       saveStoredSet(notesStorageKey, seenNotes);
     }
@@ -851,9 +876,27 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
 
     const storageKey = SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode);
+
+    // İlk açılış koruması
+    if (localStorage.getItem(storageKey) === null) {
+      const seenWarrantyReminders = getStoredSet(storageKey);
+      const now = Date.now();
+      returnWarrantyItems.forEach((item) => {
+        if (item.reminderActive && item.reminderDate) {
+          const reminderTime = new Date(item.reminderDate).getTime();
+          if (reminderTime <= now) {
+            seenWarrantyReminders.add(item.id);
+          }
+        }
+      });
+      saveStoredSet(storageKey, seenWarrantyReminders);
+      return;
+    }
+
     const seenWarrantyReminders = getStoredSet(storageKey);
     let seenWarrantyChanged = false;
     const now = Date.now();
+    const newWarrantyAlerts: typeof returnWarrantyItems = [];
 
     returnWarrantyItems.forEach((item) => {
       if (
@@ -865,16 +908,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (reminderTime <= now && !seenWarrantyReminders.has(item.id)) {
           seenWarrantyReminders.add(item.id);
           seenWarrantyChanged = true;
-
-          const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
-          const targetName = item.cariName ? `${item.cariName} (${item.companyName})` : item.companyName;
-          const title = `🛡️ ${typeLabel} Durum Takibi: ${targetName}`;
-          const body = `${targetName} için gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
-          NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body, tab: 'returns' });
+          newWarrantyAlerts.push(item);
         }
       }
     });
+
+    if (newWarrantyAlerts.length === 1) {
+      const item = newWarrantyAlerts[0];
+      const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+      const targetName = item.cariName ? `${item.cariName} (${item.companyName})` : item.companyName;
+      const title = `🛡️ ${typeLabel} Durum Takibi: ${targetName}`;
+      const body = `${targetName} için gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'returns' });
+    } else if (newWarrantyAlerts.length > 1) {
+      const title = `🛡️ ${newWarrantyAlerts.length} Garanti/İade Takip Hatırlatması`;
+      const body = `${newWarrantyAlerts.length} adet ürünün durum kontrol tarihi geldi.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'returns' });
+    }
 
     if (seenWarrantyChanged) {
       saveStoredSet(storageKey, seenWarrantyReminders);
@@ -888,8 +940,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (isUserAdmin(user)) {
       const storageKey = SEEN_COMPLETED_RETURNS_KEY(user.id, compCode);
+
+      // İlk açılış koruması
+      if (localStorage.getItem(storageKey) === null) {
+        const seenCompletedReturns = getStoredSet(storageKey);
+        returnWarrantyItems.forEach((item) => {
+          if (item.status === 'completed' && item.completedAt) {
+            seenCompletedReturns.add(`${item.id}_${item.completedAt}`);
+          }
+        });
+        saveStoredSet(storageKey, seenCompletedReturns);
+        return;
+      }
+
       const seenCompletedReturns = getStoredSet(storageKey);
       let seenChanged = false;
+      const newCompletedReturns: typeof returnWarrantyItems = [];
 
       returnWarrantyItems.forEach((item) => {
         if (item.status === 'completed' && item.completedAt) {
@@ -900,19 +966,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             // Only notify if completed by someone else (avoids duplicate toast on device of person who clicked it)
             if (item.completedBy !== user.id) {
-              const staff = item.completedByName || 'Yetkili';
-              const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
-              const cariText = item.cariName ? `[${item.cariName}] ` : '';
-              const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
-              const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
-              const body = `${staff}, ${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText}`;
-
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'returns' });
+              newCompletedReturns.push(item);
             }
           }
         }
       });
+
+      if (newCompletedReturns.length === 1) {
+        const item = newCompletedReturns[0];
+        const staff = item.completedByName || 'Yetkili';
+        const typeLabel = item.type === 'warranty' ? 'Garanti' : 'İade';
+        const cariText = item.cariName ? `[${item.cariName}] ` : '';
+        const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
+        const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
+        const body = `${staff}, ${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText}`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'returns' });
+      } else if (newCompletedReturns.length > 1) {
+        const title = `📦 ${newCompletedReturns.length} Ürün Geri Döndü!`;
+        const body = `${newCompletedReturns.length} adet garanti/iade ürünü "Geri Döndü" olarak işaretlendi.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'returns' });
+      }
 
       if (seenChanged) {
         saveStoredSet(storageKey, seenCompletedReturns);
@@ -935,6 +1010,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const seenReminders = getStoredSet(storageKey);
     let seenChanged = false;
+    const newRemindersList: typeof adminReminders = [];
 
     adminReminders.forEach((r) => {
       // If created by someone else and user hasn't seen it yet
@@ -942,12 +1018,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!seenReminders.has(r.id)) {
           seenReminders.add(r.id);
           seenChanged = true;
-
-          const author = r.createdByName || 'Yönetici';
-          const title = `📢 Yeni Yönetici Talimatı: ${r.title}`;
-          const body = `${author}: "${r.content.slice(0, 90)}"`;
-          NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body, tab: 'reminders' });
+          newRemindersList.push(r);
         }
       } else if (r.createdBy === user.id) {
         if (!seenReminders.has(r.id)) {
@@ -956,6 +1027,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     });
+
+    if (newRemindersList.length === 1) {
+      const r = newRemindersList[0];
+      const author = r.createdByName || 'Yönetici';
+      const title = `📢 Yeni Yönetici Talimatı: ${r.title}`;
+      const body = `${author}: "${r.content.slice(0, 90)}"`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'reminders' });
+    } else if (newRemindersList.length > 1) {
+      const title = `📢 ${newRemindersList.length} Yeni Yönetici Talimatı`;
+      const body = `${newRemindersList.length} adet yeni yönetici talimatı paylaşıldı.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'reminders' });
+    }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenReminders);
@@ -1024,6 +1109,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const seenLocs = getStoredSet(storageKey);
     let seenChanged = false;
+    const newLocsList: typeof allLocations = [];
 
     allLocations.forEach((loc) => {
       // If created by a staff member (or someone else)
@@ -1031,13 +1117,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!seenLocs.has(loc.id)) {
           seenLocs.add(loc.id);
           seenChanged = true;
-
-          const staffName = loc.createdByName || 'Saha Personeli';
-          const title = '📍 Yeni Kurulum Eklendi!';
-          const body = `${staffName}, "${loc.name}" için yeni bir kurulum kaydı oluşturdu.`;
-
-          NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body, tab: 'installations' });
+          newLocsList.push(loc);
         }
       } else if (loc.createdBy === user.id) {
         if (!seenLocs.has(loc.id)) {
@@ -1046,6 +1126,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     });
+
+    if (newLocsList.length === 1) {
+      const loc = newLocsList[0];
+      const staffName = loc.createdByName || 'Saha Personeli';
+      const title = '📍 Yeni Kurulum Eklendi!';
+      const body = `${staffName}, "${loc.name}" için yeni bir kurulum kaydı oluşturdu.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'installations' });
+    } else if (newLocsList.length > 1) {
+      const title = `📍 ${newLocsList.length} Yeni Kurulum Eklendi!`;
+      const body = `${newLocsList.length} adet yeni kurulum kaydı eklendi.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'installations' });
+    }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenLocs);
@@ -1072,6 +1166,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const seenDone = getStoredSet(storageKey);
     let seenChanged = false;
+    const newDoneList: typeof allLocations = [];
 
     allLocations.forEach((loc) => {
       const isComplete =
@@ -1082,16 +1177,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!seenDone.has(loc.id)) {
           seenDone.add(loc.id);
           seenChanged = true;
-
-          const staffName = loc.createdByName || 'Saha Personeli';
-          const title = '✅ Kurulum Tamamlandı!';
-          const body = `${staffName}, "${loc.name}" kurulumundaki tüm görevleri tamamladı.`;
-
-          NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body, tab: 'installations' });
+          newDoneList.push(loc);
         }
       }
     });
+
+    if (newDoneList.length === 1) {
+      const loc = newDoneList[0];
+      const staffName = loc.createdByName || 'Saha Personeli';
+      const title = '✅ Kurulum Tamamlandı!';
+      const body = `${staffName}, "${loc.name}" kurulumundaki tüm görevleri tamamladı.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'installations' });
+    } else if (newDoneList.length > 1) {
+      const title = `✅ ${newDoneList.length} Kurulum Tamamlandı!`;
+      const body = `${newDoneList.length} adet kurulumdaki tüm görevler tamamlandı.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'installations' });
+    }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenDone);
@@ -1113,19 +1216,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const seenServices = getStoredSet(storageKey);
     let seenChanged = false;
+    const newServicesList: typeof allServices = [];
 
     allServices.forEach((srv) => {
       if (srv.createdBy && srv.createdBy !== user.id) {
         if (!seenServices.has(srv.id)) {
           seenServices.add(srv.id);
           seenChanged = true;
-
-          const staffName = srv.createdByName || 'Saha Personeli';
-          const title = '🔧 Yeni Servis Kaydı!';
-          const body = `${staffName}, "${srv.companyName}" için servis kaydı ekledi.`;
-
-          NotificationService.sendNotification(title, body);
-          setActiveToast({ title, body, tab: 'services' });
+          newServicesList.push(srv);
         }
       } else if (srv.createdBy === user.id) {
         if (!seenServices.has(srv.id)) {
@@ -1134,6 +1232,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     });
+
+    if (newServicesList.length === 1) {
+      const srv = newServicesList[0];
+      const staffName = srv.createdByName || 'Saha Personeli';
+      const title = '🔧 Yeni Servis Kaydı!';
+      const body = `${staffName}, "${srv.companyName}" için servis kaydı ekledi.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'services' });
+    } else if (newServicesList.length > 1) {
+      const title = `🔧 ${newServicesList.length} Yeni Servis Kaydı!`;
+      const body = `${newServicesList.length} adet yeni servis kaydı oluşturuldu.`;
+      NotificationService.sendNotification(title, body);
+      setActiveToast({ title, body, tab: 'services' });
+    }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenServices);
@@ -1148,8 +1260,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 1. For Admin: Alert when a staff member completes a work order (pending_approval)
     if (isUserAdmin(user)) {
       const completedStorageKey = SEEN_COMPLETED_NOTES_KEY(user.id, compCode);
+
+      // İlk oturum / ilk açılış koruması: Geçmişte birikmiş onay bekleyen iş emirlerini sessizce kaydet, ardışık bildirim patlatma!
+      if (localStorage.getItem(completedStorageKey) === null) {
+        const seenCompleted = getStoredSet(completedStorageKey);
+        allNotes.forEach((n) => {
+          if (n.status === 'pending_approval' && n.completedAt) {
+            seenCompleted.add(`${n.id}_${n.completedAt}`);
+          }
+        });
+        saveStoredSet(completedStorageKey, seenCompleted);
+        return;
+      }
+
       const seenCompleted = getStoredSet(completedStorageKey);
       let seenChanged = false;
+      const newPendingNotes: typeof allNotes = [];
 
       allNotes.forEach((n) => {
         if (n.status === 'pending_approval' && n.completedAt && n.completedBy !== user.id) {
@@ -1157,15 +1283,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!seenCompleted.has(key)) {
             seenCompleted.add(key);
             seenChanged = true;
-
-            const staff = n.completedByName || 'Saha Personeli';
-            const title = '📋 İş Emri Onay Bekliyor!';
-            const body = `${staff}, "${n.content.slice(0, 50)}" iş emrini tamamladı.${n.completionNote ? ` Not: ${n.completionNote}` : ''}`;
-            NotificationService.sendNotification(title, body);
-            setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+            newPendingNotes.push(n);
           }
         }
       });
+
+      if (newPendingNotes.length === 1) {
+        const n = newPendingNotes[0];
+        const staff = n.completedByName || 'Saha Personeli';
+        const title = '📋 İş Emri Onay Bekliyor!';
+        const body = `${staff}, "${n.content.slice(0, 50)}" iş emrini tamamladı.${n.completionNote ? ` Not: ${n.completionNote}` : ''}`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+      } else if (newPendingNotes.length > 1) {
+        const title = `📋 ${newPendingNotes.length} Yeni İş Emri Onay Bekliyor!`;
+        const body = `${newPendingNotes.length} adet tamamlanan iş emri onayınızı bekliyor.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+      }
 
       if (seenChanged) {
         saveStoredSet(completedStorageKey, seenCompleted);
@@ -1175,8 +1310,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 2. For Staff: Alert when Admin approves or rejects the staff's work order
     if (user.role !== 'admin') {
       const approvalStorageKey = SEEN_APPROVAL_NOTES_KEY(user.id, compCode);
+
+      // İlk açılış koruması
+      if (localStorage.getItem(approvalStorageKey) === null) {
+        const seenApproval = getStoredSet(approvalStorageKey);
+        allNotes.forEach((n) => {
+          if (n.status === 'approved' && n.approvedAt) {
+            seenApproval.add(`${n.id}_approved_${n.approvedAt}`);
+          }
+          if (n.status === 'rejected' && n.rejectedAt) {
+            seenApproval.add(`${n.id}_rejected_${n.rejectedAt}`);
+          }
+        });
+        saveStoredSet(approvalStorageKey, seenApproval);
+        return;
+      }
+
       const seenApproval = getStoredSet(approvalStorageKey);
       let seenChanged = false;
+      const newApproved: typeof allNotes = [];
+      const newRejected: typeof allNotes = [];
 
       allNotes.forEach((n) => {
         const isMyTask =
@@ -1191,12 +1344,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!seenApproval.has(key)) {
               seenApproval.add(key);
               seenChanged = true;
-
-              const admin = n.approvedByName || 'Yönetici';
-              const title = '✅ İş Emriniz Onaylandı!';
-              const body = `${admin}, "${n.content.slice(0, 50)}" iş emrinizi başarıyla onayladı.`;
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
+              newApproved.push(n);
             }
           }
 
@@ -1206,16 +1354,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!seenApproval.has(key)) {
               seenApproval.add(key);
               seenChanged = true;
-
-              const admin = n.rejectedByName || 'Yönetici';
-              const title = '❌ İş Emriniz Reddedildi!';
-              const body = `${admin}, "${n.content.slice(0, 50)}" iş emrini reddetti. Gerekçe: ${n.rejectionReason || 'Eksikler var'}`;
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
+              newRejected.push(n);
             }
           }
         }
       });
+
+      if (newApproved.length === 1) {
+        const n = newApproved[0];
+        const admin = n.approvedByName || 'Yönetici';
+        const title = '✅ İş Emriniz Onaylandı!';
+        const body = `${admin}, "${n.content.slice(0, 50)}" iş emrinizi başarıyla onayladı.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
+      } else if (newApproved.length > 1) {
+        const title = `✅ ${newApproved.length} İş Emriniz Onaylandı!`;
+        const body = `Yönetici ${newApproved.length} adet iş emrinizi onayladı.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
+      }
+
+      if (newRejected.length === 1) {
+        const n = newRejected[0];
+        const admin = n.rejectedByName || 'Yönetici';
+        const title = '❌ İş Emriniz Reddedildi!';
+        const body = `${admin}, "${n.content.slice(0, 50)}" iş emrini reddetti. Gerekçe: ${n.rejectionReason || 'Eksikler var'}`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
+      } else if (newRejected.length > 1) {
+        const title = `❌ ${newRejected.length} İş Emriniz Reddedildi!`;
+        const body = `Yönetici ${newRejected.length} adet iş emrinizi reddetti.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
+      }
 
       if (seenChanged) {
         saveStoredSet(approvalStorageKey, seenApproval);
@@ -1232,8 +1403,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 1. For Admin: Alert when a staff member completes a location (pending_approval)
     if (isUserAdmin(user)) {
       const completedStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
+
+      // İlk açılış koruması
+      if (localStorage.getItem(completedStorageKey) === null) {
+        const seenCompleted = getStoredSet(completedStorageKey);
+        allLocations.forEach((loc) => {
+          if (loc.status === 'pending_approval' && loc.completedAt) {
+            seenCompleted.add(`${loc.id}_pending_${loc.completedAt}`);
+          }
+        });
+        saveStoredSet(completedStorageKey, seenCompleted);
+        return;
+      }
+
       const seenCompleted = getStoredSet(completedStorageKey);
       let seenChanged = false;
+      const newPendingLocations: typeof allLocations = [];
 
       allLocations.forEach((loc) => {
         if (loc.status === 'pending_approval' && loc.completedAt && loc.completedBy !== user.id) {
@@ -1241,15 +1426,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!seenCompleted.has(key)) {
             seenCompleted.add(key);
             seenChanged = true;
-
-            const staff = loc.completedByName || 'Saha Personeli';
-            const title = '📍 Kurulum Onay Bekliyor!';
-            const body = `${staff}, "${loc.name}" kurulumunu tamamladı.${loc.completionNote ? ` Not: ${loc.completionNote}` : ''}`;
-            NotificationService.sendNotification(title, body);
-            setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+            newPendingLocations.push(loc);
           }
         }
       });
+
+      if (newPendingLocations.length === 1) {
+        const loc = newPendingLocations[0];
+        const staff = loc.completedByName || 'Saha Personeli';
+        const title = '📍 Kurulum Onay Bekliyor!';
+        const body = `${staff}, "${loc.name}" kurulumunu tamamladı.${loc.completionNote ? ` Not: ${loc.completionNote}` : ''}`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+      } else if (newPendingLocations.length > 1) {
+        const title = `📍 ${newPendingLocations.length} Kurulum Onay Bekliyor!`;
+        const body = `${newPendingLocations.length} adet kurulum kaydı onayınızı bekliyor.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+      }
 
       if (seenChanged) {
         saveStoredSet(completedStorageKey, seenCompleted);
@@ -1259,8 +1453,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 2. For Staff: Alert when Admin approves or rejects the staff's location
     if (user.role !== 'admin') {
       const approvalStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
+
+      // İlk açılış koruması
+      if (localStorage.getItem(approvalStorageKey) === null) {
+        const seenApproval = getStoredSet(approvalStorageKey);
+        allLocations.forEach((loc) => {
+          if (loc.status === 'approved' && loc.approvedAt) {
+            seenApproval.add(`${loc.id}_approved_${loc.approvedAt}`);
+          }
+          if (loc.status === 'rejected' && loc.rejectedAt) {
+            seenApproval.add(`${loc.id}_rejected_${loc.rejectedAt}`);
+          }
+        });
+        saveStoredSet(approvalStorageKey, seenApproval);
+        return;
+      }
+
       const seenApproval = getStoredSet(approvalStorageKey);
       let seenChanged = false;
+      const UpperApprovedLocs: typeof allLocations = [];
+      const UpperRejectedLocs: typeof allLocations = [];
 
       allLocations.forEach((loc) => {
         const isMyLoc = loc.completedBy === user.id || loc.createdBy === user.id;
@@ -1272,12 +1484,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!seenApproval.has(key)) {
               seenApproval.add(key);
               seenChanged = true;
-
-              const admin = loc.approvedByName || 'Yönetici';
-              const title = '✅ Kurulumunuz Onaylandı!';
-              const body = `${admin}, "${loc.name}" kurulumunuzu başarıyla onayladı.`;
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+              UpperApprovedLocs.push(loc);
             }
           }
 
@@ -1287,16 +1494,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!seenApproval.has(key)) {
               seenApproval.add(key);
               seenChanged = true;
-
-              const admin = loc.rejectedByName || 'Yönetici';
-              const title = '❌ Kurulumunuz Reddedildi!';
-              const body = `${admin}, "${loc.name}" kurulumunu reddetti. Gerekçe: ${loc.rejectionReason || 'Eksikler var'}`;
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+              UpperRejectedLocs.push(loc);
             }
           }
         }
       });
+
+      if (UpperApprovedLocs.length === 1) {
+        const loc = UpperApprovedLocs[0];
+        const admin = loc.approvedByName || 'Yönetici';
+        const title = '✅ Kurulumunuz Onaylandı!';
+        const body = `${admin}, "${loc.name}" kurulumunuzu başarıyla onayladı.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+      } else if (UpperApprovedLocs.length > 1) {
+        const title = `✅ ${UpperApprovedLocs.length} Kurulumunuz Onaylandı!`;
+        const body = `Yönetici ${UpperApprovedLocs.length} adet kurulum kaydınızı onayladı.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+      }
+
+      if (UpperRejectedLocs.length === 1) {
+        const loc = UpperRejectedLocs[0];
+        const admin = loc.rejectedByName || 'Yönetici';
+        const title = '❌ Kurulumunuz Reddedildi!';
+        const body = `${admin}, "${loc.name}" kurulumunu reddetti. Gerekçe: ${loc.rejectionReason || 'Eksikler var'}`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+      } else if (UpperRejectedLocs.length > 1) {
+        const title = `❌ ${UpperRejectedLocs.length} Kurulumunuz Reddedildi!`;
+        const body = `Yönetici ${UpperRejectedLocs.length} adet kurulum kaydınızı reddetti.`;
+        NotificationService.sendNotification(title, body);
+        setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+      }
 
       if (seenChanged) {
         saveStoredSet(approvalStorageKey, seenApproval);
@@ -4514,29 +4744,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               });
             }
 
-            // Android OS Launcher Rozeti için:
-            // Android işletim sistemi ana ekran simgesindeki rozeti (sayı veya nokta)
-            // bildirim çubuğundaki (Notification Drawer) aktif bildirimden besler!
-            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            // Eski 'saha-takip-badge' bildirimleri kalmışsa kapat (bildirim çekmecesine spam basılmaması için)
+            if (typeof window !== 'undefined' && 'Notification' in window) {
               try {
-                if (badgeCount > 0) {
-                  await (reg as any).showNotification('İş Takip', {
-                    body: badgeCount === 1 ? '1 bekleyen bildirim veya işlem var' : `${badgeCount} bekleyen bildirim veya işlem var`,
-                    icon: '/icon.png',
-                    badge: '/favicon.png',
-                    tag: 'saha-takip-badge',
-                    renotify: false,
-                    silent: true,
-                    data: {
-                      url: '/?tab=notes&filter=pending',
-                      tab: 'notes',
-                      filter: 'pending',
-                    },
-                  } as any);
-                } else {
-                  const activeNotifs = await reg.getNotifications({ tag: 'saha-takip-badge' });
-                  activeNotifs.forEach((n) => n.close());
-                }
+                const activeNotifs = await reg.getNotifications({ tag: 'saha-takip-badge' });
+                activeNotifs.forEach((n) => n.close());
               } catch (e) {
                 // ignore
               }

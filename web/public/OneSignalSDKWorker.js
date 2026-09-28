@@ -225,26 +225,10 @@ self.addEventListener('message', async (event) => {
       }
     }
 
-    // 2. Android OS Launcher Badge Sync (Android OS ties launcher icon badges to active system tray notifications)
+    // 2. Clear any lingering tray notifications with tag 'saha-takip-badge'
     try {
-      if (count > 0) {
-        await self.registration.showNotification('İş Takip', {
-          body: count === 1 ? '1 bekleyen bildirim veya işlem var' : `${count} bekleyen bildirim veya işlem var`,
-          icon: '/icon.png',
-          badge: '/favicon.png',
-          tag: 'saha-takip-badge',
-          renotify: false,
-          silent: true,
-          data: {
-            url: '/?tab=notes&filter=pending',
-            tab: 'notes',
-            filter: 'pending',
-          },
-        });
-      } else {
-        const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
-        activeNotifs.forEach((n) => n.close());
-      }
+      const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
+      activeNotifs.forEach((n) => n.close());
     } catch (e) {
       // ignore
     }
@@ -267,21 +251,9 @@ self.addEventListener('push', async (event) => {
       self.navigator.setAppBadge(count).catch(() => {});
     }
     try {
-      if (count > 0) {
-        await self.registration.showNotification('İş Takip', {
-          body: count === 1 ? '1 bekleyen bildirim veya işlem var' : `${count} bekleyen bildirim veya işlem var`,
-          icon: '/icon.png',
-          badge: '/favicon.png',
-          tag: 'saha-takip-badge',
-          renotify: false,
-          silent: true,
-          data: {
-            url: '/?tab=notes&filter=pending',
-            tab: 'notes',
-            filter: 'pending',
-          },
-        });
-      }
+      const activeNotifs = await self.registration.getNotifications({ tag: 'saha-takip-badge' });
+      activeNotifs.forEach((n) => n.close());
     } catch (e) {}
   } catch (err) {}
 });
+
