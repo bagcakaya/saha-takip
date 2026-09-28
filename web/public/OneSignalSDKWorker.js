@@ -1,6 +1,6 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v6';
+const CACHE_NAME = 'saha-takip-pwa-v7';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -208,6 +208,20 @@ self.addEventListener('notificationclick', (event) => {
     finalUrl.searchParams.set('filter', filter);
   }
   const finalUrlStr = finalUrl.toString();
+
+  // Instant cross-process BroadcastChannel message to any active/suspended PWA window
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('saha_takip_channel');
+      bc.postMessage({
+        type: 'saha:navigate',
+        tab,
+        filter: filter || '',
+        url: finalUrlStr,
+      });
+      setTimeout(() => bc.close(), 1000);
+    }
+  } catch (e) {}
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

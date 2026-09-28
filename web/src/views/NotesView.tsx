@@ -43,6 +43,15 @@ export const NotesView: React.FC = () => {
   const [activeFilter, setActiveFilterState] = useState<NoteFilterType>(() => {
     if (typeof window !== 'undefined') {
       try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlFilter = urlParams.get('filter');
+        if (
+          urlFilter &&
+          ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(urlFilter)
+        ) {
+          return urlFilter as NoteFilterType;
+        }
+
         const saved = localStorage.getItem(
           `@saha_takip_notes_active_filter_${currentUser?.id || 'default'}`
         );

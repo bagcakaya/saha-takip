@@ -123,7 +123,18 @@ export function detectTabFromNotification(
 ): { tab: TabType; filter?: string } {
   const combined = `${title || ''} ${body || ''}`.toLowerCase();
 
-  // 1. Timed Follow Ups (Süreli Takip / Alarmlar)
+  // 1. Personal Notes (Kişisel Notlar / Notlarım)
+  if (
+    combined.includes('kişisel not') ||
+    combined.includes('kisisel not') ||
+    combined.includes('notlarım') ||
+    combined.includes('notlarim') ||
+    combined.includes('📝')
+  ) {
+    return { tab: 'personal_notes' };
+  }
+
+  // 2. Timed Follow Ups (Süreli Takip / Alarmlar)
   if (
     combined.includes('süreli takip') ||
     combined.includes('sureli takip') ||

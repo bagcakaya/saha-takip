@@ -125,14 +125,25 @@ export const OneSignalService = {
               tab = 'home';
             }
 
+            sessionStorage.setItem('@saha_takip_pending_tab', tab);
+            localStorage.setItem('@saha_takip_pending_tab', tab);
+            localStorage.setItem('@saha_takip_pending_tab_time', String(Date.now()));
+            if (filter) {
+              sessionStorage.setItem('@saha_takip_pending_filter', filter);
+              localStorage.setItem('@saha_takip_pending_filter', filter);
+            }
+
+            try {
+              if (typeof BroadcastChannel !== 'undefined') {
+                const bc = new BroadcastChannel('saha_takip_channel');
+                bc.postMessage({ type: 'saha:navigate', tab, filter, url: launchUrl });
+                setTimeout(() => bc.close(), 1000);
+              }
+            } catch {}
+
             window.dispatchEvent(
               new CustomEvent('saha:navigate', { detail: { tab, filter } })
             );
-
-            sessionStorage.setItem('@saha_takip_pending_tab', tab);
-            if (filter) {
-              sessionStorage.setItem('@saha_takip_pending_filter', filter);
-            }
           } catch (e) {
             console.warn('OneSignal notification click error:', e);
           }
@@ -757,6 +768,7 @@ export const OneSignalService = {
       app_id: ONESIGNAL_CONFIG.APP_ID,
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
+      url: targetUrl,
       web_url: targetUrl,
       app_url: targetUrl,
       data: {

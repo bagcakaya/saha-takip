@@ -34,8 +34,12 @@ export const MobileOneSignalService = {
           }
 
           // Route to appropriate tab in mobil app
-          if (tab === 'notes' || tab === 'reminders') {
+          if (tab === 'notes' || tab === 'work_orders' || tab === 'is_emirleri') {
+            router.push('/(tabs)/work-orders' as any);
+          } else if (tab === 'reminders' || tab === 'personal_notes') {
             router.push('/(tabs)/reminders' as any);
+          } else if (tab === 'timed_follow_ups' || tab === 'alarm' || tab === 'sureli_takip') {
+            router.push('/(tabs)/timed-follow-ups' as any);
           } else if (tab === 'returns') {
             router.push('/(tabs)/returns' as any);
           } else if (tab === 'services') {
@@ -44,6 +48,8 @@ export const MobileOneSignalService = {
             router.push('/(tabs)/installations' as any);
           } else if (tab === 'attendance' || tab === 'staff_tracking') {
             router.push('/(tabs)/attendance' as any);
+          } else if (tab === 'logs' || tab === 'security_logs') {
+            router.push('/(tabs)/security-logs' as any);
           }
         } catch (e) {
           console.warn('OneSignal notification click error:', e);

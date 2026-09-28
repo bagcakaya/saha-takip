@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     payload.app_id = ONESIGNAL_APP_ID;
 
     const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
-    delete payload.url;
+    payload.url = targetUrl;
     payload.web_url = targetUrl;
     payload.app_url = targetUrl;
 

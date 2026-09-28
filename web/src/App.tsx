@@ -44,9 +44,11 @@ const MainApp: React.FC = () => {
         if (urlTab) {
           return urlTab;
         }
-        const pendingTab = normalizeTab(sessionStorage.getItem('@saha_takip_pending_tab'));
+        const pendingTab = normalizeTab(
+          sessionStorage.getItem('@saha_takip_pending_tab') ||
+          localStorage.getItem('@saha_takip_pending_tab')
+        );
         if (pendingTab) {
-          sessionStorage.removeItem('@saha_takip_pending_tab');
           return pendingTab;
         }
       } catch (err) {
@@ -74,15 +76,16 @@ const MainApp: React.FC = () => {
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
   // --- 1. History & Navigation Management for Android Back Button & iOS Swipe Back ---
-  const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean }) => {
+  const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean; filter?: string }) => {
     setActiveTab((prev) => {
-      if (prev === nextTab) return prev;
+      const isSame = prev === nextTab;
       if (typeof window !== 'undefined') {
-        const url = nextTab === 'home' ? window.location.pathname : `?tab=${nextTab}`;
+        const filterSuffix = options?.filter ? `&filter=${options.filter}` : '';
+        const url = nextTab === 'home' ? window.location.pathname : `?tab=${nextTab}${filterSuffix}`;
         try {
           if (options?.replace) {
             window.history.replaceState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
-          } else {
+          } else if (!isSame) {
             window.history.pushState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
           }
         } catch (err) {
@@ -103,24 +106,66 @@ const MainApp: React.FC = () => {
     navigateToTab('home', { replace: true });
   }, [navigateToTab]);
 
-  // Initial history state configuration
+  // Initial history state & filter synchronization
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const { tab: urlTab } = extractTabAndFilterFromUrl(window.location.href);
-      const initialTab = urlTab || activeTab || 'home';
-      if (initialTab === 'home') {
+      const { tab: urlTab, filter: urlFilter } = extractTabAndFilterFromUrl(window.location.href);
+      const pendingTab = normalizeTab(
+        sessionStorage.getItem('@saha_takip_pending_tab') ||
+        localStorage.getItem('@saha_takip_pending_tab')
+      );
+      const pendingFilter =
+        sessionStorage.getItem('@saha_takip_pending_filter') ||
+        localStorage.getItem('@saha_takip_pending_filter');
+
+      const targetTab = urlTab || pendingTab || activeTab || 'home';
+      const targetFilter = urlFilter || pendingFilter;
+
+      // Clean pending once consumed
+      sessionStorage.removeItem('@saha_takip_pending_tab');
+      sessionStorage.removeItem('@saha_takip_pending_filter');
+      localStorage.removeItem('@saha_takip_pending_tab');
+      localStorage.removeItem('@saha_takip_pending_filter');
+      localStorage.removeItem('@saha_takip_pending_tab_time');
+
+      if (targetTab === 'home') {
         window.history.replaceState({ tab: 'home', isRoot: true }, '', window.location.pathname);
       } else {
-        // If app opened directly on a sub-tab (e.g. from push notification or shared link),
-        // set root as 'home' and push the active tab so Android Back button returns to Ana Menü!
+        // If opened on sub-tab directly from push notification or link,
+        // set root state to 'home' and push active sub-tab so Android Back button returns to Ana Menü!
+        const filterSuffix = targetFilter ? `&filter=${targetFilter}` : '';
         window.history.replaceState({ tab: 'home', isRoot: true }, '', window.location.pathname);
-        window.history.pushState({ tab: initialTab, isRoot: false }, '', `?tab=${initialTab}`);
+        window.history.pushState(
+          { tab: targetTab, isRoot: false },
+          '',
+          `?tab=${targetTab}${filterSuffix}`
+        );
+        if (targetTab !== activeTab) {
+          setActiveTab(targetTab);
+        }
+      }
+
+      if (targetFilter) {
+        if (user?.id) {
+          try {
+            localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, targetFilter);
+          } catch {}
+        }
+        window.dispatchEvent(
+          new CustomEvent('saha:set-notes-filter', { detail: { filter: targetFilter } })
+        );
+        window.dispatchEvent(
+          new CustomEvent('saha:set-installations-filter', { detail: { filter: targetFilter } })
+        );
+        window.dispatchEvent(
+          new CustomEvent('saha:set-staff-subtab', { detail: { subTab: targetFilter } })
+        );
       }
     } catch (e) {
       console.warn('Initial history setup error:', e);
     }
-  }, []);
+  }, [user]);
 
   // Popstate Listener (Hardware Back Button & System Back Gesture)
   useEffect(() => {
@@ -243,74 +288,105 @@ const MainApp: React.FC = () => {
     }
   }, [user, isAdmin, activeTab, navigateToTab]);
 
-  // Deep-linking URL handler & in-app navigation
+  // Deep-linking URL handler & in-app navigation (BroadcastChannel, ServiceWorker, Storage, Focus)
   useEffect(() => {
-    const handleDeepLink = () => {
-      if (typeof window === 'undefined') return;
-      try {
-        const { tab: urlTab, filter: urlFilter } = extractTabAndFilterFromUrl(window.location.href);
-        const pendingTab = normalizeTab(sessionStorage.getItem('@saha_takip_pending_tab'));
-        const pendingFilter = sessionStorage.getItem('@saha_takip_pending_filter');
+    const handleDeepNavigation = (tab: TabType, filter?: string | null) => {
+      if (!tab) return;
+      setActiveTab(tab);
 
-        const resolvedTab = urlTab || pendingTab;
-        const resolvedFilter = urlFilter || pendingFilter;
+      if (typeof window !== 'undefined') {
+        const filterSuffix = filter ? `&filter=${filter}` : '';
+        const newUrl = tab === 'home' ? window.location.pathname : `?tab=${tab}${filterSuffix}`;
+        try {
+          window.history.pushState({ tab, isRoot: tab === 'home' }, '', newUrl);
+        } catch {}
+      }
 
-        if (pendingTab) sessionStorage.removeItem('@saha_takip_pending_tab');
-        if (pendingFilter) sessionStorage.removeItem('@saha_takip_pending_filter');
-
-        if (resolvedTab && resolvedTab !== activeTab) {
-          navigateToTab(resolvedTab);
+      if (filter) {
+        if (user?.id) {
+          try {
+            localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
+          } catch {}
         }
-
-        if (resolvedFilter) {
-          if (user?.id) {
-            try {
-              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, resolvedFilter);
-            } catch {
-              // ignore
-            }
-          }
-          window.dispatchEvent(
-            new CustomEvent('saha:set-notes-filter', { detail: { filter: resolvedFilter } })
-          );
-        }
-      } catch (err) {
-        console.warn('Deep link parse error:', err);
+        window.dispatchEvent(
+          new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+        );
+        window.dispatchEvent(
+          new CustomEvent('saha:set-installations-filter', { detail: { filter } })
+        );
+        window.dispatchEvent(
+          new CustomEvent('saha:set-staff-subtab', { detail: { subTab: filter } })
+        );
       }
     };
 
-    window.addEventListener('focus', handleDeepLink);
+    const checkPendingNavigation = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const { tab: urlTab, filter: urlFilter } = extractTabAndFilterFromUrl(window.location.href);
+        const pendingTab = normalizeTab(
+          sessionStorage.getItem('@saha_takip_pending_tab') ||
+          localStorage.getItem('@saha_takip_pending_tab')
+        );
+        const pendingFilter =
+          sessionStorage.getItem('@saha_takip_pending_filter') ||
+          localStorage.getItem('@saha_takip_pending_filter');
 
+        const targetTab = urlTab || pendingTab;
+        const targetFilter = urlFilter || pendingFilter;
+
+        if (pendingTab) sessionStorage.removeItem('@saha_takip_pending_tab');
+        if (pendingFilter) sessionStorage.removeItem('@saha_takip_pending_filter');
+        if (localStorage.getItem('@saha_takip_pending_tab')) {
+          localStorage.removeItem('@saha_takip_pending_tab');
+          localStorage.removeItem('@saha_takip_pending_filter');
+          localStorage.removeItem('@saha_takip_pending_tab_time');
+        }
+
+        if (targetTab && targetTab !== activeTab) {
+          handleDeepNavigation(targetTab, targetFilter);
+        } else if (targetFilter) {
+          if (user?.id) {
+            try {
+              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, targetFilter);
+            } catch {}
+          }
+          window.dispatchEvent(
+            new CustomEvent('saha:set-notes-filter', { detail: { filter: targetFilter } })
+          );
+          window.dispatchEvent(
+            new CustomEvent('saha:set-installations-filter', { detail: { filter: targetFilter } })
+          );
+          window.dispatchEvent(
+            new CustomEvent('saha:set-staff-subtab', { detail: { subTab: targetFilter } })
+          );
+        }
+      } catch (err) {
+        console.warn('Deep link check error:', err);
+      }
+    };
+
+    // 1. Window focus & document visibility (When returning from lock screen or background)
+    window.addEventListener('focus', checkPendingNavigation);
     const handleVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        handleDeepLink();
+        checkPendingNavigation();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // In-app navigation event handler (e.g. from OneSignal SDK foreground click or window notification click)
+    // 2. Custom DOM event (saha:navigate)
     const handleNavigate = (e: any) => {
       const rawTab = e.detail?.tab;
       const filter = e.detail?.filter;
       const tab = normalizeTab(rawTab);
       if (tab) {
-        navigateToTab(tab);
-      }
-      if (filter) {
-        if (user?.id) {
-          try {
-            localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
-          } catch {
-            // ignore
-          }
-        }
-        window.dispatchEvent(
-          new CustomEvent('saha:set-notes-filter', { detail: { filter } })
-        );
+        handleDeepNavigation(tab, filter);
       }
     };
+    window.addEventListener('saha:navigate' as any, handleNavigate);
 
-    // Service worker postMessage navigation handler
+    // 3. Service Worker postMessage
     const handleServiceWorkerMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'saha:navigate') {
         const { tab: rawTab, filter, url } = event.data;
@@ -322,35 +398,65 @@ const MainApp: React.FC = () => {
           if (!activeFilter) activeFilter = parsed.filter;
         }
         if (tab) {
-          navigateToTab(tab);
-        }
-        if (activeFilter) {
-          if (user?.id) {
-            try {
-              localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, activeFilter);
-            } catch {}
-          }
-          window.dispatchEvent(
-            new CustomEvent('saha:set-notes-filter', { detail: { filter: activeFilter } })
-          );
+          handleDeepNavigation(tab, activeFilter);
         }
       }
     };
-
-    window.addEventListener('saha:navigate' as any, handleNavigate);
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
     }
 
+    // 4. BroadcastChannel (Cross-tab and Worker-to-Client broadcast)
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('saha_takip_channel');
+        bc.onmessage = (event) => {
+          if (event.data && event.data.type === 'saha:navigate') {
+            const { tab: rawTab, filter, url } = event.data;
+            let tab = normalizeTab(rawTab);
+            let activeFilter = filter;
+            if (!tab && url) {
+              const parsed = extractTabAndFilterFromUrl(url);
+              tab = parsed.tab;
+              if (!activeFilter) activeFilter = parsed.filter;
+            }
+            if (tab) {
+              handleDeepNavigation(tab, activeFilter);
+            }
+          }
+        };
+      }
+    } catch {}
+
+    // 5. Cross-tab Storage Event
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === '@saha_takip_pending_tab' && event.newValue) {
+        const tab = normalizeTab(event.newValue);
+        const filter = localStorage.getItem('@saha_takip_pending_filter');
+        if (tab) {
+          handleDeepNavigation(tab, filter);
+          localStorage.removeItem('@saha_takip_pending_tab');
+          localStorage.removeItem('@saha_takip_pending_filter');
+          localStorage.removeItem('@saha_takip_pending_tab_time');
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorageEvent);
+
     return () => {
-      window.removeEventListener('focus', handleDeepLink);
+      window.removeEventListener('focus', checkPendingNavigation);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('saha:navigate' as any, handleNavigate);
       if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
       }
+      if (bc) {
+        bc.close();
+      }
+      window.removeEventListener('storage', handleStorageEvent);
     };
-  }, [user, activeTab, navigateToTab]);
+  }, [user, activeTab]);
 
   // If user is not authenticated, show Login Screen
   if (!isAuthenticated) {
