@@ -45,7 +45,7 @@ import {
   calculateRecordNetWorkMinutes,
   StaffAttendanceSummary,
 } from '../services/attendanceExportService';
-import { StaffMultiSelect } from '../components/common/StaffMultiSelect';
+import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company } = useAuth();
@@ -525,9 +525,10 @@ export const StaffTrackingView: React.FC = () => {
     });
   }, [attendanceRecords, companyUserIds]);
 
-  // --- 5. Date Range & Staff Filters for Table & Analytics ---
+  // --- 5. Date Range, Branch & Staff Filters for Table & Analytics ---
   const [startDate, setStartDate] = useState<string>(todayStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [activePreset, setActivePreset] = useState<
     'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all' | 'custom'
@@ -536,6 +537,53 @@ export const StaffTrackingView: React.FC = () => {
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [breakAdminDate, setBreakAdminDate] = useState<string>(todayStr);
+
+  // Branches strictly belonging to the current company
+  const companyBranches = useMemo(() => {
+    if (!branches || branches.length === 0) return [];
+    return branches.filter((b) => {
+      const bComp = (b.companyCode || '').trim().toUpperCase();
+      return !bComp || bComp === currentCompanyCode;
+    });
+  }, [branches, currentCompanyCode]);
+
+  // User IDs belonging to selected branch (or null if all branches)
+  const branchUserIds = useMemo(() => {
+    if (selectedBranchId === 'all') return null;
+    const branch = companyBranches.find((b) => b.id === selectedBranchId);
+    const set = new Set<string>();
+    if (branch?.assignedUserIds && Array.isArray(branch.assignedUserIds)) {
+      branch.assignedUserIds.forEach((id) => set.add(id));
+    }
+    companyUsers.forEach((u) => {
+      if (u.branchId === selectedBranchId) set.add(u.id);
+      if (branch?.name && u.branchName && u.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) {
+        set.add(u.id);
+      }
+    });
+    return set;
+  }, [selectedBranchId, companyBranches, companyUsers]);
+
+  // Branch options for BranchSelect dropdown
+  const branchOptions = useMemo<BranchOption[]>(() => {
+    return companyBranches.map((b) => {
+      const assignedIds = new Set(b.assignedUserIds || []);
+      companyUsers.forEach((u) => {
+        if (
+          u.branchId === b.id ||
+          (b.name && u.branchName && u.branchName.trim().toLowerCase() === b.name.trim().toLowerCase())
+        ) {
+          assignedIds.add(u.id);
+        }
+      });
+      return {
+        id: b.id,
+        name: b.name,
+        address: b.address,
+        staffCount: assignedIds.size,
+      };
+    });
+  }, [companyBranches, companyUsers]);
 
   // Quick Date Preset Handler
   const applyPreset = (
@@ -698,6 +746,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     if (endDate) {
       list = list.filter((r) => r.date <= endDate);
     }
+    if (selectedBranchId !== 'all') {
+      const branch = companyBranches.find((b) => b.id === selectedBranchId);
+      list = list.filter((r) => {
+        if (r.branchId === selectedBranchId) return true;
+        if (branch?.name && r.branchName && r.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) return true;
+        if (branchUserIds && branchUserIds.has(r.userId)) return true;
+        return false;
+      });
+    }
     if (selectedStaffIds.length > 0) {
       list = list.filter((r) => selectedStaffIds.includes(r.userId));
     }
@@ -748,7 +805,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     });
 
     return list;
-  }, [attendanceRecords, leaveRequests, companyUsers, companyUserIds, startDate, endDate, selectedStaffIds, isAdmin, user]);
+  }, [
+    attendanceRecords,
+    leaveRequests,
+    companyUsers,
+    companyUserIds,
+    startDate,
+    endDate,
+    selectedBranchId,
+    branchUserIds,
+    companyBranches,
+    selectedStaffIds,
+    isAdmin,
+    user,
+  ]);
 
   // Staff Attendance Summaries (for the selected date range, strictly current company)
   const staffSummaries = useMemo<StaffAttendanceSummary[]>(() => {
@@ -761,6 +831,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
     if (endDate) {
       rangeRecords = rangeRecords.filter((r) => r.date <= endDate);
+    }
+    if (selectedBranchId !== 'all') {
+      const branch = companyBranches.find((b) => b.id === selectedBranchId);
+      rangeRecords = rangeRecords.filter((r) => {
+        if (r.branchId === selectedBranchId) return true;
+        if (branch?.name && r.branchName && r.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) return true;
+        if (branchUserIds && branchUserIds.has(r.userId)) return true;
+        return false;
+      });
     }
     if (!isAdmin && user) {
       rangeRecords = rangeRecords.filter((r) => r.userId === user.id);
@@ -811,9 +890,14 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       else if (r.status.startsWith('pending_')) entry.pending++;
     });
 
-    // Also include company staff from current company only if admin
+    // Also include company staff from current company only if admin (filtered to selected branch if active)
     if (isAdmin && companyUsers.length > 0) {
-      companyUsers.forEach((u) => {
+      const usersToInclude =
+        selectedBranchId !== 'all' && branchUserIds
+          ? companyUsers.filter((u) => branchUserIds.has(u.id))
+          : companyUsers;
+
+      usersToInclude.forEach((u) => {
         if (!staffMap.has(u.id)) {
           staffMap.set(u.id, {
             userName: u.name || u.username,
@@ -860,7 +944,18 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
     summaries.sort((a, b) => b.totalMinutes - a.totalMinutes || a.userName.localeCompare(b.userName));
     return summaries;
-  }, [attendanceRecords, companyUserIds, companyUsers, startDate, endDate, isAdmin, user]);
+  }, [
+    attendanceRecords,
+    companyUserIds,
+    companyUsers,
+    startDate,
+    endDate,
+    selectedBranchId,
+    branchUserIds,
+    companyBranches,
+    isAdmin,
+    user,
+  ]);
 
   // Aggregated stats for the filtered records
   const stats = useMemo(() => {
@@ -900,7 +995,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const handleExportExcel = () => {
     try {
       setIsExportingExcel(true);
-      const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const baseCompName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const selectedBranchObj = companyBranches.find((b) => b.id === selectedBranchId);
+      const compName = selectedBranchObj ? `${baseCompName} - ${selectedBranchObj.name}` : baseCompName;
       const exportSummaries =
         selectedStaffIds.length > 0
           ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
@@ -923,7 +1020,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const handleExportPdf = async () => {
     try {
       setIsExportingPdf(true);
-      const compName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const baseCompName = company?.name || user?.companyName || user?.companyCode || 'Firma';
+      const selectedBranchObj = companyBranches.find((b) => b.id === selectedBranchId);
+      const compName = selectedBranchObj ? `${baseCompName} - ${selectedBranchObj.name}` : baseCompName;
       const exportSummaries =
         selectedStaffIds.length > 0
           ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
@@ -2884,13 +2983,16 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   ))}
                 </div>
 
-                {/* Personel Seçici (Admin için - Çoklu Seçim) */}
+                {/* Şubeler Seçici (Admin için) */}
                 {isAdmin && (
-                  <StaffMultiSelect
-                    options={staffOptions}
-                    selectedIds={selectedStaffIds}
-                    onChange={setSelectedStaffIds}
-                    placeholder="Tüm Personeller"
+                  <BranchSelect
+                    options={branchOptions}
+                    selectedBranchId={selectedBranchId}
+                    onChange={(bId) => {
+                      setSelectedBranchId(bId);
+                      setSelectedStaffIds([]); // Şube değiştiğinde personel filtre seçimini temizle
+                    }}
+                    totalCompanyStaffCount={companyUsers.length}
                   />
                 )}
               </div>
@@ -2931,11 +3033,12 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   />
                 </div>
 
-                {(startDate !== todayStr || endDate !== todayStr || activePreset !== 'today' || selectedStaffIds.length > 0) && (
+                {(startDate !== todayStr || endDate !== todayStr || activePreset !== 'today' || selectedBranchId !== 'all' || selectedStaffIds.length > 0) && (
                   <button
                     type="button"
                     onClick={() => {
                       applyPreset('today');
+                      setSelectedBranchId('all');
                       setSelectedStaffIds([]);
                     }}
                     className="text-xs text-rose-500 hover:text-rose-600 font-semibold underline ml-auto cursor-pointer"
@@ -2945,11 +3048,35 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 )}
               </div>
 
+              {/* Seçili Şube Rozeti (Aktif Şube Seçildiğinde) */}
+              {selectedBranchId !== 'all' && (
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    Seçili Şube:
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 shadow-2xs">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>
+                      {companyBranches.find((b) => b.id === selectedBranchId)?.name || 'Şube'} (
+                      {branchUserIds ? branchUserIds.size : 0} Personel)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBranchId('all')}
+                      className="w-3.5 h-3.5 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800 flex items-center justify-center cursor-pointer text-emerald-700 dark:text-emerald-300 transition-colors ml-0.5"
+                      title="Tüm Şubelere Dön"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                </div>
+              )}
+
               {/* Seçili Personel Rozetleri (Chips) */}
               {selectedStaffIds.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
                   <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                    Seçili ({selectedStaffIds.length}):
+                    Seçili Personel ({selectedStaffIds.length}):
                   </span>
                   {selectedStaffIds.map((id) => {
                     const staff = staffOptions.find((s) => s.id === id);
@@ -3041,13 +3168,17 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
                 <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 block">
-                  {isAdmin ? 'Personel Sayısı' : 'Durum'}
+                  {isAdmin ? (selectedBranchId !== 'all' ? 'Şube Personeli' : 'Personel Sayısı') : 'Durum'}
                 </span>
                 <span className="text-base sm:text-xl font-black text-slate-800 dark:text-slate-100">
                   {isAdmin ? `${stats.distinctStaff} Kişi` : (stats.active > 0 ? 'Mesaide' : 'Mesaide Değil')}
                 </span>
                 <span className="text-[10px] text-slate-500 block mt-0.5">
-                  {isAdmin ? `${staffOptions.length} kayıtlı personelden` : 'Kendi kayıtlarınız'}
+                  {isAdmin
+                    ? selectedBranchId !== 'all'
+                      ? `${branchUserIds ? branchUserIds.size : 0} kayıtlı şube personelinden`
+                      : `${companyUsers.length} kayıtlı personelden`
+                    : 'Kendi kayıtlarınız'}
                 </span>
               </div>
             </div>
@@ -3062,7 +3193,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5 text-emerald-600" />
-                      Personel Mesai Özeti
+                      {selectedBranchId !== 'all'
+                        ? `${companyBranches.find((b) => b.id === selectedBranchId)?.name || ''} Personel Mesai Özeti`
+                        : 'Personel Mesai Özeti'}
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                       {staffSummaries.length} Personel

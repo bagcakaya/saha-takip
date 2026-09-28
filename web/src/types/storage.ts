@@ -209,6 +209,7 @@ export interface AttendanceRecord {
   userId: string;
   userName: string;
   userRole?: string;
+  companyCode?: string;
   date: string; // 'YYYY-MM-DD'
   checkInTime: number; // timestamp
   checkInLat?: number;

@@ -64,6 +64,37 @@ function resolveCompanyId(code: string, currentId?: number): number {
   return (Math.abs(hash) % 1000) + 2;
 }
 
+const getLocalCompanyUserIds = (companyCode: string): Set<string> => {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('@gorev_tamamlama_users_list') : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const uids = parsed
+          .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCode)
+          .map((u: any) => u.id);
+        return new Set(uids);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+};
+
+const sanitizeAttendance = (records: AttendanceRecord[], compCode: string): AttendanceRecord[] => {
+  if (compCode === 'POLATLAR') return records;
+  const validUserIds = getLocalCompanyUserIds(compCode);
+  return records.filter((r) => {
+    if (r.companyCode && r.companyCode.toUpperCase() !== compCode) return false;
+    if (validUserIds.size > 0 && !validUserIds.has(r.userId)) return false;
+    if (r.userName === 'Murat POLAT' || r.userName === 'Azizcan ISIYEL' || r.userName === 'Mert Agcakaya') {
+      return false;
+    }
+    return true;
+  });
+};
+
 // Active Company state
 let activeCompanyCode =
   typeof localStorage !== 'undefined'
@@ -339,6 +370,11 @@ export const StorageService = {
       loadItem<TimedFollowUp[]>(this.getStorageKey(TIMED_FOLLOW_UPS_KEY)),
     ]);
 
+    const sanitizedAttendance =
+      activeCompanyCode !== 'POLATLAR' && Array.isArray(attendanceRecords)
+        ? sanitizeAttendance(attendanceRecords, activeCompanyCode)
+        : attendanceRecords;
+
     return {
       locations,
       standardTasks,
@@ -347,7 +383,7 @@ export const StorageService = {
       services,
       workplaceLocation,
       branches,
-      attendanceRecords,
+      attendanceRecords: sanitizedAttendance,
       adminReminders,
       carilerData,
       leaveRequests,
@@ -1398,8 +1434,9 @@ export const StorageService = {
     const slotId = this.getSlotId(6);
     const { data: cloudData, notFound } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const finalCloudData = sanitizeAttendance(cloudData, activeCompanyCode);
+      await saveItem(localKey, finalCloudData);
+      return finalCloudData;
     }
 
     if (activeCompanyCode !== 'POLATLAR') {
@@ -1409,9 +1446,7 @@ export const StorageService = {
       }
       const localData = await loadItem<AttendanceRecord[]>(localKey);
       if (Array.isArray(localData)) {
-        const sanitized = localData.filter(
-          (r) => r.userName !== 'Murat POLAT' && r.userName !== 'Azizcan ISIYEL'
-        );
+        const sanitized = sanitizeAttendance(localData, activeCompanyCode);
         if (sanitized.length !== localData.length) {
           await saveItem(localKey, sanitized);
         }

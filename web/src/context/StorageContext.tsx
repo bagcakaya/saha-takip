@@ -3167,6 +3167,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
+    const compCode = (user?.companyCode || dataCompanyCode || 'POLATLAR').toUpperCase();
     const existingRecord = attendanceRecords.find(
       (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
     );
@@ -3207,6 +3208,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             userId: user.id,
             userName: user.name,
             userRole: user.role,
+            companyCode: compCode,
             date: todayStr,
             checkInTime: Date.now(),
             checkInLat: userPos.latitude,
@@ -3275,6 +3277,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             userId: user.id,
             userName: user.name,
             userRole: user.role,
+            companyCode: compCode,
             date: todayStr,
             checkInTime: Date.now(),
             checkInLat: userPos.latitude,
@@ -3328,6 +3331,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           userId: user.id,
           userName: user.name,
           userRole: user.role,
+          companyCode: compCode,
           date: todayStr,
           checkInTime: Date.now(),
           checkInLat: userPos.latitude,
@@ -3372,6 +3376,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             userId: user.id,
             userName: user.name,
             userRole: user.role,
+            companyCode: compCode,
             date: todayStr,
             checkInTime: Date.now(),
             checkInLat: userPos.latitude,
@@ -3430,6 +3435,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           userId: user.id,
           userName: user.name,
           userRole: user.role,
+          companyCode: compCode,
           date: todayStr,
           checkInTime: Date.now(),
           checkInLat: userPos.latitude,
@@ -3492,6 +3498,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         userId: user.id,
         userName: user.name,
         userRole: user.role,
+        companyCode: compCode,
         date: todayStr,
         checkInTime: Date.now(),
         checkInLat: userPos.latitude,
@@ -3529,6 +3536,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       userId: user.id,
       userName: user.name,
       userRole: user.role,
+      companyCode: compCode,
       date: todayStr,
       checkInTime: Date.now(),
       checkInLat: userPos.latitude,

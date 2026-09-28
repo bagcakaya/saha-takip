@@ -74,7 +74,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   lastReadTime,
   onMarkAllAsRead,
 }) => {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const {
     allNotes,
     allServices,
@@ -98,6 +98,12 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   if (!isOpen || !user) return null;
 
   const isAdmin = isUserAdmin(user);
+  const currentCompanyCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const companyUserIds = new Set(
+    users
+      .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === currentCompanyCode)
+      .map((u) => u.id)
+  );
 
   // Build real notification feed based on current user role
   const notifications: AppNotification[] = [];
@@ -105,6 +111,9 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   if (isAdmin) {
     // 1. Güvenlik & Cihaz Uyuşmazlığı İhlal Logları
     securityLogs.forEach((l) => {
+      if (l.companyCode && l.companyCode.toUpperCase() !== currentCompanyCode) return;
+      const logUid = l.attemptedUserId || l.boundUserId;
+      if (logUid && companyUserIds.size > 0 && !companyUserIds.has(logUid)) return;
       notifications.push({
         id: `sec_${l.id}`,
         type: 'security_log',
@@ -119,6 +128,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 2. Personellerin İzin Talepleri (Onay Bekleyen & Yeni)
     leaveRequests.forEach((req) => {
+      if (req.userId && companyUserIds.size > 0 && !companyUserIds.has(req.userId)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (req.userName === 'Mert Agcakaya' || req.userName === 'Murat POLAT')) return;
       const isPending = req.status === 'pending';
       notifications.push({
         id: `leave_${req.id}`,
@@ -135,6 +146,13 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 3. Personellerin Mesai Giriş / Çıkış Bildirimleri & Onay Talepleri
     attendanceRecords.forEach((att) => {
+      // Multi-tenant check: Skip records from foreign companies
+      if (att.companyCode && att.companyCode.toUpperCase() !== currentCompanyCode) return;
+      if (companyUserIds.size > 0 && !companyUserIds.has(att.userId)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (att.userName === 'Mert Agcakaya' || att.userName === 'Murat POLAT' || att.userName === 'Azizcan ISIYEL')) {
+        return;
+      }
+
       // Check-in pending approval (outside location)
       if (att.checkInOutside && att.checkInApprovalStatus === 'pending') {
         notifications.push({
@@ -195,6 +213,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 4. Work orders awaiting admin approval
     allNotes.forEach((n) => {
+      if (companyUserIds.size > 0 && n.createdBy && !companyUserIds.has(n.createdBy) && n.completedBy && !companyUserIds.has(n.completedBy)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (n.createdByName === 'Murat POLAT' || n.createdByName === 'Azizcan ISIYEL' || n.createdByName === 'Mert Agcakaya')) return;
       if (n.status === 'pending_approval') {
         notifications.push({
           id: `approval_${n.id}_${n.completedAt || n.createdAt}`,
@@ -212,6 +232,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 5. Work orders created by other users or shared
     allNotes.forEach((n) => {
+      if (companyUserIds.size > 0 && n.createdBy && !companyUserIds.has(n.createdBy)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (n.createdByName === 'Murat POLAT' || n.createdByName === 'Azizcan ISIYEL' || n.createdByName === 'Mert Agcakaya')) return;
       if (n.createdBy !== user.id && n.status !== 'pending_approval') {
         notifications.push({
           id: `note_${n.id}`,
@@ -229,6 +251,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 6. Services from staff (newly added)
     allServices.forEach((s) => {
+      if (companyUserIds.size > 0 && s.createdBy && !companyUserIds.has(s.createdBy)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (s.createdByName === 'Murat POLAT' || s.createdByName === 'Azizcan ISIYEL' || s.createdByName === 'Mert Agcakaya')) return;
       if (s.createdBy !== user.id) {
         notifications.push({
           id: `service_${s.id}`,
@@ -245,6 +269,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 7. Locations from staff (pending approval or newly added)
     allLocations.forEach((loc) => {
+      if (companyUserIds.size > 0 && loc.createdBy && !companyUserIds.has(loc.createdBy)) return;
+      if (currentCompanyCode !== 'POLATLAR' && (loc.createdByName === 'Murat POLAT' || loc.createdByName === 'Azizcan ISIYEL' || loc.createdByName === 'Mert Agcakaya')) return;
       if (loc.status === 'pending_approval') {
         notifications.push({
           id: `loc_pend_${loc.id}_${loc.completedAt || loc.createdAt}`,
