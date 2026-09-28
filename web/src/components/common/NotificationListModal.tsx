@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Bell,
@@ -86,6 +86,14 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     timedFollowUps,
   } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [localLastReadTime, setLocalLastReadTime] = useState<number>(lastReadTime);
+  const [isMarking, setIsMarking] = useState(false);
+
+  useEffect(() => {
+    setLocalLastReadTime(lastReadTime);
+  }, [lastReadTime, isOpen]);
+
+  const effectiveLastReadTime = Math.max(lastReadTime, localLastReadTime);
 
   if (!isOpen || !user) return null;
 
@@ -578,10 +586,32 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
   const isItemUnread = (createdAt: number) => {
     if (createdAt > Date.now() + 10000) return false;
-    return createdAt > lastReadTime;
+    return createdAt > effectiveLastReadTime;
   };
 
   const unreadCount = notifications.filter((n) => isItemUnread(n.createdAt)).length;
+
+  const handleMarkAllAsReadClick = async (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(30);
+      }
+    } catch {}
+
+    const now = Date.now();
+    setLocalLastReadTime(now);
+    setIsMarking(true);
+
+    try {
+      await onMarkAllAsRead();
+    } catch (err) {
+      console.warn('onMarkAllAsRead error:', err);
+    } finally {
+      setTimeout(() => setIsMarking(false), 400);
+    }
+  };
 
   const formatRelativeTime = (timestamp: number) => {
     const now = Date.now();
@@ -808,18 +838,25 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/50">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 pb-safe border-t border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/50 shrink-0">
           <button
-            onClick={onMarkAllAsRead}
-            className="flex items-center gap-1.5 text-xs font-black text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+            type="button"
+            onClick={handleMarkAllAsReadClick}
+            disabled={unreadCount === 0 || isMarking}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all touch-manipulation select-none ${
+              unreadCount === 0
+                ? 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-default'
+                : 'bg-blue-600 hover:bg-blue-700 active:scale-95 text-white shadow-xs shadow-blue-500/20 cursor-pointer'
+            }`}
           >
-            <CheckCheck className="w-4 h-4 stroke-[2.5]" />
-            <span>Tümünü Okundu Say</span>
+            <CheckCheck className={`w-4 h-4 stroke-[2.5] ${isMarking ? 'animate-pulse' : ''}`} />
+            <span>{unreadCount === 0 ? 'Tümü Okundu' : 'Tümünü Okundu Say'}</span>
           </button>
 
           <button
+            type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-black text-xs shadow-xs active:scale-95 transition-all cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-black text-xs shadow-xs active:scale-95 transition-all cursor-pointer touch-manipulation select-none"
           >
             Kapat
           </button>

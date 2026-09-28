@@ -4823,9 +4823,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (user?.id) {
       try {
         localStorage.setItem(`@saha_takip_last_read_time_${user.id}`, String(now));
+        localStorage.setItem('@saha_takip_last_read_time', String(now));
       } catch {
         // ignore
       }
+    }
+    // Clear iOS PWA App Badge & Service Worker badge
+    if (typeof navigator !== 'undefined' && 'clearAppBadge' in navigator) {
+      try {
+        (navigator as any).clearAppBadge().catch(() => {});
+      } catch {}
+    }
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      try {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'saha:clear-badge-notifications',
+          count: 0,
+        });
+      } catch {}
     }
     // Stop any active ringing alarm
     if (activeRingingAlarm) {
