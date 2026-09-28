@@ -263,20 +263,23 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 8. Active reminders
+    // 8. Active reminders (only show when reminder time has actually arrived!)
     allNotes.forEach((n) => {
       if (n.reminderActive && n.reminderDate) {
-        notifications.push({
-          id: `rem_${n.id}`,
-          type: 'reminder',
-          title: n.cariName ? `⏰ [${n.cariName}] Hatırlatıcı` : '⏰ Hatırlatıcı / Alarm',
-          senderName: n.createdByName || 'Sistem',
-          senderRole: 'Sistem',
-          content: n.cariName ? `[${n.cariName}] ${n.content}` : n.content,
-          createdAt: new Date(n.reminderDate).getTime(),
-          tab: 'notes',
-          filter: 'reminders',
-        });
+        const remTime = new Date(n.reminderDate).getTime();
+        if (!isNaN(remTime) && remTime <= Date.now()) {
+          notifications.push({
+            id: `rem_${n.id}_${remTime}`,
+            type: 'reminder',
+            title: n.cariName ? `⏰ [${n.cariName}] Hatırlatıcı` : '⏰ Hatırlatıcı / Alarm',
+            senderName: n.createdByName || 'Sistem',
+            senderRole: 'Sistem',
+            content: n.cariName ? `[${n.cariName}] ${n.content}` : n.content,
+            createdAt: remTime,
+            tab: 'notes',
+            filter: 'reminders',
+          });
+        }
       }
     });
 
@@ -299,21 +302,36 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
 
-    // 10. Süreli Takipler (Vakti gelen alarmlar & takip hatırlatmaları)
+    // 10. Süreli Takipler (Vakti gelen alarmlar & takip bildirimleri)
     timedFollowUps.forEach((tfu) => {
       if (tfu.status === 'pending') {
         const targetDate = parseDueDateTime(tfu.snoozedUntil || tfu.dueDate);
         const targetTime = targetDate ? targetDate.getTime() : NaN;
-        if (!isNaN(targetTime)) {
-          const isDue = targetTime <= Date.now();
+        const now = Date.now();
+        const isDue = !isNaN(targetTime) && targetTime <= now;
+
+        if (isDue) {
+          // Vakti gelmiş/geçmiş takip alarmı (Zamanı targetTime olmalı, geçmiş zamandır)
           notifications.push({
-            id: `tfu_${tfu.id}_${targetTime}`,
+            id: `tfu_due_${tfu.id}_${targetTime}`,
             type: 'timed_follow_up',
-            title: isDue ? `⏰ Süreli Takip Vakti: ${tfu.cariName}` : `⏰ Süreli Takip: ${tfu.cariName}`,
-            senderName: tfu.createdByName || 'Yönetici',
-            senderRole: 'Süreli Takip',
+            title: `⏰ Süreli Takip Vakti: ${tfu.cariName}`,
+            senderName: tfu.createdByName || 'Süreli Takip',
+            senderRole: 'Vadesi Geldi',
             content: `${tfu.description || 'Cari takip hatırlatması'}${tfu.dueDate ? ` (Vade: ${tfu.dueDate})` : ''}`,
             createdAt: targetTime,
+            tab: 'timed_follow_ups',
+          });
+        } else if (tfu.createdBy && tfu.createdBy !== user.id) {
+          // Başka biri tarafından yeni eklenmiş takip (paylaşım bildirimi - oluşturulma tarihi tfu.createdAt olmalı!)
+          notifications.push({
+            id: `tfu_new_${tfu.id}`,
+            type: 'timed_follow_up',
+            title: `📌 Yeni Süreli Takip: ${tfu.cariName}`,
+            senderName: tfu.createdByName || 'Yönetici',
+            senderRole: 'Süreli Takip',
+            content: `${tfu.description || 'Cari takip kaydı'}${tfu.dueDate ? ` (Vade: ${tfu.dueDate})` : ''}`,
+            createdAt: tfu.createdAt || now,
             tab: 'timed_follow_ups',
           });
         }
@@ -480,23 +498,26 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         });
       }
 
-      // 6. Active reminders for staff
+      // 6. Active reminders for staff (only show when reminder time has arrived!)
       if (
         n.reminderActive &&
         n.reminderDate &&
         (n.createdBy === user.id || isTargetedToMe)
       ) {
-        notifications.push({
-          id: `rem_${n.id}`,
-          type: 'reminder',
-          title: n.cariName ? `⏰ [${n.cariName}] Hatırlatıcı` : '⏰ Hatırlatıcı / Alarm',
-          senderName: n.createdByName || 'Sistem',
-          senderRole: 'Sistem',
-          content: n.cariName ? `[${n.cariName}] ${n.content}` : n.content,
-          createdAt: new Date(n.reminderDate).getTime(),
-          tab: 'notes',
-          filter: 'reminders',
-        });
+        const remTime = new Date(n.reminderDate).getTime();
+        if (!isNaN(remTime) && remTime <= Date.now()) {
+          notifications.push({
+            id: `rem_${n.id}_${remTime}`,
+            type: 'reminder',
+            title: n.cariName ? `⏰ [${n.cariName}] Hatırlatıcı` : '⏰ Hatırlatıcı / Alarm',
+            senderName: n.createdByName || 'Sistem',
+            senderRole: 'Sistem',
+            content: n.cariName ? `[${n.cariName}] ${n.content}` : n.content,
+            createdAt: remTime,
+            tab: 'notes',
+            filter: 'reminders',
+          });
+        }
       }
     });
 
@@ -555,10 +576,26 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   // Sort newest first
   notifications.sort((a, b) => b.createdAt - a.createdAt);
 
-  const unreadCount = notifications.filter((n) => n.createdAt > lastReadTime).length;
+  const isItemUnread = (createdAt: number) => {
+    if (createdAt > Date.now() + 10000) return false;
+    return createdAt > lastReadTime;
+  };
+
+  const unreadCount = notifications.filter((n) => isItemUnread(n.createdAt)).length;
 
   const formatRelativeTime = (timestamp: number) => {
-    const diff = Date.now() - timestamp;
+    const now = Date.now();
+    const diff = now - timestamp;
+    if (diff < 0) {
+      if (diff > -30 * 1000) return 'Az önce';
+      const date = new Date(timestamp);
+      return date.toLocaleDateString('tr-TR', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
     if (diff < 60 * 1000) return 'Az önce';
     if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))} dk önce`;
     if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))} saat önce`;
@@ -711,7 +748,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
             </div>
           ) : (
             notifications.map((item) => {
-              const isUnread = item.createdAt > lastReadTime;
+              const isUnread = isItemUnread(item.createdAt);
 
               return (
                 <div
