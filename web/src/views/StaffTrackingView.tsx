@@ -970,6 +970,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     const pending = filteredRecords.filter((r) => r.status.startsWith('pending_')).length;
     const distinctStaff = new Set(filteredRecords.map((r) => r.userId)).size;
 
+    const checkedOutRecords = filteredRecords.filter((r) => Boolean(r.checkOutTime) || r.status === 'completed');
+    const checkedOut = checkedOutRecords.length;
+    const distinctCheckedOutStaff = new Set(checkedOutRecords.map((r) => r.userId)).size;
+
     return {
       total: filteredRecords.length,
       totalMinutes,
@@ -984,6 +988,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       completed,
       pending,
       distinctStaff,
+      checkedOut,
+      distinctCheckedOutStaff,
       avgMinutesPerDay: uniqueDays > 0 ? Math.round(totalMinutes / uniqueDays) : 0,
       avgDurationPerDayFormatted: formatMinutesToDuration(
         uniqueDays > 0 ? Math.round(totalMinutes / uniqueDays) : 0
@@ -3109,63 +3115,35 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               )}
             </div>
 
-            {/* 2. Mesai İstatistik Kartları */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800">
-                <span className="text-[10px] sm:text-xs font-bold text-sky-600 dark:text-sky-400 block">
-                  Toplam Brüt Mesai
-                </span>
-                <span className="text-base sm:text-xl font-black text-sky-800 dark:text-sky-200">
-                  {stats.totalDurationFormatted}
-                </span>
-                <span className="text-[10px] text-sky-600/80 dark:text-sky-400/80 block mt-0.5">
-                  ({stats.totalMinutes} dakika)
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] sm:text-xs font-bold text-amber-700 dark:text-amber-300 block">
-                    Mola & Net Mesai
-                  </span>
-                  {stats.onBreakCount > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white animate-pulse">
-                      {stats.onBreakCount} Molada
-                    </span>
-                  )}
-                </div>
-                <span className="text-base sm:text-xl font-black text-amber-800 dark:text-amber-200">
-                  {stats.totalBreakFormatted}
-                </span>
-                <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80 block mt-0.5">
-                  Net: <strong className="text-emerald-700 dark:text-emerald-300 font-black">{stats.netWorkFormatted}</strong>
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
-                <span className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 block">
-                  Çalışılan Gün / Ort.
-                </span>
-                <span className="text-base sm:text-xl font-black text-emerald-700 dark:text-emerald-300">
-                  {stats.uniqueDays} Gün
-                </span>
-                <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 block mt-0.5">
-                  Ort: {stats.avgDurationPerDayFormatted} / gün
-                </span>
-              </div>
-
+            {/* 2. Mesai İstatistik Kartları (3 Kutucuk: Giriş, Çıkış, Personel Sayısı) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Giriş Yapan Personel */}
               <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
                 <span className="text-[10px] sm:text-xs font-bold text-blue-600 dark:text-blue-400 block">
-                  Mesai Kayıtları
+                  Giriş Yapan Personel
                 </span>
                 <span className="text-base sm:text-xl font-black text-blue-700 dark:text-blue-300">
                   {stats.total} Giriş
                 </span>
                 <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 block mt-0.5">
-                  {stats.completed} Tamamlandı • {stats.active} Mesaide
+                  {stats.active} Mesaide • {stats.distinctStaff} Personel
                 </span>
               </div>
 
+              {/* Çıkış Yapan Personel */}
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
+                <span className="text-[10px] sm:text-xs font-bold text-rose-600 dark:text-rose-400 block">
+                  Çıkış Yapan Personel
+                </span>
+                <span className="text-base sm:text-xl font-black text-rose-700 dark:text-rose-300">
+                  {stats.checkedOut} Çıkış
+                </span>
+                <span className="text-[10px] text-rose-600/80 dark:text-rose-400/80 block mt-0.5">
+                  {stats.completed} Tamamlandı • {stats.distinctCheckedOutStaff} Personel
+                </span>
+              </div>
+
+              {/* Personel Sayısı */}
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
                 <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 block">
                   {isAdmin ? (selectedBranchId !== 'all' ? 'Şube Personeli' : 'Personel Sayısı') : 'Durum'}
