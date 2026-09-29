@@ -92,7 +92,6 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   const [localTitle, setLocalTitle] = useState(note.title || '');
   const [localContent, setLocalContent] = useState(note.content || '');
   const [isFocused, setIsFocused] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
@@ -155,25 +154,19 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     setSavedSuccess(false);
   };
 
-  const handleSave = async () => {
-    // Mobilde klavyeyi ve odaklanmayı anında kapat
+  const handleSave = () => {
+    // Klavyeyi ve odağı anında kapat
     dismissKeyboard();
 
-    try {
-      setIsSaving(true);
-      await onUpdate(note.id, {
-        title: localTitle.trim(),
-        content: localContent.trim(),
-      });
-      setIsSaving(false);
-      setSavedSuccess(true);
-      setTimeout(() => {
-        setSavedSuccess(false);
-      }, 2000);
-    } catch (err) {
-      setIsSaving(false);
-      console.error('Not kaydedilemedi:', err);
-    }
+    // UI'ı anında güncelle - kaydetme işlemini arka planda yap
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 2000);
+
+    // Bulut kayıt arka planda (fire-and-forget)
+    onUpdate(note.id, {
+      title: localTitle.trim(),
+      content: localContent.trim(),
+    });
   };
 
   const handleCancel = () => {
@@ -515,21 +508,11 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={isSaving}
-                className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs flex items-center gap-1 cursor-pointer"
                 title="Notu kaydet (Ctrl+Enter)"
               >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Kaydediliyor...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Kaydet</span>
-                  </>
-                )}
+                <Check className="w-3.5 h-3.5" />
+                <span>Kaydet</span>
               </button>
             </div>
           ) : savedSuccess ? (
