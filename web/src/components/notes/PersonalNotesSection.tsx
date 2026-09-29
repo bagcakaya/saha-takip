@@ -100,6 +100,22 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   const [remTime, setRemTime] = useState(note.reminderTime || '');
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // Klavyeyi ve odaklanmayı mobilde kesin olarak kapatan yardımcı
+  const dismissKeyboard = () => {
+    setIsFocused(false);
+    if (titleInputRef.current) {
+      titleInputRef.current.blur();
+    }
+    if (textareaRef.current) {
+      textareaRef.current.blur();
+    }
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  };
 
   // Auto-resize textarea to fit text naturally
   const autoResizeTextarea = () => {
@@ -140,6 +156,9 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   };
 
   const handleSave = async () => {
+    // Mobilde klavyeyi ve odaklanmayı anında kapat
+    dismissKeyboard();
+
     try {
       setIsSaving(true);
       await onUpdate(note.id, {
@@ -148,7 +167,6 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
       });
       setIsSaving(false);
       setSavedSuccess(true);
-      setIsFocused(false);
       setTimeout(() => {
         setSavedSuccess(false);
       }, 2000);
@@ -159,6 +177,8 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   };
 
   const handleCancel = () => {
+    dismissKeyboard();
+
     // Eğer bu not yeni oluşturulmuş ve henüz hiç içeriği kaydedilmemiş boş bir notsa,
     // vazgeçince doğrudan silebiliriz (gereksiz boş not kalmasın)
     const isNewEmptyNote = !note.title && !note.content;
@@ -169,11 +189,7 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 
     setLocalTitle(note.title || '');
     setLocalContent(note.content || '');
-    setIsFocused(false);
     setSavedSuccess(false);
-    if (textareaRef.current) {
-      textareaRef.current.blur();
-    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -186,7 +202,11 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     }
   };
 
-  const handleBlur = () => {
+  const handleBlur = (e: React.FocusEvent) => {
+    // Kart içindeki butonlara tıklandığında hemen odak durumunu kapatma
+    if (cardRef.current && cardRef.current.contains(e.relatedTarget as Node)) {
+      return;
+    }
     setTimeout(() => {
       if (!hasChanges) {
         setIsFocused(false);
@@ -252,6 +272,7 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 
   return (
     <div
+      ref={cardRef}
       className={`group relative rounded-2xl border p-4 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between ${colorScheme.card} ${
         note.isPinned ? 'ring-2 ring-amber-400/70 shadow-amber-500/10' : ''
       }`}
@@ -442,6 +463,7 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 
       {/* INLINE EDITABLE TITLE */}
       <input
+        ref={titleInputRef}
         type="text"
         value={localTitle}
         onChange={handleTitleChange}
@@ -482,7 +504,6 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
             <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
               <button
                 type="button"
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={handleCancel}
                 className="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 transition active:scale-95 flex items-center gap-1 cursor-pointer"
                 title="Değişikliklerden vazgeç (Esc)"
@@ -493,7 +514,6 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 
               <button
                 type="button"
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={handleSave}
                 disabled={isSaving}
                 className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
@@ -554,6 +574,16 @@ export const PersonalNotesSection: React.FC = () => {
   }, []);
 
   const quickInputRef = useRef<HTMLInputElement | null>(null);
+  const quickTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const dismissQuickKeyboard = () => {
+    setIsQuickAdding(false);
+    if (quickInputRef.current) quickInputRef.current.blur();
+    if (quickTextareaRef.current) quickTextareaRef.current.blur();
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  };
 
   // Filter notes strictly for this logged-in user
   const userNotes = useMemo(() => {
@@ -595,9 +625,11 @@ export const PersonalNotesSection: React.FC = () => {
   // Handle Quick Add note
   const handleQuickAdd = async () => {
     if (!quickTitle.trim() && !quickContent.trim()) {
-      setIsQuickAdding(false);
+      dismissQuickKeyboard();
       return;
     }
+
+    dismissQuickKeyboard();
 
     try {
       setIsQuickSaving(true);
@@ -623,7 +655,6 @@ export const PersonalNotesSection: React.FC = () => {
       setQuickReminderDate('');
       setQuickReminderTime('');
       setQuickColor('amber');
-      setIsQuickAdding(false);
     } catch (err) {
       console.error('Hızlı not eklenirken hata oluştu:', err);
     } finally {
@@ -632,12 +663,12 @@ export const PersonalNotesSection: React.FC = () => {
   };
 
   const handleQuickCancel = () => {
+    dismissQuickKeyboard();
     setQuickTitle('');
     setQuickContent('');
     setQuickReminderDate('');
     setQuickReminderTime('');
     setQuickColor('amber');
-    setIsQuickAdding(false);
   };
 
   const handleQuickKeyDown = (e: React.KeyboardEvent) => {
@@ -748,6 +779,7 @@ export const PersonalNotesSection: React.FC = () => {
           />
 
           <textarea
+            ref={quickTextareaRef}
             value={quickContent}
             onChange={(e) => setQuickContent(e.target.value)}
             onKeyDown={handleQuickKeyDown}
