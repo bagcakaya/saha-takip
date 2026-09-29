@@ -13,6 +13,7 @@ import {
   X,
   Sparkles,
   Bell,
+  Loader2,
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -90,13 +91,14 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 }) => {
   const [localTitle, setLocalTitle] = useState(note.title || '');
   const [localContent, setLocalContent] = useState(note.content || '');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isFocused, setIsFocused] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [remDate, setRemDate] = useState(note.reminderDate || '');
   const [remTime, setRemTime] = useState(note.reminderTime || '');
 
-  const debounceTimerRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-resize textarea to fit text naturally
@@ -107,57 +109,89 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     }
   };
 
+  const hasChanges = useMemo(() => {
+    return (
+      localTitle !== (note.title || '') ||
+      localContent !== (note.content || '')
+    );
+  }, [localTitle, localContent, note.title, note.content]);
+
   useEffect(() => {
-    setLocalTitle(note.title || '');
-    setLocalContent(note.content || '');
-    setRemDate(note.reminderDate || '');
-    setRemTime(note.reminderTime || '');
-  }, [note.title, note.content, note.reminderDate, note.reminderTime]);
+    if (!isFocused && !hasChanges) {
+      setLocalTitle(note.title || '');
+      setLocalContent(note.content || '');
+      setRemDate(note.reminderDate || '');
+      setRemTime(note.reminderTime || '');
+    }
+  }, [note.title, note.content, note.reminderDate, note.reminderTime, isFocused, hasChanges]);
 
   useEffect(() => {
     autoResizeTextarea();
   }, [localContent]);
 
-  // Debounced auto-save without ANY button clicks
-  const triggerAutoSave = (newTitle: string, newContent: string) => {
-    setSaveStatus('saving');
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      onUpdate(note.id, {
-        title: newTitle,
-        content: newContent,
-      });
-      setSaveStatus('saved');
-      setTimeout(() => {
-        setSaveStatus('idle');
-      }, 1400);
-    }, 400);
-  };
-
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setLocalTitle(val);
-    triggerAutoSave(val, localContent);
+    setLocalTitle(e.target.value);
+    setSavedSuccess(false);
   };
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setLocalContent(val);
-    triggerAutoSave(localTitle, val);
+    setLocalContent(e.target.value);
+    setSavedSuccess(false);
+  };
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      await onUpdate(note.id, {
+        title: localTitle.trim(),
+        content: localContent.trim(),
+      });
+      setIsSaving(false);
+      setSavedSuccess(true);
+      setIsFocused(false);
+      setTimeout(() => {
+        setSavedSuccess(false);
+      }, 2000);
+    } catch (err) {
+      setIsSaving(false);
+      console.error('Not kaydedilemedi:', err);
+    }
+  };
+
+  const handleCancel = () => {
+    // Eğer bu not yeni oluşturulmuş ve henüz hiç içeriği kaydedilmemiş boş bir notsa,
+    // vazgeçince doğrudan silebiliriz (gereksiz boş not kalmasın)
+    const isNewEmptyNote = !note.title && !note.content;
+    if (isNewEmptyNote) {
+      onDelete(note.id);
+      return;
+    }
+
+    setLocalTitle(note.title || '');
+    setLocalContent(note.content || '');
+    setIsFocused(false);
+    setSavedSuccess(false);
+    if (textareaRef.current) {
+      textareaRef.current.blur();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape' && (isFocused || hasChanges)) {
+      e.preventDefault();
+      handleCancel();
+    }
   };
 
   const handleBlur = () => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    onUpdate(note.id, {
-      title: localTitle,
-      content: localContent,
-    });
-    setSaveStatus('saved');
-    setTimeout(() => setSaveStatus('idle'), 1200);
+    setTimeout(() => {
+      if (!hasChanges) {
+        setIsFocused(false);
+      }
+    }, 150);
   };
 
   const handleColorSelect = (color: PersonalNoteColor) => {
@@ -406,29 +440,33 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
         </div>
       </div>
 
-      {/* INLINE EDITABLE TITLE (No button needed - just click and type!) */}
+      {/* INLINE EDITABLE TITLE */}
       <input
         type="text"
         value={localTitle}
         onChange={handleTitleChange}
+        onFocus={() => setIsFocused(true)}
         onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
         placeholder="Not Başlığı (Tıkla ve yaz)..."
         className="w-full bg-transparent border-none p-0 text-sm sm:text-base font-bold text-slate-900 dark:text-white placeholder:text-slate-400/70 focus:outline-none focus:ring-0 mb-1.5"
       />
 
-      {/* INLINE EDITABLE CONTENT (No button needed - just click and type!) */}
+      {/* INLINE EDITABLE CONTENT */}
       <textarea
         ref={textareaRef}
         value={localContent}
         onChange={handleContentChange}
+        onFocus={() => setIsFocused(true)}
         onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
         rows={2}
         placeholder="Notunuzu buraya yazın..."
         className="w-full bg-transparent border-none p-0 text-xs sm:text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400/60 focus:outline-none focus:ring-0 resize-none leading-relaxed"
       />
 
-      {/* Footer: Live Auto-save indicator & timestamp */}
-      <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-black/5 dark:border-white/5 text-[10px] text-slate-400">
+      {/* Footer: Date timestamp & Kaydet / Vazgeç Action Buttons */}
+      <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-black/5 dark:border-white/5 text-[10px] text-slate-400 min-h-[34px]">
         <span>
           {new Date(note.updatedAt || note.createdAt).toLocaleDateString('tr-TR', {
             day: 'numeric',
@@ -438,23 +476,48 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
           })}
         </span>
 
-        {/* Visual Save Status Indicator */}
-        <div className="flex items-center gap-1 font-medium">
-          {saveStatus === 'saving' && (
-            <span className="text-amber-500 animate-pulse flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-              Kaydediliyor...
-            </span>
-          )}
-          {saveStatus === 'saved' && (
-            <span className="text-emerald-500 flex items-center gap-1 font-bold animate-in fade-in duration-200">
-              <Check className="w-3 h-3" />
+        {/* Action Buttons: Kaydet & Vazgeç (görünürlük: odaklanıldığında veya değişiklik yapıldığında) */}
+        <div className="flex items-center gap-1.5 font-medium">
+          {isFocused || hasChanges ? (
+            <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleCancel}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 transition active:scale-95 flex items-center gap-1 cursor-pointer"
+                title="Değişikliklerden vazgeç (Esc)"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Vazgeç</span>
+              </button>
+
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                title="Notu kaydet (Ctrl+Enter)"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Kaydediliyor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Kaydet</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : savedSuccess ? (
+            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1 animate-in fade-in duration-200">
+              <Check className="w-3.5 h-3.5" />
               Kaydedildi
             </span>
-          )}
-          {saveStatus === 'idle' && (
-            <span className="text-slate-400 opacity-60">Doğrudan düzenlenir</span>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -474,6 +537,7 @@ export const PersonalNotesSection: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'pinned' | 'reminders'>('all');
   const [isQuickAdding, setIsQuickAdding] = useState(false);
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
   const [quickContent, setQuickContent] = useState('');
   const [quickColor, setQuickColor] = useState<PersonalNoteColor>('amber');
@@ -535,29 +599,55 @@ export const PersonalNotesSection: React.FC = () => {
       return;
     }
 
-    if (quickReminderDate) {
-      try {
-        await NotificationService.requestPermission();
-        await OneSignalService.requestPermission();
-      } catch (e) {
-        console.warn('Permission request error:', e);
+    try {
+      setIsQuickSaving(true);
+      if (quickReminderDate) {
+        try {
+          await NotificationService.requestPermission();
+          await OneSignalService.requestPermission();
+        } catch (e) {
+          console.warn('Permission request error:', e);
+        }
       }
+
+      await addPersonalNote({
+        title: quickTitle.trim(),
+        content: quickContent.trim(),
+        color: quickColor,
+        reminderDate: quickReminderDate || undefined,
+        reminderTime: quickReminderTime || undefined,
+      });
+
+      setQuickTitle('');
+      setQuickContent('');
+      setQuickReminderDate('');
+      setQuickReminderTime('');
+      setQuickColor('amber');
+      setIsQuickAdding(false);
+    } catch (err) {
+      console.error('Hızlı not eklenirken hata oluştu:', err);
+    } finally {
+      setIsQuickSaving(false);
     }
+  };
 
-    await addPersonalNote({
-      title: quickTitle.trim(),
-      content: quickContent.trim(),
-      color: quickColor,
-      reminderDate: quickReminderDate || undefined,
-      reminderTime: quickReminderTime || undefined,
-    });
-
+  const handleQuickCancel = () => {
     setQuickTitle('');
     setQuickContent('');
     setQuickReminderDate('');
     setQuickReminderTime('');
     setQuickColor('amber');
     setIsQuickAdding(false);
+  };
+
+  const handleQuickKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleQuickAdd();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleQuickCancel();
+    }
   };
 
   const handleCreateEmptyNote = async () => {
@@ -652,6 +742,7 @@ export const PersonalNotesSection: React.FC = () => {
             type="text"
             value={quickTitle}
             onChange={(e) => setQuickTitle(e.target.value)}
+            onKeyDown={handleQuickKeyDown}
             placeholder="Not Başlığı..."
             className="w-full text-sm font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
@@ -659,6 +750,7 @@ export const PersonalNotesSection: React.FC = () => {
           <textarea
             value={quickContent}
             onChange={(e) => setQuickContent(e.target.value)}
+            onKeyDown={handleQuickKeyDown}
             rows={3}
             placeholder="Düşüncelerinizi, hatırlanacakları veya müşteri detaylarını yazın..."
             className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
@@ -713,13 +805,35 @@ export const PersonalNotesSection: React.FC = () => {
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={handleQuickAdd}
-                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer"
-              >
-                Ekle
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleQuickCancel}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition active:scale-95 cursor-pointer flex items-center gap-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Vazgeç</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuickAdd}
+                  disabled={isQuickSaving}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
+                  title="Notu kaydet (Ctrl+Enter)"
+                >
+                  {isQuickSaving ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Kaydediliyor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Kaydet</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
