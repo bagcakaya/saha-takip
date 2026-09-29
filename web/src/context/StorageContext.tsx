@@ -4724,6 +4724,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const shouldReschedule = dateChanged || timeChanged || (Boolean(nextDate) && !newNotifId);
 
+    // 1. ANINDA GÜNCELLEME: UI ve state hiç beklemeden anında güncellensin
+    const immediateProps: Partial<PersonalNote> = {
+      ...updates,
+      updatedAt: Date.now(),
+      ...(dateChanged || timeChanged ? { notified: false } : {}),
+    };
+
+    setPersonalNotes((prev) => {
+      const next = prev.map((n) => (n.id === id ? { ...n, ...immediateProps } : n));
+      StorageService.savePersonalNotes(user.id, next).catch((err) => {
+        console.warn('Error saving personal note updates:', err);
+      });
+      return next;
+    });
+
+    // 2. OneSignal bildirim zamanlamasını arka planda yönet
     if (!nextDate && existing?.onesignalNotificationId) {
       OneSignalService.cancelNotification(existing.onesignalNotificationId).catch(() => {});
       newNotifId = undefined;
@@ -4754,34 +4770,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           });
           if (pushRes?.data?.id) {
             newNotifId = pushRes.data.id;
+            setPersonalNotes((prev) => {
+              const next = prev.map((n) => (n.id === id ? { ...n, onesignalNotificationId: newNotifId } : n));
+              StorageService.savePersonalNotes(user.id, next).catch(() => {});
+              return next;
+            });
           }
         } catch (err) {
           console.warn('Failed to reschedule OneSignal push for personal note:', err);
         }
       }
     }
-
-    const updatedProps: Partial<PersonalNote> = {
-      ...updates,
-      onesignalNotificationId: newNotifId,
-      updatedAt: Date.now(),
-    };
-    if (dateChanged || timeChanged) {
-      updatedProps.notified = false;
-    }
-
-    setPersonalNotes((prev) => {
-      const next = prev.map((n) => {
-        if (n.id === id) {
-          return { ...n, ...updatedProps };
-        }
-        return n;
-      });
-      StorageService.savePersonalNotes(user.id, next).catch((err) => {
-        console.warn('Error saving personal note updates:', err);
-      });
-      return next;
-    });
   };
 
   const deletePersonalNote = async (id: string) => {

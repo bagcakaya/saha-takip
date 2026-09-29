@@ -102,6 +102,12 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
+  // Anında kayıt takibi için ref'ler
+  const lastSavedTitleRef = useRef(note.title || '');
+  const lastSavedContentRef = useRef(note.content || '');
+  const lastSaveTimeRef = useRef(0);
+  const lastCancelTimeRef = useRef(0);
+
   // Klavyeyi ve odaklanmayı mobilde kesin olarak kapatan yardımcı
   const dismissKeyboard = () => {
     setIsFocused(false);
@@ -125,6 +131,13 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   };
 
   const hasChanges = useMemo(() => {
+    // Yeni kaydedilmiş değerlerle birebir aynıysa değişiklik yok
+    if (
+      localTitle === lastSavedTitleRef.current &&
+      localContent === lastSavedContentRef.current
+    ) {
+      return false;
+    }
     return (
       localTitle !== (note.title || '') ||
       localContent !== (note.content || '')
@@ -135,6 +148,8 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     if (!isFocused && !hasChanges) {
       setLocalTitle(note.title || '');
       setLocalContent(note.content || '');
+      lastSavedTitleRef.current = note.title || '';
+      lastSavedContentRef.current = note.content || '';
       setRemDate(note.reminderDate || '');
       setRemTime(note.reminderTime || '');
     }
@@ -155,21 +170,40 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   };
 
   const handleSave = () => {
-    // Klavyeyi ve odağı anında kapat
+    const now = Date.now();
+    if (now - lastSaveTimeRef.current < 300) return;
+    lastSaveTimeRef.current = now;
+
+    const trimmedTitle = localTitle.trim();
+    const trimmedContent = localContent.trim();
+
+    // 1. Son kaydedilen değerleri hemen güncelle (hasChanges anında false olsun)
+    lastSavedTitleRef.current = trimmedTitle;
+    lastSavedContentRef.current = trimmedContent;
+    setLocalTitle(trimmedTitle);
+    setLocalContent(trimmedContent);
+
+    // 2. Klavyeyi ve odaklanmayı anında kapat
     dismissKeyboard();
 
-    // UI'ı anında güncelle - kaydetme işlemini arka planda yap
+    // 3. UI'ı anında "Kaydedildi" durumuna geçir (butonlar yok olur, yeşil onay çıkar)
     setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2000);
+    setTimeout(() => {
+      setSavedSuccess(false);
+    }, 2000);
 
-    // Bulut kayıt arka planda (fire-and-forget)
+    // 4. Bulut ve context kaydı (fire-and-forget)
     onUpdate(note.id, {
-      title: localTitle.trim(),
-      content: localContent.trim(),
+      title: trimmedTitle,
+      content: trimmedContent,
     });
   };
 
   const handleCancel = () => {
+    const now = Date.now();
+    if (now - lastCancelTimeRef.current < 300) return;
+    lastCancelTimeRef.current = now;
+
     dismissKeyboard();
 
     // Eğer bu not yeni oluşturulmuş ve henüz hiç içeriği kaydedilmemiş boş bir notsa,
@@ -180,8 +214,12 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
       return;
     }
 
-    setLocalTitle(note.title || '');
-    setLocalContent(note.content || '');
+    const resetTitle = note.title || '';
+    const resetContent = note.content || '';
+    lastSavedTitleRef.current = resetTitle;
+    lastSavedContentRef.current = resetContent;
+    setLocalTitle(resetTitle);
+    setLocalContent(resetContent);
     setSavedSuccess(false);
   };
 
@@ -491,12 +529,21 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
           })}
         </span>
 
-        {/* Action Buttons: Kaydet & Vazgeç (görünürlük: odaklanıldığında veya değişiklik yapıldığında) */}
+        {/* Action Buttons: Kaydedildi Bildirimi veya Kaydet & Vazgeç Butonları */}
         <div className="flex items-center gap-1.5 font-medium">
-          {isFocused || hasChanges ? (
+          {savedSuccess ? (
+            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1 animate-in fade-in duration-150">
+              <Check className="w-3.5 h-3.5" />
+              Kaydedildi
+            </span>
+          ) : isFocused || hasChanges ? (
             <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
               <button
                 type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleCancel();
+                }}
                 onClick={handleCancel}
                 className="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 transition active:scale-95 flex items-center gap-1 cursor-pointer"
                 title="Değişikliklerden vazgeç (Esc)"
@@ -507,6 +554,10 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
 
               <button
                 type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleSave();
+                }}
                 onClick={handleSave}
                 className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs flex items-center gap-1 cursor-pointer"
                 title="Notu kaydet (Ctrl+Enter)"
@@ -515,11 +566,6 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
                 <span>Kaydet</span>
               </button>
             </div>
-          ) : savedSuccess ? (
-            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1 animate-in fade-in duration-200">
-              <Check className="w-3.5 h-3.5" />
-              Kaydedildi
-            </span>
           ) : null}
         </div>
       </div>
@@ -823,6 +869,10 @@ export const PersonalNotesSection: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleQuickCancel();
+                  }}
                   onClick={handleQuickCancel}
                   className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition active:scale-95 cursor-pointer flex items-center gap-1"
                 >
@@ -831,6 +881,10 @@ export const PersonalNotesSection: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleQuickAdd();
+                  }}
                   onClick={handleQuickAdd}
                   disabled={isQuickSaving}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
