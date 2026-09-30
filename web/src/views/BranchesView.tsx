@@ -185,7 +185,9 @@ export const BranchesView: React.FC = () => {
       return;
     }
     try {
-      await DeviceService.unbindUserDevice(staffId);
+      const userObj = users.find((u) => u.id === staffId);
+      const compCode = userObj?.companyCode || UserService.getUserCompanyCode(staffId) || user?.companyCode || 'POLATLAR';
+      await DeviceService.unbindUserDevice(staffId, compCode);
       alert(`✅ "${staffName}" kullanıcısının cihaz kilidi başarıyla kaldırıldı.`);
     } catch (e: any) {
       alert('Hata: ' + (e?.message || 'Cihaz kilidi kaldırılamadı.'));

@@ -65,7 +65,7 @@ export const SecurityLogsView: React.FC = () => {
     await deleteSecurityLog(id);
   };
 
-  const handleUnbindUserLock = async (userId: string, userName?: string) => {
+  const handleUnbindUserLock = async (userId: string, userName?: string, targetComp?: string) => {
     if (
       !window.confirm(
         `${userName || 'Bu personel'} için mevcut cihaz kilidini sıfırlamak istiyor musunuz?\n\nSıfırlandıktan sonra personel yeni telefonundan ilk kez giriş yaptığında yeni cihazı otomatik kilitlenecektir.`
@@ -76,7 +76,8 @@ export const SecurityLogsView: React.FC = () => {
 
     setIsUnbindingId(userId);
     try {
-      await DeviceService.unbindUserDevice(userId, userComp);
+      const comp = targetComp || userComp;
+      await DeviceService.unbindUserDevice(userId, comp);
       alert('✅ Cihaz kilidi başarıyla sıfırlandı. Personel artık yeni cihazından giriş yapabilir.');
     } catch {
       alert('Cihaz kilidi sıfırlanırken bir hata oluştu.');
@@ -512,7 +513,7 @@ export const SecurityLogsView: React.FC = () => {
                   {log.attemptedUserId && (
                     <button
                       type="button"
-                      onClick={() => handleUnbindUserLock(log.attemptedUserId!, log.attemptedName || log.attemptedUsername)}
+                      onClick={() => handleUnbindUserLock(log.attemptedUserId!, log.attemptedName || log.attemptedUsername, log.companyCode)}
                       disabled={isUnbindingId === log.attemptedUserId}
                       className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm shrink-0 disabled:opacity-50"
                       title="Personel telefonunu yenilediyse kilidi sıfırlayın"

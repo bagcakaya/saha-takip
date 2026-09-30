@@ -76,7 +76,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   const loadBindings = async () => {
     try {
-      const list = await DeviceService.getUserDeviceBindings();
+      const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+      const list = await DeviceService.getUserDeviceBindings(activeComp);
       setUserBindings(list);
     } catch {
       // ignore
@@ -345,7 +346,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
     }
     setIsUnbindingId(userId);
     try {
-      await DeviceService.unbindUserDevice(userId);
+      const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+      await DeviceService.unbindUserDevice(userId, activeComp);
       await loadBindings();
       alert(`✅ "${staffName}" cihaz kilidi başarıyla sıfırlandı. Personel artık yeni telefonundan giriş yapabilir.`);
     } catch (e: any) {

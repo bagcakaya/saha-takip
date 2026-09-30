@@ -171,7 +171,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   const loadBindings = async () => {
     try {
-      const list = await DeviceService.getUserDeviceBindings();
+      const activeComp = (selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+      const list = await DeviceService.getUserDeviceBindings(activeComp);
       setUserBindings(list);
     } catch {
       // ignore
@@ -182,9 +183,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     if (isOpen) {
       loadBindings();
     }
-  }, [isOpen]);
+  }, [isOpen, selectedCompanyCode]);
 
-  const handleResetDeviceLock = async (userId: string, userName: string) => {
+  const handleResetDeviceLock = async (userId: string, userName: string, companyCode?: string) => {
     if (
       !window.confirm(
         `"${userName}" kullanıcısının telefon cihaz kilidini sıfırlamak istediğinize emin misiniz?\n\nKilit kaldırıldığında personel yeni telefonundan sisteme girdiği anda yeni cihazı sisteme otomatik kilitlenecektir.`
@@ -195,7 +196,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
     try {
       setResettingUserId(userId);
-      await DeviceService.unbindUserDevice(userId);
+      const activeComp = (companyCode || selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+      await DeviceService.unbindUserDevice(userId, activeComp);
       await loadBindings();
       alert(`"${userName}" kullanıcısının cihaz kilidi başarıyla sıfırlandı.`);
     } catch (err: any) {
@@ -568,16 +570,26 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       </span>
 
                       <div className="flex items-center gap-1.5">
-                        {binding && (
+                        {!isAdmin && (
                           <button
                             type="button"
                             disabled={resettingUserId === account.id}
-                            onClick={() => handleResetDeviceLock(account.id, account.name)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/70 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                            onClick={() => handleResetDeviceLock(account.id, account.name, account.companyCode)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 ${
+                              binding?.boundDeviceId
+                                ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/70'
+                                : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                            }`}
                             title="Personelin cihaz kilidini sıfırlayın (Yeni telefondan giriş yapabilmesi için)"
                           >
                             <Unlock className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                            <span>{resettingUserId === account.id ? 'Sıfırlanıyor...' : '🔓 Kilidi Sıfırla'}</span>
+                            <span>
+                              {resettingUserId === account.id
+                                ? 'Sıfırlanıyor...'
+                                : binding?.boundDeviceId
+                                ? '🔓 Kilidi Sıfırla'
+                                : '🔓 Kilit Sıfırla'}
+                            </span>
                           </button>
                         )}
 
