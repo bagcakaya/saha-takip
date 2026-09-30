@@ -1671,7 +1671,28 @@ export const StorageService = {
       companyCode?: string;
     }
   ): Promise<SecurityLogItem> {
-    const compCode = (event.companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    let compCode = (event.companyCode || '').trim().toUpperCase();
+    if (!compCode || compCode === 'POLATLAR') {
+      try {
+        const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const found = list.find(
+              (u: any) =>
+                (event.attemptedUserId && u.id === event.attemptedUserId) ||
+                (event.attemptedUsername && u.username?.toLowerCase() === event.attemptedUsername.toLowerCase())
+            );
+            if (found?.companyCode) {
+              compCode = found.companyCode.trim().toUpperCase();
+            }
+          }
+        }
+      } catch {}
+    }
+    if (!compCode) {
+      compCode = (activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    }
     const newLog: SecurityLogItem = {
       id: `sec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       companyCode: compCode,

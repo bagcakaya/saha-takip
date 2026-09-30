@@ -3,6 +3,7 @@ import { isUserAdmin } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { detectEnvironment, OneSignalService } from './oneSignalService';
 import { StorageService } from './storageService';
+import { UserService } from './userService';
 
 const DEVICE_ID_KEY = '@saha_takip_device_id';
 const DEVICE_NAME_KEY = '@saha_takip_device_name';
@@ -279,9 +280,14 @@ export const DeviceService = {
   // ==========================================
 
   /**
-   * Fetches all user device bindings from Supabase slot 9 (with local cache mirror)
+   * Fetches all user device bindings from Supabase slot 9 / slot 29 (with local cache mirror)
    */
-  async getUserDeviceBindings(): Promise<import('../types/storage').UserDeviceBinding[]> {
+  async getUserDeviceBindings(companyCode?: string): Promise<import('../types/storage').UserDeviceBinding[]> {
+    const targetComp = (
+      companyCode ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
     const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
     let localData: import('../types/storage').UserDeviceBinding[] = [];
     try {
@@ -295,10 +301,11 @@ export const DeviceService = {
     }
 
     try {
+      const slotId = StorageService.getSlotIdForCompany(9, targetComp);
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
-        .eq('id', StorageService.getSlotId(9))
+        .eq('id', slotId)
         .single();
 
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
@@ -321,11 +328,17 @@ export const DeviceService = {
   },
 
   /**
-   * Saves user device bindings to Supabase slot 9
+   * Saves user device bindings to Supabase slot 9 / slot 29
    */
   async saveUserDeviceBindingsToCloud(
-    bindings: import('../types/storage').UserDeviceBinding[]
+    bindings: import('../types/storage').UserDeviceBinding[],
+    companyCode?: string
   ): Promise<void> {
+    const targetComp = (
+      companyCode ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
     const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
     try {
       localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(bindings));
@@ -340,7 +353,8 @@ export const DeviceService = {
       for (let i = 0; i < rawJson.length; i += chunkSize) {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
-      await supabase.from('standard_tasks').upsert({ id: StorageService.getSlotId(9), tasks: chunks });
+      const slotId = StorageService.getSlotIdForCompany(9, targetComp);
+      await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
     } catch (err) {
       console.warn('Cloud save user device bindings error:', err);
     }
@@ -351,9 +365,14 @@ export const DeviceService = {
    */
   async getBindingForUser(
     userId: string,
-    username?: string
+    username?: string,
+    companyCode?: string
   ): Promise<import('../types/storage').UserDeviceBinding | null> {
-    const bindings = await this.getUserDeviceBindings();
+    let comp = companyCode;
+    if (!comp) {
+      comp = UserService.getUserCompanyCode(userId, username) || undefined;
+    }
+    const bindings = await this.getUserDeviceBindings(comp);
     const cleanUser = (username || '').trim().toLowerCase();
     return (
       bindings.find(
@@ -372,8 +391,13 @@ export const DeviceService = {
     deviceId: string;
     deviceName: string;
     platform: 'ios' | 'android' | 'desktop';
+    companyCode?: string;
   }): Promise<import('../types/storage').UserDeviceBinding> {
-    const bindings = await this.getUserDeviceBindings();
+    let comp = params.companyCode;
+    if (!comp) {
+      comp = UserService.getUserCompanyCode(params.userId, params.username) || undefined;
+    }
+    const bindings = await this.getUserDeviceBindings(comp);
     const newBinding: import('../types/storage').UserDeviceBinding = {
       userId: params.userId,
       username: params.username,
@@ -394,17 +418,21 @@ export const DeviceService = {
       updated = [newBinding, ...bindings];
     }
 
-    await this.saveUserDeviceBindingsToCloud(updated);
+    await this.saveUserDeviceBindingsToCloud(updated, comp);
     return newBinding;
   },
 
   /**
    * Unbinds / resets device lock for a user (Called by Admin)
    */
-  async unbindUserDevice(userId: string): Promise<void> {
-    const bindings = await this.getUserDeviceBindings();
+  async unbindUserDevice(userId: string, companyCode?: string): Promise<void> {
+    let comp = companyCode;
+    if (!comp) {
+      comp = UserService.getUserCompanyCode(userId) || undefined;
+    }
+    const bindings = await this.getUserDeviceBindings(comp);
     const filtered = bindings.filter((b) => b.userId !== userId);
-    await this.saveUserDeviceBindingsToCloud(filtered);
+    await this.saveUserDeviceBindingsToCloud(filtered, comp);
   },
 
   /**
@@ -433,14 +461,24 @@ export const DeviceService = {
     const currentId = params.currentDeviceId || this.getCurrentDeviceId();
     const currentName = this.getCurrentDeviceName(params.userName);
     const env = detectEnvironment();
-    const targetComp = (
-      params.companyCode ||
-      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
-      'POLATLAR'
-    ).trim().toUpperCase();
 
-    // 2. Fetch current binding for this user
-    const existingBinding = await this.getBindingForUser(params.userId, params.username);
+    // Strictly resolve target company:
+    let targetComp = (params.companyCode || '').trim().toUpperCase();
+    if (!targetComp || targetComp === 'POLATLAR') {
+      const userComp = UserService.getUserCompanyCode(params.userId, params.username);
+      if (userComp) {
+        targetComp = userComp;
+      }
+    }
+    if (!targetComp) {
+      targetComp = (
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+        'POLATLAR'
+      ).trim().toUpperCase();
+    }
+
+    // 2. Fetch current binding for this user strictly within this company
+    const existingBinding = await this.getBindingForUser(params.userId, params.username, targetComp);
 
     // 3. First login or reset lock: automatically bind current device
     if (!existingBinding || !existingBinding.boundDeviceId) {
@@ -451,6 +489,7 @@ export const DeviceService = {
         deviceId: currentId,
         deviceName: currentName,
         platform: env.platform,
+        companyCode: targetComp,
       });
       return { allowed: true, binding: createdBinding };
     }
@@ -461,10 +500,10 @@ export const DeviceService = {
         ? `"${existingBinding.boundDeviceName}" (${existingBinding.boundDeviceId})`
         : `"${existingBinding.boundDeviceId}"`;
 
-      // Check if current device belongs to another registered staff member
+      // Check if current device belongs to another registered staff member in this company
       let ownerBinding: import('../types/storage').UserDeviceBinding | undefined;
       try {
-        const allBindings = await this.getUserDeviceBindings();
+        const allBindings = await this.getUserDeviceBindings(targetComp);
         ownerBinding = allBindings.find(
           (b) => b.boundDeviceId === currentId && b.userId !== params.userId
         );
@@ -485,7 +524,7 @@ export const DeviceService = {
         securityLogMessage = `${attemptingUser} kullanıcı isimli personel, ${currentId} ID numaralı yetkisiz bir cihazla giriş yapmaya çalıştı.`;
       }
 
-      // Automatically log the security event to cloud slot 12
+      // Automatically log the security event to cloud slot 12 / slot 32
       StorageService.logSecurityEvent({
         attemptedUsername: params.username || attemptingUser,
         attemptedName: params.userName,

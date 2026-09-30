@@ -76,7 +76,7 @@ export const SecurityLogsView: React.FC = () => {
 
     setIsUnbindingId(userId);
     try {
-      await DeviceService.unbindUserDevice(userId);
+      await DeviceService.unbindUserDevice(userId, userComp);
       alert('✅ Cihaz kilidi başarıyla sıfırlandı. Personel artık yeni cihazından giriş yapabilir.');
     } catch {
       alert('Cihaz kilidi sıfırlanırken bir hata oluştu.');

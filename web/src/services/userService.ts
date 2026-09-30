@@ -63,6 +63,24 @@ export const UserService = {
   },
 
   /**
+   * Resolves company code for a user by id or username
+   */
+  getUserCompanyCode(userId?: string, username?: string): string | null {
+    if (!userId && !username) return null;
+    const cleanUser = (username || '').trim().toLowerCase();
+    const allUsers = this.getUsers();
+    const match = allUsers.find(
+      (u) =>
+        (userId && u.id === userId) ||
+        (cleanUser && u.username.toLowerCase() === cleanUser)
+    );
+    if (match && match.companyCode) {
+      return match.companyCode.trim().toUpperCase();
+    }
+    return null;
+  },
+
+  /**
    * Saves users list to local storage
    */
   saveUsers(users: UserAccount[]): void {
