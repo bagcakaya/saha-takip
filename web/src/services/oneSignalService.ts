@@ -613,11 +613,17 @@ export const OneSignalService = {
       collapseId: rawCollapseId,
     } = params;
 
-    const targetCompanyCode = (
-      companyCode ||
-      localStorage.getItem('@saha_takip_company_code') ||
-      'POLATLAR'
-    ).toUpperCase();
+    let detectedCompanyCode = companyCode;
+    if (!detectedCompanyCode && typeof localStorage !== 'undefined') {
+      try {
+        const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+        if (u.companyCode) detectedCompanyCode = u.companyCode;
+      } catch {}
+      if (!detectedCompanyCode) {
+        detectedCompanyCode = localStorage.getItem('@saha_takip_company_code') || 'POLATLAR';
+      }
+    }
+    const targetCompanyCode = (detectedCompanyCode || 'POLATLAR').trim().toUpperCase();
 
     // If API Key or App ID is not configured, skip
     if (

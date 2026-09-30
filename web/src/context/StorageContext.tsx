@@ -285,6 +285,38 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const unreadLogsCount = useMemo(() => securityLogs.filter((l) => !l.read).length, [securityLogs]);
 
+  // Helper to strictly get admin IDs for a specific company (Prevents cross-tenant leak!)
+  const getCompanyAdminIds = (targetCompCode?: string): string[] => {
+    const cleanComp = (targetCompCode || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+
+    // 1. Filter currently loaded users strictly by companyCode
+    let compAdmins = users
+      .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === cleanComp && (u.role === 'admin' || isUserAdmin(u)))
+      .map((u) => u.id);
+
+    // 2. If not found, try cached users in localStorage
+    if (compAdmins.length === 0 && typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            compAdmins = parsed
+              .filter((u: any) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === cleanComp && (u.role === 'admin' || isUserAdmin(u)))
+              .map((u: any) => String(u.id));
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Fallback only if POLATLAR: ['admin-1']. For other companies like NESACOCUK, NEVER fallback to POLATLAR super admins!
+    if (compAdmins.length === 0 && cleanComp === 'POLATLAR') {
+      return ['admin-1'];
+    }
+
+    return compAdmins;
+  };
+
   // Load initial data on mount + Supabase Realtime listener
   useEffect(() => {
     if (!user) {
@@ -604,39 +636,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         async (payload: any) => {
           if (!isMounted) return;
           const changedSlotId = payload?.new?.id ?? payload?.old?.id;
-          let moduleId = 0;
-          if (typeof changedSlotId === 'number') {
-            moduleId = isPolatlar ? changedSlotId : ((changedSlotId - 1) % 20) + 1;
-          }
+          if (typeof changedSlotId !== 'number') return;
 
           try {
-            // Targeted update: Only refresh the specific module that changed!
-            if (moduleId === 8) {
+            // Targeted update: Only refresh if the changed slot strictly matches our company's slot!
+            if (changedSlotId === StorageService.getSlotId(6)) {
               const attRecs = await StorageService.getAttendanceRecords();
               if (isMounted) setAttendanceRecords(attRecs);
               return;
             }
-            if (moduleId === 4) {
+            if (changedSlotId === StorageService.getSlotId(4)) {
               const nts = await StorageService.getNotes();
               if (isMounted) setAllNotes(nts);
               return;
             }
-            if (moduleId === 3) {
+            if (changedSlotId === StorageService.getSlotId(3)) {
               const srvs = await StorageService.getServices();
               if (isMounted) setAllServices(srvs);
               return;
             }
-            if (moduleId === 11) {
+            if (changedSlotId === StorageService.getSlotId(11)) {
               const locs = await StorageService.getLocations();
               if (isMounted) setAllLocations(locs);
               return;
             }
-            if (moduleId === 2) {
+            if (changedSlotId === StorageService.getSlotId(2)) {
               const returns = await StorageService.getReturnWarrantyItems();
               if (isMounted) setReturnWarrantyItems(returns);
               return;
             }
-            if (moduleId === 5) {
+            if (changedSlotId === StorageService.getSlotId(5)) {
               const wpLoc = await StorageService.getWorkplaceLocation();
               if (isMounted) {
                 if (wpLoc) {
@@ -651,32 +680,32 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               }
               return;
             }
-            if (moduleId === 6) {
+            if (changedSlotId === StorageService.getSlotId(14)) {
               const branchList = await StorageService.getBranches();
               if (isMounted) setBranches(branchList);
               return;
             }
-            if (moduleId === 9) {
+            if (changedSlotId === StorageService.getSlotId(7)) {
               const reminders = await StorageService.getAdminReminders();
               if (isMounted) setAdminReminders(reminders);
               return;
             }
-            if (moduleId === 12) {
+            if (changedSlotId === StorageService.getSlotId(10)) {
               const leaveReqs = await StorageService.getLeaveRequests();
               if (isMounted) setLeaveRequests(leaveReqs);
               return;
             }
-            if (moduleId === 13) {
+            if (changedSlotId === StorageService.getSlotId(12)) {
               const secLogs = await StorageService.getSecurityLogs();
               if (isMounted) setSecurityLogs(secLogs);
               return;
             }
-            if (moduleId === 14) {
+            if (changedSlotId === StorageService.getSlotId(16)) {
               const followUps = await StorageService.getTimedFollowUps();
               if (isMounted) setTimedFollowUps(followUps || []);
               return;
             }
-            if (moduleId === 15) {
+            if (changedSlotId === StorageService.getSlotId(15)) {
               const cariData = await StorageService.getCarilerData();
               if (isMounted) {
                 setCariler(cariData.cariler);
@@ -685,26 +714,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               }
               return;
             }
-            if (moduleId === 1) {
+            if (changedSlotId === StorageService.getSlotId(1)) {
               const tasks = await StorageService.getStandardTasks();
               if (isMounted) setStandardTasks(tasks);
               return;
             }
-
-            // Fallback: If slot unknown, refresh only light dynamic modules (never heavy cariler)
-            const [tasks, returns, srvs, nts, attRecs] = await Promise.all([
-              StorageService.getStandardTasks(),
-              StorageService.getReturnWarrantyItems(),
-              StorageService.getServices(),
-              StorageService.getNotes(),
-              StorageService.getAttendanceRecords(),
-            ]);
-            if (!isMounted) return;
-            setStandardTasks(tasks);
-            setReturnWarrantyItems(returns);
-            setAllServices(srvs);
-            setAllNotes(nts);
-            setAttendanceRecords(attRecs);
           } catch (e) {
             console.warn('Realtime update error:', e);
           }
@@ -1671,7 +1685,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If added by Field Staff, send hardware push notification directly to all Admins!
     if (!isUserAdmin(user)) {
-      const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+      const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+      const adminIds = getCompanyAdminIds(activeComp);
       if (adminIds.length > 0) {
         const staffName = user?.name || user?.username || 'Saha Personeli';
         OneSignalService.sendPushNotification({
@@ -1679,7 +1694,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
-          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
+          companyCode: activeComp,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
           collapseId: `loc_new_${newLocation.id}`,
         }).catch((err) => console.warn('OneSignal new loc push error:', err));
@@ -1743,7 +1758,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // If just transitioned to complete, send hardware push notification directly to all Admins!
     if (!wasAlreadyComplete && isNowComplete && updatedTarget) {
       const staffName = user?.name || user?.username || 'Saha Personeli';
-      const adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+      const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+      const adminIds = getCompanyAdminIds(activeComp);
 
       if (adminIds.length > 0) {
         OneSignalService.sendPushNotification({
@@ -1751,7 +1767,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
-          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
+          companyCode: activeComp,
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
           collapseId: `loc_alltasks_${updatedTarget.id}`,
         }).catch((err) => console.warn('OneSignal complete task push error:', err));
@@ -1939,31 +1955,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Send instant hardware push notification to Admin(s) in background
     (async () => {
       try {
-        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+        let adminIds = getCompanyAdminIds(activeComp);
         if (adminIds.length === 0) {
           try {
             const cloudUsers = await UserService.fetchUsersFromCloud();
-            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+            adminIds = cloudUsers
+              .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
+              .map((u) => u.id);
           } catch {
             // ignore
           }
         }
-        if (adminIds.length === 0) {
+        if (adminIds.length === 0 && activeComp === 'POLATLAR') {
           adminIds = ['admin-1'];
         }
 
         const locSnippet = targetLocation.name.length > 50 ? `${targetLocation.name.slice(0, 50)}...` : targetLocation.name;
         const locExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
 
-        await OneSignalService.sendPushNotification({
-          title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
-          message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
-          url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
-          collapseId: `loc_comp_${targetLocation.id}`,
-        });
+        if (adminIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
+            message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
+            targetMode: 'custom',
+            targetUserIds: adminIds,
+            companyCode: activeComp,
+            url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+            collapseId: `loc_comp_${targetLocation.id}`,
+          });
+        }
       } catch (err) {
         console.warn('OneSignal completeLocation push error:', err);
       }
@@ -2343,16 +2364,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Send instant hardware push notification to Admin(s) in background
     (async () => {
       try {
-        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+        let adminIds = getCompanyAdminIds(activeComp);
         if (adminIds.length === 0) {
           try {
             const cloudUsers = await UserService.fetchUsersFromCloud();
-            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+            adminIds = cloudUsers
+              .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
+              .map((u) => u.id);
           } catch {
             // ignore
           }
         }
-        if (adminIds.length === 0) {
+        if (adminIds.length === 0 && activeComp === 'POLATLAR') {
           adminIds = ['admin-1'];
         }
 
@@ -2360,15 +2384,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
         const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
 
-        await OneSignalService.sendPushNotification({
-          title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
-          message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
-          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-          collapseId: `note_comp_${targetNote.id}`,
-        });
+        if (adminIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
+            message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
+            targetMode: 'custom',
+            targetUserIds: adminIds,
+            companyCode: activeComp,
+            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+            collapseId: `note_comp_${targetNote.id}`,
+          });
+        }
       } catch (pushErr) {
         console.warn('OneSignal completeNote push error:', pushErr);
       }
@@ -2652,25 +2678,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Notify Admins in background
     (async () => {
       try {
-        let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+        const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+        let adminIds = getCompanyAdminIds(activeComp);
         if (adminIds.length === 0) {
           try {
             const cloudUsers = await UserService.fetchUsersFromCloud();
-            adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+            adminIds = cloudUsers
+              .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
+              .map((u) => u.id);
           } catch {}
         }
-        if (adminIds.length === 0) adminIds = ['admin-1'];
+        if (adminIds.length === 0 && activeComp === 'POLATLAR') adminIds = ['admin-1'];
 
         const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
-        await OneSignalService.sendPushNotification({
-          title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
-          message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
-          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-          collapseId: `bulk_comp_${completedAt}`,
-        });
+        if (adminIds.length > 0) {
+          await OneSignalService.sendPushNotification({
+            title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
+            message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
+            targetMode: 'custom',
+            targetUserIds: adminIds,
+            companyCode: activeComp,
+            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+            collapseId: `bulk_comp_${completedAt}`,
+          });
+        }
       } catch (pushErr) {
         console.warn('OneSignal completeMultipleNotes push error:', pushErr);
       }
@@ -2906,32 +2937,36 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!isUserAdmin(user)) {
       (async () => {
         try {
-          let adminIds = users.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+          const activeComp = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+          let adminIds = getCompanyAdminIds(activeComp);
           if (adminIds.length === 0) {
             try {
               const cloudUsers = await UserService.fetchUsersFromCloud();
-              adminIds = cloudUsers.filter((u) => u.role === 'admin' || isUserAdmin(u)).map((u) => u.id);
+              adminIds = cloudUsers
+                .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
+                .map((u) => u.id);
             } catch {
               // ignore
             }
           }
-          if (adminIds.length === 0) {
+          if (adminIds.length === 0 && activeComp === 'POLATLAR') {
             adminIds = ['admin-1'];
           }
 
           const locText = newService.location ? ` (${newService.location})` : '';
           const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
-          const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
 
-          await OneSignalService.sendPushNotification({
-            title: '🔧 Yeni Servis Kaydı',
-            message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
-            targetMode: 'custom',
-            targetUserIds: adminIds,
-            companyCode: compCode,
-            url: 'https://saha-takip-beige.vercel.app/?tab=services',
-            collapseId: `srv_new_${newService.id}`,
-          });
+          if (adminIds.length > 0) {
+            await OneSignalService.sendPushNotification({
+              title: '🔧 Yeni Servis Kaydı',
+              message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
+              targetMode: 'custom',
+              targetUserIds: adminIds,
+              companyCode: activeComp,
+              url: 'https://saha-takip-beige.vercel.app/?tab=services',
+              collapseId: `srv_new_${newService.id}`,
+            });
+          }
         } catch (err) {
           console.warn('OneSignal new service push error:', err);
         }
