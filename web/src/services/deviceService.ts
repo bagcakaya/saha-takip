@@ -419,6 +419,7 @@ export const DeviceService = {
     currentDeviceId: string;
     userName?: string;
     username?: string;
+    companyCode?: string;
   }): Promise<{
     allowed: boolean;
     error?: string;
@@ -432,6 +433,11 @@ export const DeviceService = {
     const currentId = params.currentDeviceId || this.getCurrentDeviceId();
     const currentName = this.getCurrentDeviceName(params.userName);
     const env = detectEnvironment();
+    const targetComp = (
+      params.companyCode ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
 
     // 2. Fetch current binding for this user
     const existingBinding = await this.getBindingForUser(params.userId, params.username);
@@ -491,6 +497,7 @@ export const DeviceService = {
         platform: env.platform,
         message: securityLogMessage,
         status: 'danger',
+        companyCode: targetComp,
       }).catch((logErr) => console.warn('Güvenlik logu atılamadı:', logErr));
 
       // Realtime hardware push notification to Admin
@@ -498,6 +505,7 @@ export const DeviceService = {
         title: '🚨 Güvenlik & Cihaz Uyuşmazlığı İhlali',
         message: securityLogMessage,
         targetMode: 'admin',
+        companyCode: targetComp,
         url: 'https://saha-takip-beige.vercel.app/?tab=logs',
       }).catch((pushErr) => console.warn('Güvenlik ihlali bildirimi gönderilemedi:', pushErr));
 

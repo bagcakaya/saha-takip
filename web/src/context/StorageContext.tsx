@@ -3220,6 +3220,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
     }
+    const currentCompCode = (user.companyCode || dataCompanyCode || compCode || 'POLATLAR').toUpperCase();
+
     if (user.role !== 'admin') {
       const curDevId = DeviceService.getCurrentDeviceId();
       const devCheck = await DeviceService.verifyDeviceAccess({
@@ -3228,6 +3230,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         currentDeviceId: curDevId,
         userName: user.name,
         username: user.username,
+        companyCode: currentCompCode,
       });
       if (!devCheck.allowed) {
         return {
@@ -3265,7 +3268,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const compCode = (user?.companyCode || dataCompanyCode || 'POLATLAR').toUpperCase();
     const existingRecord = attendanceRecords.find(
       (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
     );
@@ -3696,6 +3698,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         currentDeviceId: curDevId,
         userName: user.name,
         username: user.username,
+        companyCode: user.companyCode || compCode,
       });
       if (!devCheck.allowed) {
         return {

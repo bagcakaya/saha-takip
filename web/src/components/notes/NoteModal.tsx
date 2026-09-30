@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { GeneralNote, NoteTargetMode } from '../../types/storage';
 import { Bell, Calendar, Clock, Users, Check, MessageCircle, Camera, Image as ImageIcon, X, Loader2, Building2 } from 'lucide-react';
@@ -46,8 +46,15 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Other users list (excluding current user)
-  const otherUsers = users.filter((u) => u.id !== currentUser?.id);
+  // Other users list (strictly belonging to the current user's company, excluding current user)
+  const currentCompCode = (currentUser?.companyCode || 'POLATLAR').trim().toUpperCase();
+  const otherUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (u.id === currentUser?.id) return false;
+      const uComp = (u.companyCode || 'POLATLAR').trim().toUpperCase();
+      return uComp === currentCompCode;
+    });
+  }, [users, currentUser?.id, currentCompCode]);
 
   useEffect(() => {
     if (editingNote) {

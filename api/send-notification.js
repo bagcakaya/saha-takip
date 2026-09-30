@@ -108,9 +108,16 @@ export default async function handler(req, res) {
       payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
     }
 
-    // High priority and sound for iOS APNs & Android FCM
+    // High priority and sound for iOS APNs & Android FCM (wake up locked/killed devices)
     payload.priority = 10;
     payload.ios_sound = 'default';
+    payload.android_sound = 'default';
+    payload.android_visibility = 1; // 1 = Public (show full content on lock screen)
+    payload.content_available = true; // Wakes iOS app in background
+    if (payload.ios_badgeType === undefined) {
+      payload.ios_badgeType = 'Increase';
+      payload.ios_badgeCount = 1;
+    }
 
     // APNs deduplication via collapse_id & web_push_topic
     if (payload.collapse_id) {

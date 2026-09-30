@@ -90,7 +90,8 @@ export const SecurityLogsView: React.FC = () => {
     return securityLogs.filter((log) => {
       // Company scoping: Non-superadmins only see their own company
       if (!isSuperAdmin) {
-        if ((log.companyCode || 'POLATLAR').toUpperCase() !== userComp) return false;
+        const logComp = (log.companyCode || userComp || 'POLATLAR').toUpperCase();
+        if (logComp !== userComp) return false;
       } else if (selectedCompanyFilter !== 'ALL') {
         if ((log.companyCode || 'POLATLAR').toUpperCase() !== selectedCompanyFilter.toUpperCase()) return false;
       }

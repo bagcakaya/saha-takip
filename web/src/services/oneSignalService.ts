@@ -792,6 +792,11 @@ export const OneSignalService = {
       priority: 10,
       ttl: 259200,
       ios_sound: 'default',
+      android_sound: 'default',
+      android_visibility: 1, // 1 = Public on lock screen
+      content_available: true, // Wakes iOS app in background
+      ios_badgeType: 'Increase',
+      ios_badgeCount: 1,
       collapse_id: collapseId,
       web_push_topic: collapseId,
     };
@@ -804,7 +809,7 @@ export const OneSignalService = {
     }
 
     try {
-      // 1. Target: All subscribers of this company (Single blast by company_code)
+      // 1. Target: All subscribers of this company (Single blast by company_code with alias fallback)
       if (targetMode === 'all') {
         const payload = {
           ...basePayload,
@@ -812,8 +817,38 @@ export const OneSignalService = {
             { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
           ],
         };
-        const res = await this._postNotification(payload);
-        return { success: true, data: res };
+        try {
+          const res = await this._postNotification(payload);
+          return { success: true, data: res };
+        } catch (filterErr) {
+          // If tag filter failed, fallback to alias targeting for all users of this company
+          let compUserIds: string[] = [];
+          if (typeof localStorage !== 'undefined') {
+            try {
+              const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                  compUserIds = parsed
+                    .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode && u.id)
+                    .map((u: any) => String(u.id));
+                }
+              }
+            } catch {}
+          }
+          if (compUserIds.length > 0) {
+            try {
+              const aliasPayload = {
+                ...basePayload,
+                include_aliases: { external_id: compUserIds },
+                target_channel: 'push',
+              };
+              const aliasRes = await this._postNotification(aliasPayload);
+              return { success: true, data: aliasRes };
+            } catch {}
+          }
+          throw filterErr;
+        }
       }
 
       // 2. Target: All admins of this company (Single blast by role=admin with alias fallback)

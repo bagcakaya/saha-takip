@@ -1690,9 +1690,13 @@ export const StorageService = {
     };
 
     try {
-      const currentLogs = await this.getSecurityLogs();
-      const updated = [newLog, ...currentLogs.slice(0, 199)]; // Keep latest 200 logs
-      await this.saveSecurityLogs(updated);
+      const slotId = this.getSlotIdForCompany(12, compCode);
+      const currentLogs = await this.getSecurityLogsForCompany(compCode);
+      const updated = [newLog, ...currentLogs.filter((l) => l.id !== newLog.id).slice(0, 199)]; // Keep latest 200 logs
+      await saveChunkedSlot(slotId, updated);
+      if (compCode === activeCompanyCode) {
+        await saveItem(this.getStorageKey(SECURITY_LOGS_KEY), updated);
+      }
     } catch (e) {
       console.warn('Güvenlik logu kaydedilemedi:', e);
     }

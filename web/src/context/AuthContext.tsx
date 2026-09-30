@@ -128,6 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           currentDeviceId,
           userName: user.name,
           username: user.username,
+          companyCode: user.companyCode,
         }).then((check) => {
           if (!check.allowed) {
             alert(check.error || 'Bu cihaz yetkili cihazınız olmadığı için oturum kapatıldı.');
@@ -156,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             currentDeviceId,
             userName: user.name,
             username: user.username,
+            companyCode: user.companyCode,
           }).then((check) => {
             if (!check.allowed) {
               alert(check.error || 'Bu cihaz yetkili cihazınız olmadığı için oturum kapatıldı.');
@@ -273,6 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentDeviceId,
         userName: authenticatedUser.name,
         username: authenticatedUser.username,
+        companyCode: authenticatedUser.companyCode || matchedCompany?.code || 'POLATLAR',
       });
 
       if (!accessCheck.allowed) {
