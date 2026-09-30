@@ -171,7 +171,8 @@ export const OneSignalService = {
               if (u && u.id) {
                 await OneSignal.login(u.id);
                 if (OneSignal.User && OneSignal.User.addTags) {
-                  await OneSignal.User.addTags({ userId: u.id, role: u.role, name: u.name });
+                  const compCode = (u.companyCode || localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
+                  await OneSignal.User.addTags({ userId: u.id, role: u.role, name: u.name, company_code: compCode });
                 }
                 DeviceService.syncCurrentDevice({
                   user: u,
@@ -542,10 +543,12 @@ export const OneSignalService = {
             try {
               await OneSignal.login(user.id);
               if (OneSignal?.User?.addTags) {
+                const compCode = ((user as any)?.companyCode || localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
                 await OneSignal.User.addTags({
                   name: user.name,
                   role: user.role,
                   userId: user.id,
+                  company_code: compCode,
                 });
               }
             } catch {
@@ -807,8 +810,23 @@ export const OneSignalService = {
         return { success: true, data: res };
       }
 
-      // 2. Target: All admins of this company (Single blast by role=admin)
+      // 2. Target: All admins of this company (Single blast by role=admin with alias fallback)
       if (targetMode === 'admin') {
+        let adminUserIds = cleanIds;
+        if (adminUserIds.length === 0 && typeof localStorage !== 'undefined') {
+          try {
+            const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                adminUserIds = parsed
+                  .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode && u.role === 'admin' && u.id)
+                  .map((u: any) => String(u.id));
+              }
+            }
+          } catch {}
+        }
+
         const payload = {
           ...basePayload,
           filters: [
@@ -816,8 +834,23 @@ export const OneSignalService = {
             { field: 'tag', key: 'role', relation: '=', value: 'admin' },
           ],
         };
-        const res = await this._postNotification(payload);
-        return { success: true, data: res };
+        try {
+          const res = await this._postNotification(payload);
+          return { success: true, data: res };
+        } catch (filterErr) {
+          if (adminUserIds.length > 0) {
+            try {
+              const aliasPayload = {
+                ...basePayload,
+                include_aliases: { external_id: adminUserIds },
+                target_channel: 'push',
+              };
+              const aliasRes = await this._postNotification(aliasPayload);
+              return { success: true, data: aliasRes };
+            } catch {}
+          }
+          throw filterErr;
+        }
       }
 
       // 3. Target: Explicit Hardware Player IDs (e.g. specific device test or locked screen test)

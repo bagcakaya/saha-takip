@@ -253,6 +253,7 @@ const saveStoredSet = (key: string, setObj: Set<string>) => {
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, users, company } = useAuth();
+  const compCode = (user?.companyCode || (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) || 'POLATLAR').trim().toUpperCase();
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
@@ -1678,6 +1679,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
           collapseId: `loc_new_${newLocation.id}`,
         }).catch((err) => console.warn('OneSignal new loc push error:', err));
@@ -1749,6 +1751,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
           targetMode: 'custom',
           targetUserIds: adminIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=installations',
           collapseId: `loc_alltasks_${updatedTarget.id}`,
         }).catch((err) => console.warn('OneSignal complete task push error:', err));
@@ -1957,6 +1960,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
           targetMode: 'custom',
           targetUserIds: adminIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
           collapseId: `loc_comp_${targetLocation.id}`,
         });
@@ -2018,6 +2022,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${locSnippet}" kurulumunuzu onayladı.`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
             collapseId: `loc_app_${id}`,
           });
@@ -2082,6 +2087,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${locSnippet}" kurulumunu reddetti. Gerekçe: ${trimmedReason}`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
             collapseId: `loc_rej_${id}`,
           });
@@ -2157,6 +2163,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: notifMsg,
         targetMode,
         targetUserIds,
+        companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
         collapseId: `note_new_${newNote.id}`,
       }).catch((err) => console.warn('OneSignal addNote push error:', err));
@@ -2177,7 +2184,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: notifMsg,
         targetMode: effectiveMode,
         targetUserIds: effectiveUserIds,
-        companyCode: user?.companyCode || 'POLATLAR',
+        companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
         sendAfter: new Date(reminderDate).toISOString(),
         collapseId: `note_rem_${newNote.id}`,
@@ -2232,6 +2239,27 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('saveSingleNote update error:', err);
       });
 
+      // Send update arrival notification to assigned personnel if not self
+      if (noteToSave.targetMode !== 'self') {
+        const notifTitle = noteToSave.cariName
+          ? `📋 ${noteToSave.cariName} - İş Emri Güncellendi (${user?.name || user?.username || 'Yönetici'})`
+          : `📋 ${user?.name || user?.username || 'Yönetici'} İş Emrini Güncelledi!`;
+
+        const notifMsg = noteToSave.cariName
+          ? `🏢 CARİ: ${noteToSave.cariName}\n📝 ${noteToSave.content}`
+          : noteToSave.content;
+
+        OneSignalService.sendPushNotification({
+          title: notifTitle,
+          message: notifMsg,
+          targetMode: noteToSave.targetMode,
+          targetUserIds: noteToSave.targetUserIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+          collapseId: `note_upd_${noteToSave.id}`,
+        }).catch((err) => console.warn('OneSignal updateNote push error:', err));
+      }
+
       // Update or cancel scheduled reminder push
       if (reminderActive && reminderDate) {
         const isTargetSelf = noteToSave.targetMode === 'self';
@@ -2246,7 +2274,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: notifMsg,
           targetMode: effectiveMode,
           targetUserIds: effectiveUserIds,
-          companyCode: user?.companyCode || 'POLATLAR',
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
           sendAfter: new Date(reminderDate).toISOString(),
           collapseId: `note_rem_${id}`,
@@ -2337,6 +2365,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
           targetMode: 'custom',
           targetUserIds: adminIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
           collapseId: `note_comp_${targetNote.id}`,
         });
@@ -2409,6 +2438,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
             collapseId: `note_app_${id}`,
           });
@@ -2484,6 +2514,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
             collapseId: `note_rej_${id}`,
           });
@@ -2559,6 +2590,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, ${updatedNotesList.length} adet iş emrinizi başarıyla onayladı.`,
             targetMode: 'custom',
             targetUserIds: recipientList,
+            companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
             collapseId: `bulk_app_${approvedAt}`,
           });
@@ -2635,6 +2667,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
           targetMode: 'custom',
           targetUserIds: adminIds,
+          companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
           collapseId: `bulk_comp_${completedAt}`,
         });
@@ -2763,6 +2796,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: `🛡️ Garanti Takibi (20 Gün): ${newItem.companyName}`,
         message: `${newItem.companyName} firmasına gönderilen garanti ürününün 20 günü doldu. Lütfen son durumunu sorgulayın.`,
         targetMode: 'all',
+        companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=returns',
         sendAfter: new Date(newItem.reminderDate).toISOString(),
       }).catch((err) => console.warn('OneSignal warranty reminder push error:', err));
@@ -3259,6 +3293,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${assignedBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(distToAssigned)})`,
             targetMode: 'admin',
+            companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
           }).catch(() => {});
 
@@ -3332,6 +3367,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '⚠️ Farklı Şubede Mesai Onay Talebi',
             message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başlamak için onay talep etti.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
             targetMode: 'admin',
+            companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
           }).catch(() => {});
 
@@ -3381,8 +3417,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         OneSignalService.sendPushNotification({
           title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         }).catch(() => {});
 
@@ -3427,6 +3464,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, ${nearBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(nearDist)})`,
             targetMode: 'admin',
+            companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
           }).catch(() => {});
 
@@ -3485,8 +3523,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         OneSignalService.sendPushNotification({
           title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         }).catch(() => {});
 
@@ -3546,8 +3585,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       OneSignalService.sendPushNotification({
         title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
 
@@ -3585,6 +3625,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🟢 Personel İşe Giriş Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
       targetMode: 'admin',
+      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
 
@@ -3778,8 +3819,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // CRITICAL: Push notification to admins
       OneSignalService.sendPushNotification({
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
-        message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta (20m dışı) işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
 
@@ -3834,6 +3876,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🔴 Personel İşten Çıkış Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${targetName} şubesinden çıkış yaptı. (Toplam Mesai: ${durationText})`,
       targetMode: 'admin',
+      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
 
@@ -3885,6 +3928,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
+
+    // Push notification to admins about break start
+    OneSignalService.sendPushNotification({
+      title: '☕ Personel Molaya Çıktı',
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Not: ${note})` : ''}`,
+      targetMode: 'admin',
+      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch(() => {});
 
     return {
       success: true,
@@ -3947,6 +3999,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
 
+    // Push notification to admins about break end
+    OneSignalService.sendPushNotification({
+      title: '🔄 Personel Moladan Döndü',
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${durationMinutes} dk)`,
+      targetMode: 'admin',
+      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
+      url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+    }).catch(() => {});
+
     return {
       success: true,
       message: `Molanız sonlandırıldı (${durationMinutes} dakika). Mesainize başarıyla döndünüz!`,
@@ -3981,6 +4042,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onayladı. İyi çalışmalar!`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
+        companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
     } else {
@@ -4006,6 +4068,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onayladı. (Toplam Mesai: ${durationText})`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
+        companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
     }
@@ -4041,6 +4104,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
+        companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
     } else {
@@ -4066,6 +4130,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
+        companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
     }
@@ -4211,6 +4276,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
       } İzin talebinde bulundu. Neden: ${params.reason}`,
       targetMode: 'admin',
+      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch((pushErr) => {
       console.warn('İzin talebi bildirim gönderim hatası:', pushErr);
@@ -4251,6 +4317,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } izin talebiniz (${req.durationText}) onaylandı.`,
       targetUserIds: [req.userId],
       targetMode: 'custom',
+      companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch((e) => {
       console.warn('İzin onay bildirimi hatası:', e);
@@ -4293,6 +4360,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } izin talebiniz reddedildi.${reason ? ` Gerekçe: ${reason}` : ''}`,
       targetUserIds: [req.userId],
       targetMode: 'custom',
+      companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch((e) => {
       console.warn('İzin ret bildirimi hatası:', e);

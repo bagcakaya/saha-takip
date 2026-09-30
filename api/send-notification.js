@@ -96,7 +96,7 @@ export default async function handler(req, res) {
       payload.contents = { en: cText, tr: cText };
     }
 
-    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids) {
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids && !payload.filters) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';
     }
