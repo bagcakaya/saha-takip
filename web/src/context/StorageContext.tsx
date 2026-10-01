@@ -154,6 +154,7 @@ interface StorageContextType {
   }>;
   startBreak: (note?: string) => Promise<{ success: boolean; message: string }>;
   endBreak: () => Promise<{ success: boolean; message: string }>;
+  endBreakForStaff: (recordId: string) => Promise<{ success: boolean; message: string }>;
   approveAttendance: (
     recordId: string,
     actionType: 'checkin' | 'checkout'
@@ -3306,14 +3307,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const hasBranches = branches && branches.length > 0;
     const hasWorkplace = !!(workplaceLocation && workplaceLocation.latitude && workplaceLocation.longitude);
 
-    if (!hasBranches && !hasWorkplace) {
+    if (!hasBranches && !hasWorkplace && user.role !== 'admin') {
       return {
         success: false,
         message: 'İş yeri veya şube konumu henüz yönetici tarafından belirlenmemiş. Lütfen yöneticiniz ile iletişime geçin.',
       };
     }
 
-    let userPos;
+    let userPos: { latitude: number; longitude: number; address?: string } | undefined;
     try {
       userPos = await LocationService.getCurrentPosition();
     } catch (err: any) {
@@ -3323,11 +3324,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: err.message,
         };
       }
-      return {
-        success: false,
-        isLocationDisabled: true,
-        message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
-      };
+      if (user.role !== 'admin') {
+        return {
+          success: false,
+          isLocationDisabled: true,
+          message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
+        };
+      }
+      // Yöneticiler için GPS açılamasa dahi mesai engellenmez
+      userPos = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -3349,30 +3354,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR ---
-    // Yönetici nerede olursa olsun "İşe Geldim" dediğinde anında onaylı mesaiye başlar
+    // Yönetici nerede olursa olsun "İşe Geldim" dediğinde anında onaylı mesaiye başlar. Şubeden konum almaz.
     if (user.role === 'admin') {
-      let matchedBranch = branches && branches.length > 0 ? branches[0] : null;
-      let minDistance = 0;
-      if (branches && branches.length > 0) {
-        let bestDist = Infinity;
-        for (const b of branches) {
-          const d = LocationService.calculateDistance(
-            userPos.latitude,
-            userPos.longitude,
-            b.latitude,
-            b.longitude
-          );
-          if (d < bestDist) {
-            bestDist = d;
-            matchedBranch = b;
-            minDistance = d;
-          }
-        }
-      }
-
-      const branchName = matchedBranch ? matchedBranch.name : 'Yönetim / Merkez';
-      const branchId = matchedBranch ? matchedBranch.id : undefined;
-
       const newRecord: AttendanceRecord = {
         id: generateId(),
         userId: user.id,
@@ -3381,16 +3364,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         companyCode: compCode,
         date: todayStr,
         checkInTime: Date.now(),
-        checkInLat: userPos.latitude,
-        checkInLon: userPos.longitude,
-        checkInAddress: userPos.address,
-        checkInDistance: minDistance || 0,
+        checkInLat: userPos?.latitude,
+        checkInLon: userPos?.longitude,
+        checkInAddress: userPos?.address || 'Genel Yönetim',
+        checkInDistance: 0,
         checkInOutside: false,
         checkInApprovalStatus: 'approved',
-        branchId,
-        branchName,
         status: 'checked_in',
-        notes: 'Yönetici mesaisi (20m kuralından muaf)',
+        notes: 'Yönetici mesaisi (20m kuralından ve şubeden muaf)',
       };
 
       const updated = [newRecord, ...attendanceRecords];
@@ -3399,8 +3380,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       return {
         success: true,
-        distance: minDistance,
-        message: `Yönetici mesainiz başarıyla onaylandı!${typeof navigator !== 'undefined' && !navigator.onLine ? ' (Çevrimdışı - Bağlantı sağlandığında eşitlenecektir)' : ` (${branchName})`}`,
+        distance: 0,
+        message: 'Yönetici mesainiz başarıyla onaylandı (20m ve şube sınırından muaftır).',
       };
     }
 
@@ -3857,6 +3838,65 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
+    // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR ---
+    if (user.role === 'admin') {
+      const checkOutTime = Date.now();
+      const durationMinutes = Math.max(1, Math.round((checkOutTime - record.checkInTime) / 60000));
+      const hours = Math.floor(durationMinutes / 60);
+      const mins = durationMinutes % 60;
+      const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
+
+      let finalBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+      let totalBreakMinutes = record.totalBreakMinutes || 0;
+      if (record.isOnBreak && finalBreaks.length > 0) {
+        const lastIndex = finalBreaks.length - 1;
+        const bStart = record.currentBreakStartTime || finalBreaks[lastIndex].startTime;
+        const bDuration = Math.max(1, Math.round((checkOutTime - bStart) / 60000));
+        finalBreaks[lastIndex] = {
+          ...finalBreaks[lastIndex],
+          endTime: checkOutTime,
+          durationMinutes: bDuration,
+        };
+        totalBreakMinutes = finalBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+      }
+
+      let adminPos: { latitude?: number; longitude?: number; address?: string } = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
+      try {
+        const pos = await LocationService.getCurrentPosition();
+        if (pos) {
+          adminPos = { latitude: pos.latitude, longitude: pos.longitude, address: pos.address || 'Genel Yönetim' };
+        }
+      } catch {}
+
+      const updatedRecord: AttendanceRecord = {
+        ...record,
+        checkOutTime,
+        checkOutLat: adminPos.latitude,
+        checkOutLon: adminPos.longitude,
+        checkOutAddress: adminPos.address || 'Genel Yönetim',
+        checkOutDistance: 0,
+        checkOutOutside: false,
+        checkOutApprovalStatus: 'approved',
+        status: 'completed',
+        workDurationMinutes: durationMinutes,
+        breaks: finalBreaks,
+        isOnBreak: false,
+        currentBreakStartTime: undefined,
+        totalBreakMinutes,
+      };
+
+      const updatedRecords = [...attendanceRecords];
+      updatedRecords[recordIndex] = updatedRecord;
+      setAttendanceRecords(updatedRecords);
+      await StorageService.saveAttendanceRecords(updatedRecords);
+
+      return {
+        success: true,
+        distance: 0,
+        message: `Yönetici mesainiz başarıyla sonlandırıldı (${durationText}).`,
+      };
+    }
+
     let userPos;
     try {
       userPos = await LocationService.getCurrentPosition();
@@ -3901,16 +3941,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     if (!targetLat || !targetLon) {
-      if (user.role === 'admin') {
-        targetLat = userPos.latitude;
-        targetLon = userPos.longitude;
-        targetName = 'Yönetim / Merkez';
-      } else {
-        return {
-          success: false,
-          message: 'İş yeri veya şube konumu belirlenemedi.',
-        };
-      }
+      return {
+        success: false,
+        message: 'İş yeri veya şube konumu belirlenemedi.',
+      };
     }
 
     const distance = LocationService.calculateDistance(
@@ -3927,8 +3961,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const mins = durationMinutes % 60;
     const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
 
-    // If outside 20m and NOT admin, require confirmation & approval (Yöneticiler 20m kuralından muaf!)
-    if (user.role !== 'admin' && distance > allowedRadius) {
+    // If outside 20m, require confirmation & approval
+    if (distance > allowedRadius) {
       if (!options?.allowOutside) {
         return {
           success: false,
@@ -4115,7 +4149,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const todayStr = new Date().toISOString().split('T')[0];
     const recordIndex = attendanceRecords.findIndex(
-      (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
+      (r) => r.userId === user.id && r.date === todayStr && (r.isOnBreak || r.status === 'checked_in' || r.status === 'pending_checkin_approval')
     );
 
     if (recordIndex === -1) {
@@ -4143,6 +4177,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         endTime: now,
         durationMinutes,
       };
+    } else {
+      existingBreaks.push({
+        id: generateId(),
+        startTime,
+        endTime: now,
+        durationMinutes,
+      });
     }
 
     const totalBreakMinutes = existingBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
@@ -4174,6 +4215,65 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return {
       success: true,
       message: `Molanız sonlandırıldı (${durationMinutes} dakika). Mesainize başarıyla döndünüz!`,
+    };
+  };
+
+  // Staff break tracking: Force end break for any staff member (Admin action)
+  const endBreakForStaff = async (recordId: string): Promise<{ success: boolean; message: string }> => {
+    const recordIndex = attendanceRecords.findIndex((r) => r.id === recordId);
+    if (recordIndex === -1) {
+      return { success: false, message: 'Mesai kaydı bulunamadı.' };
+    }
+
+    const record = attendanceRecords[recordIndex];
+    if (!record.isOnBreak) {
+      return { success: false, message: 'Bu personel şu anda molada görünmüyor.' };
+    }
+
+    const now = Date.now();
+    const startTime =
+      record.currentBreakStartTime ||
+      (record.breaks && record.breaks.length > 0
+        ? record.breaks[record.breaks.length - 1].startTime
+        : now);
+    const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
+
+    const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+    if (existingBreaks.length > 0) {
+      const lastIndex = existingBreaks.length - 1;
+      existingBreaks[lastIndex] = {
+        ...existingBreaks[lastIndex],
+        endTime: now,
+        durationMinutes,
+      };
+    } else {
+      existingBreaks.push({
+        id: generateId(),
+        startTime,
+        endTime: now,
+        durationMinutes,
+      });
+    }
+
+    const totalBreakMinutes = existingBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+
+    const updatedRecord: AttendanceRecord = {
+      ...record,
+      isOnBreak: false,
+      currentBreakStartTime: undefined,
+      breaks: existingBreaks,
+      totalBreakMinutes,
+    };
+
+    const updated = [...attendanceRecords];
+    updated[recordIndex] = updatedRecord;
+
+    setAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated);
+
+    return {
+      success: true,
+      message: `${record.userName} personelinin molası başarıyla sonlandırıldı (${durationMinutes} dk). Mesaiye döndürüldü.`,
     };
   };
 
@@ -5532,6 +5632,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkOutStaff,
         startBreak,
         endBreak,
+        endBreakForStaff,
         approveAttendance,
         rejectAttendance,
         cancelAttendanceRequest,

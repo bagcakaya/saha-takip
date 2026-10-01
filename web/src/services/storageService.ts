@@ -1549,23 +1549,33 @@ export const StorageService = {
         }
 
         // 2. Mola bilgileri (yerelde molaya çıkılmış veya mola bitirilmişse)
-        if (
-          Array.isArray(localRec.breaks) &&
-          (!Array.isArray(cloudRec.breaks) || localRec.breaks.length > cloudRec.breaks.length)
-        ) {
-          updated.breaks = localRec.breaks;
-          updated.isOnBreak = localRec.isOnBreak;
-          updated.currentBreakStartTime = localRec.currentBreakStartTime;
-          updated.totalBreakMinutes = localRec.totalBreakMinutes;
-          localHasNewerData = true;
-        } else if (
-          localRec.isOnBreak !== cloudRec.isOnBreak &&
+        const localBreaks = Array.isArray(localRec.breaks) ? localRec.breaks : [];
+        const cloudBreaks = Array.isArray(cloudRec.breaks) ? cloudRec.breaks : [];
+        const localLastBreak = localBreaks[localBreaks.length - 1];
+        const cloudLastBreak = cloudBreaks[cloudBreaks.length - 1];
+
+        const localHasMoreBreaks = localBreaks.length > cloudBreaks.length;
+        const localEndedBreak = Boolean(cloudRec.isOnBreak && !localRec.isOnBreak);
+        const localBreakHasEndTime = Boolean(localLastBreak?.endTime && !cloudLastBreak?.endTime);
+        const localStartedNewerBreak = Boolean(!cloudRec.isOnBreak && localRec.isOnBreak);
+        const localNewerStartTime = Boolean(
           localRec.currentBreakStartTime &&
           (!cloudRec.currentBreakStartTime || localRec.currentBreakStartTime > (cloudRec.currentBreakStartTime || 0))
+        );
+        const localMoreBreakMinutes = (localRec.totalBreakMinutes || 0) > (cloudRec.totalBreakMinutes || 0);
+
+        if (
+          localHasMoreBreaks ||
+          localEndedBreak ||
+          localBreakHasEndTime ||
+          localStartedNewerBreak ||
+          localNewerStartTime ||
+          localMoreBreakMinutes
         ) {
-          updated.isOnBreak = localRec.isOnBreak;
+          updated.breaks = localBreaks.length > 0 ? localBreaks : (cloudBreaks.length > 0 ? cloudBreaks : []);
+          updated.isOnBreak = Boolean(localRec.isOnBreak);
           updated.currentBreakStartTime = localRec.currentBreakStartTime;
-          updated.totalBreakMinutes = localRec.totalBreakMinutes;
+          updated.totalBreakMinutes = localRec.totalBreakMinutes || 0;
           localHasNewerData = true;
         }
 

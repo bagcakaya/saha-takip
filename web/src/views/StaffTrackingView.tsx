@@ -31,6 +31,8 @@ import {
   ArrowLeft,
   Navigation,
   XCircle,
+  ShieldCheck,
+  WifiOff,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -61,6 +63,7 @@ export const StaffTrackingView: React.FC = () => {
     checkOutStaff,
     startBreak,
     endBreak,
+    endBreakForStaff,
     approveAttendance,
     rejectAttendance,
     cancelAttendanceRequest,
@@ -75,18 +78,20 @@ export const StaffTrackingView: React.FC = () => {
 
   const isAdmin = isUserAdmin(user);
 
-  // User's assigned branch
+  // User's assigned branch (Yöneticiler herhangi bir şubeye bağlı değildir, şubeden konum almaz)
   const userAssignedBranch = useMemo(() => {
+    if (isAdmin) return null;
     if (!branches || branches.length === 0 || !user) return null;
     return branches.find(
       (b) =>
         (b.assignedUserIds && b.assignedUserIds.includes(user.id)) ||
         (user.branchId && b.id === user.branchId)
     );
-  }, [branches, user]);
+  }, [branches, user, isAdmin]);
 
-  // Target location for live distance calculation & geofence UI
+  // Target location for live distance calculation & geofence UI (Yöneticiler 20m kuralı ve şube konumundan tamamen muaftır)
   const targetLocation = useMemo(() => {
+    if (isAdmin) return null;
     if (userAssignedBranch) {
       return {
         name: userAssignedBranch.name,
@@ -121,7 +126,7 @@ export const StaffTrackingView: React.FC = () => {
       };
     }
     return null;
-  }, [userAssignedBranch, workplaceLocation, branches]);
+  }, [userAssignedBranch, workplaceLocation, branches, isAdmin]);
 
   const allowedRadius = targetLocation?.radius || 20;
 
@@ -235,6 +240,12 @@ export const StaffTrackingView: React.FC = () => {
   const [locationModalIntent, setLocationModalIntent] = useState<'checkin' | 'checkout' | 'verify'>('verify');
 
   const checkLiveDistance = async (showSuccessFeedback = false) => {
+    if (isAdmin) {
+      setCurrentDistance(null);
+      setDistanceError('');
+      setIsCheckingDistance(false);
+      return;
+    }
     if (!targetLocation?.latitude || !targetLocation?.longitude) {
       setDistanceError('İş yeri veya şube lokasyonu henüz belirlenmemiş.');
       return;
@@ -352,6 +363,24 @@ export const StaffTrackingView: React.FC = () => {
   const [showCheckOutConfirmModal, setShowCheckOutConfirmModal] = useState(false);
 
   const handleCheckIn = async (allowOutside = false, customNote?: string) => {
+    if (isAdmin) {
+      try {
+        setIsProcessingAction(true);
+        setActionFeedback(null);
+        const res = await checkInStaff({ allowOutside: true, note: customNote });
+        if (res.success) {
+          setActionFeedback({ type: 'success', text: res.message });
+        } else {
+          setActionFeedback({ type: 'error', text: res.message });
+        }
+      } catch (err: any) {
+        setActionFeedback({ type: 'error', text: err?.message || 'İşe giriş yapılırken bir hata oluştu.' });
+      } finally {
+        setIsProcessingAction(false);
+      }
+      return;
+    }
+
     // If location is disabled, block check-in and display informative modal
     if (isLocationDisabled) {
       setLocationModalIntent('checkin');
@@ -408,6 +437,25 @@ export const StaffTrackingView: React.FC = () => {
   };
 
   const handleCheckOut = async (allowOutside = false, customNote?: string) => {
+    if (isAdmin) {
+      try {
+        setIsProcessingAction(true);
+        setActionFeedback(null);
+        const res = await checkOutStaff({ allowOutside: true, note: customNote });
+        if (res.success) {
+          setActionFeedback({ type: 'success', text: res.message });
+          setShowCheckOutConfirmModal(false);
+        } else {
+          setActionFeedback({ type: 'error', text: res.message });
+        }
+      } catch (err: any) {
+        setActionFeedback({ type: 'error', text: err?.message || 'İşten çıkış yapılırken bir hata oluştu.' });
+      } finally {
+        setIsProcessingAction(false);
+      }
+      return;
+    }
+
     // If location is disabled, block check-out and display informative modal
     if (isLocationDisabled) {
       setLocationModalIntent('checkout');
@@ -1223,6 +1271,25 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
   };
 
+  const handleForceEndBreak = async (rec: AttendanceRecord) => {
+    if (!window.confirm(`"${rec.userName}" personeli için molayı sonlandırıp mesaiye döndürmek istediğinize emin misiniz?`)) {
+      return;
+    }
+    try {
+      const res = await endBreakForStaff(rec.id);
+      if (res.success) {
+        alert(res.message);
+      } else {
+        alert(res.message || 'Mola sonlandırılamadı.');
+      }
+    } catch (e: any) {
+      alert('Hata: ' + (e?.message || 'Mola sonlandırılamadı.'));
+    }
+  };
+
+  // Online / Offline tracking
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+
   // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
   type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
   const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
@@ -1230,6 +1297,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       try {
         const params = new URLSearchParams(window.location.search);
         const sec = params.get('section');
+        if (sec === 'checkin_checkout' && typeof navigator !== 'undefined' && !navigator.onLine) {
+          return 'menu';
+        }
         if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace'].includes(sec)) {
           return sec as ActiveSection;
         }
@@ -1237,6 +1307,23 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
     return 'menu';
   });
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => {
+      setIsOnline(false);
+      if (activeSection === 'checkin_checkout') {
+        alert('İnternet bağlantınız kesildi. Lütfen internet bağlantınızı kontrol edin.');
+        setActiveSection('menu');
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [activeSection]);
 
   const SECTION_INFO_WEB: Record<string, { title: string; subtitle: string; icon: any; color: string; bg: string }> = {
     checkin_checkout: {
@@ -1278,6 +1365,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
   const navigateToSection = (section: ActiveSection) => {
+    if (section === 'checkin_checkout') {
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      if (!online) {
+        alert('Lütfen internet bağlantınızı kontrol edin. İşe Giriş / Çıkış ekranına girmek için aktif bir internet bağlantısı gereklidir.');
+        return;
+      }
+    }
     if (!isAdmin && section === 'summary') {
       setActiveSection('checkin_checkout');
       return;
@@ -2287,117 +2381,167 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
       {/* --- SECTION 2: CANLI MESAFE KARTI & İŞE GİRİŞ / ÇIKIŞ BUTONLARI --- */}
       {activeSection === 'checkin_checkout' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Sol Kolon: Canlı Geofence ve Şube / İş Yeri Bilgisi */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                {targetLocation?.isBranch ? (
-                  <Store className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                ) : (
-                  <MapPin className="w-4 h-4 text-emerald-500" />
-                )}
-                <span>
-                  {targetLocation
-                    ? targetLocation.isBranch
-                      ? `Şube: ${targetLocation.name}`
-                      : targetLocation.name
-                    : 'İş Yeri Konumu'}
-                </span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => checkLiveDistance()}
-                disabled={isCheckingDistance}
-                className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 transition-all cursor-pointer"
-                title="Mesafeyi Yeniden Ölç"
-              >
-                <RefreshCw className={"w-3.5 h-3.5 " + (isCheckingDistance ? "animate-spin" : "")} />
-              </button>
+        !isOnline ? (
+          <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 max-w-md mx-auto space-y-4 my-8 shadow-lg">
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto">
+              <WifiOff className="w-7 h-7" />
             </div>
-
-            <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                  {targetLocation?.isBranch ? 'Şube Lokasyon Adresi' : 'Merkez Adresi'}
-                </p>
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-                  {allowedRadius} Metre Sınırı
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">İnternet Bağlantısı Yok</h3>
+              <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold leading-relaxed">
+                Lütfen internet bağlantınızı kontrol edin. İşe giriş ve çıkış işlemleri için aktif internet bağlantısı gereklidir.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveSection('menu')}
+              className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs font-black hover:opacity-90 transition-all cursor-pointer"
+            >
+              Menüye Dön
+            </button>
+          </div>
+        ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Sol Kolon: Canlı Geofence ve Şube / İş Yeri Bilgisi (Yöneticiler 20m ve Şubeden Muaf) */}
+        {isAdmin ? (
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-blue-200 dark:border-blue-900/60 shadow-sm flex flex-col justify-between space-y-4">
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>Yönetici Mesai Modu</span>
+                </h3>
+                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  20m Sınırından Muaf
                 </span>
               </div>
-              <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 line-clamp-2">
-                {targetLocation?.address || workplaceLocation?.address || 'Yönetici henüz bir konum belirlemedi.'}
-              </p>
-              {userAssignedBranch && (
-                <div className="text-[11px] text-teal-700 dark:text-teal-300 font-semibold pt-1 flex items-center gap-1.5">
-                  <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                  <span>Bağlı Olduğunuz Şube: <strong>{userAssignedBranch.name}</strong></span>
+
+              <div className="mt-4 space-y-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                  Yönetici Konum ve Mesai Yetkisi
+                </p>
+                <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                  Yönetici hesabınız herhangi bir şubeye bağlı değildir ve 20 metre yarıçap kuralından tamamen muaftır. Dilediğiniz lokasyondan tek tıkla mesai başlatabilir ve mesaiyi bitirebilirsiniz.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span>Serbest Mesai Aktif (Şube konumu aranmaz, onaysız anında başlar)</span>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  {targetLocation?.isBranch ? (
+                    <Store className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                  ) : (
+                    <MapPin className="w-4 h-4 text-emerald-500" />
+                  )}
+                  <span>
+                    {targetLocation
+                      ? targetLocation.isBranch
+                        ? `Şube: ${targetLocation.name}`
+                        : targetLocation.name
+                      : 'İş Yeri Konumu'}
+                  </span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => checkLiveDistance()}
+                  disabled={isCheckingDistance}
+                  className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 transition-all cursor-pointer"
+                  title="Mesafeyi Yeniden Ölç"
+                >
+                  <RefreshCw className={"w-3.5 h-3.5 " + (isCheckingDistance ? "animate-spin" : "")} />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                    {targetLocation?.isBranch ? 'Şube Lokasyon Adresi' : 'Merkez Adresi'}
+                  </p>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                    {allowedRadius} Metre Sınırı
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 line-clamp-2">
+                  {targetLocation?.address || workplaceLocation?.address || 'Yönetici henüz bir konum belirlemedi.'}
+                </p>
+                {userAssignedBranch && (
+                  <div className="text-[11px] text-teal-700 dark:text-teal-300 font-semibold pt-1 flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <span>Bağlı Olduğunuz Şube: <strong>{userAssignedBranch.name}</strong></span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mesafe Ölçüm Durum Kartı */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-500 dark:text-slate-400">Anlık Mesafe:</span>
+                <span className="font-black text-sm text-slate-900 dark:text-slate-100">
+                  {isCheckingDistance ? (
+                    <span className="inline-flex items-center gap-1 text-slate-400">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Ölçülüyor...
+                    </span>
+                  ) : currentDistance !== null ? (
+                    LocationService.formatDistance(currentDistance)
+                  ) : (
+                    'Hesaplanmadı'
+                  )}
+                </span>
+              </div>
+
+              {/* Geofence Durumu */}
+              {currentDistance !== null && (
+                <div
+                  className={"p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 " + (
+                    currentDistance <= allowedRadius
+                      ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                      : "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                  )}
+                >
+                  {currentDistance <= allowedRadius ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span>
+                        {targetLocation?.isBranch ? `${targetLocation.name} Şubesindesiniz` : 'İş Yerindesiniz'} ({allowedRadius}m Alanı İçindesiniz) ✅
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                      <span>
+                        {targetLocation?.isBranch ? `${targetLocation.name} Şubesi Dışındasınız` : 'İş Yeri Dışındasınız'} ({LocationService.formatDistance(currentDistance)})
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Mesafe Ölçüm Durum Kartı */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-500 dark:text-slate-400">Anlık Mesafe:</span>
-              <span className="font-black text-sm text-slate-900 dark:text-slate-100">
-                {isCheckingDistance ? (
-                  <span className="inline-flex items-center gap-1 text-slate-400">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Ölçülüyor...
-                  </span>
-                ) : currentDistance !== null ? (
-                  LocationService.formatDistance(currentDistance)
-                ) : (
-                  'Hesaplanmadı'
-                )}
-              </span>
-            </div>
-
-            {/* Geofence Durumu */}
-            {currentDistance !== null && (
-              <div
-                className={"p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 " + (
-                  currentDistance <= allowedRadius
-                    ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
-                    : "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
-                )}
-              >
-                {currentDistance <= allowedRadius ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>
-                      {targetLocation?.isBranch ? `${targetLocation.name} Şubesindesiniz` : 'İş Yerindesiniz'} ({allowedRadius}m Alanı İçindesiniz) ✅
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-                    <span>
-                      {targetLocation?.isBranch ? `${targetLocation.name} Şubesi Dışındasınız` : 'İş Yeri Dışındasınız'} ({LocationService.formatDistance(currentDistance)})
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-
-            {isLocationDisabled ? (
-              <div className="p-2.5 rounded-xl text-xs font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-start gap-2">
-                <MapPinOff className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-                <div className="space-y-0.5">
-                  <p className="font-black">Konum Servisleri Kapalı</p>
-                  <p className="text-[10px] font-normal leading-tight text-rose-600 dark:text-rose-400">
-                    Mesafe ölçülemiyor. Giriş ve çıkış yapabilmek için konum servislerini açmalısınız.
-                  </p>
+              {isLocationDisabled ? (
+                <div className="p-2.5 rounded-xl text-xs font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-start gap-2">
+                  <MapPinOff className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-black">Konum Servisleri Kapalı</p>
+                    <p className="text-[10px] font-normal leading-tight text-rose-600 dark:text-rose-400">
+                      Mesafe ölçülemiyor. Giriş ve çıkış yapabilmek için konum servislerini açmalısınız.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ) : distanceError ? (
-              <p className="text-[11px] text-red-500 font-semibold">{distanceError}</p>
-            ) : null}
+              ) : distanceError ? (
+                <p className="text-[11px] text-red-500 font-semibold">{distanceError}</p>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Sağ Kolon: Büyük Butonlar ve Bugünkü Durum (2 span) */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-5">
@@ -2509,7 +2653,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           )}
 
           {/* Konum Servisleri Kapalı İkaz Banner'ı */}
-          {isLocationDisabled && (
+          {!isAdmin && isLocationDisabled && (
             <div className="p-4 rounded-2xl bg-rose-500/10 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-800 space-y-3 animate-in fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-start gap-3">
@@ -2559,7 +2703,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             <button
               type="button"
               onClick={() => {
-                if (isLocationDisabled) {
+                if (isAdmin) {
+                  handleCheckIn(true);
+                } else if (isLocationDisabled) {
                   setLocationModalIntent('checkin');
                   setIsLocationModalOpen(true);
                 } else {
@@ -2570,7 +2716,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
                 isCheckedIn || isPendingCheckIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
-                  : isLocationDisabled
+                  : !isAdmin && isLocationDisabled
                   ? 'bg-gradient-to-br from-emerald-700/60 to-teal-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
                   : 'bg-gradient-to-br from-emerald-500 to-teal-700 hover:from-emerald-600 hover:to-teal-800 text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
               )}
@@ -2584,18 +2730,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
                 <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
-                  isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
+                  !isAdmin && isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
                 )}>
-                  {isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
+                  {isAdmin ? 'Yönetici Girişi' : isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
                 </span>
               </div>
               <div>
                 <h4 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
                   <span>🟢 İşe Geldim</span>
-                  {isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
+                  {!isAdmin && isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
-                  {isLocationDisabled
+                  {isAdmin
+                    ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan başlatın (20m kuralından muaf).'
+                    : isLocationDisabled
                     ? '⚠️ Konumunuz kapalı. Mesaiye başlamak için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                     : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.'}
                 </p>
@@ -2606,7 +2754,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             <button
               type="button"
               onClick={() => {
-                if (isLocationDisabled) {
+                if (isAdmin) {
+                  handleCheckOut(true);
+                } else if (isLocationDisabled) {
                   setLocationModalIntent('checkout');
                   setIsLocationModalOpen(true);
                 } else {
@@ -2617,7 +2767,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
                 !isCheckedIn || isPendingCheckOut
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
-                  : isLocationDisabled
+                  : !isAdmin && isLocationDisabled
                   ? 'bg-gradient-to-br from-rose-700/60 to-red-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
                   : 'bg-gradient-to-br from-rose-500 to-red-700 hover:from-rose-600 hover:to-red-800 text-white shadow-lg shadow-rose-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-pulse'
               )}
@@ -2631,18 +2781,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   )}
                 </div>
                 <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
-                  isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
+                  !isAdmin && isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
                 )}>
-                  {isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckOut ? 'Onay Bekliyor' : 'Çıkış Yap'}
+                  {isAdmin ? 'Yönetici Çıkışı' : isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckOut ? 'Onay Bekliyor' : 'Çıkış Yap'}
                 </span>
               </div>
               <div>
                 <h4 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
                   <span>🔴 İşten Çıkış Yaptım</span>
-                  {isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
+                  {!isAdmin && isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
-                  {isLocationDisabled
+                  {isAdmin
+                    ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan sonlandırın (20m kuralından muaf).'
+                    : isLocationDisabled
                     ? '⚠️ Konumunuz kapalı. Çıkış yapabilmek için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                     : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.'}
                 </p>
@@ -2749,6 +2901,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           )}
         </div>
       </div>
+        )
       )}
 
       {/* ============================================================ */}
@@ -2973,19 +3126,32 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       const startTime = rec.currentBreakStartTime ? new Date(rec.currentBreakStartTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-';
                       const durMins = rec.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - rec.currentBreakStartTime) / 60000)) : 1;
                       return (
-                        <div key={rec.id} className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700 flex items-center justify-between shadow-xs">
-                          <div>
-                            <div className="font-black text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                              <Coffee className="w-3.5 h-3.5 text-amber-500" />
-                              <span>{rec.userName}</span>
+                        <div key={rec.id} className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700 flex items-center justify-between shadow-xs gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-black text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5 truncate">
+                              <Coffee className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span className="truncate">{rec.userName}</span>
                             </div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                               Molaya Giriş: <strong>{startTime}</strong>
                             </div>
                           </div>
-                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500 text-white shadow-xs animate-pulse">
-                            {durMins} dk'dır molada
-                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500 text-white shadow-xs animate-pulse">
+                              {durMins} dk'dır molada
+                            </span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleForceEndBreak(rec)}
+                                className="px-2.5 py-1 rounded-xl text-[11px] font-black bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                                title="Bu personelin molasını sonlandır ve mesaiye döndür"
+                              >
+                                <Play className="w-3 h-3 fill-white" />
+                                <span>Molayı Bitir</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

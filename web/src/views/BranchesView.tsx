@@ -447,36 +447,51 @@ export const BranchesView: React.FC = () => {
                 className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 shadow-sm overflow-hidden transition-all duration-200"
               >
                 {/* Company Header Accordion Bar */}
-                <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800/60">
+                <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800/60">
                   <div
-                    className="flex items-center gap-3 cursor-pointer flex-1 select-none"
+                    className="flex items-center justify-between gap-3 cursor-pointer flex-1 select-none min-w-0"
                     onClick={() => toggleCompany(compCode)}
                   >
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
-                      <Building2 className="w-6 h-6" />
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                        <Building2 className="w-6 h-6" />
+                      </div>
+
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
+                            {comp.name}
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            {comp.code}
+                          </span>
+                          {isPolatlar && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                              Ana Firma
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                          Yönetici: <strong className="text-slate-700 dark:text-slate-300">{comp.adminName}</strong> ({comp.adminEmail})
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                          {comp.name}
-                        </h3>
-                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                          {comp.code}
-                        </span>
-                        {isPolatlar && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-                            Ana Firma
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Yönetici: <strong className="text-slate-700 dark:text-slate-300">{comp.adminName}</strong> ({comp.adminEmail})
-                      </p>
-                    </div>
+                    {/* Chevron expand/collapse button - always right-aligned and visible */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCompany(compCode);
+                      }}
+                      className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0 ml-2"
+                      title={isExpanded ? 'Daralt' : 'Genişlet'}
+                    >
+                      {isExpanded ? <ChevronUp className="w-5 h-5 text-blue-500" /> : <ChevronDown className="w-5 h-5" />}
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap">
                     {/* Stats pills */}
                     <span className="px-3 py-1 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-xs">
                       {compBranches.length} Şube
@@ -532,14 +547,6 @@ export const BranchesView: React.FC = () => {
                         <span className="hidden sm:inline">Kurumu Sil</span>
                       </button>
                     )}
-
-                    {/* Chevron expand/collapse */}
-                    <button
-                      onClick={() => toggleCompany(compCode)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    >
-                      {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                    </button>
                   </div>
                 </div>
 
