@@ -1520,16 +1520,17 @@ export const StorageService = {
   /**
    * Retrieves leave requests
    */
-  async getLeaveRequests(): Promise<LeaveRequest[]> {
-    const localKey = this.getStorageKey(LEAVE_REQUESTS_KEY);
-    const slotId = this.getSlotId(10);
+  async getLeaveRequests(companyCode?: string): Promise<LeaveRequest[]> {
+    const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = this.getStorageKeyForCompany(LEAVE_REQUESTS_KEY, comp);
+    const slotId = this.getSlotIdForCompany(10, comp);
     const { data: cloudData, notFound } = await loadChunkedSlot<LeaveRequest[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       await saveItem(localKey, cloudData);
       return cloudData;
     }
 
-    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+    if (comp !== 'POLATLAR' && notFound) {
       await saveItem(localKey, []);
       return [];
     }
@@ -1540,10 +1541,11 @@ export const StorageService = {
   /**
    * Saves leave requests
    */
-  async saveLeaveRequests(requests: LeaveRequest[]): Promise<void> {
-    const localKey = this.getStorageKey(LEAVE_REQUESTS_KEY);
+  async saveLeaveRequests(requests: LeaveRequest[], companyCode?: string): Promise<void> {
+    const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = this.getStorageKeyForCompany(LEAVE_REQUESTS_KEY, comp);
     await saveItem(localKey, requests);
-    await saveChunkedSlot(this.getSlotId(10), requests);
+    await saveChunkedSlot(this.getSlotIdForCompany(10, comp), requests);
   },
 
   /**

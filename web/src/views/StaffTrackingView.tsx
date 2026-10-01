@@ -30,6 +30,7 @@ import {
   Play,
   ArrowLeft,
   Navigation,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -689,13 +690,18 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       const leaveKey = `${record.userId}_${record.date}`;
       const matchingLeave = userLeaveMap.get(leaveKey);
 
-      if (matchingLeave) {
-        // If there's an approved leave for this user on this date:
-        // Deduplicate: only keep ONE record for this user on this leave date
+      // Personel fiilen işe giriş yapmışsa (checkInTime > 0), onaylı izin onun mesai kaydını yok edemez!
+      const hasRealClockIn = Boolean(
+        record.checkInTime && record.checkInTime > 0 && record.status !== 'on_leave'
+      );
+
+      if (matchingLeave && !hasRealClockIn) {
+        // İzin onaylı ve henüz işe giriş yapılmamışsa izinli olarak göster
         if (!processedLeaveKeys.has(leaveKey)) {
           processedLeaveKeys.add(leaveKey);
           updatedList.push({
             ...record,
+            id: record.id || `leave_${matchingLeave.id}_${record.date}`,
             status: 'on_leave',
             checkInTime: 0,
             checkOutTime: undefined,
@@ -704,10 +710,23 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             workDurationMinutes: 0,
             notes: 'İzinli',
             approvalNote: matchingLeave.reason || record.approvalNote,
-          });
+            conflictingLeaveId: matchingLeave.id,
+          } as AttendanceRecord);
         }
       } else {
-        updatedList.push(record);
+        // Personel işe giriş yaptıysa mesai kaydı korunur; çakışan izin bilgisi yöneticinin kaldırması için iliştirilir
+        if (matchingLeave) {
+          processedLeaveKeys.add(leaveKey);
+        }
+        updatedList.push({
+          ...record,
+          ...(matchingLeave
+            ? {
+                conflictingLeaveId: matchingLeave.id,
+                conflictingLeaveReason: matchingLeave.reason,
+              }
+            : {}),
+        } as AttendanceRecord);
       }
     });
 
@@ -731,7 +750,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           branchName,
           notes: 'İzinli',
           approvalNote: leave.reason,
-        });
+          conflictingLeaveId: leave.id,
+        } as AttendanceRecord);
       }
     });
 
@@ -964,18 +984,22 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     const totalNetMinutes = Math.max(0, totalMinutes - totalBreakMinutes);
     const onBreakCount = filteredRecords.filter((r) => r.isOnBreak && r.status === 'checked_in').length;
 
-    const uniqueDays = new Set(filteredRecords.map((r) => r.date)).size;
+    const actualCheckInRecords = filteredRecords.filter(
+      (r) => r.status !== 'on_leave' && Boolean(r.checkInTime && r.checkInTime > 0)
+    );
+    const uniqueDays = new Set(actualCheckInRecords.map((r) => r.date)).size;
     const active = filteredRecords.filter((r) => r.status === 'checked_in').length;
     const completed = filteredRecords.filter((r) => r.status === 'completed').length;
     const pending = filteredRecords.filter((r) => r.status.startsWith('pending_')).length;
-    const distinctStaff = new Set(filteredRecords.map((r) => r.userId)).size;
+    const distinctStaff = new Set(actualCheckInRecords.map((r) => r.userId)).size;
+    const onLeaveCount = filteredRecords.filter((r) => r.status === 'on_leave').length;
 
     const checkedOutRecords = filteredRecords.filter((r) => Boolean(r.checkOutTime) || r.status === 'completed');
     const checkedOut = checkedOutRecords.length;
     const distinctCheckedOutStaff = new Set(checkedOutRecords.map((r) => r.userId)).size;
 
     return {
-      total: filteredRecords.length,
+      total: actualCheckInRecords.length,
       totalMinutes,
       totalDurationFormatted: formatMinutesToDuration(totalMinutes),
       totalBreakMinutes,
@@ -983,6 +1007,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       totalNetMinutes,
       netWorkFormatted: formatMinutesToDuration(totalNetMinutes),
       onBreakCount,
+      onLeaveCount,
       uniqueDays,
       active,
       completed,
@@ -1474,6 +1499,84 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       }
     } catch (err: any) {
       alert(err?.message || 'İptal hatası');
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  /**
+   * Yönetici Yetkisi: Personel mesai tablosundaki izinli kaydını iptal eder,
+   * izni kaldırır ve personelin mesaisini/girişini derhal başlatır.
+   */
+  const handleRevokeLeaveForRecord = async (record: AttendanceRecord) => {
+    if (!isAdmin) {
+      alert('İzin iptal etme yetkisi yalnızca kurum yöneticilerine aittir.');
+      return;
+    }
+
+    // 1. Çakışan veya kayıtlı izin ID'sini bul
+    let targetLeave = (record as any).conflictingLeaveId
+      ? leaveRequests.find((l) => l.id === (record as any).conflictingLeaveId)
+      : null;
+
+    // 2. Sentetik ID formatından (leave_${leave.id}_${date}) çöz
+    if (!targetLeave && record.id.startsWith('leave_')) {
+      const parts = record.id.split('_');
+      if (parts.length >= 2) {
+        targetLeave = leaveRequests.find((l) => l.id === parts[1]);
+      }
+    }
+
+    // 3. Tarih ve kullanıcı eşleşmesinden bul
+    if (!targetLeave) {
+      targetLeave = leaveRequests.find((l) => {
+        if (l.userId !== record.userId || l.status !== 'approved') return false;
+        const dates = getDatesInRange(l.date, l.endDate);
+        return dates.includes(record.date);
+      });
+    }
+
+    if (!targetLeave) {
+      alert('Bu tarihe ait aktif bir onaylı izin kaydı bulunamadı.');
+      return;
+    }
+
+    const confirmMsg = `${record.userName} kullanıcısının ${record.date} tarihindeki onaylı iznini iptal edip kaldırmak istediğinize emin misiniz?\n\nİzin kaldırıldığında personelin işe giriş ve mesai durumu derhal aktif hale gelecektir.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setProcessingLeaveId(targetLeave.id);
+      await deleteLeaveRequest(targetLeave.id);
+      setActionFeedback({
+        type: 'success',
+        text: `${record.userName} kullanıcısının izni başarıyla kaldırıldı. Mesai durumu güncellendi.`,
+      });
+    } catch (err: any) {
+      alert(err?.message || 'İzin iptal edilirken bir hata oluştu.');
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  /**
+   * Yönetici Yetkisi: İzin Takibi sekmesindeki onaylanmış bir izni iptal eder
+   */
+  const handleRevokeApprovedLeave = async (requestId: string, staffName: string) => {
+    if (!isAdmin) {
+      alert('İzin iptal etme yetkisi yalnızca kurum yöneticilerine aittir.');
+      return;
+    }
+    const confirmMsg = `${staffName} kullanıcısının onaylı iznini iptal etmek/kaldırmak istediğinize emin misiniz?\n\nİzin kaldırıldığında personelin mesai durumu başlayabilecek veya mevcut işe giriş kaydı geçerli olacaktır.`;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      setProcessingLeaveId(requestId);
+      await deleteLeaveRequest(requestId);
+      setActionFeedback({
+        type: 'success',
+        text: `${staffName} kullanıcısının onaylı izni başarıyla kaldırıldı.`,
+      });
+    } catch (err: any) {
+      alert(err?.message || 'İzin kaldırma hatası');
     } finally {
       setProcessingLeaveId(null);
     }
@@ -3446,10 +3549,28 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                             {/* Durum */}
                             <td className="py-3 px-3">
                               {record.status === 'on_leave' ? (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                  <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                  İzinli
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                    <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                    İzinli
+                                  </span>
+                                  {isAdmin && (
+                                    <button
+                                      type="button"
+                                      disabled={processingLeaveId !== null}
+                                      onClick={() => handleRevokeLeaveForRecord(record)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:hover:bg-rose-900/70 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                                      title="Yönetici Yetkisi: Personelin iznini kaldır ve mesai durumunu başlat"
+                                    >
+                                      {processingLeaveId !== null ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <XCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                      )}
+                                      <span>İzni Kaldır</span>
+                                    </button>
+                                  )}
+                                </div>
                               ) : record.isOnBreak ? (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 animate-pulse">
                                   <Coffee className="w-3 h-3 text-amber-600" />
@@ -3466,14 +3587,42 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                   Çıkış Onayı Bekliyor
                                 </span>
                               ) : record.status === 'checked_in' ? (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  Mesaide
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    Mesaide
+                                  </span>
+                                  {isAdmin && (record as any).conflictingLeaveId && (
+                                    <button
+                                      type="button"
+                                      disabled={processingLeaveId !== null}
+                                      onClick={() => handleRevokeLeaveForRecord(record)}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer disabled:opacity-50"
+                                      title="Personel mesaiye başladı. Çakışan onaylı izni sistemden temizlemek için tıklayın."
+                                    >
+                                      <XCircle className="w-2.5 h-2.5 text-amber-600" />
+                                      <span>İzni Temizle</span>
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                                  Çıkış Yaptı
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                    Çıkış Yaptı
+                                  </span>
+                                  {isAdmin && (record as any).conflictingLeaveId && (
+                                    <button
+                                      type="button"
+                                      disabled={processingLeaveId !== null}
+                                      onClick={() => handleRevokeLeaveForRecord(record)}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer disabled:opacity-50"
+                                      title="Çakışan onaylı izni sistemden temizlemek için tıklayın."
+                                    >
+                                      <XCircle className="w-2.5 h-2.5 text-amber-600" />
+                                      <span>İzni Temizle</span>
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </td>
 
@@ -4052,6 +4201,24 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                 <span>Reddet</span>
                               </button>
                             </>
+                          )}
+
+                          {/* Admin Onaylı İzni Kaldır */}
+                          {isAdmin && req.status === 'approved' && (
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleRevokeApprovedLeave(req.id, req.userName)}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 dark:bg-rose-950/80 dark:hover:bg-rose-900/80 dark:text-rose-300 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              title="Yönetici Yetkisi: Onaylı izni kaldır"
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <XCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                              )}
+                              <span>İzni Kaldır</span>
+                            </button>
                           )}
 
                           {/* Personel İptal Et */}

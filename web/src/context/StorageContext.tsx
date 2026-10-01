@@ -4419,18 +4419,48 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated = leaveRequests.filter((r) => r.id !== requestId);
     setLeaveRequests(updated);
-    await StorageService.saveLeaveRequests(updated);
+    const targetComp = (user?.companyCode || compCode || 'POLATLAR').toUpperCase();
+    await StorageService.saveLeaveRequests(updated, targetComp);
+
+    if (req.status === 'approved' && isUserAdmin(user) && req.userId !== user.id) {
+      OneSignalService.sendPushNotification({
+        title: 'ℹ️ İzin İptal Bilgisi',
+        message: `Sayın ${req.userName}, ${req.date} tarihindeki izniniz yöneticiniz (${user.name}) tarafından kaldırılmıştır. Mesainiz aktiftir.`,
+        targetUserIds: [req.userId],
+        targetMode: 'custom',
+        companyCode: targetComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch((e) => {
+        console.warn('İzin iptal bildirim hatası:', e);
+      });
+    }
 
     return {
       success: true,
-      message: 'İzin talebiniz iptal edildi.',
+      message: `${req.userName} kullanıcısının izin kaydı başarıyla kaldırıldı.`,
     };
   };
 
   const deleteLeaveRequest = async (requestId: string): Promise<void> => {
+    const req = leaveRequests.find((r) => r.id === requestId);
     const updated = leaveRequests.filter((r) => r.id !== requestId);
     setLeaveRequests(updated);
-    await StorageService.saveLeaveRequests(updated);
+    const targetComp = (user?.companyCode || compCode || 'POLATLAR').toUpperCase();
+    await StorageService.saveLeaveRequests(updated, targetComp);
+
+    // If was approved and canceled by admin, send push notification to user
+    if (req && req.status === 'approved' && user && isUserAdmin(user) && req.userId !== user.id) {
+      OneSignalService.sendPushNotification({
+        title: 'ℹ️ İzin İptal Bilgisi',
+        message: `Sayın ${req.userName}, ${req.date} tarihindeki izniniz yöneticiniz (${user.name}) tarafından kaldırılmıştır. Mesainiz aktiftir.`,
+        targetUserIds: [req.userId],
+        targetMode: 'custom',
+        companyCode: targetComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }).catch((e) => {
+        console.warn('İzin iptal bildirim hatası:', e);
+      });
+    }
   };
 
   const markSecurityLogsAsRead = async (): Promise<void> => {
