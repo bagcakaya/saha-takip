@@ -65,30 +65,54 @@ export const UserService = {
   /**
    * Resolves company code for a user by id or username
    */
-  getUserCompanyCode(userId?: string, username?: string): string | null {
+  getUserCompanyCode(userId?: string, username?: string, currentCompany?: string): string | null {
     if (!userId && !username) return null;
     const cleanUser = (username || '').trim().toLowerCase();
+    const cleanCurrent = (currentCompany || '').trim().toUpperCase();
     const allUsers = this.getUsers();
-    const match = allUsers.find(
-      (u) =>
-        (userId && u.id === userId) ||
-        (cleanUser && u.username.toLowerCase() === cleanUser)
-    );
-    if (match && match.companyCode) {
-      return match.companyCode.trim().toUpperCase();
+
+    if (userId) {
+      const match = allUsers.find((u) => u.id === userId);
+      if (match?.companyCode) return match.companyCode.trim().toUpperCase();
+    }
+
+    if (cleanUser) {
+      const matches = allUsers.filter((u) => u.username.toLowerCase() === cleanUser);
+      if (matches.length > 0) {
+        if (cleanCurrent && matches.some((u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanCurrent)) {
+          return cleanCurrent;
+        }
+        const distinct = Array.from(new Set(matches.map((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase())));
+        if (distinct.length === 1) {
+          return distinct[0];
+        }
+      }
     }
     return null;
   },
 
   /**
-   * Asynchronously resolves company code for a user across local storage AND cloud slot 101
+   * Checks if a user (username or email) exists in a specific company
    */
-  async resolveUserCompanyCodeAsync(userId?: string, username?: string): Promise<string | null> {
-    const local = this.getUserCompanyCode(userId, username);
-    if (local) return local;
+  async userExistsInCompany(companyCode: string, usernameOrEmail: string): Promise<boolean> {
+    const cleanComp = (companyCode || 'POLATLAR').trim().toUpperCase();
+    const cleanUser = (usernameOrEmail || '').trim().toLowerCase();
+    if (!cleanUser) return false;
 
-    if (!userId && !username) return null;
-    const cleanUser = (username || '').trim().toLowerCase();
+    if (cleanComp === 'POLATLAR' && (cleanUser === 'admin' || cleanUser === 'murat')) {
+      return true;
+    }
+
+    const localUsers = this.getUsers();
+    if (
+      localUsers.some(
+        (u) =>
+          (u.companyCode || 'POLATLAR').toUpperCase() === cleanComp &&
+          (u.username.toLowerCase() === cleanUser || (u.email && u.email.toLowerCase() === cleanUser))
+      )
+    ) {
+      return true;
+    }
 
     try {
       const { data, error } = await supabase
@@ -102,18 +126,72 @@ export const UserService = {
           ? JSON.parse(data.tasks.join(''))
           : JSON.parse(data.tasks);
 
-        const match = list.find(
+        return list.some(
           (u) =>
-            (userId && u.id === userId) ||
-            (cleanUser && u.username?.toLowerCase() === cleanUser)
+            (u.companyCode || 'POLATLAR').toUpperCase() === cleanComp &&
+            (u.username.toLowerCase() === cleanUser || (u.email && u.email.toLowerCase() === cleanUser))
         );
-        if (match?.companyCode) {
-          return match.companyCode.trim().toUpperCase();
+      }
+    } catch {
+      // ignore
+    }
+
+    return false;
+  },
+
+  /**
+   * Asynchronously resolves company code for a user across local storage AND cloud slot 101
+   */
+  async resolveUserCompanyCodeAsync(
+    userId?: string,
+    username?: string,
+    currentCompany?: string
+  ): Promise<string | null> {
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanCurrent = (currentCompany || '').trim().toUpperCase();
+
+    const local = this.getUserCompanyCode(userId, cleanUser, cleanCurrent);
+    if (local && (!cleanCurrent || local === cleanCurrent)) return local;
+
+    if (!userId && !cleanUser) return null;
+
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', USERS_SLOT_ID)
+        .single();
+
+      if (!error && data?.tasks) {
+        const list: UserAccount[] = Array.isArray(data.tasks)
+          ? JSON.parse(data.tasks.join(''))
+          : JSON.parse(data.tasks);
+
+        if (userId) {
+          const match = list.find((u) => u.id === userId);
+          if (match?.companyCode) return match.companyCode.trim().toUpperCase();
+          return null;
+        }
+
+        const matches = list.filter((u) => u.username?.toLowerCase() === cleanUser);
+        if (matches.length > 0) {
+          if (cleanCurrent && matches.some((u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanCurrent)) {
+            return cleanCurrent;
+          }
+          const distinct = Array.from(new Set(matches.map((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase())));
+          if (distinct.length === 1) {
+            return distinct[0];
+          }
         }
       }
     } catch {
       // ignore
     }
+
+    if (cleanUser === 'admin' || cleanUser === 'murat') {
+      if (cleanCurrent === 'POLATLAR') return 'POLATLAR';
+    }
+
     return null;
   },
 
@@ -821,16 +899,6 @@ export const UserService = {
       return { success: false, error: 'Lütfen Kullanıcı Adınızı giriniz.' };
     }
 
-    // 0. Cross-Tenant Protection: Detect if username actually belongs to ANOTHER company
-    // E.g. A NESACOCUK employee left Kurum Kodu as POLATLAR and typed 'mfpolat'
-    const actualCompany = await this.resolveUserCompanyCodeAsync(undefined, cleanIdentifier);
-    if (actualCompany && actualCompany !== cleanCompany) {
-      return {
-        success: false,
-        error: `"${cleanIdentifier}" kullanıcısı "${actualCompany}" kurumuna aittir. Lütfen Kurum Kodu kutucuğuna "${actualCompany}" yazarak giriş yapınız.`,
-      };
-    }
-
     // ANTI-BRUTE FORCE: Check if account is locked out before hitting network
     const lockout = AuthSecurityService.checkLockout(cleanCompany, cleanIdentifier);
     if (lockout.isLocked) {
@@ -892,15 +960,36 @@ export const UserService = {
     const matchResult = await findMatch(users);
 
     if (!matchResult) {
+      // Check if user actually exists in the requested target company
+      const userExistsInTarget = users.some(
+        (u) =>
+          (u.companyCode || 'POLATLAR').toUpperCase() === cleanCompany &&
+          (u.username.toLowerCase() === cleanIdentifier ||
+            (u.email && u.email.toLowerCase() === cleanIdentifier) ||
+            (u.role === 'admin' && companyAdminEmail && companyAdminEmail === cleanIdentifier))
+      );
+
+      // If user DOES NOT exist in target company at all, check if they uniquely belong to another company
+      if (!userExistsInTarget) {
+        const foreignCompany = await this.resolveUserCompanyCodeAsync(undefined, cleanIdentifier, cleanCompany);
+        if (foreignCompany && foreignCompany !== cleanCompany) {
+          // Record failed attempt on foreign company so POLATLAR admins don't receive spam notifications
+          AuthSecurityService.recordFailedAttempt(foreignCompany, cleanIdentifier);
+          return {
+            success: false,
+            error: `"${cleanIdentifier}" kullanıcısı "${foreignCompany}" kurumuna aittir. Lütfen Kurum Kodu kutucuğuna "${foreignCompany}" yazarak giriş yapınız.`,
+          };
+        }
+      }
+
       // Record failed attempt strictly scoped to company
-      const targetCompanyForAttempt = actualCompany || cleanCompany;
-      const attemptStatus = AuthSecurityService.recordFailedAttempt(targetCompanyForAttempt, cleanIdentifier);
+      const attemptStatus = AuthSecurityService.recordFailedAttempt(cleanCompany, cleanIdentifier);
       await AuthSecurityService.delay(800);
 
       if (attemptStatus.isLocked) {
         // Record brute-force security incident log strictly scoped to target company
         StorageService.logSecurityEvent({
-          companyCode: targetCompanyForAttempt,
+          companyCode: cleanCompany,
           attemptedUsername: cleanIdentifier,
           deviceId: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 80) : 'Web Client',
           platform: 'Web Tarayıcı',
@@ -916,7 +1005,7 @@ export const UserService = {
 
       return {
         success: false,
-        error: AuthSecurityService.formatFailedMessage(targetCompanyForAttempt, attemptStatus.attemptsLeft),
+        error: AuthSecurityService.formatFailedMessage(cleanCompany, attemptStatus.attemptsLeft),
       };
     }
 

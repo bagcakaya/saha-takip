@@ -86,10 +86,18 @@ export const LoginView: React.FC = () => {
 
   const handleUsernameBlur = async () => {
     const cleanUser = username.trim().toLowerCase();
+    const cleanComp = (companyCode || '').trim().toUpperCase();
     if (!cleanUser) return;
     try {
-      const detectedComp = await UserService.resolveUserCompanyCodeAsync(undefined, cleanUser);
-      if (detectedComp && detectedComp !== companyCode) {
+      // 1. If this user exists in the currently entered company, do NOT change companyCode!
+      const existsInCurrent = await UserService.userExistsInCompany(cleanComp, cleanUser);
+      if (existsInCurrent) {
+        return;
+      }
+
+      // 2. Only if the user does NOT exist in the currently entered company, check if they exist uniquely in another company
+      const detectedComp = await UserService.resolveUserCompanyCodeAsync(undefined, cleanUser, cleanComp);
+      if (detectedComp && detectedComp !== cleanComp) {
         setCompanyCode(detectedComp);
         localStorage.setItem('@saha_takip_company_code', detectedComp);
       }
@@ -102,20 +110,8 @@ export const LoginView: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const cleanUser = username.trim().toLowerCase();
-      let targetComp = companyCode;
-      try {
-        const detectedComp = await UserService.resolveUserCompanyCodeAsync(undefined, cleanUser);
-        if (detectedComp) {
-          targetComp = detectedComp;
-          if (detectedComp !== companyCode) {
-            setCompanyCode(detectedComp);
-            localStorage.setItem('@saha_takip_company_code', detectedComp);
-          }
-        }
-      } catch {}
-
-      const res = await login(targetComp, username, password, rememberMe);
+      const cleanComp = (companyCode || 'POLATLAR').trim().toUpperCase();
+      const res = await login(cleanComp, username.trim(), password, rememberMe);
       if (!res.success && res.error) {
         setErrorMsg(res.error);
       }
@@ -218,7 +214,11 @@ export const LoginView: React.FC = () => {
               <input
                 type="text"
                 value={companyCode}
-                onChange={(e) => setCompanyCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+                  setCompanyCode(val);
+                  localStorage.setItem('@saha_takip_company_code', val);
+                }}
                 placeholder="Kurum Kodunuz (Örn: POLATLAR)"
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm font-black tracking-wider uppercase transition-all"
