@@ -67,7 +67,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   const loadDevices = async () => {
     try {
-      const devs = await DeviceService.getRegisteredDevices();
+      const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+      const devs = await DeviceService.getRegisteredDevices(activeComp);
       setRegisteredDevices(devs);
     } catch {
       // ignore
@@ -283,7 +284,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   const handleSaveDeviceName = async (deviceId: string) => {
     if (!editingDeviceName.trim()) return;
-    await DeviceService.setDeviceName(deviceId, editingDeviceName.trim());
+    const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+    await DeviceService.setDeviceName(deviceId, editingDeviceName.trim(), activeComp);
     setEditingDeviceId(null);
     setEditingDeviceName('');
     await loadStatus();
@@ -299,6 +301,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
   const handleSendTestToSpecificDevice = async (dev: RegisteredDevice) => {
     setTestingDeviceId(dev.deviceId);
     try {
+      const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
       const binding = userBindings.find((b) => b.boundDeviceId === dev.deviceId);
       const targetIds: string[] = [];
       if (binding?.userId) targetIds.push(binding.userId);
@@ -313,6 +316,7 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         targetMode: 'custom',
         targetUserIds: targetIds.length > 0 ? targetIds : (user?.id ? [user.id] : undefined),
         targetSubscriptionIds: dev.pushSubscriptionId ? [dev.pushSubscriptionId] : undefined,
+        companyCode: activeComp,
         url: 'https://saha-takip-beige.vercel.app',
         collapseId: `test_dev_${dev.deviceId}`,
       });
@@ -331,7 +335,8 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
 
   const handleDeleteDevice = async (devId: string) => {
     if (confirm('Bu cihaz kaydını listeden silmek istediğinize emin misiniz?')) {
-      await DeviceService.deleteDevice(devId);
+      const activeComp = (user?.companyCode || 'POLATLAR').toUpperCase();
+      await DeviceService.deleteDevice(devId, activeComp);
       await loadDevices();
     }
   };

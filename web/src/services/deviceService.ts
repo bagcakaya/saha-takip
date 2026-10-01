@@ -101,7 +101,7 @@ export const DeviceService = {
   /**
    * Updates friendly name for a device
    */
-  async setDeviceName(deviceId: string, newName: string): Promise<void> {
+  async setDeviceName(deviceId: string, newName: string, companyCode?: string): Promise<void> {
     const cleanName = newName.trim();
     if (!cleanName) return;
 
@@ -116,11 +116,11 @@ export const DeviceService = {
 
     // Update in registered devices cloud list
     try {
-      const devices = await this.getRegisteredDevices();
+      const devices = await this.getRegisteredDevices(companyCode);
       const updated = devices.map((d) =>
         d.deviceId === deviceId ? { ...d, deviceName: cleanName } : d
       );
-      await this.saveRegisteredDevicesToCloud(updated);
+      await this.saveRegisteredDevicesToCloud(updated, companyCode);
     } catch (e) {
       console.warn('Cihaz adı güncellenemedi:', e);
     }
@@ -130,13 +130,22 @@ export const DeviceService = {
    * Registers or updates current device details in Supabase cloud registry
    */
   async syncCurrentDevice(params: {
-    user: { id: string; name: string; role: string };
+    user: { id: string; name: string; role: string; companyCode?: string; username?: string };
     pushSubscriptionId?: string | null;
     pushStatus?: 'connected' | 'pending' | 'denied';
+    companyCode?: string;
   }): Promise<RegisteredDevice> {
     const deviceId = this.getCurrentDeviceId();
     const deviceName = this.getCurrentDeviceName(params.user.name);
     const env = detectEnvironment();
+
+    let targetComp = (
+      params.companyCode ||
+      params.user.companyCode ||
+      UserService.getUserCompanyCode(params.user.id, params.user.username) ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
 
     const pushSubId =
       params.pushSubscriptionId !== undefined
@@ -172,7 +181,7 @@ export const DeviceService = {
     };
 
     try {
-      const existingDevices = await this.getRegisteredDevices();
+      const existingDevices = await this.getRegisteredDevices(targetComp);
       const index = existingDevices.findIndex((d) => d.deviceId === deviceId);
 
       let merged: RegisteredDevice[];
@@ -188,7 +197,7 @@ export const DeviceService = {
         merged = [currentDevice, ...existingDevices];
       }
 
-      await this.saveRegisteredDevicesToCloud(merged);
+      await this.saveRegisteredDevicesToCloud(merged, targetComp);
     } catch (err) {
       console.warn('Cihaz bulut eşitleme hatası:', err);
     }
@@ -197,10 +206,15 @@ export const DeviceService = {
   },
 
   /**
-   * Fetches all registered devices from Supabase cloud (slot 8) with local fallback
+   * Fetches all registered devices from Supabase cloud (slot 8 / 28) with local fallback
    */
-  async getRegisteredDevices(): Promise<RegisteredDevice[]> {
-    const storageKey = StorageService.getStorageKey(REGISTERED_DEVICES_KEY);
+  async getRegisteredDevices(companyCode?: string): Promise<RegisteredDevice[]> {
+    const targetComp = (
+      companyCode ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
+    const storageKey = StorageService.getStorageKeyForCompany(REGISTERED_DEVICES_KEY, targetComp);
     let localData: RegisteredDevice[] = [];
     try {
       const raw = localStorage.getItem(storageKey);
@@ -213,10 +227,11 @@ export const DeviceService = {
     }
 
     try {
+      const slotId = StorageService.getSlotIdForCompany(8, targetComp);
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
-        .eq('id', StorageService.getSlotId(8))
+        .eq('id', slotId)
         .single();
 
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
@@ -239,10 +254,15 @@ export const DeviceService = {
   },
 
   /**
-   * Internal helper to save registered devices to Supabase slot 8
+   * Internal helper to save registered devices to Supabase slot 8 / 28
    */
-  async saveRegisteredDevicesToCloud(devices: RegisteredDevice[]): Promise<void> {
-    const storageKey = StorageService.getStorageKey(REGISTERED_DEVICES_KEY);
+  async saveRegisteredDevicesToCloud(devices: RegisteredDevice[], companyCode?: string): Promise<void> {
+    const targetComp = (
+      companyCode ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+      'POLATLAR'
+    ).trim().toUpperCase();
+    const storageKey = StorageService.getStorageKeyForCompany(REGISTERED_DEVICES_KEY, targetComp);
     try {
       localStorage.setItem(storageKey, JSON.stringify(devices));
     } catch {
@@ -256,7 +276,8 @@ export const DeviceService = {
       for (let i = 0; i < rawJson.length; i += chunkSize) {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
-      await supabase.from('standard_tasks').upsert({ id: StorageService.getSlotId(8), tasks: chunks });
+      const slotId = StorageService.getSlotIdForCompany(8, targetComp);
+      await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
     } catch (err) {
       console.warn('Cloud save registered devices error:', err);
     }
@@ -265,11 +286,11 @@ export const DeviceService = {
   /**
    * Removes a device from registered devices
    */
-  async deleteDevice(deviceId: string): Promise<void> {
+  async deleteDevice(deviceId: string, companyCode?: string): Promise<void> {
     try {
-      const existing = await this.getRegisteredDevices();
+      const existing = await this.getRegisteredDevices(companyCode);
       const filtered = existing.filter((d) => d.deviceId !== deviceId);
-      await this.saveRegisteredDevicesToCloud(filtered);
+      await this.saveRegisteredDevicesToCloud(filtered, companyCode);
     } catch (e) {
       console.warn('Cihaz silme hatası:', e);
     }
@@ -288,7 +309,7 @@ export const DeviceService = {
       (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
       'POLATLAR'
     ).trim().toUpperCase();
-    const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
+    const STORAGE_BINDINGS_KEY = StorageService.getStorageKeyForCompany('@saha_takip_user_device_bindings', targetComp);
     let localData: import('../types/storage').UserDeviceBinding[] = [];
     try {
       const raw = localStorage.getItem(STORAGE_BINDINGS_KEY);
@@ -339,7 +360,7 @@ export const DeviceService = {
       (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
       'POLATLAR'
     ).trim().toUpperCase();
-    const STORAGE_BINDINGS_KEY = StorageService.getStorageKey('@saha_takip_user_device_bindings');
+    const STORAGE_BINDINGS_KEY = StorageService.getStorageKeyForCompany('@saha_takip_user_device_bindings', targetComp);
     try {
       localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(bindings));
     } catch {

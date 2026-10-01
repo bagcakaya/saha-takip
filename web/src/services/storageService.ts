@@ -325,13 +325,21 @@ export const StorageService = {
   },
 
   /**
+   * Scopes local storage key to a specific company
+   */
+  getStorageKeyForCompany(baseKey: string, companyCode?: string): string {
+    const cleanCode = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    if (cleanCode === 'POLATLAR') {
+      return baseKey;
+    }
+    return `${baseKey}_${cleanCode}`;
+  },
+
+  /**
    * Scopes local storage key to active company
    */
   getStorageKey(baseKey: string): string {
-    if (activeCompanyCode === 'POLATLAR') {
-      return baseKey;
-    }
-    return `${baseKey}_${activeCompanyCode}`;
+    return this.getStorageKeyForCompany(baseKey, activeCompanyCode);
   },
 
   /**
