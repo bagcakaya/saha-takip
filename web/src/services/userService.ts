@@ -81,6 +81,43 @@ export const UserService = {
   },
 
   /**
+   * Asynchronously resolves company code for a user across local storage AND cloud slot 101
+   */
+  async resolveUserCompanyCodeAsync(userId?: string, username?: string): Promise<string | null> {
+    const local = this.getUserCompanyCode(userId, username);
+    if (local) return local;
+
+    if (!userId && !username) return null;
+    const cleanUser = (username || '').trim().toLowerCase();
+
+    try {
+      const { data, error } = await supabase
+        .from('standard_tasks')
+        .select('tasks')
+        .eq('id', USERS_SLOT_ID)
+        .single();
+
+      if (!error && data?.tasks) {
+        const list: UserAccount[] = Array.isArray(data.tasks)
+          ? JSON.parse(data.tasks.join(''))
+          : JSON.parse(data.tasks);
+
+        const match = list.find(
+          (u) =>
+            (userId && u.id === userId) ||
+            (cleanUser && u.username?.toLowerCase() === cleanUser)
+        );
+        if (match?.companyCode) {
+          return match.companyCode.trim().toUpperCase();
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  },
+
+  /**
    * Saves users list to local storage
    */
   saveUsers(users: UserAccount[]): void {
@@ -784,6 +821,16 @@ export const UserService = {
       return { success: false, error: 'Lütfen Kullanıcı Adınızı giriniz.' };
     }
 
+    // 0. Cross-Tenant Protection: Detect if username actually belongs to ANOTHER company
+    // E.g. A NESACOCUK employee left Kurum Kodu as POLATLAR and typed 'mfpolat'
+    const actualCompany = await this.resolveUserCompanyCodeAsync(undefined, cleanIdentifier);
+    if (actualCompany && actualCompany !== cleanCompany) {
+      return {
+        success: false,
+        error: `"${cleanIdentifier}" kullanıcısı "${actualCompany}" kurumuna aittir. Lütfen Kurum Kodu kutucuğuna "${actualCompany}" yazarak giriş yapınız.`,
+      };
+    }
+
     // ANTI-BRUTE FORCE: Check if account is locked out before hitting network
     const lockout = AuthSecurityService.checkLockout(cleanCompany, cleanIdentifier);
     if (lockout.isLocked) {
@@ -845,14 +892,15 @@ export const UserService = {
     const matchResult = await findMatch(users);
 
     if (!matchResult) {
-      // Record failed attempt and throttle with artificial delay
-      const attemptStatus = AuthSecurityService.recordFailedAttempt(cleanCompany, cleanIdentifier);
+      // Record failed attempt strictly scoped to company
+      const targetCompanyForAttempt = actualCompany || cleanCompany;
+      const attemptStatus = AuthSecurityService.recordFailedAttempt(targetCompanyForAttempt, cleanIdentifier);
       await AuthSecurityService.delay(800);
 
       if (attemptStatus.isLocked) {
-        // Record brute-force security incident log for company admins
-        StorageService.addSecurityLog({
-          companyCode: cleanCompany,
+        // Record brute-force security incident log strictly scoped to target company
+        StorageService.logSecurityEvent({
+          companyCode: targetCompanyForAttempt,
           attemptedUsername: cleanIdentifier,
           deviceId: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 80) : 'Web Client',
           platform: 'Web Tarayıcı',
@@ -868,7 +916,7 @@ export const UserService = {
 
       return {
         success: false,
-        error: AuthSecurityService.formatFailedMessage(cleanCompany, attemptStatus.attemptsLeft),
+        error: AuthSecurityService.formatFailedMessage(targetCompanyForAttempt, attemptStatus.attemptsLeft),
       };
     }
 

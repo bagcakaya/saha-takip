@@ -15,6 +15,8 @@ import {
   Store,
   Sparkles,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -137,6 +139,22 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       (u) => (u.companyCode || 'POLATLAR').toUpperCase() === currentCode
     );
   }, [users, selectedCompanyCode]);
+
+  // Search query for users list
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // Filter companyUsers by search query (name, username, branch name)
+  const filteredCompanyUsers = useMemo(() => {
+    if (!userSearchQuery.trim()) return companyUsers;
+    const q = userSearchQuery.toLowerCase().trim();
+    return companyUsers.filter((u) => {
+      const matchName = (u.name || '').toLowerCase().includes(q);
+      const matchUsername = (u.username || '').toLowerCase().includes(q);
+      const branch = allBranchesList.find((b) => b.assignedUserIds?.includes(u.id));
+      const matchBranch = (branch?.name || '').toLowerCase().includes(q);
+      return matchName || matchUsername || matchBranch;
+    });
+  }, [companyUsers, userSearchQuery, allBranchesList]);
 
   // Form states for adding user
   const [newUsername, setNewUsername] = useState('');
@@ -395,24 +413,64 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
         {/* Tab 1: Users List */}
         {activeSubTab === 'list' && (
-          <div className="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1">
-            {companyUsers.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs font-medium bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                <Users className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                <p>"{selectedCompanyCode}" kurumuna ait kayıtlı kullanıcı bulunamadı.</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTargetAddCompanyCode(selectedCompanyCode);
-                    setActiveSubTab('add');
-                  }}
-                  className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline"
-                >
-                  + Yeni Kullanıcı Ekle
-                </button>
+          <div className="space-y-3">
+            {/* Search Input for User List */}
+            {companyUsers.length > 0 && (
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  placeholder={`Personel adı, kullanıcı adı veya şube ara... (${filteredCompanyUsers.length}/${companyUsers.length})`}
+                  className="w-full pl-9 pr-8 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium transition-all"
+                />
+                {userSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setUserSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    title="Aramayı Temizle"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-            ) : (
-              companyUsers.map((account) => {
+            )}
+
+            <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+              {filteredCompanyUsers.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs font-medium bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Users className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                  {companyUsers.length === 0 ? (
+                    <>
+                      <p>"{selectedCompanyCode}" kurumuna ait kayıtlı kullanıcı bulunamadı.</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTargetAddCompanyCode(selectedCompanyCode);
+                          setActiveSubTab('add');
+                        }}
+                        className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                      >
+                        + Yeni Kullanıcı Ekle
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>"{userSearchQuery}" aramasına uygun personel bulunamadı.</p>
+                      <button
+                        type="button"
+                        onClick={() => setUserSearchQuery('')}
+                        className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                      >
+                        Aramayı Temizle
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                filteredCompanyUsers.map((account) => {
                 const isAdmin = isUserAdmin(account);
                 const isCurrent = currentUser?.id === account.id;
                 const binding = userBindings.find(
@@ -620,6 +678,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 );
               })
             )}
+            </div>
           </div>
         )}
 

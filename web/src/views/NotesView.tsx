@@ -491,6 +491,30 @@ export const NotesView: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Work Orders Aging Visual Progression Legend (Yeşil \ Sarı \ Turuncu \ Kırmızı) */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-[11px] text-slate-500 dark:text-slate-400 overflow-x-auto scrollbar-none">
+          <span className="font-bold shrink-0 text-slate-700 dark:text-slate-300">İş Emri Yaşlanma Durumu:</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">Yeşil: 0-1 Gün (Yeni)</span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            <span className="font-medium text-amber-700 dark:text-amber-400">Sarı: 2-3 Gün (Bekliyor)</span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+            <span className="font-medium text-orange-700 dark:text-orange-400">Turuncu: 4-6 Gün (Gecikiyor)</span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
+            <span className="font-medium text-rose-700 dark:text-rose-400 font-bold">Kırmızı: 7+ Gün (Kritik)</span>
+          </div>
+        </div>
       </div>
 
       {/* Admin Quick Approval Banner */}

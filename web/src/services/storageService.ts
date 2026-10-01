@@ -1571,18 +1571,9 @@ export const StorageService = {
    * Appends a new security incident log to the company's security logs
    */
   async addSecurityLog(
-    entry: Omit<SecurityLogItem, 'id' | 'timestamp' | 'read'>
+    entry: Omit<SecurityLogItem, 'id' | 'timestamp' | 'read'> & { companyCode?: string }
   ): Promise<SecurityLogItem> {
-    const logs = await this.getSecurityLogs();
-    const newLog: SecurityLogItem = {
-      id: `sec-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: Date.now(),
-      read: false,
-      ...entry,
-    };
-    const updated = [newLog, ...logs].slice(0, 200); // keep last 200 logs
-    await this.saveSecurityLogs(updated);
-    return newLog;
+    return this.logSecurityEvent(entry);
   },
 
   /**

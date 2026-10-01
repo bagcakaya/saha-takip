@@ -22,6 +22,7 @@ import { useStorage } from '../../context/StorageContext';
 import { TabType } from '../layout/Header';
 import { NotificationStatusCard } from './NotificationStatusCard';
 import { parseDueDateTime } from '../../utils/dateUtils';
+import { UserService } from '../../services/userService';
 
 export interface AppNotification {
   id: string;
@@ -114,6 +115,11 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       if (l.companyCode && l.companyCode.toUpperCase() !== currentCompanyCode) return;
       const logUid = l.attemptedUserId || l.boundUserId;
       if (logUid && companyUserIds.size > 0 && !companyUserIds.has(logUid)) return;
+      // Strict cross-tenant check: if current company is POLATLAR, ensure attempted user is not from another tenant
+      if (currentCompanyCode === 'POLATLAR') {
+        const detectedComp = UserService.getUserCompanyCode(l.attemptedUserId, l.attemptedUsername);
+        if (detectedComp && detectedComp !== 'POLATLAR') return;
+      }
       notifications.push({
         id: `sec_${l.id}`,
         type: 'security_log',

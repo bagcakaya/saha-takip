@@ -119,6 +119,77 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     note.targetUserId === 'self';
 
   // Card border highlight based on status
+  // Tamamlanmayan işler için yaşlandırma / renk dönüşümü (Yeşil \ Sarı \ Turuncu \ Kırmızı)
+  const isCompleted = note.status === 'approved';
+  const agingInfo = React.useMemo(() => {
+    if (isCompleted) return null;
+
+    const now = Date.now();
+    const createdTime = Number(note.createdAt) || now;
+    const diffMs = Math.max(0, now - createdTime);
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    // Yeşil (0-1 Gün) -> Sarı (2-3 Gün) -> Turuncu (4-6 Gün) -> Kırmızı (7+ Gün)
+    if (diffDays <= 1) {
+      return {
+        stage: 'green' as const,
+        days: diffDays,
+        hours: diffHours,
+        label: diffDays === 0 ? 'Bugün Açıldı' : '1. Gün (Yeni)',
+        subLabel: 'Yeşil Aşama: Taze İş Emri',
+        badgeBg: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800',
+        dotColor: 'bg-emerald-500',
+        borderLeft: 'border-l-[5px] border-l-emerald-500',
+        cardBorder: 'border-emerald-200/80 dark:border-emerald-900/60',
+        cardBg: isDirectToMe ? 'bg-emerald-50/20 dark:bg-emerald-950/20' : 'bg-gradient-to-r from-emerald-500/[0.04] to-transparent',
+        ringClass: 'ring-1 ring-emerald-500/20',
+      };
+    } else if (diffDays <= 3) {
+      return {
+        stage: 'yellow' as const,
+        days: diffDays,
+        hours: diffHours,
+        label: `${diffDays}. Gün (Bekliyor)`,
+        subLabel: 'Sarı Aşama: Bekleyen İş Emri',
+        badgeBg: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+        dotColor: 'bg-amber-400',
+        borderLeft: 'border-l-[5px] border-l-amber-400',
+        cardBorder: 'border-amber-300/80 dark:border-amber-800/80',
+        cardBg: isDirectToMe ? 'bg-amber-50/25 dark:bg-amber-950/25' : 'bg-gradient-to-r from-amber-500/[0.05] to-transparent',
+        ringClass: 'ring-1 ring-amber-500/25',
+      };
+    } else if (diffDays <= 6) {
+      return {
+        stage: 'orange' as const,
+        days: diffDays,
+        hours: diffHours,
+        label: `${diffDays}. Gün (Gecikiyor)`,
+        subLabel: 'Turuncu Aşama: Geciken İş Emri',
+        badgeBg: 'bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-800',
+        dotColor: 'bg-orange-500',
+        borderLeft: 'border-l-[5px] border-l-orange-500',
+        cardBorder: 'border-orange-300/90 dark:border-orange-800/90',
+        cardBg: isDirectToMe ? 'bg-orange-50/30 dark:bg-orange-950/30' : 'bg-gradient-to-r from-orange-500/[0.07] to-transparent',
+        ringClass: 'ring-1 ring-orange-500/30',
+      };
+    } else {
+      return {
+        stage: 'red' as const,
+        days: diffDays,
+        hours: diffHours,
+        label: `${diffDays}. Gün (Kritik)`,
+        subLabel: 'Kırmızı Aşama: Kritik Gecikme!',
+        badgeBg: 'bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 animate-pulse',
+        dotColor: 'bg-rose-600',
+        borderLeft: 'border-l-[5px] border-l-rose-600',
+        cardBorder: 'border-rose-400 dark:border-rose-700',
+        cardBg: isDirectToMe ? 'bg-rose-50/40 dark:bg-rose-950/35' : 'bg-gradient-to-r from-rose-500/[0.09] to-transparent',
+        ringClass: 'ring-1 ring-rose-500/35',
+      };
+    }
+  }, [note.createdAt, isCompleted, isDirectToMe]);
+
   const cardBorderClass = () => {
     if (note.status === 'approved') {
       return 'border-emerald-300/80 dark:border-emerald-800/80 ring-1 ring-emerald-500/20';
@@ -129,6 +200,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     if (note.status === 'rejected') {
       return 'border-rose-300/80 dark:border-rose-800/80 ring-1 ring-rose-500/20';
     }
+    if (agingInfo) {
+      return `${agingInfo.cardBorder} ${agingInfo.borderLeft} ${agingInfo.ringClass}`;
+    }
     if (isDirectToMe) {
       return 'border-blue-200 dark:border-blue-800/80 ring-1 ring-blue-500/20';
     }
@@ -138,7 +212,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   return (
     <div
       className={`rounded-2xl p-4 sm:p-5 shadow-xs border mb-3 space-y-3 transition-all ${
-        isDirectToMe
+        agingInfo
+          ? `${agingInfo.cardBg} bg-white dark:bg-slate-800`
+          : isDirectToMe
           ? 'bg-blue-50/40 dark:bg-blue-950/25'
           : 'bg-white dark:bg-slate-800'
       } ${cardBorderClass()}`}
@@ -222,6 +298,17 @@ export const NoteCard: React.FC<NoteCardProps> = ({
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
                 <Clock className="w-3 h-3 text-slate-400" />
                 <span>Beklemede</span>
+              </span>
+            )}
+
+            {/* Aging Indicator Badge (Yeşil \ Sarı \ Turuncu \ Kırmızı) for uncompleted work orders */}
+            {agingInfo && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-black border shadow-2xs ${agingInfo.badgeBg}`}
+                title={`İş Emri Yaşı: ${agingInfo.days} gün (${agingInfo.hours} saat). ${agingInfo.subLabel}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${agingInfo.dotColor} ${agingInfo.stage === 'red' ? 'animate-ping' : ''}`} />
+                <span>{agingInfo.label}</span>
               </span>
             )}
 

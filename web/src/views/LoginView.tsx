@@ -17,6 +17,7 @@ import { TimeOfDay, WeatherCondition, WeatherData } from '../types/auth';
 import { WeatherBackground } from '../components/auth/WeatherBackground';
 import { ContactModal } from '../components/auth/ContactModal';
 import { ForgotPasswordModal } from '../components/auth/ForgotPasswordModal';
+import { UserService } from '../services/userService';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -83,13 +84,38 @@ export const LoginView: React.FC = () => {
     }
   };
 
+  const handleUsernameBlur = async () => {
+    const cleanUser = username.trim().toLowerCase();
+    if (!cleanUser) return;
+    try {
+      const detectedComp = await UserService.resolveUserCompanyCodeAsync(undefined, cleanUser);
+      if (detectedComp && detectedComp !== companyCode) {
+        setCompanyCode(detectedComp);
+        localStorage.setItem('@saha_takip_company_code', detectedComp);
+      }
+    } catch {}
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setIsLoading(true);
 
     try {
-      const res = await login(companyCode, username, password, rememberMe);
+      const cleanUser = username.trim().toLowerCase();
+      let targetComp = companyCode;
+      try {
+        const detectedComp = await UserService.resolveUserCompanyCodeAsync(undefined, cleanUser);
+        if (detectedComp) {
+          targetComp = detectedComp;
+          if (detectedComp !== companyCode) {
+            setCompanyCode(detectedComp);
+            localStorage.setItem('@saha_takip_company_code', detectedComp);
+          }
+        }
+      } catch {}
+
+      const res = await login(targetComp, username, password, rememberMe);
       if (!res.success && res.error) {
         setErrorMsg(res.error);
       }
@@ -211,6 +237,7 @@ export const LoginView: React.FC = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onBlur={handleUsernameBlur}
                 placeholder="Kullanıcı adınızı veya e-postanızı girin"
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm font-medium transition-all"

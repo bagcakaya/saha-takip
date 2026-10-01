@@ -722,16 +722,20 @@ export const OneSignalService = {
         }
       });
       // Also add current device's hardware player ID if current user is in cleanIds
-      let myUid: string | null = localStorage.getItem('@saha_takip_user_id');
-      if (!myUid) {
-        try {
-          const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
-          myUid = u.id || null;
-        } catch {}
-      }
-      const mySub = localStorage.getItem('@saha_takip_last_sub_id');
-      if (mySub && myUid && cleanIds.includes(myUid) && !cleanSubIds.includes(mySub) && !cachedSubIds.includes(mySub)) {
-        cachedSubIds.push(mySub);
+      // Strictly prevent current device player ID from being targeted if current device belongs to another company!
+      const myCompany = (localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
+      if (myCompany === targetCompanyCode) {
+        let myUid: string | null = localStorage.getItem('@saha_takip_user_id');
+        if (!myUid) {
+          try {
+            const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+            myUid = u.id || null;
+          } catch {}
+        }
+        const mySub = localStorage.getItem('@saha_takip_last_sub_id');
+        if (mySub && myUid && cleanIds.includes(myUid) && !cleanSubIds.includes(mySub) && !cachedSubIds.includes(mySub)) {
+          cachedSubIds.push(mySub);
+        }
       }
     }
     const allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
@@ -868,12 +872,41 @@ export const OneSignalService = {
           } catch {}
         }
 
+        // STRICT TENANT ISOLATION: Never include POLATLAR super admins if targeting another company!
+        if (targetCompanyCode !== 'POLATLAR') {
+          adminUserIds = adminUserIds.filter((id) => id !== 'admin-root' && id !== 'mtjsnufrp8pfa');
+        }
+
+        // Strategy A: If targeted company is NOT POLATLAR and we have specific admin IDs, prefer alias targeting first
+        // to completely eliminate any chance of tag crossover to POLATLAR super admins!
+        if (targetCompanyCode !== 'POLATLAR' && adminUserIds.length > 0) {
+          try {
+            const aliasPayload = {
+              ...basePayload,
+              include_aliases: { external_id: adminUserIds },
+              target_channel: 'push',
+            };
+            const aliasRes = await this._postNotification(aliasPayload);
+            if (aliasRes && aliasRes.id) {
+              return { success: true, data: aliasRes };
+            }
+          } catch (aliasErr) {
+            console.warn('Company admin alias blast failed, falling back to tag filter:', aliasErr);
+          }
+        }
+
+        // Strategy B: Tag filter with strict company exclusion
+        const adminFilters: any[] = [
+          { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
+          { field: 'tag', key: 'role', relation: '=', value: 'admin' },
+        ];
+        if (targetCompanyCode !== 'POLATLAR') {
+          adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
+        }
+
         const payload = {
           ...basePayload,
-          filters: [
-            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
-            { field: 'tag', key: 'role', relation: '=', value: 'admin' },
-          ],
+          filters: adminFilters,
         };
         try {
           const res = await this._postNotification(payload);

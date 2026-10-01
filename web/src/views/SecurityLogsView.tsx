@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { isUserAdmin, Company } from '../types/auth';
 import { DeviceService } from '../services/deviceService';
 import { CompanyService } from '../services/companyService';
+import { UserService } from '../services/userService';
 
 export const SecurityLogsView: React.FC = () => {
   const { user } = useAuth();
@@ -90,11 +91,13 @@ export const SecurityLogsView: React.FC = () => {
   const filteredLogs = useMemo(() => {
     return securityLogs.filter((log) => {
       // Company scoping: Non-superadmins only see their own company
+      const detectedComp = UserService.getUserCompanyCode(log.attemptedUserId, log.attemptedUsername);
+      const logComp = (detectedComp || log.companyCode || 'POLATLAR').toUpperCase();
+
       if (!isSuperAdmin) {
-        const logComp = (log.companyCode || userComp || 'POLATLAR').toUpperCase();
         if (logComp !== userComp) return false;
       } else if (selectedCompanyFilter !== 'ALL') {
-        if ((log.companyCode || 'POLATLAR').toUpperCase() !== selectedCompanyFilter.toUpperCase()) return false;
+        if (logComp !== selectedCompanyFilter.toUpperCase()) return false;
       }
 
       // Filter by type
@@ -450,9 +453,15 @@ export const SecurityLogsView: React.FC = () => {
                       </span>
                     )}
 
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                      🏢 {log.companyCode || 'POLATLAR'}
-                    </span>
+                    {(() => {
+                      const detectedComp = UserService.getUserCompanyCode(log.attemptedUserId, log.attemptedUsername);
+                      const displayComp = (detectedComp || log.companyCode || 'POLATLAR').toUpperCase();
+                      return (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          🏢 {displayComp}
+                        </span>
+                      );
+                    })()}
 
                     {!log.read && (
                       <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
