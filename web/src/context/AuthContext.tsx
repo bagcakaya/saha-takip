@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { User, UserAccount, UserRole, Company, isUserAdmin, LicenseInfo, getCompanyLicenseInfo } from '../types/auth';
+import { User, UserAccount, UserRole, Company, isUserAdmin, LicenseInfo, getCompanyLicenseInfo, canUserManageCompanyModules } from '../types/auth';
 import { UserService } from '../services/userService';
 import { CompanyService } from '../services/companyService';
 import { StorageService } from '../services/storageService';
@@ -11,6 +11,10 @@ interface AuthContextType {
   user: User | null;
   users: UserAccount[];
   company: Company | null;
+  homeCompany: Company | null;
+  viewingCompany: Company | null;
+  activeCompany: Company | null;
+  switchViewingCompany: (companyCode: string) => Promise<void>;
   licenseInfo: LicenseInfo;
   isAuthenticated: boolean;
   refreshCompany: () => Promise<void>;
@@ -58,10 +62,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = '@gorev_tamamlama_auth_user';
+const VIEWING_COMPANY_STORAGE_KEY = '@saha_takip_viewing_company_code';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<UserAccount[]>([]);
-  const [company, setCompany] = useState<Company | null>(null);
+  const [homeCompany, setHomeCompany] = useState<Company | null>(null);
+  const [viewingCompany, setViewingCompany] = useState<Company | null>(null);
+
+  const activeCompany = viewingCompany || homeCompany;
 
   const [user, setUser] = useState<User | null>(() => {
     try {
@@ -88,15 +96,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(user));
 
   // Calculate real-time SaaS license status
-  const licenseInfo = useMemo(() => getCompanyLicenseInfo(company), [company]);
+  const licenseInfo = useMemo(() => getCompanyLicenseInfo(activeCompany), [activeCompany]);
 
   const refreshCompany = async () => {
     if (user?.companyCode) {
       const comp = await CompanyService.getCompanyByCode(user.companyCode);
       if (comp) {
-        setCompany(comp);
-        StorageService.setCompany(comp.code, comp.id);
+        setHomeCompany(comp);
       }
+    }
+    if (viewingCompany?.code) {
+      const vComp = await CompanyService.getCompanyByCode(viewingCompany.code);
+      if (vComp) {
+        setViewingCompany(vComp);
+      }
+    }
+  };
+
+  const switchViewingCompany = async (targetCode: string) => {
+    const cleanCode = (targetCode || 'POLATLAR').trim().toUpperCase();
+    if (!canUserManageCompanyModules(user)) {
+      return;
+    }
+
+    if (cleanCode === 'POLATLAR' || cleanCode === (user?.companyCode || 'POLATLAR').trim().toUpperCase()) {
+      setViewingCompany(null);
+      try {
+        localStorage.removeItem(VIEWING_COMPANY_STORAGE_KEY);
+      } catch {}
+      const targetComp = homeCompany || (await CompanyService.getCompanyByCode('POLATLAR'));
+      if (targetComp) {
+        StorageService.setCompany(targetComp.code, targetComp.id);
+      } else {
+        StorageService.setCompany('POLATLAR', 1);
+      }
+      window.dispatchEvent(
+        new CustomEvent('saha:viewing-company-changed', { detail: { companyCode: 'POLATLAR' } })
+      );
+      return;
+    }
+
+    const targetComp = await CompanyService.getCompanyByCode(cleanCode);
+    if (targetComp) {
+      setViewingCompany(targetComp);
+      try {
+        localStorage.setItem(VIEWING_COMPANY_STORAGE_KEY, targetComp.code);
+      } catch {}
+      StorageService.setCompany(targetComp.code, targetComp.id);
+      window.dispatchEvent(
+        new CustomEvent('saha:viewing-company-changed', { detail: { companyCode: targetComp.code } })
+      );
     }
   };
 
@@ -105,14 +154,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user?.companyCode) {
       CompanyService.getCompanyByCode(user.companyCode).then((comp) => {
         if (comp) {
-          setCompany(comp);
-          StorageService.setCompany(comp.code, comp.id);
+          setHomeCompany(comp);
+          // If no viewing company, set StorageService to home company
+          if (!viewingCompany) {
+            StorageService.setCompany(comp.code, comp.id);
+          }
         } else if (user.companyCode.trim().toUpperCase() !== 'POLATLAR') {
           logout();
         }
       });
+
+      // Restore viewing company for POLATLAR super admins if previously chosen
+      if (canUserManageCompanyModules(user)) {
+        try {
+          const savedViewing = localStorage.getItem(VIEWING_COMPANY_STORAGE_KEY);
+          if (savedViewing && savedViewing.trim().toUpperCase() !== 'POLATLAR') {
+            CompanyService.getCompanyByCode(savedViewing).then((vComp) => {
+              if (vComp) {
+                setViewingCompany(vComp);
+                StorageService.setCompany(vComp.code, vComp.id);
+              } else {
+                localStorage.removeItem(VIEWING_COMPANY_STORAGE_KEY);
+                setViewingCompany(null);
+              }
+            });
+          }
+        } catch {}
+      } else {
+        setViewingCompany(null);
+        try {
+          localStorage.removeItem(VIEWING_COMPANY_STORAGE_KEY);
+        } catch {}
+      }
     } else {
-      setCompany(null);
+      setHomeCompany(null);
+      setViewingCompany(null);
     }
   }, [user]);
 
@@ -122,9 +198,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const handlePermissionsUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<{ companyCode: string; permissions: any }>;
-      if (customEvent.detail && user?.companyCode) {
-        if (customEvent.detail.companyCode.toUpperCase() === user.companyCode.toUpperCase()) {
-          setCompany((prev) => {
+      if (customEvent.detail) {
+        const evCode = customEvent.detail.companyCode.toUpperCase();
+        if (user?.companyCode && evCode === user.companyCode.toUpperCase()) {
+          setHomeCompany((prev) => {
             if (!prev) return prev;
             return {
               ...prev,
@@ -132,6 +209,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
           });
         }
+        setViewingCompany((prev) => {
+          if (!prev || prev.code.toUpperCase() !== evCode) return prev;
+          return {
+            ...prev,
+            modulePermissions: customEvent.detail.permissions,
+          };
+        });
       }
     };
 
@@ -322,7 +406,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const finalUser: User = isUserAdmin(authenticatedUser) ? { ...authenticatedUser, role: 'admin' } : authenticatedUser;
 
     StorageService.setCompany(matchedCompany.code, matchedCompany.id);
-    setCompany(matchedCompany);
+    setHomeCompany(matchedCompany);
+    setViewingCompany(null);
+    try {
+      localStorage.removeItem(VIEWING_COMPANY_STORAGE_KEY);
+    } catch {}
     setUser(finalUser);
     setIsAuthenticated(true);
     OneSignalService.loginUser(
@@ -432,7 +520,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     OneSignalService.logoutUser();
     setUser(null);
-    setCompany(null);
+    setHomeCompany(null);
+    setViewingCompany(null);
     setIsAuthenticated(false);
     StorageService.setCompany('POLATLAR', 1);
     try {
@@ -440,6 +529,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.removeItem(AUTH_STORAGE_KEY);
       localStorage.removeItem('@saha_takip_company_code');
       localStorage.removeItem('@saha_takip_company_id');
+      localStorage.removeItem(VIEWING_COMPANY_STORAGE_KEY);
     } catch (e) {
       console.warn('Oturum silinemedi:', e);
     }
@@ -452,7 +542,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: UserRole;
     companyCode?: string;
   }) => {
-    const currentCompCode = (params.companyCode || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const currentCompCode = (params.companyCode || activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const res = await UserService.addUser({
       ...params,
       companyCode: currentCompCode,
@@ -491,7 +581,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const suggestUsername = (name: string): string => {
-    const currentCompCode = user?.companyCode || 'POLATLAR';
+    const currentCompCode = activeCompany?.code || user?.companyCode || 'POLATLAR';
     return UserService.generateSuggestedUsername(name, currentCompCode);
   };
 
@@ -500,7 +590,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         users,
-        company,
+        company: activeCompany,
+        homeCompany,
+        viewingCompany,
+        activeCompany,
+        switchViewingCompany,
         licenseInfo,
         isAuthenticated,
         refreshCompany,

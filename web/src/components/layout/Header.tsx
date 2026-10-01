@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
         <Home className="w-4 h-4" />
         <span>Ana Menü</span>
       </button>
-      {canManageBranches && (
+      {canManageBranches && (!company || company.code === 'POLATLAR') && (
         <button
           onClick={() => setActiveTab('branches')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${

@@ -501,8 +501,8 @@ export const StaffTrackingView: React.FC = () => {
 
   // Current active company code (e.g. 'POLATLAR', 'BURAKDEV')
   const currentCompanyCode = useMemo(() => {
-    return (user?.companyCode || company?.code || 'POLATLAR').trim().toUpperCase();
-  }, [user?.companyCode, company?.code]);
+    return (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+  }, [company?.code, user?.companyCode]);
 
   // Users strictly belonging to the current company only
   const companyUsers = useMemo(() => {

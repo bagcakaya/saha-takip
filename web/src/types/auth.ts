@@ -398,12 +398,12 @@ export function isModulePermitted(
   company?: Company | null
 ): boolean {
   if (!user) return false;
-  const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const targetCompCode = (company?.code || user.companyCode || 'POLATLAR').trim().toUpperCase();
   const isAdmin = isUserAdmin(user);
   const role: 'admin' | 'staff' = isAdmin ? 'admin' : 'staff';
 
-  // POLATLAR super admins always see all modules
-  if (compCode === 'POLATLAR') {
+  // POLATLAR always has all modules visible when viewing POLATLAR
+  if (targetCompCode === 'POLATLAR') {
     if (isAdmin) return true;
     const def = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
     if (def) {

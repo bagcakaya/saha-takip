@@ -196,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             </button>
 
             {/* 0.5. Kurum ve Şubeler (Yalnızca POLATLAR admin & murat) */}
-            {canManageInstitutionsAndBranches && (
+            {canManageInstitutionsAndBranches && (!company || company.code === 'POLATLAR') && (
               <button
                 onClick={() => setActiveTab('branches')}
                 className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
@@ -516,7 +516,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             )}
 
             {/* 5. Yeni Kurum / Firma Ekle (Sadece Polatlar / Kurum Yöneticileri) */}
-            {isAdmin && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
+            {isAdmin && (!company || company.code === 'POLATLAR') && (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' && (
               <button
                 type="button"
                 onClick={() => setIsCreateCompanyOpen(true)}

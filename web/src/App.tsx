@@ -194,7 +194,7 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'home') return;
     if (activeTab === 'branches') {
-      if (!canManageInstitutionsAndBranches) {
+      if (!canManageInstitutionsAndBranches || (company && company.code !== 'POLATLAR')) {
         navigateToTab('home', { replace: true });
       }
       return;

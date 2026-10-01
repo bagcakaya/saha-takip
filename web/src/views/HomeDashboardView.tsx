@@ -13,15 +13,17 @@ import {
   Store,
   Clock,
   StickyNote,
+  ChevronDown,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
-import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
+import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, canUserManageCompanyModules, isModulePermitted } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
+import { CompanySelectModal } from '../components/common/CompanySelectModal';
 import { getRemainingDays } from '../utils/dateUtils';
 
 interface HomeDashboardViewProps {
@@ -44,7 +46,7 @@ interface HomeModule {
 }
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
-  const { user, company } = useAuth();
+  const { user, company, switchViewingCompany } = useAuth();
   const {
     branches,
     locations,
@@ -64,9 +66,15 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   } = useStorage();
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
+  const canManageModules = canUserManageCompanyModules(user);
+
+  const activeCompanyCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+  const activeCompanyName = company?.name || (activeCompanyCode === 'POLATLAR' ? 'Polatlar' : activeCompanyCode);
+  const isViewingOtherCompany = activeCompanyCode !== 'POLATLAR';
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -185,7 +193,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${safeBranches.length} Şube`,
       activeCount: safeBranches.length,
       action: () => onNavigate('branches'),
-      visible: canManageInstitutionsAndBranches,
+      visible: canManageInstitutionsAndBranches && !isViewingOtherCompany,
     },
     {
       id: 'installations',
@@ -354,7 +362,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       glowColor: 'text-blue-400',
       badgeText: 'SaaS Masası',
       action: () => setIsLicenseModalOpen(true),
-      visible: canManageLicenses,
+      visible: canManageLicenses && !isViewingOtherCompany,
     },
   ];
 
@@ -362,6 +370,42 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 pb-10 animate-in fade-in duration-300">
+      {/* 0. Görsel-1: Süper Yönetici Kurum Filtresi (admin ve murat) */}
+      {canManageModules && (
+        <div className="rounded-2xl sm:rounded-3xl bg-slate-900/95 text-white p-3.5 sm:p-4 shadow-xl border border-blue-900/50 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Building2 className="w-5 h-5 text-sky-400 shrink-0" />
+            <span className="text-sm font-semibold text-slate-300">Kurum:</span>
+            <button
+              type="button"
+              onClick={() => setIsCompanySelectOpen(true)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-950/80 border-2 border-blue-600 hover:border-blue-400 text-white text-xs sm:text-sm font-bold shadow-md shadow-blue-950/50 transition-all cursor-pointer group"
+            >
+              <span className="truncate max-w-[200px] sm:max-w-none">
+                {activeCompanyName} ({activeCompanyCode})
+              </span>
+              <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors shrink-0" />
+            </button>
+          </div>
+
+          {isViewingOtherCompany && (
+            <div className="flex items-center gap-2.5">
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                {activeCompanyName} Yönetici Görünümü
+              </span>
+              <button
+                type="button"
+                onClick={() => switchViewingCompany('POLATLAR')}
+                className="text-[11px] font-bold text-sky-400 hover:text-sky-300 underline cursor-pointer"
+              >
+                POLATLAR'a Dön
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 1. Compact Greeting & Status Bar (Tek ekrana sığdırma optimizasyonu) */}
       <div className="rounded-2xl sm:rounded-3xl bg-slate-900/90 text-white p-4 sm:p-6 shadow-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-1">
@@ -476,6 +520,16 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <LicenseManagementModal
           isOpen={isLicenseModalOpen}
           onClose={() => setIsLicenseModalOpen(false)}
+        />
+      )}
+
+      {/* Super Admin Kurum Seçim Modalı (Görsel-2) */}
+      {canManageModules && (
+        <CompanySelectModal
+          isOpen={isCompanySelectOpen}
+          onClose={() => setIsCompanySelectOpen(false)}
+          currentCompanyCode={activeCompanyCode}
+          onSelectCompany={(code) => switchViewingCompany(code)}
         />
       )}
     </div>

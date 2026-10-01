@@ -252,8 +252,16 @@ const saveStoredSet = (key: string, setObj: Set<string>) => {
 };
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, users, company } = useAuth();
-  const compCode = (user?.companyCode || (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) || 'POLATLAR').trim().toUpperCase();
+  const { user, users, company, viewingCompany } = useAuth();
+  const activeCompCode = (
+    viewingCompany?.code ||
+    company?.code ||
+    user?.companyCode ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+    'POLATLAR'
+  ).trim().toUpperCase();
+  const activeCompId = viewingCompany?.id || company?.id || (activeCompCode === 'POLATLAR' ? 1 : undefined);
+  const compCode = activeCompCode;
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
@@ -342,8 +350,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-    const compId = company?.id || (compCode === 'POLATLAR' ? 1 : undefined);
+    const currentCompCode = activeCompCode;
+    const currentCompId = activeCompId;
+    const compCode = currentCompCode;
+    const compId = currentCompId;
 
     // Immediately clear state from any previous company / session and indicate loading
     setAllLocations([]);
@@ -758,7 +768,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [user?.id, user?.companyCode, company?.id]);
+  }, [user?.id, activeCompCode, activeCompId]);
 
   // Filter locations based on role:
   // Admin -> Sees ALL locations from all staff members
