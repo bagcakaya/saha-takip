@@ -764,9 +764,55 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .subscribe();
 
+    // Çevrimdışı Eşitleme Zırhı: İnternet geldiğinde, ekran açıldığında veya periyodik olarak bekleyen mesaileri eşitle
+    const triggerOfflineSync = async () => {
+      if (!isMounted || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+      try {
+        const res = await StorageService.syncOfflineAttendance(compCode);
+        if (res.synced && isMounted) {
+          const latest = await StorageService.getAttendanceRecords();
+          if (isMounted) setAttendanceRecords(latest);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    const handleOnline = () => {
+      console.log('[Çevrimdışı Eşitleme] İnternet bağlantısı sağlandı, mesai kayıtları eşitleniyor...');
+      triggerOfflineSync();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerOfflineSync();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      triggerOfflineSync();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('focus', handleWindowFocus);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    // Her 30 saniyede bir hafif kontrol (Heartbeat sync)
+    const syncInterval = setInterval(() => {
+      triggerOfflineSync();
+    }, 30000);
+
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('focus', handleWindowFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      clearInterval(syncInterval);
     };
   }, [user?.id, activeCompCode, activeCompId]);
 
@@ -3043,7 +3089,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     if (backupData.attendanceRecords && Array.isArray(backupData.attendanceRecords)) {
       setAttendanceRecords(backupData.attendanceRecords);
-      await StorageService.saveAttendanceRecords(backupData.attendanceRecords);
+      await StorageService.saveAttendanceRecords(backupData.attendanceRecords, { forceOverwrite: true });
     }
   };
 
@@ -3353,7 +3399,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return {
             success: true,
             distance: distToAssigned,
-            message: `${assignedBranch.name} şubesinde işe girişiniz başarıyla onaylandı! (Şubeye mesafe: ${LocationService.formatDistance(distToAssigned)})`,
+            message: `${assignedBranch.name} şubesinde işe girişiniz başarıyla onaylandı!${typeof navigator !== 'undefined' && !navigator.onLine ? ' (Çevrimdışı - Bağlantı sağlandığında eşitlenecektir)' : ` (Şubeye mesafe: ${LocationService.formatDistance(distToAssigned)})`}`,
           };
         }
 
@@ -3685,7 +3731,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return {
       success: true,
       distance,
-      message: `İşe girişiniz başarıyla onaylandı! (İş yerine mesafe: ${LocationService.formatDistance(distance)})`,
+      message: `İşe girişiniz başarıyla onaylandı!${typeof navigator !== 'undefined' && !navigator.onLine ? ' (Çevrimdışı - Bağlantı sağlandığında eşitlenecektir)' : ` (İş yerine mesafe: ${LocationService.formatDistance(distance)})`}`,
     };
   };
 
@@ -3937,7 +3983,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return {
       success: true,
       distance,
-      message: `İşten çıkışınız onaylandı! Toplam mesai süreniz: ${durationText}.`,
+      message: `İşten çıkışınız onaylandı!${typeof navigator !== 'undefined' && !navigator.onLine ? ' (Çevrimdışı - Bağlantı sağlandığında eşitlenecektir)' : ''} Toplam mesai süreniz: ${durationText}.`,
     };
   };
 
@@ -4232,7 +4278,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const deleteAttendanceRecord = async (id: string) => {
     const updated = attendanceRecords.filter((r) => r.id !== id);
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    await StorageService.saveAttendanceRecords(updated, { deletedRecordId: id });
   };
 
   const updateAttendanceRecord = async (id: string, updates: Partial<AttendanceRecord>) => {

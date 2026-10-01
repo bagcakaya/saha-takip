@@ -111,6 +111,34 @@ const sanitizeAttendance = (records: AttendanceRecord[], compCode: string): Atte
   });
 };
 
+// Çevrimdışı Eşitleme ve Silinen Kayıtlar Zırhı
+const DELETED_ATTENDANCE_IDS_KEY = '@saha_takip_deleted_attendance_ids';
+const PENDING_ATTENDANCE_SYNC_KEY = '@saha_takip_pending_attendance_sync';
+
+const getDeletedAttendanceIds = (compCode: string): Set<string> => {
+  try {
+    const key = `${DELETED_ATTENDANCE_IDS_KEY}_${(compCode || 'POLATLAR').toUpperCase()}`;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+};
+
+const addDeletedAttendanceId = (compCode: string, id: string): void => {
+  try {
+    const key = `${DELETED_ATTENDANCE_IDS_KEY}_${(compCode || 'POLATLAR').toUpperCase()}`;
+    const set = getDeletedAttendanceIds(compCode);
+    set.add(id);
+    const arr = Array.from(set).slice(-500);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+  } catch {}
+};
+
 // Active Company state
 let activeCompanyCode =
   typeof localStorage !== 'undefined'
@@ -1448,27 +1476,161 @@ export const StorageService = {
   },
 
   /**
-   * Retrieves attendance records
+   * Akıllı Eşitleme / Smart Merge Zırhı:
+   * Buluttaki kayıtlar ile yereldeki kayıtları güvenle harmanlar.
+   * Cihaz internetsizken yapılan girişler, çıkışlar veya molalar ASLA kaybolmaz.
+   * Diğer personellerin girişleri de ezilmez.
+   */
+  mergeAttendanceRecords(
+    cloudRecords: AttendanceRecord[],
+    localRecords: AttendanceRecord[],
+    compCode: string,
+    options?: { deletedRecordId?: string }
+  ): { records: AttendanceRecord[]; hasCloudUpdates: boolean; missingCount: number } {
+    const targetComp = (compCode || activeCompanyCode || 'POLATLAR').toUpperCase();
+    const deletedIds = getDeletedAttendanceIds(targetComp);
+    if (options?.deletedRecordId) {
+      deletedIds.add(options.deletedRecordId);
+      addDeletedAttendanceId(targetComp, options.deletedRecordId);
+    }
+
+    const cleanCloud = (cloudRecords || []).filter((r) => r && r.id && !deletedIds.has(r.id));
+    const cleanLocal = (localRecords || []).filter((r) => r && r.id && !deletedIds.has(r.id));
+
+    let hasCloudUpdates = false;
+    let missingCount = 0;
+
+    const cloudMap = new Map<string, AttendanceRecord>();
+    const cloudUserDateMap = new Map<string, AttendanceRecord>();
+
+    cleanCloud.forEach((r) => {
+      cloudMap.set(r.id, r);
+      if (r.userId && r.date) {
+        cloudUserDateMap.set(`${r.userId}_${r.date}`, r);
+      }
+    });
+
+    const merged = [...cleanCloud];
+
+    for (const localRec of cleanLocal) {
+      if (!localRec || !localRec.id) continue;
+
+      let cloudRec = cloudMap.get(localRec.id);
+      if (!cloudRec && localRec.userId && localRec.date) {
+        cloudRec = cloudUserDateMap.get(`${localRec.userId}_${localRec.date}`);
+      }
+
+      if (!cloudRec) {
+        // Yerelde var ama bulutta hiç yok (Çevrimdışı işe giriş yapılmış veya buluta gitmemiş)
+        merged.unshift(localRec);
+        cloudMap.set(localRec.id, localRec);
+        if (localRec.userId && localRec.date) {
+          cloudUserDateMap.set(`${localRec.userId}_${localRec.date}`, localRec);
+        }
+        hasCloudUpdates = true;
+        missingCount++;
+      } else {
+        // İki tarafta da var. Yerelde daha güncel çıkış, mola veya bilgi var mı kontrol et
+        let localHasNewerData = false;
+        const updated = { ...cloudRec };
+
+        // 1. Çıkış bilgisi (yerelde çıkış yapılmış ama buluta henüz gitmemişse)
+        if (localRec.checkOutTime && !cloudRec.checkOutTime) {
+          updated.checkOutTime = localRec.checkOutTime;
+          updated.checkOutLat = localRec.checkOutLat;
+          updated.checkOutLon = localRec.checkOutLon;
+          updated.checkOutAddress = localRec.checkOutAddress;
+          updated.checkOutDistance = localRec.checkOutDistance;
+          updated.checkOutOutside = localRec.checkOutOutside;
+          updated.checkOutApprovalStatus = localRec.checkOutApprovalStatus || 'approved';
+          updated.status = localRec.status || 'completed';
+          updated.workDurationMinutes = localRec.workDurationMinutes;
+          localHasNewerData = true;
+        }
+
+        // 2. Mola bilgileri (yerelde molaya çıkılmış veya mola bitirilmişse)
+        if (
+          Array.isArray(localRec.breaks) &&
+          (!Array.isArray(cloudRec.breaks) || localRec.breaks.length > cloudRec.breaks.length)
+        ) {
+          updated.breaks = localRec.breaks;
+          updated.isOnBreak = localRec.isOnBreak;
+          updated.currentBreakStartTime = localRec.currentBreakStartTime;
+          updated.totalBreakMinutes = localRec.totalBreakMinutes;
+          localHasNewerData = true;
+        } else if (
+          localRec.isOnBreak !== cloudRec.isOnBreak &&
+          localRec.currentBreakStartTime &&
+          (!cloudRec.currentBreakStartTime || localRec.currentBreakStartTime > (cloudRec.currentBreakStartTime || 0))
+        ) {
+          updated.isOnBreak = localRec.isOnBreak;
+          updated.currentBreakStartTime = localRec.currentBreakStartTime;
+          updated.totalBreakMinutes = localRec.totalBreakMinutes;
+          localHasNewerData = true;
+        }
+
+        // 3. Onay notu varsa koru
+        if (localRec.approvalNote && !cloudRec.approvalNote) {
+          updated.approvalNote = localRec.approvalNote;
+        }
+
+        if (localHasNewerData) {
+          const idx = merged.findIndex((m) => m.id === cloudRec!.id);
+          if (idx !== -1) {
+            merged[idx] = updated;
+          }
+          hasCloudUpdates = true;
+        }
+      }
+    }
+
+    // Tarih ve checkInTime'a göre azalan sırala
+    merged.sort((a, b) => {
+      if (a.date !== b.date) {
+        return (b.date || '').localeCompare(a.date || '');
+      }
+      return (b.checkInTime || 0) - (a.checkInTime || 0);
+    });
+
+    return { records: merged, hasCloudUpdates, missingCount };
+  },
+
+  /**
+   * Retrieves attendance records with smart offline-merge defense
    */
   async getAttendanceRecords(): Promise<AttendanceRecord[]> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
     const slotId = this.getSlotId(6);
+    const localData = (await loadItem<AttendanceRecord[]>(localKey)) || [];
+
     const { data: cloudData, notFound } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       const finalCloudData = sanitizeAttendance(cloudData, activeCompanyCode);
-      await saveItem(localKey, finalCloudData);
-      return finalCloudData;
+      const mergeResult = this.mergeAttendanceRecords(finalCloudData, localData, activeCompanyCode);
+      await saveItem(localKey, mergeResult.records);
+
+      if (mergeResult.hasCloudUpdates) {
+        console.log(`[Çevrimdışı Eşitleme] ${mergeResult.missingCount} adet yerel kayıt buluta otomatik aktarılıyor...`);
+        saveChunkedSlot(slotId, mergeResult.records).catch((err) => {
+          console.warn('[Çevrimdışı Eşitleme] Otomatik bulut eşitleme hatası:', err);
+        });
+      }
+
+      return mergeResult.records;
     }
 
     if (activeCompanyCode !== 'POLATLAR') {
       if (notFound) {
+        if (localData && localData.length > 0) {
+          return localData;
+        }
         await saveItem(localKey, []);
         return [];
       }
-      const localData = await loadItem<AttendanceRecord[]>(localKey);
-      if (Array.isArray(localData)) {
-        const sanitized = sanitizeAttendance(localData, activeCompanyCode);
-        if (sanitized.length !== localData.length) {
+      const localDataNonPolat = await loadItem<AttendanceRecord[]>(localKey);
+      if (Array.isArray(localDataNonPolat)) {
+        const sanitized = sanitizeAttendance(localDataNonPolat, activeCompanyCode);
+        if (sanitized.length !== localDataNonPolat.length) {
           await saveItem(localKey, sanitized);
         }
         return sanitized;
@@ -1480,12 +1642,103 @@ export const StorageService = {
   },
 
   /**
-   * Saves attendance records
+   * Saves attendance records with multi-user concurrency and offline defense
    */
-  async saveAttendanceRecords(records: AttendanceRecord[]): Promise<void> {
+  async saveAttendanceRecords(
+    records: AttendanceRecord[],
+    options?: { deletedRecordId?: string; forceOverwrite?: boolean }
+  ): Promise<void> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
+    const slotId = this.getSlotId(6);
+
+    // 1. Önce anında yerel hafızaya yaz (0ms UI tepkisi)
     await saveItem(localKey, records);
-    await saveChunkedSlot(this.getSlotId(6), records);
+
+    if (options?.deletedRecordId) {
+      addDeletedAttendanceId(activeCompanyCode, options.deletedRecordId);
+    }
+
+    // 2. Buluta güvenli aktarım (Dual-write / Merge defense)
+    try {
+      let finalToSave = records;
+
+      if (!options?.forceOverwrite) {
+        const { data: cloudData } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
+        if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+          const sanitizedCloud = sanitizeAttendance(cloudData, activeCompanyCode);
+          const mergeResult = this.mergeAttendanceRecords(sanitizedCloud, records, activeCompanyCode, options);
+          finalToSave = mergeResult.records;
+          // Yerel önbelleği de harmanlanmış tam liste ile güncelle
+          await saveItem(localKey, finalToSave);
+        }
+      }
+
+      await saveChunkedSlot(slotId, finalToSave);
+      this.clearPendingAttendanceSync(activeCompanyCode);
+    } catch (err) {
+      console.warn(`[saveAttendanceRecords] Bulut kaydı başarısız oldu veya çevrimdışı:`, err);
+      this.markAttendancePendingSync(activeCompanyCode, records);
+    }
+  },
+
+  /**
+   * Çevrimdışı kalan veya henüz buluta gitmemiş mesai kayıtlarını eşitler
+   */
+  async syncOfflineAttendance(compCode?: string): Promise<{ synced: boolean; count: number }> {
+    const targetComp = (compCode || activeCompanyCode || 'POLATLAR').toUpperCase();
+    const localKey = this.getStorageKeyForCompany(ATTENDANCE_RECORDS_KEY, targetComp);
+    const slotId = this.getSlotIdForCompany(6, targetComp);
+
+    try {
+      const localData = (await loadItem<AttendanceRecord[]>(localKey)) || [];
+      const { data: cloudData } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
+
+      if (!cloudData || !Array.isArray(cloudData)) {
+        return { synced: false, count: 0 };
+      }
+
+      const finalCloud = sanitizeAttendance(cloudData, targetComp);
+      const mergeResult = this.mergeAttendanceRecords(finalCloud, localData, targetComp);
+
+      if (mergeResult.hasCloudUpdates) {
+        console.log(`[Çevrimdışı Eşitleme] ${targetComp} için ${mergeResult.missingCount} kayıt buluta aktarılıyor...`);
+        await saveChunkedSlot(slotId, mergeResult.records);
+        await saveItem(localKey, mergeResult.records);
+        this.clearPendingAttendanceSync(targetComp);
+        return { synced: true, count: mergeResult.missingCount };
+      }
+      return { synced: false, count: 0 };
+    } catch (err) {
+      console.warn('[syncOfflineAttendance] Eşitleme denemesi başarısız oldu:', err);
+      return { synced: false, count: 0 };
+    }
+  },
+
+  markAttendancePendingSync(compCode: string, records: AttendanceRecord[]): void {
+    try {
+      const key = `${PENDING_ATTENDANCE_SYNC_KEY}_${(compCode || 'POLATLAR').toUpperCase()}`;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, JSON.stringify({ timestamp: Date.now(), count: records.length }));
+      }
+    } catch {}
+  },
+
+  clearPendingAttendanceSync(compCode: string): void {
+    try {
+      const key = `${PENDING_ATTENDANCE_SYNC_KEY}_${(compCode || 'POLATLAR').toUpperCase()}`;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+    } catch {}
+  },
+
+  hasPendingAttendanceSync(compCode: string): boolean {
+    try {
+      const key = `${PENDING_ATTENDANCE_SYNC_KEY}_${(compCode || 'POLATLAR').toUpperCase()}`;
+      return typeof localStorage !== 'undefined' ? !!localStorage.getItem(key) : false;
+    } catch {
+      return false;
+    }
   },
 
   /**
