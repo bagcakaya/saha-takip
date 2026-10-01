@@ -18,10 +18,16 @@ import {
   Store,
   X,
   Save,
+  Sliders,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
-import { canUserAddBranch, canUserManageInstitutionsAndBranches, Company } from '../types/auth';
+import {
+  canUserAddBranch,
+  canUserManageInstitutionsAndBranches,
+  canUserManageCompanyModules,
+  Company,
+} from '../types/auth';
 import { Branch } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import { CompanyService } from '../services/companyService';
@@ -31,6 +37,7 @@ import { UserService } from '../services/userService';
 import { BranchModal } from '../components/branches/BranchModal';
 import { BranchStaffModal } from '../components/branches/BranchStaffModal';
 import { CreateCompanyModal } from '../components/auth/CreateCompanyModal';
+import { CompanyModulesModal } from '../components/branches/CompanyModulesModal';
 
 export const BranchesView: React.FC = () => {
   const { user, users, updateUser } = useAuth();
@@ -44,6 +51,7 @@ export const BranchesView: React.FC = () => {
   } = useStorage();
 
   const canAddBranch = canUserAddBranch(user);
+  const canManageCompanyModules = canUserManageCompanyModules(user);
   const currentCompCode = useMemo(() => (user?.companyCode || 'POLATLAR').trim().toUpperCase(), [user]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,6 +66,7 @@ export const BranchesView: React.FC = () => {
   // Modal states
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isAddBranchOpen, setIsAddBranchOpen] = useState(false);
+  const [moduleModalCompany, setModuleModalCompany] = useState<Company | null>(null);
   const [targetCompanyForBranch, setTargetCompanyForBranch] = useState<string>(currentCompCode);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [assigningBranch, setAssigningBranch] = useState<Branch | null>(null);
@@ -488,6 +497,23 @@ export const BranchesView: React.FC = () => {
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Şube Ekle</span>
+                      </button>
+                    )}
+
+                    {/* Modül & Ekran Yetkileri (Yalnızca POLATLAR admin & murat) */}
+                    {canManageCompanyModules && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setModuleModalCompany(comp);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 active:bg-purple-200 dark:bg-purple-950/50 dark:hover:bg-purple-900/60 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 text-xs font-black shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Bu kurumun Ana Ekran ve Menü Modüllerini Özelleştir (Personel / Yönetici)"
+                      >
+                        <Sliders className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span className="hidden sm:inline">Modül Yetkileri</span>
+                        <span className="sm:hidden">Modüller</span>
                       </button>
                     )}
 
@@ -937,6 +963,20 @@ export const BranchesView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- MODAL: KURUM MODÜL & EKRAN YETKİLERİ MODALI (SÜPER ADMİN) --- */}
+      {moduleModalCompany && (
+        <CompanyModulesModal
+          isOpen={moduleModalCompany !== null}
+          onClose={() => setModuleModalCompany(null)}
+          company={moduleModalCompany}
+          onSuccess={(updated) => {
+            setAvailableCompanies((prev) =>
+              prev.map((c) => (c.code.toUpperCase() === updated.code.toUpperCase() ? updated : c))
+            );
+          }}
+        />
       )}
     </div>
   );

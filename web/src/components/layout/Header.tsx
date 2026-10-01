@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { isUserAdmin, canUserManageServerConfig } from '../../types/auth';
+import { isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
@@ -29,12 +29,13 @@ export const Header: React.FC<HeaderProps> = ({
   title,
   actionButton,
 }) => {
-  const { user, logout } = useAuth();
+  const { user, company, logout } = useAuth();
   const {
     unreadLogsCount,
   } = useStorage();
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
+  const canManageBranches = canUserManageInstitutionsAndBranches(user);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -62,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
         <Home className="w-4 h-4" />
         <span>Ana Menü</span>
       </button>
-      {isAdmin && (
+      {canManageBranches && (
         <button
           onClick={() => setActiveTab('branches')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
@@ -75,84 +76,98 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Kurum ve Şubeler</span>
         </button>
       )}
-      <button
-        onClick={() => setActiveTab('installations')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'installations'
-            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <Building2 className="w-4 h-4" />
-        <span>Kurulumlar</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('services')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'services'
-            ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <Wrench className="w-4 h-4" />
-        <span>Servisler</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('notes')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'notes'
-            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <ClipboardList className="w-4 h-4" />
-        <span>İş Emirleri</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('personal_notes')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'personal_notes'
-            ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <StickyNote className="w-4 h-4" />
-        <span>Notlarım</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('staff_tracking')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'staff_tracking'
-            ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <UserCheck className="w-4 h-4" />
-        <span>Personel Takibi</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('reminders')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'reminders'
-            ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <Megaphone className="w-4 h-4" />
-        <span>Hatırlatmalar</span>
-      </button>
-      <button
-        onClick={() => setActiveTab('returns')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'returns'
-            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <RotateCcw className="w-4 h-4" />
-        <span>İade / Garanti</span>
-      </button>
-      {isAdmin && (
+      {isModulePermitted('installations', user, company) && (
+        <button
+          onClick={() => setActiveTab('installations')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'installations'
+              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Kurulumlar</span>
+        </button>
+      )}
+      {isModulePermitted('services', user, company) && (
+        <button
+          onClick={() => setActiveTab('services')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'services'
+              ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Wrench className="w-4 h-4" />
+          <span>Servisler</span>
+        </button>
+      )}
+      {isModulePermitted('notes', user, company) && (
+        <button
+          onClick={() => setActiveTab('notes')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'notes'
+              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span>İş Emirleri</span>
+        </button>
+      )}
+      {isModulePermitted('personal_notes', user, company) && (
+        <button
+          onClick={() => setActiveTab('personal_notes')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'personal_notes'
+              ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <StickyNote className="w-4 h-4" />
+          <span>Notlarım</span>
+        </button>
+      )}
+      {isModulePermitted('staff_tracking', user, company) && (
+        <button
+          onClick={() => setActiveTab('staff_tracking')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'staff_tracking'
+              ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          <span>Personel Takibi</span>
+        </button>
+      )}
+      {isModulePermitted('reminders', user, company) && (
+        <button
+          onClick={() => setActiveTab('reminders')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'reminders'
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Megaphone className="w-4 h-4" />
+          <span>Hatırlatmalar</span>
+        </button>
+      )}
+      {isModulePermitted('returns', user, company) && (
+        <button
+          onClick={() => setActiveTab('returns')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'returns'
+              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <RotateCcw className="w-4 h-4" />
+          <span>İade / Garanti</span>
+        </button>
+      )}
+      {isModulePermitted('logs', user, company) && (
         <button
           onClick={() => setActiveTab('logs')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
@@ -170,17 +185,19 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
       )}
-      <button
-        onClick={() => setActiveTab('template')}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'template'
-            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <ListTodo className="w-4 h-4" />
-        <span>Şablon Yönetimi</span>
-      </button>
+      {isModulePermitted('template', user, company) && (
+        <button
+          onClick={() => setActiveTab('template')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'template'
+              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <ListTodo className="w-4 h-4" />
+          <span>Şablon Yönetimi</span>
+        </button>
+      )}
     </div>
   );
 

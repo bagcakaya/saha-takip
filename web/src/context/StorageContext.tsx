@@ -719,6 +719,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (isMounted) setStandardTasks(tasks);
               return;
             }
+            if (changedSlotId === 100) {
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('saha:company-directory-updated'));
+              }
+              return;
+            }
           } catch (e) {
             console.warn('Realtime update error:', e);
           }

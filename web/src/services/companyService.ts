@@ -1,4 +1,4 @@
-import { Company } from '../types/auth';
+import { Company, CompanyModulePermissions } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { ServerConfigService } from './serverConfigService';
 import { SanitizeService } from './sanitizeService';
@@ -373,6 +373,47 @@ export const CompanyService = {
     await this.saveCompaniesLocal(filtered);
     await this.syncToCloud(filtered);
     return { success: true };
+  },
+
+  /**
+   * Updates company module permissions (super admin only)
+   * Dispatches 'saha:company-permissions-updated' event to notify open tabs in real-time.
+   */
+  async updateCompanyModulePermissions(
+    companyCode: string,
+    permissions: CompanyModulePermissions
+  ): Promise<{ success: boolean; error?: string; company?: Company }> {
+    const cleanCode = (companyCode || '').trim().toUpperCase();
+    if (!cleanCode) return { success: false, error: 'Geçersiz kurum kodu.' };
+
+    const list = await this.fetchCompanies();
+    const targetIndex = list.findIndex((c) => c.code.toUpperCase() === cleanCode);
+    if (targetIndex === -1) {
+      return { success: false, error: 'Kurum bulunamadı.' };
+    }
+
+    const target = list[targetIndex];
+    const updatedCompany: Company = {
+      ...target,
+      modulePermissions: permissions,
+    };
+
+    const updatedList = [...list];
+    updatedList[targetIndex] = updatedCompany;
+
+    this.saveCompaniesLocal(updatedList);
+    await this.syncToCloud(updatedList);
+
+    // Notify listeners across app tabs
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('saha:company-permissions-updated', {
+          detail: { companyCode: cleanCode, permissions },
+        })
+      );
+    }
+
+    return { success: true, company: updatedCompany };
   },
 };
 

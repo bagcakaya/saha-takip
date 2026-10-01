@@ -24,6 +24,7 @@ export interface Company {
   maxBranches?: number;
   maxUsers?: number;
   notes?: string;
+  modulePermissions?: CompanyModulePermissions;
 }
 
 export interface LicenseInfo {
@@ -250,6 +251,182 @@ export function canUserManageInstitutionsAndBranches(
   const isAdmin = isUserAdmin(user);
   return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
 }
+
+/**
+ * Module permission configuration for a single role
+ */
+export interface ModulePermissionConfig {
+  staff: boolean;
+  admin: boolean;
+}
+
+/**
+ * Company-wide module permissions mapping: [moduleId] -> { staff: boolean, admin: boolean }
+ */
+export type CompanyModulePermissions = {
+  [moduleId: string]: ModulePermissionConfig;
+};
+
+export interface AppFeatureModule {
+  id: string;
+  name: string;
+  shortTitle: string;
+  description: string;
+  defaultStaff: boolean;
+  defaultAdmin: boolean;
+  category: 'core' | 'operations' | 'technical' | 'management';
+}
+
+/**
+ * Standard system modules that can be toggled per company & role by POLATLAR Super Admins
+ */
+export const APP_FEATURE_MODULES: AppFeatureModule[] = [
+  {
+    id: 'staff_tracking',
+    name: 'Personel Takibi',
+    shortTitle: 'Giriş / Çıkış & İzin',
+    description: 'Konum doğrulamalı işe giriş-çıkış, mola, izin talepleri ve canlı mesai takibi',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'core',
+  },
+  {
+    id: 'notes',
+    name: 'İş Emirleri',
+    shortTitle: 'İş Takip',
+    description: 'Personele görev atama, görsel yaşlandırma renkleri, alarmlar ve iş onayları',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'operations',
+  },
+  {
+    id: 'timed_follow_ups',
+    name: 'Süreli Takipler',
+    shortTitle: 'Süreli Takip',
+    description: 'Cari bazlı randevu, ödeme ve zaman ayarlı iş hatırlatıcıları',
+    defaultStaff: false,
+    defaultAdmin: true,
+    category: 'operations',
+  },
+  {
+    id: 'personal_notes',
+    name: 'Kişisel Notlarım',
+    shortTitle: 'Notlarım',
+    description: 'Kullanıcıya özel not defteri ve doğrudan düzenlenebilir kişisel notlar',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'core',
+  },
+  {
+    id: 'reminders',
+    name: 'Yönetici Hatırlatmaları',
+    shortTitle: 'Hatırlatma',
+    description: 'Yönetici çalışma kuralları, talimatları ve genel duyurular',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'core',
+  },
+  {
+    id: 'installations',
+    name: 'Kurulumlar',
+    shortTitle: 'Kurulumlar',
+    description: 'Müşteri kurulumları, saha montajları, adresler ve kontrol listeleri',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'technical',
+  },
+  {
+    id: 'services',
+    name: 'Servisler',
+    shortTitle: 'Servisler',
+    description: 'Teknik servis müdahaleleri, parça ve yapılan iş kayıtları',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'technical',
+  },
+  {
+    id: 'returns',
+    name: 'İade / Garanti',
+    shortTitle: 'İade & Garanti',
+    description: 'Seri no, kargo fişi ve 1 haftalık otomatik süreç takibi',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'technical',
+  },
+  {
+    id: 'logs',
+    name: 'Log & Güvenlik Kayıtları',
+    shortTitle: 'Log Kayıtları',
+    description: 'Cihaz uyuşmazlığı, yetkisiz giriş denemeleri ve kilitlenme logları',
+    defaultStaff: false,
+    defaultAdmin: true,
+    category: 'management',
+  },
+  {
+    id: 'template',
+    name: 'Şablonlar',
+    shortTitle: 'Şablonlar',
+    description: 'Standart kontrol listesi görevleri ve tam veri seti yönetimi',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'management',
+  },
+];
+
+/**
+ * Checks if a user is permitted to configure company module permissions.
+ * Strictly restricted to POLATLAR super administrators ('admin' or 'murat').
+ */
+export function canUserManageCompanyModules(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}
+
+/**
+ * Checks whether a module is permitted for the given user in their company.
+ * - POLATLAR company always has all modules visible.
+ * - Other companies respect company.modulePermissions configured by POLATLAR super admins.
+ */
+export function isModulePermitted(
+  moduleId: string,
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined,
+  company?: Company | null
+): boolean {
+  if (!user) return false;
+  const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const isAdmin = isUserAdmin(user);
+  const role: 'admin' | 'staff' = isAdmin ? 'admin' : 'staff';
+
+  // POLATLAR super admins always see all modules
+  if (compCode === 'POLATLAR') {
+    if (isAdmin) return true;
+    const def = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
+    if (def) {
+      return def.defaultStaff;
+    }
+    return true;
+  }
+
+  // If company has specific module permissions defined:
+  if (company?.modulePermissions && company.modulePermissions[moduleId]) {
+    const config = company.modulePermissions[moduleId];
+    return role === 'admin' ? Boolean(config.admin) : Boolean(config.staff);
+  }
+
+  // Default permissions if not yet customized for this company:
+  const def = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
+  if (def) {
+    return role === 'admin' ? def.defaultAdmin : def.defaultStaff;
+  }
+
+  return true;
+}
+
 
 
 

@@ -25,7 +25,7 @@ import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { isUserAdmin, canUserManageInstitutionsAndBranches } from './types/auth';
+import { isUserAdmin, canUserManageInstitutionsAndBranches, isModulePermitted } from './types/auth';
 import {
   normalizeTab,
   extractTabAndFilterFromUrl,
@@ -33,7 +33,7 @@ import {
 } from './utils/navigationUtils';
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated, user, licenseInfo } = useAuth();
+  const { isAuthenticated, user, company, licenseInfo } = useAuth();
   const isAdmin = isUserAdmin(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
 
@@ -189,6 +189,20 @@ const MainApp: React.FC = () => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [isDetailModalOpen]);
+
+  // Redirect to 'home' if activeTab is forbidden for current user's role or company
+  useEffect(() => {
+    if (activeTab === 'home') return;
+    if (activeTab === 'branches') {
+      if (!canManageInstitutionsAndBranches) {
+        navigateToTab('home', { replace: true });
+      }
+      return;
+    }
+    if (!isModulePermitted(activeTab, user, company)) {
+      navigateToTab('home', { replace: true });
+    }
+  }, [activeTab, user, company, canManageInstitutionsAndBranches, navigateToTab]);
 
   // Swipe Right Gesture for Mobile / iOS PWA
   useEffect(() => {
@@ -597,27 +611,72 @@ const MainApp: React.FC = () => {
               ) : (
                 <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}
-            {activeTab === 'installations' && <InstallationsView />}
-            {activeTab === 'services' && <ServicesView />}
-            {activeTab === 'notes' && <NotesView />}
-            {activeTab === 'personal_notes' && <PersonalNotesView />}
-            {activeTab === 'staff_tracking' && <StaffTrackingView />}
+            {activeTab === 'installations' &&
+              (isModulePermitted('installations', user, company) ? (
+                <InstallationsView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'services' &&
+              (isModulePermitted('services', user, company) ? (
+                <ServicesView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'notes' &&
+              (isModulePermitted('notes', user, company) ? (
+                <NotesView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'personal_notes' &&
+              (isModulePermitted('personal_notes', user, company) ? (
+                <PersonalNotesView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'staff_tracking' &&
+              (isModulePermitted('staff_tracking', user, company) ? (
+                <StaffTrackingView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
             {activeTab === 'timed_follow_ups' &&
-              (isAdmin ? (
+              (isModulePermitted('timed_follow_ups', user, company) ? (
                 <TimedFollowUpsView />
               ) : (
                 <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}
-            {activeTab === 'reminders' && <RemindersView />}
-            {activeTab === 'returns' && <ReturnWarrantyView />}
-            {activeTab === 'logs' && <SecurityLogsView />}
-            {activeTab === 'template' && <TemplateView />}
+            {activeTab === 'reminders' &&
+              (isModulePermitted('reminders', user, company) ? (
+                <RemindersView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'returns' &&
+              (isModulePermitted('returns', user, company) ? (
+                <ReturnWarrantyView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'logs' &&
+              (isModulePermitted('logs', user, company) ? (
+                <SecurityLogsView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'template' &&
+              (isModulePermitted('template', user, company) ? (
+                <TemplateView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
           </ErrorBoundary>
         </main>
       </div>
 
       {/* 3. Right Live Summary & Map Panel (Desktop xl/2xl) */}
-      {activeTab === 'installations' && (
+      {activeTab === 'installations' && isModulePermitted('installations', user, company) && (
         <RightSummaryPanel
           selectedLocation={previewLocation}
           onOpenDetailModal={handleOpenDetailModal}

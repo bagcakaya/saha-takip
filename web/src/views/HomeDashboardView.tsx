@@ -15,7 +15,7 @@ import {
   StickyNote,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
-import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../types/auth';
+import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
@@ -44,7 +44,7 @@ interface HomeModule {
 }
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
+  const { user, company } = useAuth();
   const {
     branches,
     locations,
@@ -199,7 +199,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${installationPendingCount} Bekleyen`,
       activeCount: installationPendingCount,
       action: () => onNavigate('installations'),
-      visible: true,
+      visible: isModulePermitted('installations', user, company),
     },
     {
       id: 'services',
@@ -213,7 +213,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${servicesPendingCount} Bekleyen`,
       activeCount: servicesPendingCount,
       action: () => onNavigate('services'),
-      visible: true,
+      visible: isModulePermitted('services', user, company),
     },
     {
       id: 'notes',
@@ -227,7 +227,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${notesPendingCount} Bekleyen`,
       activeCount: notesPendingCount,
       action: () => onNavigate('notes'),
-      visible: true,
+      visible: isModulePermitted('notes', user, company),
     },
     {
       id: 'staff_tracking',
@@ -241,7 +241,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: 'Takip',
       activeCount: activeStaffCount,
       action: () => onNavigate('staff_tracking'),
-      visible: true,
+      visible: isModulePermitted('staff_tracking', user, company),
     },
     {
       id: 'timed_follow_ups',
@@ -258,7 +258,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           : `${safeTimedFollowUps.filter((i) => i && i.status === 'pending').length} Takip`,
       activeCount: pendingTimedFollowUpsCount,
       action: () => onNavigate('timed_follow_ups'),
-      visible: isAdmin,
+      visible: isModulePermitted('timed_follow_ups', user, company),
     },
     {
       id: 'personal_notes',
@@ -272,7 +272,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${userPersonalNotes.length} Not`,
       activeCount: userPersonalNotes.length > 0 ? userPersonalNotes.length : undefined,
       action: () => onNavigate('personal_notes'),
-      visible: true,
+      visible: isModulePermitted('personal_notes', user, company),
     },
     {
       id: 'reminders',
@@ -286,7 +286,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${safeAdminReminders.length || 1} Talimat`,
       activeCount: unreadRemindersCount,
       action: () => onNavigate('reminders'),
-      visible: true,
+      visible: isModulePermitted('reminders', user, company),
     },
     {
       id: 'returns',
@@ -300,7 +300,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${pendingReturns} Süreçte`,
       activeCount: pendingReturns,
       action: () => onNavigate('returns'),
-      visible: true,
+      visible: isModulePermitted('returns', user, company),
     },
     {
       id: 'logs',
@@ -314,7 +314,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: `${unreadLogsCount || safeSecurityLogs.length} Kayıt`,
       activeCount: unreadLogsCount,
       action: () => onNavigate('logs'),
-      visible: isAdmin,
+      visible: isModulePermitted('logs', user, company),
     },
     {
       id: 'template',
@@ -327,7 +327,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       glowColor: 'text-emerald-400',
       badgeText: `${safeStandardTasks.length} Görev`,
       action: () => onNavigate('template'),
-      visible: true,
+      visible: isModulePermitted('template', user, company),
     },
     {
       id: 'notifications',

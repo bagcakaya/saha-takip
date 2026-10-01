@@ -116,6 +116,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Real-time synchronization of company module permissions across windows/tabs and from cloud
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handlePermissionsUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ companyCode: string; permissions: any }>;
+      if (customEvent.detail && user?.companyCode) {
+        if (customEvent.detail.companyCode.toUpperCase() === user.companyCode.toUpperCase()) {
+          setCompany((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              modulePermissions: customEvent.detail.permissions,
+            };
+          });
+        }
+      }
+    };
+
+    const handleDirectoryUpdated = () => {
+      refreshCompany();
+    };
+
+    window.addEventListener('saha:company-permissions-updated', handlePermissionsUpdated);
+    window.addEventListener('saha:company-directory-updated', handleDirectoryUpdated);
+    return () => {
+      window.removeEventListener('saha:company-permissions-updated', handlePermissionsUpdated);
+      window.removeEventListener('saha:company-directory-updated', handleDirectoryUpdated);
+    };
+  }, [user]);
+
   useEffect(() => {
     setIsAuthenticated(Boolean(user));
     if (user) {
