@@ -1584,6 +1584,40 @@ export const StorageService = {
           updated.approvalNote = localRec.approvalNote;
         }
 
+        // 4. Onay / Ret durumu (Yerelde onaylanmış veya güncellenmişse bulutun eski verisi ezmesin)
+        if (
+          (localRec.checkInApprovalStatus && localRec.checkInApprovalStatus !== 'pending' && cloudRec.checkInApprovalStatus === 'pending') ||
+          (localRec.checkInApprovedBy && !cloudRec.checkInApprovedBy) ||
+          (localRec.checkInApprovedAt && !cloudRec.checkInApprovedAt)
+        ) {
+          updated.checkInApprovalStatus = localRec.checkInApprovalStatus;
+          updated.checkInApprovedBy = localRec.checkInApprovedBy;
+          updated.checkInApprovedAt = localRec.checkInApprovedAt;
+          updated.status = localRec.status || updated.status;
+          localHasNewerData = true;
+        }
+
+        if (
+          (localRec.checkOutApprovalStatus && localRec.checkOutApprovalStatus !== 'pending' && cloudRec.checkOutApprovalStatus === 'pending') ||
+          (localRec.checkOutApprovedBy && !cloudRec.checkOutApprovedBy) ||
+          (localRec.checkOutApprovedAt && !cloudRec.checkOutApprovedAt)
+        ) {
+          updated.checkOutApprovalStatus = localRec.checkOutApprovalStatus;
+          updated.checkOutApprovedBy = localRec.checkOutApprovedBy;
+          updated.checkOutApprovedAt = localRec.checkOutApprovedAt;
+          updated.status = localRec.status || updated.status;
+          localHasNewerData = true;
+        }
+
+        // 5. Yönetici mesaisi ise 20m ve onay kuralından kesinlikle muaftır
+        if (updated.userRole === 'admin' && (updated.checkInApprovalStatus === 'pending' || updated.checkInOutside)) {
+          updated.checkInApprovalStatus = 'approved';
+          updated.checkInOutside = false;
+          updated.checkInDistance = 0;
+          updated.branchName = updated.branchName || 'Genel Yönetim';
+          localHasNewerData = true;
+        }
+
         if (localHasNewerData) {
           const idx = merged.findIndex((m) => m.id === cloudRec!.id);
           if (idx !== -1) {

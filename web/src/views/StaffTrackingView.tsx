@@ -346,6 +346,15 @@ export const StaffTrackingView: React.FC = () => {
     distance?: number;
   } | null>(null);
 
+  // Auto-clear actionFeedback after 4.5 seconds
+  useEffect(() => {
+    if (!actionFeedback) return;
+    const timer = setTimeout(() => {
+      setActionFeedback(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [actionFeedback]);
+
   // Confirmation modal state for out-of-location checkin/checkout
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -357,6 +366,20 @@ export const StaffTrackingView: React.FC = () => {
     isOpen: false,
     type: 'checkin',
     note: '',
+  });
+
+  // Rejection modal state for requests (in-app dialog, browser dialog engeline takılmaz)
+  const [rejectModal, setRejectModal] = useState<{
+    isOpen: boolean;
+    recordId: string;
+    type: 'checkin' | 'checkout' | 'leave';
+    reason: string;
+    userName?: string;
+  }>({
+    isOpen: false,
+    recordId: '',
+    type: 'checkin',
+    reason: '',
   });
 
   // State to confirm accidental click on "İşten Çıkış Yaptım"
@@ -523,37 +546,55 @@ export const StaffTrackingView: React.FC = () => {
       setProcessingApprovalId(recordId);
       const res = await approveAttendance(recordId, type);
       if (res.success) {
-        setActionFeedback({ type: 'success', text: res.message });
+        setActionFeedback({ type: 'success', text: res.message || 'Talep başarıyla onaylandı.' });
       } else {
-        alert(res.message);
+        setActionFeedback({ type: 'error', text: res.message || 'Onaylama başarısız oldu.' });
       }
     } catch (e: any) {
-      alert(e?.message || 'Onaylama sırasında hata oluştu.');
+      setActionFeedback({ type: 'error', text: e?.message || 'Onaylama sırasında hata oluştu.' });
     } finally {
       setProcessingApprovalId(null);
     }
   };
 
-  const handleReject = async (recordId: string, type: 'checkin' | 'checkout') => {
-    const reason = window.prompt('Reddetme gerekçesi (İsteğe bağlı):');
-    if (reason === null) return; // User pressed Cancel
+  const openRejectModal = (recordId: string, type: 'checkin' | 'checkout' | 'leave', userName?: string) => {
+    setRejectModal({
+      isOpen: true,
+      recordId,
+      type,
+      reason: '',
+      userName,
+    });
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectModal.recordId) return;
     try {
-      setProcessingApprovalId(recordId);
-      const res = await rejectAttendance(recordId, type, reason);
-      if (res.success) {
-        setActionFeedback({ type: 'success', text: res.message });
+      setProcessingApprovalId(rejectModal.recordId);
+      if (rejectModal.type === 'leave') {
+        const res = await rejectLeaveRequest(rejectModal.recordId, rejectModal.reason.trim());
+        if (res.success) {
+          setActionFeedback({ type: 'success', text: res.message || 'İzin talebi reddedildi.' });
+        } else {
+          setActionFeedback({ type: 'error', text: res.message || 'İzin reddedilemedi.' });
+        }
       } else {
-        alert(res.message);
+        const res = await rejectAttendance(rejectModal.recordId, rejectModal.type, rejectModal.reason.trim());
+        if (res.success) {
+          setActionFeedback({ type: 'success', text: res.message || 'Talep başarıyla reddedildi.' });
+        } else {
+          setActionFeedback({ type: 'error', text: res.message || 'Reddetme başarısız oldu.' });
+        }
       }
+      setRejectModal((prev) => ({ ...prev, isOpen: false, reason: '' }));
     } catch (e: any) {
-      alert(e?.message || 'Reddetme sırasında hata oluştu.');
+      setActionFeedback({ type: 'error', text: e?.message || 'Reddetme sırasında hata oluştu.' });
     } finally {
       setProcessingApprovalId(null);
     }
   };
 
   const handleCancelMyRequest = async (recordId: string) => {
-    if (!window.confirm('Bekleyen onay talebinizi iptal etmek istediğinizden emin misiniz?')) return;
     try {
       setIsProcessingAction(true);
       const res = await cancelAttendanceRequest(recordId);
@@ -599,9 +640,10 @@ export const StaffTrackingView: React.FC = () => {
     return new Set(companyUsers.map((u) => u.id));
   }, [companyUsers]);
 
-  // Admin: All pending approval requests (for current company only)
+  // Admin: All pending approval requests (for current company only) - Yöneticiler 20m kuralından muaftır, asla listeye düşmez
   const pendingRequests = useMemo(() => {
     return attendanceRecords.filter((r) => {
+      if (r.userRole === 'admin') return false;
       const isPending =
         r.status === 'pending_checkin_approval' ||
         r.status === 'pending_checkout_approval' ||
@@ -1247,10 +1289,12 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     try {
       const res = await startBreak();
       if (!res.success) {
-        alert(res.message);
+        setActionFeedback({ type: 'error', text: res.message });
+      } else {
+        setActionFeedback({ type: 'success', text: res.message || 'Molaya çıkışınız kaydedildi. İyi dinlenmeler!' });
       }
     } catch (err: any) {
-      alert('Mola başlatılırken bir hata oluştu: ' + (err?.message || err));
+      setActionFeedback({ type: 'error', text: 'Mola başlatılırken bir hata oluştu: ' + (err?.message || err) });
     } finally {
       setIsProcessingBreak(false);
     }
@@ -1262,28 +1306,33 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     try {
       const res = await endBreak();
       if (!res.success) {
-        alert(res.message);
+        setActionFeedback({ type: 'error', text: res.message });
+      } else {
+        setActionFeedback({ type: 'success', text: res.message || 'Molanız başarıyla sonlandırıldı, mesaiye dönüldü!' });
       }
     } catch (err: any) {
-      alert('Mola sonlandırılırken bir hata oluştu: ' + (err?.message || err));
+      setActionFeedback({ type: 'error', text: 'Mola sonlandırılırken bir hata oluştu: ' + (err?.message || err) });
     } finally {
       setIsProcessingBreak(false);
     }
   };
 
   const handleForceEndBreak = async (rec: AttendanceRecord) => {
-    if (!window.confirm(`"${rec.userName}" personeli için molayı sonlandırıp mesaiye döndürmek istediğinize emin misiniz?`)) {
-      return;
-    }
     try {
+      setIsProcessingBreak(true);
       const res = await endBreakForStaff(rec.id);
       if (res.success) {
-        alert(res.message);
+        setActionFeedback({
+          type: 'success',
+          text: res.message || `${rec.userName} personeli moladan çıkarıldı ve mesaiye döndürüldü.`,
+        });
       } else {
-        alert(res.message || 'Mola sonlandırılamadı.');
+        setActionFeedback({ type: 'error', text: res.message || 'Mola sonlandırılamadı.' });
       }
     } catch (e: any) {
-      alert('Hata: ' + (e?.message || 'Mola sonlandırılamadı.'));
+      setActionFeedback({ type: 'error', text: 'Hata: ' + (e?.message || 'Mola sonlandırılamadı.') });
+    } finally {
+      setIsProcessingBreak(false);
     }
   };
 
@@ -1608,47 +1657,32 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       setProcessingLeaveId(requestId);
       const res = await approveLeaveRequest(requestId);
       if (res.success) {
-        setActionFeedback({ type: 'success', text: res.message });
+        setActionFeedback({ type: 'success', text: res.message || 'İzin talebi onaylandı.' });
       } else {
-        alert(res.message);
+        setActionFeedback({ type: 'error', text: res.message || 'Onaylama başarısız oldu.' });
       }
     } catch (err: any) {
-      alert(err?.message || 'Onaylama hatası');
+      setActionFeedback({ type: 'error', text: err?.message || 'Onaylama hatası' });
     } finally {
       setProcessingLeaveId(null);
     }
   };
 
-  const handleRejectLeave = async (requestId: string) => {
-    const reason = window.prompt('Reddetme gerekçesi (İsteğe bağlı):');
-    if (reason === null) return;
-    try {
-      setProcessingLeaveId(requestId);
-      const res = await rejectLeaveRequest(requestId, reason);
-      if (res.success) {
-        setActionFeedback({ type: 'success', text: res.message });
-      } else {
-        alert(res.message);
-      }
-    } catch (err: any) {
-      alert(err?.message || 'Ret işlemi hatası');
-    } finally {
-      setProcessingLeaveId(null);
-    }
+  const handleRejectLeave = async (requestId: string, userName?: string) => {
+    openRejectModal(requestId, 'leave', userName);
   };
 
   const handleCancelMyLeave = async (requestId: string) => {
-    if (!window.confirm('Bu izin talebinizi iptal etmek istediğinize emin misiniz?')) return;
     try {
       setProcessingLeaveId(requestId);
       const res = await cancelLeaveRequest(requestId);
       if (res.success) {
-        setActionFeedback({ type: 'success', text: res.message });
+        setActionFeedback({ type: 'success', text: res.message || 'İzin talebiniz iptal edildi.' });
       } else {
-        alert(res.message);
+        setActionFeedback({ type: 'error', text: res.message || 'İptal edilemedi.' });
       }
     } catch (err: any) {
-      alert(err?.message || 'İptal hatası');
+      setActionFeedback({ type: 'error', text: err?.message || 'İptal hatası' });
     } finally {
       setProcessingLeaveId(null);
     }
@@ -2010,7 +2044,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     <button
                       type="button"
                       disabled={processingApprovalId === req.id}
-                      onClick={() => handleReject(req.id, isCheckInReq ? 'checkin' : 'checkout')}
+                      onClick={() => openRejectModal(req.id, isCheckInReq ? 'checkin' : 'checkout', req.userName)}
                       className="px-3.5 py-1.5 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
                     >
                       Reddet
@@ -2108,7 +2142,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     <button
                       type="button"
                       disabled={processingLeaveId === req.id}
-                      onClick={() => handleRejectLeave(req.id)}
+                      onClick={() => handleRejectLeave(req.id, req.userName)}
                       className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
                     >
                       Reddet
@@ -3854,7 +3888,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                     <button
                                       type="button"
                                       disabled={processingApprovalId === record.id}
-                                      onClick={() => handleReject(record.id, 'checkin')}
+                                      onClick={() => openRejectModal(record.id, 'checkin', record.userName)}
                                       className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
                                     >
                                       <X className="w-3.5 h-3.5" />
@@ -3875,7 +3909,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                     <button
                                       type="button"
                                       disabled={processingApprovalId === record.id}
-                                      onClick={() => handleReject(record.id, 'checkout')}
+                                      onClick={() => openRejectModal(record.id, 'checkout', record.userName)}
                                       className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
                                     >
                                       <X className="w-3.5 h-3.5" />
@@ -4166,7 +4200,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                         <button
                                           type="button"
                                           disabled={processingApprovalId === record.id}
-                                          onClick={() => handleReject(record.id, 'checkin')}
+                                          onClick={() => openRejectModal(record.id, 'checkin', record.userName)}
                                           className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
                                         >
                                           Reddet
@@ -4187,7 +4221,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                         <button
                                           type="button"
                                           disabled={processingApprovalId === record.id}
-                                          onClick={() => handleReject(record.id, 'checkout')}
+                                          onClick={() => openRejectModal(record.id, 'checkout', record.userName)}
                                           className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors"
                                         >
                                           Reddet
@@ -4197,10 +4231,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        if (window.confirm(record.userName + ' kullanıcısının bu mesai kaydını silmek istediğinize emin misiniz?')) {
-                                          deleteAttendanceRecord(record.id);
-                                        }
+                                      onClick={async () => {
+                                        await deleteAttendanceRecord(record.id);
+                                        setActionFeedback({ type: 'success', text: `${record.userName} kullanıcısının mesai kaydı silindi.` });
                                       }}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                                       title="Kaydı Sil"
@@ -4565,7 +4598,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                               <button
                                 type="button"
                                 disabled={isProcessing}
-                                onClick={() => handleRejectLeave(req.id)}
+                                onClick={() => handleRejectLeave(req.id, req.userName)}
                                 className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-100 hover:bg-rose-200 text-rose-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
                               >
                                 <X className="w-3 h-3" />
@@ -5137,6 +5170,93 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               </div>
             </form>
           </div>
+        </div>
+      )}
+      {/* Rejection Modal (In-App Dialog, no window.prompt!) */}
+      {rejectModal.isOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-600 font-black text-base">
+                <AlertCircle className="w-5 h-5" />
+                <span>Talebi Reddet</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectModal((prev) => ({ ...prev, isOpen: false, reason: '' }))}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              {rejectModal.userName ? (
+                <strong className="text-slate-900 dark:text-slate-100">{rejectModal.userName}</strong>
+              ) : 'Personel'}{' '}
+              kullanıcısının{' '}
+              {rejectModal.type === 'leave'
+                ? 'izin talebini'
+                : rejectModal.type === 'checkin'
+                ? 'işe giriş talebini'
+                : 'işten çıkış talebini'}{' '}
+              reddetmek üzeresiniz.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Red Gerekçesi (İsteğe bağlı):
+              </label>
+              <textarea
+                value={rejectModal.reason}
+                onChange={(e) => setRejectModal((prev) => ({ ...prev, reason: e.target.value }))}
+                placeholder="Örn: Konum şube sınırları dışında veya mesai saati uygun değil..."
+                rows={3}
+                className="w-full text-xs p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500 resize-none"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRejectModal((prev) => ({ ...prev, isOpen: false, reason: '' }))}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(processingApprovalId)}
+                onClick={handleConfirmReject}
+                className="px-5 py-2 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-md shadow-rose-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {processingApprovalId && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Reddet</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Floating Action Feedback Toast (Browser dialog engeline takılmayan şık toast) */}
+      {actionFeedback && (
+        <div
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] max-w-md w-[92%] px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md transition-all animate-in fade-in slide-in-from-top-4 border-2 font-bold text-xs sm:text-sm text-left pointer-events-auto bg-white/95 dark:bg-slate-900/95 shadow-black/20 ${
+            actionFeedback.type === 'success'
+              ? 'border-emerald-500 text-emerald-800 dark:text-emerald-200'
+              : 'border-rose-500 text-rose-800 dark:text-rose-200'
+          }`}
+        >
+          {actionFeedback.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+          )}
+          <span className="flex-1 leading-snug">{actionFeedback.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionFeedback(null)}
+            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
     </div>

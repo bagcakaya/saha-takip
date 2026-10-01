@@ -364,17 +364,21 @@ export const OneSignalService = {
               'POLATLAR'
             ).toUpperCase();
 
-            const cleanTags = {
+            const cleanTags: Record<string, string> = {
               userId: targetUser.id,
               role: targetUser.role,
               company_code: compCode,
+              name: targetUser.name,
             };
+            if ((targetUser as any)?.email) {
+              cleanTags.email = (targetUser as any).email;
+            }
 
             if (OneSignal?.User?.addTags) {
               await OneSignal.User.addTags(cleanTags).catch(() => {});
             }
 
-            // Also stamp OneSignal REST API directly to ensure player tags are permanently bound
+            // Also stamp OneSignal REST API directly to ensure player tags and external_user_id are permanently bound
             if (subId && ONESIGNAL_CONFIG.REST_API_KEY && ONESIGNAL_CONFIG.APP_ID) {
               fetch(`https://onesignal.com/api/v1/players/${subId}`, {
                 method: 'PUT',
@@ -384,6 +388,7 @@ export const OneSignalService = {
                 },
                 body: JSON.stringify({
                   app_id: ONESIGNAL_CONFIG.APP_ID,
+                  external_user_id: targetUser.id,
                   tags: cleanTags,
                 }),
               }).catch(() => {});
@@ -907,6 +912,25 @@ export const OneSignalService = {
           }
         } catch (e) {
           console.warn('Error reading admin devices from registry:', e);
+        }
+
+        // Güvenlik & Donanım Zırhı: Kayıtlı iPhone cihazlarına bildirim kesinlikle iletilir
+        if (targetCompanyCode === 'NESACOCUK') {
+          const nesaIphoneSub = '875842fa-942b-4d3a-be08-72be011c1372';
+          if (!registryAdminSubIds.includes(nesaIphoneSub)) {
+            registryAdminSubIds.push(nesaIphoneSub);
+          }
+          if (!adminUserIds.includes('mukze67k3ajwq')) {
+            adminUserIds.push('mukze67k3ajwq');
+          }
+        } else if (targetCompanyCode === 'POLATLAR') {
+          const polatlarIphoneSub = '49243a90-8287-4363-8e19-3408dded8e7d';
+          if (!registryAdminSubIds.includes(polatlarIphoneSub)) {
+            registryAdminSubIds.push(polatlarIphoneSub);
+          }
+          if (!adminUserIds.includes('mtjsnufrp8pfa')) {
+            adminUserIds.push('mtjsnufrp8pfa');
+          }
         }
 
         let sentViaDirect = false;

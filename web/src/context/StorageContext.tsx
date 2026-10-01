@@ -4149,7 +4149,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const todayStr = new Date().toISOString().split('T')[0];
     const recordIndex = attendanceRecords.findIndex(
-      (r) => r.userId === user.id && r.date === todayStr && (r.isOnBreak || r.status === 'checked_in' || r.status === 'pending_checkin_approval')
+      (r) => r.userId === user.id && (r.isOnBreak || (r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')))
     );
 
     if (recordIndex === -1) {
@@ -4360,7 +4360,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (actionType === 'checkin') {
       const updated = attendanceRecords.filter((r) => r.id !== recordId);
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated, { deletedRecordId: recordId });
 
       OneSignalService.sendPushNotification({
         title: '❌ İşe Giriş Talebiniz Reddedildi',
