@@ -75,7 +75,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   lastReadTime,
   onMarkAllAsRead,
 }) => {
-  const { user, users } = useAuth();
+  const { user, users, viewingCompany, company } = useAuth();
   const {
     allNotes,
     allServices,
@@ -99,7 +99,13 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   if (!isOpen || !user) return null;
 
   const isAdmin = isUserAdmin(user);
-  const currentCompanyCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const currentCompanyCode = (
+    viewingCompany?.code ||
+    company?.code ||
+    user.companyCode ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+    'POLATLAR'
+  ).trim().toUpperCase();
   const companyUserIds = new Set(
     users
       .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === currentCompanyCode)
@@ -134,7 +140,11 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 2. Personellerin İzin Talepleri (Onay Bekleyen & Yeni)
     leaveRequests.forEach((req) => {
-      if (req.userId && companyUserIds.size > 0 && !companyUserIds.has(req.userId)) return;
+      if (req.companyCode) {
+        if (req.companyCode.toUpperCase() !== currentCompanyCode) return;
+      } else if (req.userId && companyUserIds.size > 0 && !companyUserIds.has(req.userId)) {
+        return;
+      }
       if (currentCompanyCode !== 'POLATLAR' && (req.userName === 'Mert Agcakaya' || req.userName === 'Murat POLAT')) return;
       const isPending = req.status === 'pending';
       notifications.push({
@@ -142,7 +152,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         type: 'leave_requested',
         title: isPending ? '🏖️ Yeni İzin Talebi (Onay Bekliyor)' : '🏖️ İzin Talebi',
         senderName: req.userName,
-        senderRole: req.userRole || 'Saha Yetkilisi',
+        senderRole: req.userRole === 'admin' ? 'Yönetici' : 'Personel',
         content: `${req.userName} - ${req.durationText} (${req.date}) ${req.leaveType === 'hourly' ? 'saatlik' : 'günlük'} izin talebi.${req.reason ? ' Mazeret: ' + req.reason : ''}`,
         createdAt: req.requestedAt,
         tab: 'staff_tracking',
@@ -153,8 +163,11 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     // 3. Personellerin Mesai Giriş / Çıkış Bildirimleri & Onay Talepleri
     attendanceRecords.forEach((att) => {
       // Multi-tenant check: Skip records from foreign companies
-      if (att.companyCode && att.companyCode.toUpperCase() !== currentCompanyCode) return;
-      if (companyUserIds.size > 0 && !companyUserIds.has(att.userId)) return;
+      if (att.companyCode) {
+        if (att.companyCode.toUpperCase() !== currentCompanyCode) return;
+      } else if (companyUserIds.size > 0 && !companyUserIds.has(att.userId)) {
+        return;
+      }
       if (currentCompanyCode !== 'POLATLAR' && (att.userName === 'Mert Agcakaya' || att.userName === 'Murat POLAT' || att.userName === 'Azizcan ISIYEL')) {
         return;
       }
@@ -166,8 +179,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           type: 'attendance_pending',
           title: '⚠️ Konum Dışı Giriş Onay Bekliyor',
           senderName: att.userName,
-          senderRole: att.userRole || 'Saha Yetkilisi',
-          content: `${att.userName} iş yeri konumundan uzakta işe giriş onay talebi gönderdi.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
+          senderRole: att.userRole === 'admin' ? 'Yönetici' : 'Personel',
+          content: `${att.userName} ${att.branchName ? `[${att.branchName}] ` : ''}iş yeri konumundan uzakta mesaiye başladı, onay bekliyor.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
           createdAt: att.checkInTime,
           tab: 'staff_tracking',
           filter: 'attendance',
@@ -180,35 +193,35 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           type: 'attendance_pending',
           title: '⚠️ Konum Dışı Çıkış Onay Bekliyor',
           senderName: att.userName,
-          senderRole: att.userRole || 'Saha Yetkilisi',
-          content: `${att.userName} iş yeri konumundan uzakta işten çıkış onay talebi gönderdi.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
+          senderRole: att.userRole === 'admin' ? 'Yönetici' : 'Personel',
+          content: `${att.userName} ${att.branchName ? `[${att.branchName}] ` : ''}iş yeri konumundan uzakta işten çıkış onay talebi gönderdi.${att.approvalNote ? ' Not: ' + att.approvalNote : ''}`,
           createdAt: att.checkOutTime || att.checkInTime,
           tab: 'staff_tracking',
           filter: 'attendance',
         });
       }
-      // Normal mesai girişi
-      if (!att.checkInOutside && att.checkInTime) {
+      // Normal mesai girişi veya onaylanmış konum dışı giriş
+      if ((!att.checkInOutside || att.checkInApprovalStatus === 'approved') && att.checkInTime) {
         notifications.push({
           id: `att_cin_${att.id}`,
           type: 'attendance_checked_in',
-          title: '🟢 Personel Mesaiye Başladı',
+          title: att.checkInOutside ? '🟢 Personel Mesaiye Başladı (Konum Dışı Onaylı)' : '🟢 Personel Mesaiye Başladı',
           senderName: att.userName,
-          senderRole: att.userRole || 'Saha Yetkilisi',
-          content: `${att.userName} saat ${new Date(att.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı.`,
+          senderRole: att.userRole === 'admin' ? 'Yönetici' : 'Personel',
+          content: `${att.userName} saat ${new Date(att.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${att.branchName ? `${att.branchName} şubesinde ` : 'iş yerine '}mesaiye başladı.`,
           createdAt: att.checkInTime,
           tab: 'staff_tracking',
           filter: 'attendance',
         });
       }
-      // Normal mesai çıkışı
-      if (att.checkOutTime && att.status === 'completed' && !att.checkOutOutside) {
+      // Normal mesai çıkışı veya onaylanmış konum dışı çıkış
+      if (att.checkOutTime && att.status === 'completed' && (!att.checkOutOutside || att.checkOutApprovalStatus === 'approved')) {
         notifications.push({
           id: `att_cout_${att.id}`,
           type: 'attendance_checked_out',
           title: '🔴 Personel Mesaiyi Bitirdi',
           senderName: att.userName,
-          senderRole: att.userRole || 'Saha Yetkilisi',
+          senderRole: att.userRole === 'admin' ? 'Yönetici' : 'Personel',
           content: `${att.userName} saat ${new Date(att.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla mesaisini tamamladı.`,
           createdAt: att.checkOutTime,
           tab: 'staff_tracking',

@@ -3159,8 +3159,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updates: Partial<Branch> & { companyCode?: string },
     targetCompanyCode?: string
   ) => {
-    if (!canUserAddBranch(user)) {
-      alert('Şube düzenleme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
+    const isAdmin = isUserAdmin(user);
+    if (!isAdmin && !canUserAddBranch(user)) {
+      alert('Şube düzenleme yetkisi sadece yöneticilere aittir.');
       return;
     }
     const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
@@ -3480,7 +3481,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               confirmationType: 'checkin',
               distance: distToAssigned,
               address: userPos.address,
-              message: `Kendi şubeniz olan "${assignedBranch.name}" yerine "${otherBranch.name}" şubesinde bulunuyorsunuz. Başka bir şubede mesaiye başlamak için Yönetici Onayı gereklidir. Onaya gönderilsin mi?`,
+              message: `Kendi şubeniz olan "${assignedBranch.name}" yerine "${otherBranch.name}" şubesinde bulunuyorsunuz. Başka bir şubede mesaiye başlamak için Yönetici Onayı gereklidir. Mesainiz başlatılsın ve onaya gönderilsin mi?`,
             };
           }
 
@@ -3510,8 +3511,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             assignedBranchName: assignedBranch.name,
             isOtherBranch: true,
             approvalNote: options.note,
-            notes: `Farklı Şube Talebi: Asıl şubesi (${assignedBranch.name}) yerine ${otherBranch.name} şubesinde mesaiye başlamak istiyor.${options.note ? ' Not: ' + options.note : ''}`,
-            status: 'pending_checkin_approval',
+            notes: `Farklı Şube Talebi: Asıl şubesi (${assignedBranch.name}) yerine ${otherBranch.name} şubesinde mesaiye başladı.${options.note ? ' Not: ' + options.note : ''}`,
+            status: 'checked_in',
           };
 
           const updated = [newRecord, ...attendanceRecords];
@@ -3519,8 +3520,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           await StorageService.saveAttendanceRecords(updated);
 
           OneSignalService.sendPushNotification({
-            title: '⚠️ Farklı Şubede Mesai Onay Talebi',
-            message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başlamak için onay talep etti.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+            title: '⚠️ Farklı Şubede Mesai Başladı (Onay Bekliyor)',
+            message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
             targetMode: 'admin',
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
@@ -3530,7 +3531,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             success: true,
             isPendingApproval: true,
             distance: otherBranchDist,
-            message: `Farklı şubede (${otherBranch.name}) mesaiye başlama onay talebiniz yöneticiye iletildi.`,
+            message: `Farklı şubede (${otherBranch.name}) mesainiz başlatıldı. Yönetici onayına iletildi.`,
           };
         }
 
@@ -3542,7 +3543,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             confirmationType: 'checkin',
             distance: distToAssigned,
             address: userPos.address,
-            message: `Bağlı olduğunuz "${assignedBranch.name}" şubesinin 20 metre dışında bulunuyorsunuz (${LocationService.formatDistance(distToAssigned)}). Yönetici onayına gönderilsin mi?`,
+            message: `Bağlı olduğunuz "${assignedBranch.name}" şubesinin 20 metre dışında bulunuyorsunuz (${LocationService.formatDistance(distToAssigned)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
           };
         }
 
@@ -3563,7 +3564,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           branchId: assignedBranch.id,
           branchName: assignedBranch.name,
           approvalNote: options.note,
-          status: 'pending_checkin_approval',
+          status: 'checked_in',
         };
 
         const updated = [newRecord, ...attendanceRecords];
@@ -3571,8 +3572,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await StorageService.saveAttendanceRecords(updated);
 
         OneSignalService.sendPushNotification({
-          title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
+          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
@@ -3582,7 +3583,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           success: true,
           isPendingApproval: true,
           distance: distToAssigned,
-          message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+          message: `${assignedBranch.name} şubesi dışında mesainiz başlatıldı (${LocationService.formatDistance(distToAssigned)}). Yönetici onayına iletildi.`,
         };
       } else {
         // Staff has no assigned branch yet -> Check if within 20m of any branch
@@ -3648,7 +3649,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             confirmationType: 'checkin',
             distance: minDist,
             address: userPos.address,
-            message: `Herhangi bir şubenin 20 metre yakınında bulunmuyorsunuz (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Yönetici onayına gönderilsin mi?`,
+            message: `Herhangi bir şubenin 20 metre yakınında bulunmuyorsunuz (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
           };
         }
 
@@ -3669,7 +3670,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           branchId: closestBranch.id,
           branchName: closestBranch.name,
           approvalNote: options.note,
-          status: 'pending_checkin_approval',
+          status: 'checked_in',
         };
 
         const updated = [newRecord, ...attendanceRecords];
@@ -3677,8 +3678,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await StorageService.saveAttendanceRecords(updated);
 
         OneSignalService.sendPushNotification({
-          title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
+          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
@@ -3688,7 +3689,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           success: true,
           isPendingApproval: true,
           distance: minDist,
-          message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+          message: `Şube dışında mesainiz başlatıldı (${closestBranch.name} şubesine mesafe: ${LocationService.formatDistance(minDist)}). Yönetici onayına iletildi.`,
         };
       }
     }
@@ -3712,7 +3713,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           confirmationType: 'checkin',
           distance,
           address: userPos.address,
-          message: 'Konum dışında giriş yapıyorsunuz. Yönetici onayına gönderilsin mi?',
+          message: `Konum dışında giriş yapıyorsunuz (${LocationService.formatDistance(distance)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
         };
       }
 
@@ -3731,7 +3732,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkInOutside: true,
         checkInApprovalStatus: 'pending',
         approvalNote: options.note,
-        status: 'pending_checkin_approval',
+        status: 'checked_in',
       };
 
       const updated = [newRecord, ...attendanceRecords];
@@ -3739,8 +3740,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await StorageService.saveAttendanceRecords(updated);
 
       OneSignalService.sendPushNotification({
-        title: '⚠️ Konum Dışı İşe Giriş Onay Talebi',
-        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (20m dışı) işe giriş onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+        title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
+        message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
@@ -3750,7 +3751,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         success: true,
         isPendingApproval: true,
         distance,
-        message: 'Konum dışı giriş onay talebiniz yöneticiye iletildi.',
+        message: `İş yeri konumu dışında mesainiz başlatıldı (${LocationService.formatDistance(distance)}). Yönetici onayına iletildi.`,
       };
     }
 

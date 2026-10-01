@@ -35,7 +35,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
-import { AttendanceRecord, LeaveRequest } from '../types/storage';
+import { AttendanceRecord, LeaveRequest, Branch } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import {
   exportAttendanceToExcel,
@@ -47,6 +47,7 @@ import {
   StaffAttendanceSummary,
 } from '../services/attendanceExportService';
 import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
+import { StaffSelect } from '../components/common/StaffSelect';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company } = useAuth();
@@ -55,6 +56,7 @@ export const StaffTrackingView: React.FC = () => {
     branches,
     attendanceRecords,
     updateWorkplaceLocation,
+    updateBranch,
     checkInStaff,
     checkOutStaff,
     startBreak,
@@ -188,6 +190,39 @@ export const StaffTrackingView: React.FC = () => {
   // Open in Google Maps
   const handleOpenGoogleMaps = () => {
     LocationService.openInGoogleMaps(addressText, lat, lon);
+  };
+
+  // Handle Admin On-Site Branch GPS Calibration (Görsel-3)
+  const [updatingBranchId, setUpdatingBranchId] = useState<string | null>(null);
+  const [branchSuccessMsg, setBranchSuccessMsg] = useState<{ branchId: string; text: string } | null>(null);
+
+  const handleUpdateBranchGPS = async (branch: Branch) => {
+    try {
+      setUpdatingBranchId(branch.id);
+      const pos = await LocationService.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      });
+
+      const updatedAddress = pos.address || branch.address;
+      await updateBranch(branch.id, {
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        address: updatedAddress,
+        radiusMeters: 20,
+      });
+
+      setBranchSuccessMsg({
+        branchId: branch.id,
+        text: `"${branch.name}" şubesinin 20m konumu bulunduğunuz yer olarak kaydedildi! (${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)})`,
+      });
+      setTimeout(() => setBranchSuccessMsg(null), 5000);
+    } catch (err: any) {
+      alert(err?.message || 'GPS konumu alınırken bir hata oluştu. Lütfen cihazınızın konum servislerinin açık olduğundan emin olun.');
+    } finally {
+      setUpdatingBranchId(null);
+    }
   };
 
   // --- 2. Live Distance Checker ---
@@ -519,7 +554,11 @@ export const StaffTrackingView: React.FC = () => {
   // Admin: All pending approval requests (for current company only)
   const pendingRequests = useMemo(() => {
     return attendanceRecords.filter((r) => {
-      const isPending = r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval';
+      const isPending =
+        r.status === 'pending_checkin_approval' ||
+        r.status === 'pending_checkout_approval' ||
+        (r.checkInOutside && r.checkInApprovalStatus === 'pending') ||
+        (r.checkOutOutside && r.checkOutApprovalStatus === 'pending');
       if (!isPending) return false;
       if (companyUserIds.size > 0 && !companyUserIds.has(r.userId)) return false;
       return true;
@@ -640,6 +679,17 @@ export const StaffTrackingView: React.FC = () => {
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [companyUsers, companyUserIds, attendanceRecords]);
+
+  // Available staff filtered by selected branch if a branch is chosen
+  const availableStaffOptions = useMemo(() => {
+    if (selectedBranchId === 'all' || !branchUserIds) {
+      return staffOptions;
+    }
+    return staffOptions.filter((s) => {
+      if (branchUserIds.has(s.id)) return true;
+      return attendanceRecords.some((r) => r.userId === s.id && r.branchId === selectedBranchId);
+    });
+  }, [staffOptions, selectedBranchId, branchUserIds, attendanceRecords]);
 
 // Helper to generate all dates between startDate and endDate (inclusive)
 const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] => {
@@ -1028,7 +1078,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       setIsExportingExcel(true);
       const baseCompName = company?.name || user?.companyName || user?.companyCode || 'Firma';
       const selectedBranchObj = companyBranches.find((b) => b.id === selectedBranchId);
-      const compName = selectedBranchObj ? `${baseCompName} - ${selectedBranchObj.name}` : baseCompName;
+      const selectedStaffObj = selectedStaffIds.length === 1 ? staffOptions.find((s) => s.id === selectedStaffIds[0]) : null;
+      const staffSuffix = selectedStaffObj ? ` - ${selectedStaffObj.name}` : (selectedStaffIds.length > 1 ? ` - ${selectedStaffIds.length} Personel` : '');
+      const branchText = selectedBranchObj ? ` - ${selectedBranchObj.name}` : '';
+      const compName = `${baseCompName}${branchText}${staffSuffix}`;
       const exportSummaries =
         selectedStaffIds.length > 0
           ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
@@ -1053,7 +1106,10 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       setIsExportingPdf(true);
       const baseCompName = company?.name || user?.companyName || user?.companyCode || 'Firma';
       const selectedBranchObj = companyBranches.find((b) => b.id === selectedBranchId);
-      const compName = selectedBranchObj ? `${baseCompName} - ${selectedBranchObj.name}` : baseCompName;
+      const selectedStaffObj = selectedStaffIds.length === 1 ? staffOptions.find((s) => s.id === selectedStaffIds[0]) : null;
+      const staffSuffix = selectedStaffObj ? ` - ${selectedStaffObj.name}` : (selectedStaffIds.length > 1 ? ` - ${selectedStaffIds.length} Personel` : '');
+      const branchText = selectedBranchObj ? ` - ${selectedBranchObj.name}` : '';
+      const compName = `${baseCompName}${branchText}${staffSuffix}`;
       const exportSummaries =
         selectedStaffIds.length > 0
           ? staffSummaries.filter((s) => selectedStaffIds.includes(s.userId))
@@ -1768,7 +1824,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {pendingRequests.map((req) => {
-              const isCheckInReq = req.status === 'pending_checkin_approval';
+              const isCheckInReq = req.status === 'pending_checkin_approval' || (Boolean(req.checkInOutside) && req.checkInApprovalStatus === 'pending');
               const reqDistance = isCheckInReq ? req.checkInDistance : req.checkOutDistance;
               const reqAddress = isCheckInReq ? req.checkInAddress : req.checkOutAddress;
               const reqTime = isCheckInReq ? req.checkInTime : (req.checkOutTime || Date.now());
@@ -1979,111 +2035,252 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         </div>
       )}
 
-      {/* --- SECTION 1: YÖNETİCİ LOKASYON BELİRLEME (Görsel-1 Tasarımı) --- */}
+      {/* --- SECTION 1: YÖNETİCİ LOKASYON & ŞUBE YÖNETİMİ (Görsel-3) --- */}
       {activeSection === 'workplace' && isAdmin && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
-                <Shield className="w-4 h-4" />
+        <div className="space-y-6">
+          {/* 1. Kurum Şubeleri & Yerinde 20m GPS Konum İşaretleme Kartı */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800 flex items-center justify-center text-teal-600 dark:text-teal-400">
+                  <Store className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <span>Kurum Şubeleri (20 Metre Konum Yönetimi)</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                      {companyBranches.length} Şube
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    Personellerin işe giriş-çıkış yapacağı şubeleri görüntüleyin. Şube konumunda sorun olursa şubede bulunurken <strong>Yerinde Konumu Güncelle (GPS)</strong> butonuna basarak 20 metrelik alanı anında kaydedebilirsiniz.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <span>İş Yeri / Merkez Lokasyonu</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-                    Yönetici Yetkisi
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Personelin 20 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
+
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black">
+                  20 Metre Sabit Sınır
+                </span>
+              </div>
+            </div>
+
+            {companyBranches.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
+                <Store className="w-10 h-10 text-slate-400 mx-auto opacity-50" />
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                  Bu kurum için henüz kayıtlı şube bulunamadı.
+                </h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Aşağıdaki Genel Merkez Lokasyonu bölümünden iş yerinizin 20 metrelik GPS konumunu belirleyebilirsiniz.
                 </p>
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {companyBranches.map((branch) => {
+                  const isUpdatingThis = updatingBranchId === branch.id;
+                  const successForThis = branchSuccessMsg?.branchId === branch.id ? branchSuccessMsg.text : null;
+                  const hasCoordinates = typeof branch.latitude === 'number' && typeof branch.longitude === 'number' && branch.latitude !== 0;
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                Yarıçap:
-              </span>
-              <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black">
-                {radius} Metre (Sabit)
-              </span>
-            </div>
+                  return (
+                    <div
+                      key={branch.id}
+                      className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 hover:border-teal-300 dark:hover:border-teal-700 transition-all flex flex-col justify-between gap-3 group"
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300 flex items-center justify-center font-black text-xs shrink-0 shadow-2xs">
+                              <Store className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">
+                                {branch.name}
+                              </h3>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">
+                                {branch.assignedUserIds?.length || 0} Atanmış Personel
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                            20m Sınırı
+                          </span>
+                        </div>
+
+                        {/* Adres Kutusu */}
+                        <div className="text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider mb-0.5">
+                            Kayıtlı Adres:
+                          </span>
+                          <span className="font-semibold line-clamp-2">
+                            {branch.address || 'Adres bilgisi girilmemiş'}
+                          </span>
+                        </div>
+
+                        {/* Koordinat Rozeti */}
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                          {hasCoordinates ? (
+                            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                Coğrafi Konum: {branch.latitude.toFixed(5)}, {branch.longitude.toFixed(5)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span>Konum henüz işaretlenmemiş (Yerinde GPS alınız)</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Başarı Mesajı */}
+                        {successForThis && (
+                          <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-300 dark:border-emerald-800 animate-in fade-in">
+                            ✓ {successForThis}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Aksiyon Butonları */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateBranchGPS(branch)}
+                          disabled={isUpdatingThis}
+                          className="flex-1 py-2 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white text-xs font-black shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                          title="Şu an bulunduğunuz yerin GPS koordinatlarını bu şubenin 20m merkezi olarak kaydeder"
+                        >
+                          {isUpdatingThis ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Compass className="w-3.5 h-3.5" />
+                          )}
+                          <span>{isUpdatingThis ? 'GPS Konumu Alınıyor...' : '📍 Konumu Yerinde Güncelle (GPS)'}</span>
+                        </button>
+
+                        {hasCoordinates && (
+                          <button
+                            type="button"
+                            onClick={() => LocationService.openInGoogleMaps(branch.address, branch.latitude, branch.longitude)}
+                            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors shrink-0 cursor-pointer"
+                            title="Haritada Göster"
+                          >
+                            <MapPin className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Görsel-1 UI: Adres Çubuğu + Compass Butonu + MapPin Butonu */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-              İş Yeri Adresi / Koordinatı
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={addressText}
-                onChange={(e) => setAddressText(e.target.value)}
-                placeholder="Firma / İş yeri adresi veya koordinatı..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm font-medium"
-              />
+          {/* 2. Genel Merkez Lokasyonu (Alternatif / Tekil Merkez) */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <span>Genel Merkez Lokasyonu</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                      Alternatif Merkez
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Şube haricinde kurumun ana merkez binası için geçerli 20 metre çapındaki konumu belirleyin.
+                  </p>
+                </div>
+              </div>
 
-              {/* GPS Button (Pusula İkonu) */}
-              <button
-                type="button"
-                onClick={handleGetWorkplaceGPS}
-                disabled={isFetchingLocation}
-                className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-                title="GPS ile Şu Anki Konumu İş Yeri Olarak Al"
-                aria-label="Konum Al"
-              >
-                {isFetchingLocation ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Compass className="w-5 h-5" />
-                )}
-              </button>
-
-              {/* Map Button (Harita İkonu) */}
-              <button
-                type="button"
-                onClick={handleOpenGoogleMaps}
-                disabled={!addressText.trim() && !lat}
-                className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors disabled:opacity-40 shrink-0 cursor-pointer"
-                title="Haritada Göster"
-                aria-label="Haritada Göster"
-              >
-                <MapPin className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                  Yarıçap:
+                </span>
+                <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black">
+                  {radius} Metre (Sabit)
+                </span>
+              </div>
             </div>
 
-            {/* GPS Koordinat Rozeti (Görsel-1'deki Yeşil İşaretli Kısım) */}
-            {lat && lon && (
-              <div className="flex items-center justify-between flex-wrap gap-2 mt-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    Coğrafi konum işaretlendi ({lat.toFixed(5)}, {lon.toFixed(5)})
-                  </span>
-                </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                Merkez Adresi / Koordinatı
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={addressText}
+                  onChange={(e) => setAddressText(e.target.value)}
+                  placeholder="Firma / Genel Merkez adresi veya koordinatı..."
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm font-medium"
+                />
 
+                {/* GPS Button */}
                 <button
                   type="button"
-                  onClick={handleSaveWorkplaceLocation}
-                  disabled={isSavingLocation}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black shadow-sm transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  onClick={handleGetWorkplaceGPS}
+                  disabled={isFetchingLocation}
+                  className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+                  title="GPS ile Şu Anki Konumu Merkez Olarak Al"
+                  aria-label="Konum Al"
                 >
-                  {isSavingLocation ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                  {isFetchingLocation ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <CheckCircle2 className="w-4 h-4" />
+                    <Compass className="w-5 h-5" />
                   )}
-                  <span>Konumu Kaydet & Güncelle</span>
+                </button>
+
+                {/* Map Button */}
+                <button
+                  type="button"
+                  onClick={handleOpenGoogleMaps}
+                  disabled={!addressText.trim() && !lat}
+                  className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors disabled:opacity-40 shrink-0 cursor-pointer"
+                  title="Haritada Göster"
+                  aria-label="Haritada Göster"
+                >
+                  <MapPin className="w-5 h-5" />
                 </button>
               </div>
-            )}
 
-            {locationSuccessMsg && (
-              <div className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 animate-in fade-in">
-                {locationSuccessMsg}
-              </div>
-            )}
+              {/* GPS Koordinat Rozeti */}
+              {lat && lon && (
+                <div className="flex items-center justify-between flex-wrap gap-2 mt-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Coğrafi konum işaretlendi ({lat.toFixed(5)}, {lon.toFixed(5)})
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveWorkplaceLocation}
+                    disabled={isSavingLocation}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black shadow-sm transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    {isSavingLocation ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4" />
+                    )}
+                    <span>Konumu Kaydet & Güncelle</span>
+                  </button>
+                </div>
+              )}
+
+              {locationSuccessMsg && (
+                <div className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 animate-in fade-in">
+                  {locationSuccessMsg}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -3092,17 +3289,25 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   ))}
                 </div>
 
-                {/* Şubeler Seçici (Admin için) */}
+                {/* Şubeler & Personel Listesi Seçicileri (Admin için - Görsel-5) */}
                 {isAdmin && (
-                  <BranchSelect
-                    options={branchOptions}
-                    selectedBranchId={selectedBranchId}
-                    onChange={(bId) => {
-                      setSelectedBranchId(bId);
-                      setSelectedStaffIds([]); // Şube değiştiğinde personel filtre seçimini temizle
-                    }}
-                    totalCompanyStaffCount={companyUsers.length}
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <BranchSelect
+                      options={branchOptions}
+                      selectedBranchId={selectedBranchId}
+                      onChange={(bId) => {
+                        setSelectedBranchId(bId);
+                        setSelectedStaffIds([]); // Şube değiştiğinde personel filtre seçimini temizle
+                      }}
+                      totalCompanyStaffCount={companyUsers.length}
+                    />
+                    <StaffSelect
+                      options={availableStaffOptions}
+                      selectedStaffIds={selectedStaffIds}
+                      onChange={(ids) => setSelectedStaffIds(ids)}
+                      placeholder={selectedBranchId !== 'all' ? 'Şube Personelleri' : 'Tüm Personeller'}
+                    />
+                  </div>
                 )}
               </div>
 
@@ -3346,7 +3551,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                 {s.userName}
                               </div>
                               <div className="text-[10px] text-slate-400">
-                                {s.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                                {s.userRole === 'admin' ? 'Yönetici' : 'Personel'}
                               </div>
                             </div>
                           </div>
@@ -3459,7 +3664,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                   <div>{record.userName}</div>
                                   {record.userRole && (
                                     <div className="text-[10px] text-slate-400 font-normal">
-                                      {record.userRole === 'admin' ? 'Yönetici' : 'Saha Yetkilisi'}
+                                      {record.userRole === 'admin' ? 'Yönetici' : 'Personel'}
                                     </div>
                                   )}
                                 </div>

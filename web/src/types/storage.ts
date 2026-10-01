@@ -306,6 +306,7 @@ export interface LeaveRequest {
   userId: string;
   userName: string;
   userRole?: string;
+  companyCode?: string;
   leaveType: LeaveType;
   date: string; // 'YYYY-MM-DD' (Tarih veya Başlangıç Tarihi)
   endDate?: string; // 'YYYY-MM-DD' (Günlük izin için bitiş tarihi)
