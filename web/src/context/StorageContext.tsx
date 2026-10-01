@@ -3347,6 +3347,62 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
+    // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR ---
+    // Yönetici nerede olursa olsun "İşe Geldim" dediğinde anında onaylı mesaiye başlar
+    if (user.role === 'admin') {
+      let matchedBranch = branches && branches.length > 0 ? branches[0] : null;
+      let minDistance = 0;
+      if (branches && branches.length > 0) {
+        let bestDist = Infinity;
+        for (const b of branches) {
+          const d = LocationService.calculateDistance(
+            userPos.latitude,
+            userPos.longitude,
+            b.latitude,
+            b.longitude
+          );
+          if (d < bestDist) {
+            bestDist = d;
+            matchedBranch = b;
+            minDistance = d;
+          }
+        }
+      }
+
+      const branchName = matchedBranch ? matchedBranch.name : 'Yönetim / Merkez';
+      const branchId = matchedBranch ? matchedBranch.id : undefined;
+
+      const newRecord: AttendanceRecord = {
+        id: generateId(),
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        companyCode: compCode,
+        date: todayStr,
+        checkInTime: Date.now(),
+        checkInLat: userPos.latitude,
+        checkInLon: userPos.longitude,
+        checkInAddress: userPos.address,
+        checkInDistance: minDistance || 0,
+        checkInOutside: false,
+        checkInApprovalStatus: 'approved',
+        branchId,
+        branchName,
+        status: 'checked_in',
+        notes: 'Yönetici mesaisi (20m kuralından muaf)',
+      };
+
+      const updated = [newRecord, ...attendanceRecords];
+      setAttendanceRecords(updated);
+      await StorageService.saveAttendanceRecords(updated);
+
+      return {
+        success: true,
+        distance: minDistance,
+        message: `Yönetici mesainiz başarıyla onaylandı!${typeof navigator !== 'undefined' && !navigator.onLine ? ' (Çevrimdışı - Bağlantı sağlandığında eşitlenecektir)' : ` (${branchName})`}`,
+      };
+    }
+
     // --- MULTI-BRANCH LOGIC ---
     if (hasBranches) {
       // Find user's assigned branch
@@ -3844,10 +3900,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     if (!targetLat || !targetLon) {
-      return {
-        success: false,
-        message: 'İş yeri veya şube konumu belirlenemedi.',
-      };
+      if (user.role === 'admin') {
+        targetLat = userPos.latitude;
+        targetLon = userPos.longitude;
+        targetName = 'Yönetim / Merkez';
+      } else {
+        return {
+          success: false,
+          message: 'İş yeri veya şube konumu belirlenemedi.',
+        };
+      }
     }
 
     const distance = LocationService.calculateDistance(
@@ -3864,8 +3926,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const mins = durationMinutes % 60;
     const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
 
-    // If outside 20m, require confirmation & approval
-    if (distance > allowedRadius) {
+    // If outside 20m and NOT admin, require confirmation & approval (Yöneticiler 20m kuralından muaf!)
+    if (user.role !== 'admin' && distance > allowedRadius) {
       if (!options?.allowOutside) {
         return {
           success: false,

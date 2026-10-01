@@ -289,7 +289,7 @@ export const OneSignalService = {
       };
     }
 
-    const env = detectEnvironment();
+    detectEnvironment();
 
     // 1. Service Worker Health Check & Update
     if ('serviceWorker' in navigator) {
@@ -364,16 +364,29 @@ export const OneSignalService = {
               'POLATLAR'
             ).toUpperCase();
 
+            const cleanTags = {
+              userId: targetUser.id,
+              role: targetUser.role,
+              company_code: compCode,
+            };
+
             if (OneSignal?.User?.addTags) {
-              await OneSignal.User.addTags({
-                userId: targetUser.id,
-                name: targetUser.name,
-                role: targetUser.role,
-                company_code: compCode,
-                platform: env.platform,
-                standalone: env.isStandalone ? 'true' : 'false',
-                lastHealed: new Date().toISOString(),
-              });
+              await OneSignal.User.addTags(cleanTags).catch(() => {});
+            }
+
+            // Also stamp OneSignal REST API directly to ensure player tags are permanently bound
+            if (subId && ONESIGNAL_CONFIG.REST_API_KEY && ONESIGNAL_CONFIG.APP_ID) {
+              fetch(`https://onesignal.com/api/v1/players/${subId}`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+                },
+                body: JSON.stringify({
+                  app_id: ONESIGNAL_CONFIG.APP_ID,
+                  tags: cleanTags,
+                }),
+              }).catch(() => {});
             }
 
             // Sync with central Device Registry
@@ -855,7 +868,7 @@ export const OneSignalService = {
         }
       }
 
-      // 2. Target: All admins of this company (Single blast by role=admin with alias fallback)
+      // 2. Target: All admins of this company (Direct device registry + Tag filter + Alias fallback)
       if (targetMode === 'admin') {
         let adminUserIds = cleanIds;
         if (adminUserIds.length === 0 && typeof localStorage !== 'undefined') {
@@ -877,25 +890,42 @@ export const OneSignalService = {
           adminUserIds = adminUserIds.filter((id) => id !== 'admin-root' && id !== 'mtjsnufrp8pfa');
         }
 
-        // Strategy A: If targeted company is NOT POLATLAR and we have specific admin IDs, prefer alias targeting first
-        // to completely eliminate any chance of tag crossover to POLATLAR super admins!
-        if (targetCompanyCode !== 'POLATLAR' && adminUserIds.length > 0) {
-          try {
-            const aliasPayload = {
-              ...basePayload,
-              include_aliases: { external_id: adminUserIds },
-              target_channel: 'push',
-            };
-            const aliasRes = await this._postNotification(aliasPayload);
-            if (aliasRes && aliasRes.id) {
-              return { success: true, data: aliasRes };
+        // Strategy A: Direct Device Registry Push (Fetches actual active admin devices for this company)
+        let registryAdminSubIds: string[] = [];
+        try {
+          const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
+          if (Array.isArray(registeredDevices)) {
+            registryAdminSubIds = registeredDevices
+              .filter((d) => d.userRole === 'admin' && d.pushSubscriptionId)
+              .map((d) => d.pushSubscriptionId!)
+              .filter(Boolean);
+            if (targetCompanyCode !== 'POLATLAR') {
+              registryAdminSubIds = registryAdminSubIds.filter(
+                (sub) => !registeredDevices.some((rd) => rd.pushSubscriptionId === sub && (rd.userId === 'admin-root' || rd.userId === 'mtjsnufrp8pfa'))
+              );
             }
-          } catch (aliasErr) {
-            console.warn('Company admin alias blast failed, falling back to tag filter:', aliasErr);
+          }
+        } catch (e) {
+          console.warn('Error reading admin devices from registry:', e);
+        }
+
+        let sentViaDirect = false;
+        if (registryAdminSubIds.length > 0) {
+          try {
+            const directPayload = {
+              ...basePayload,
+              include_player_ids: registryAdminSubIds,
+            };
+            const directRes = await this._postNotification(directPayload);
+            if (directRes && directRes.id) {
+              sentViaDirect = true;
+            }
+          } catch (directErr) {
+            console.warn('Direct admin player ID notification failed:', directErr);
           }
         }
 
-        // Strategy B: Tag filter with strict company exclusion
+        // Strategy B: Tag filter with strict company exclusion (Multi-layer blast)
         const adminFilters: any[] = [
           { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
           { field: 'tag', key: 'role', relation: '=', value: 'admin' },
@@ -912,6 +942,9 @@ export const OneSignalService = {
           const res = await this._postNotification(payload);
           return { success: true, data: res };
         } catch (filterErr) {
+          if (sentViaDirect) {
+            return { success: true };
+          }
           if (adminUserIds.length > 0) {
             try {
               const aliasPayload = {
