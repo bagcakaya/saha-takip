@@ -21,6 +21,8 @@ import {
   AdminReminderCategory,
   SecurityLogItem,
   BreakItem,
+  ShiftDefinition,
+  ShiftAssignment,
 } from '../types/storage';
 
 interface StorageContextType {
@@ -38,6 +40,8 @@ interface StorageContextType {
   securityLogs: SecurityLogItem[];
   standardTasks: string[];
   cariler: string[];
+  shifts: ShiftDefinition[];
+  shiftAssignments: ShiftAssignment[];
   isLoading: boolean;
   refreshData: () => Promise<void>;
   checkInStaff: (branchId?: string) => Promise<{ success: boolean; message: string; isMockLocation?: boolean; isLocationDisabled?: boolean }>;
@@ -194,6 +198,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [cariler, setCariler] = useState<string[]>([]);
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerDatabase, setCarilerDatabase] = useState<string | null>(null);
+  const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
+  const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -203,7 +209,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const compCode = user.companyCode || 'POLATLAR';
       StorageService.setCompany(compCode);
 
-      const [locs, srvs, retItems, attRecs, lReqs, wpLoc, brs, hqs, nts, tfus, rems, logs, sTasks, cData] = await Promise.all([
+      const [locs, srvs, retItems, attRecs, lReqs, wpLoc, brs, hqs, nts, tfus, rems, logs, sTasks, cData, shiftPayload] = await Promise.all([
         StorageService.getLocations(),
         StorageService.getServices(),
         StorageService.getReturnWarrantyItems(),
@@ -218,6 +224,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         StorageService.getSecurityLogs(),
         StorageService.getStandardTasks(),
         StorageService.getCarilerData(),
+        StorageService.getShiftData(),
       ]);
 
       const defaultHq = hqs && hqs.length > 0 ? hqs[0] : undefined;
@@ -244,6 +251,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCariler(cData.cariler);
       setCarilerUpdatedAt(cData.updatedAt);
       setCarilerDatabase(cData.database);
+      setShifts(shiftPayload.definitions || []);
+      setShiftAssignments(shiftPayload.assignments || []);
     } catch (err) {
       console.warn('loadData error:', err);
     } finally {
@@ -297,6 +306,52 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 1. MESAI: İşe Geldim (Check-in)
   const checkInStaff = async (branchId?: string) => {
     if (!user) return { success: false, message: 'Oturum açılmamış.' };
+
+    // VARDİYA KONTROLÜ: Personel sadece atandığı vardiya saatinde giriş yapabilir (Yöneticiler muaftır)
+    const isUserAdminRole = user.role === 'admin' || (user as any).role === 'superadmin' || (user as any).isAdmin === true;
+    if (!isUserAdminRole && shiftAssignments && shiftAssignments.length > 0 && shifts && shifts.length > 0) {
+      const assignment = shiftAssignments.find((a) => a.userId === user.id);
+      if (assignment) {
+        const assignedShift = shifts.find((s) => s.id === assignment.shiftId);
+        if (assignedShift) {
+          const now = new Date();
+          const currentDayOfWeek = now.getDay(); // 0: Pazar, 1: Pazartesi...
+          if (assignedShift.daysOfWeek && assignedShift.daysOfWeek.length > 0) {
+            if (!assignedShift.daysOfWeek.includes(currentDayOfWeek)) {
+              return {
+                success: false,
+                message: `Bugün atanmış vardiyanız (${assignedShift.name}) için çalışma günü değildir. Mesaiye giriş yapamazsınız.`,
+              };
+            }
+          }
+          // Saat kontrolü
+          const [startH, startM] = assignedShift.startTime.split(':').map(Number);
+          const [endH, endM] = assignedShift.endTime.split(':').map(Number);
+          const earlyTol = assignedShift.earlyCheckInMinutes || 0;
+
+          const startTotalMin = startH * 60 + startM;
+          const endTotalMin = endH * 60 + endM;
+          const currentTotalMin = now.getHours() * 60 + now.getMinutes();
+
+          const earliestAllowed = startTotalMin - earlyTol;
+
+          let isInside = false;
+          if (endTotalMin > startTotalMin) {
+            isInside = currentTotalMin >= earliestAllowed && currentTotalMin <= endTotalMin;
+          } else {
+            // Gece vardiyası (örn: 22:00 - 06:00)
+            isInside = currentTotalMin >= earliestAllowed || currentTotalMin <= endTotalMin;
+          }
+
+          if (!isInside) {
+            return {
+              success: false,
+              message: `Vardiya saatleriniz (${assignedShift.startTime} - ${assignedShift.endTime}) dışındasınız. Mesaiye giriş yapamazsınız. (Erken giriş toleransı: ${earlyTol} dk)`,
+            };
+          }
+        }
+      }
+    }
 
     try {
       const pos = await LocationService.getCurrentPosition();
@@ -1513,6 +1568,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         cariler,
         carilerUpdatedAt,
         carilerDatabase,
+        shifts,
+        shiftAssignments,
         isLoading,
         refreshData: loadData,
         checkInStaff,

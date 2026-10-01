@@ -33,11 +33,14 @@ import {
   XCircle,
   ShieldCheck,
   WifiOff,
+  Sliders,
+  Plus,
+  Edit2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
-import { AttendanceRecord, LeaveRequest, Branch } from '../types/storage';
+import { AttendanceRecord, LeaveRequest, Branch, ShiftDefinition } from '../types/storage';
 import { LocationService } from '../services/locationService';
 import {
   exportAttendanceToExcel,
@@ -74,6 +77,14 @@ export const StaffTrackingView: React.FC = () => {
     rejectLeaveRequest,
     cancelLeaveRequest,
     deleteLeaveRequest,
+    shifts,
+    shiftAssignments,
+    createShift,
+    updateShift,
+    deleteShift,
+    assignUserShift,
+    removeUserShift,
+    updateBranchBreakMinutes,
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
@@ -88,6 +99,17 @@ export const StaffTrackingView: React.FC = () => {
         (user.branchId && b.id === user.branchId)
     );
   }, [branches, user, isAdmin]);
+
+  // Staff's assigned shift
+  const userShiftAssignment = useMemo(() => {
+    if (!user || !shiftAssignments || shiftAssignments.length === 0) return null;
+    return shiftAssignments.find((a) => a.userId === user.id) || null;
+  }, [user, shiftAssignments]);
+
+  const userActiveShift = useMemo(() => {
+    if (!userShiftAssignment) return null;
+    return shifts.find((s) => s.id === userShiftAssignment.shiftId) || null;
+  }, [userShiftAssignment, shifts]);
 
   // Target location for live distance calculation & geofence UI (Yöneticiler 20m kuralı ve şube konumundan tamamen muaftır)
   const targetLocation = useMemo(() => {
@@ -1339,8 +1361,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   // Online / Offline tracking
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
 
-  // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
-  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
+  // Ana Menü stili alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
+  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace' | 'shifts' | 'definitions';
   const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -1349,7 +1371,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         if (sec === 'checkin_checkout' && typeof navigator !== 'undefined' && !navigator.onLine) {
           return 'menu';
         }
-        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace'].includes(sec)) {
+        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions'].includes(sec)) {
           return sec as ActiveSection;
         }
       } catch {}
@@ -1410,8 +1432,52 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       color: 'text-teal-500',
       bg: 'bg-teal-500/15',
     },
+    shifts: {
+      title: 'Vardiya',
+      subtitle: isAdmin ? 'Personel vardiya atamaları ve çalışma programı' : 'Atanan çalışma vardiyanız ve saatleriniz',
+      icon: Users,
+      color: 'text-indigo-500',
+      bg: 'bg-indigo-500/15',
+    },
+    definitions: {
+      title: 'Tanımlamalar',
+      subtitle: 'Vardiya saatleri ve şube mola süreleri yapılandırması',
+      icon: Sliders,
+      color: 'text-cyan-500',
+      bg: 'bg-cyan-500/15',
+    },
   };
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
+
+  // Tanımlamalar ve Vardiya Yönetimi State'leri
+  const [definitionsTab, setDefinitionsTab] = useState<'shifts' | 'breaks'>('shifts');
+
+  // Vardiya Şablonu Oluşturma / Düzenleme Modalı
+  const [shiftModal, setShiftModal] = useState<{
+    isOpen: boolean;
+    mode: 'create' | 'edit';
+    shiftId?: string;
+  }>({ isOpen: false, mode: 'create' });
+
+  const [shiftFormName, setShiftFormName] = useState('');
+  const [shiftFormStartTime, setShiftFormStartTime] = useState('08:30');
+  const [shiftFormEndTime, setShiftFormEndTime] = useState('17:30');
+  const [shiftFormEarlyTolerance, setShiftFormEarlyTolerance] = useState<number>(30);
+  const [shiftFormDays, setShiftFormDays] = useState<number[]>([1, 2, 3, 4, 5, 6]);
+  const [shiftFormColor, setShiftFormColor] = useState('emerald');
+  const [shiftFormDesc, setShiftFormDesc] = useState('');
+  const [isSavingShift, setIsSavingShift] = useState(false);
+  const [deleteConfirmShift, setDeleteConfirmShift] = useState<ShiftDefinition | null>(null);
+
+  // Şube Mola Süresi Düzenleme State'i
+  const [branchBreakDrafts, setBranchBreakDrafts] = useState<Record<string, number>>({});
+  const [savingBranchBreakId, setSavingBranchBreakId] = useState<string | null>(null);
+
+  // Vardiya Personel Arama & Filtreleme
+  const [shiftSearchQuery, setShiftSearchQuery] = useState('');
+  const [shiftBranchFilter, setShiftBranchFilter] = useState('all');
+  const [shiftFilterTab, setShiftFilterTab] = useState<'all' | 'assigned' | 'unassigned'>('all');
+  const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
 
   const navigateToSection = (section: ActiveSection) => {
     if (section === 'checkin_checkout') {
@@ -1421,7 +1487,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         return;
       }
     }
-    if (!isAdmin && section === 'summary') {
+    if (!isAdmin && (section === 'summary' || section === 'workplace' || section === 'definitions')) {
       setActiveSection('checkin_checkout');
       return;
     }
@@ -1438,7 +1504,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   };
 
   useEffect(() => {
-    if (!isAdmin && activeSection === 'summary') {
+    if (!isAdmin && (activeSection === 'summary' || activeSection === 'workplace' || activeSection === 'definitions')) {
       setActiveSection('checkin_checkout');
     }
   }, [isAdmin, activeSection]);
@@ -1467,7 +1533,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       const section = e.state?.staffSection;
-      if (section && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace'].includes(section)) {
+      if (section && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions'].includes(section)) {
         setActiveSection(section);
       } else {
         // If not in a sub-section state, return to staff tracking menu
@@ -1790,6 +1856,162 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return attendanceRecords.filter((r) => r.date === todayStr && r.isOnBreak && r.status === 'checked_in');
   }, [attendanceRecords, todayStr]);
 
+  const SHIFT_COLORS: Record<string, { bg: string; text: string; border: string; dot: string; glow: string }> = {
+    emerald: { bg: 'bg-emerald-500/10 dark:bg-emerald-950/40', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-800', dot: 'bg-emerald-500', glow: 'shadow-emerald-500/20' },
+    blue: { bg: 'bg-blue-500/10 dark:bg-blue-950/40', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-300 dark:border-blue-800', dot: 'bg-blue-500', glow: 'shadow-blue-500/20' },
+    indigo: { bg: 'bg-indigo-500/10 dark:bg-indigo-950/40', text: 'text-indigo-700 dark:text-indigo-300', border: 'border-indigo-300 dark:border-indigo-800', dot: 'bg-indigo-500', glow: 'shadow-indigo-500/20' },
+    purple: { bg: 'bg-purple-500/10 dark:bg-purple-950/40', text: 'text-purple-700 dark:text-purple-300', border: 'border-purple-300 dark:border-purple-800', dot: 'bg-purple-500', glow: 'shadow-purple-500/20' },
+    amber: { bg: 'bg-amber-500/10 dark:bg-amber-950/40', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-300 dark:border-amber-800', dot: 'bg-amber-500', glow: 'shadow-amber-500/20' },
+    rose: { bg: 'bg-rose-500/10 dark:bg-rose-950/40', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-800', dot: 'bg-rose-500', glow: 'shadow-rose-500/20' },
+  };
+
+  const DAYS_OF_WEEK = [
+    { id: 1, label: 'Pzt', name: 'Pazartesi' },
+    { id: 2, label: 'Sal', name: 'Salı' },
+    { id: 3, label: 'Çar', name: 'Çarşamba' },
+    { id: 4, label: 'Per', name: 'Perşembe' },
+    { id: 5, label: 'Cum', name: 'Cuma' },
+    { id: 6, label: 'Cmt', name: 'Cumartesi' },
+    { id: 7, label: 'Paz', name: 'Pazar' },
+  ];
+
+  const handleOpenCreateShift = () => {
+    setShiftFormName('');
+    setShiftFormStartTime('08:30');
+    setShiftFormEndTime('17:30');
+    setShiftFormEarlyTolerance(30);
+    setShiftFormDays([1, 2, 3, 4, 5, 6]);
+    setShiftFormColor('emerald');
+    setShiftFormDesc('');
+    setShiftModal({ isOpen: true, mode: 'create' });
+  };
+
+  const handleOpenEditShift = (shift: ShiftDefinition) => {
+    setShiftFormName(shift.name);
+    setShiftFormStartTime(shift.startTime || '08:30');
+    setShiftFormEndTime(shift.endTime || '17:30');
+    setShiftFormEarlyTolerance(shift.earlyCheckInMinutes !== undefined ? shift.earlyCheckInMinutes : 30);
+    setShiftFormDays(shift.daysOfWeek && shift.daysOfWeek.length > 0 ? shift.daysOfWeek : [1, 2, 3, 4, 5, 6]);
+    setShiftFormColor(shift.color || 'emerald');
+    setShiftFormDesc(shift.description || '');
+    setShiftModal({ isOpen: true, mode: 'edit', shiftId: shift.id });
+  };
+
+  const handleSaveShiftModal = async () => {
+    const trimmedName = shiftFormName.trim();
+    if (!trimmedName) {
+      setActionFeedback({ type: 'error', text: 'Lütfen vardiya adını belirtin.' });
+      return;
+    }
+    if (!shiftFormStartTime || !shiftFormEndTime) {
+      setActionFeedback({ type: 'error', text: 'Lütfen başlangıç ve bitiş saatlerini seçin.' });
+      return;
+    }
+    if (shiftFormDays.length === 0) {
+      setActionFeedback({ type: 'error', text: 'Lütfen en az bir çalışma günü seçin.' });
+      return;
+    }
+
+    try {
+      setIsSavingShift(true);
+      if (shiftModal.mode === 'create') {
+        await createShift({
+          name: trimmedName,
+          startTime: shiftFormStartTime,
+          endTime: shiftFormEndTime,
+          earlyCheckInMinutes: shiftFormEarlyTolerance,
+          daysOfWeek: shiftFormDays,
+          color: shiftFormColor,
+          description: shiftFormDesc.trim() || undefined,
+        });
+        setActionFeedback({ type: 'success', text: `"${trimmedName}" vardiyası başarıyla oluşturuldu!` });
+      } else if (shiftModal.shiftId) {
+        await updateShift(shiftModal.shiftId, {
+          name: trimmedName,
+          startTime: shiftFormStartTime,
+          endTime: shiftFormEndTime,
+          earlyCheckInMinutes: shiftFormEarlyTolerance,
+          daysOfWeek: shiftFormDays,
+          color: shiftFormColor,
+          description: shiftFormDesc.trim() || undefined,
+        });
+        setActionFeedback({ type: 'success', text: `"${trimmedName}" vardiyası güncellendi!` });
+      }
+      setShiftModal({ isOpen: false, mode: 'create' });
+    } catch (err: any) {
+      setActionFeedback({ type: 'error', text: 'Vardiya kaydedilirken hata oluştu: ' + (err?.message || '') });
+    } finally {
+      setIsSavingShift(false);
+    }
+  };
+
+  const handleSaveBranchBreak = async (branchId: string) => {
+    const targetBranch = branches.find((b) => b.id === branchId);
+    if (!targetBranch) return;
+    const minutes = branchBreakDrafts[branchId] !== undefined ? branchBreakDrafts[branchId] : (targetBranch.maxBreakMinutes || 60);
+    try {
+      setSavingBranchBreakId(branchId);
+      await updateBranchBreakMinutes(branchId, Number(minutes) || 60);
+      setActionFeedback({ type: 'success', text: `"${targetBranch.name}" için günlük mola süresi ${minutes} dk olarak kaydedildi!` });
+    } catch {
+      setActionFeedback({ type: 'error', text: 'Mola süresi kaydedilemedi.' });
+    } finally {
+      setSavingBranchBreakId(null);
+    }
+  };
+
+  const handleAssignStaffShift = async (staffId: string, staffName: string, targetShiftId: string) => {
+    try {
+      setAssigningUserId(staffId);
+      if (!targetShiftId || targetShiftId === 'none') {
+        await removeUserShift(staffId);
+        setActionFeedback({ type: 'success', text: `${staffName} kullanıcısının vardiya ataması kaldırıldı.` });
+      } else {
+        await assignUserShift(staffId, staffName, targetShiftId);
+        const s = shifts.find((item) => item.id === targetShiftId);
+        setActionFeedback({ type: 'success', text: `${staffName} ➔ "${s?.name || 'Vardiya'}" olarak atandı!` });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', text: 'Vardiya ataması kaydedilemedi.' });
+    } finally {
+      setAssigningUserId(null);
+    }
+  };
+
+  const companyStaffUsers = useMemo(() => {
+    if (!users || users.length === 0) return [];
+    const comp = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    return users.filter((u) => {
+      const uComp = (u.companyCode || 'POLATLAR').trim().toUpperCase();
+      return uComp === comp;
+    });
+  }, [users, company, user]);
+
+  const filteredStaffUsers = useMemo(() => {
+    return companyStaffUsers.filter((u) => {
+      if (shiftSearchQuery.trim()) {
+        const q = shiftSearchQuery.toLowerCase();
+        const matchesName = u.name?.toLowerCase().includes(q);
+        const matchesUsername = u.username?.toLowerCase().includes(q);
+        if (!matchesName && !matchesUsername) return false;
+      }
+      if (shiftBranchFilter !== 'all') {
+        const staffBranch = branches.find(
+          (b) => (b.assignedUserIds && b.assignedUserIds.includes(u.id)) || (u.branchId && b.id === u.branchId)
+        );
+        if (staffBranch?.id !== shiftBranchFilter) return false;
+      }
+      if (shiftFilterTab === 'assigned') {
+        const hasAssignment = shiftAssignments.some((a) => a.userId === u.id);
+        if (!hasAssignment) return false;
+      } else if (shiftFilterTab === 'unassigned') {
+        const hasAssignment = shiftAssignments.some((a) => a.userId === u.id);
+        if (hasAssignment) return false;
+      }
+      return true;
+    });
+  }, [companyStaffUsers, shiftSearchQuery, shiftBranchFilter, shiftFilterTab, shiftAssignments, branches]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* ============================================================ */}
@@ -1797,7 +2019,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'menu' && (
         <div className="pt-4 pb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-y-8 gap-x-4 sm:gap-6 py-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-y-8 gap-x-4 sm:gap-6 py-6">
             {[
               {
                 id: 'checkin_checkout' as const,
@@ -1840,8 +2062,27 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 bgGlow: 'bg-purple-500/15',
                 badgeCount: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
               },
+              {
+                id: 'shifts' as const,
+                title: 'Vardiya',
+                icon: Users,
+                glowColor: 'text-indigo-500',
+                borderColor: 'border-indigo-500',
+                bgGlow: 'bg-indigo-500/15',
+                badgeText: !isAdmin ? (userActiveShift ? `${userActiveShift.startTime}` : undefined) : undefined,
+                badgeCount: isAdmin && shiftAssignments.length > 0 ? shiftAssignments.length : undefined,
+              },
               ...(isAdmin
                 ? [
+                    {
+                      id: 'definitions' as const,
+                      title: 'Tanımlamalar',
+                      icon: Sliders,
+                      glowColor: 'text-cyan-500',
+                      borderColor: 'border-cyan-500',
+                      bgGlow: 'bg-cyan-500/15',
+                      badgeText: `${shifts.length} Vardiya`,
+                    },
                     {
                       id: 'workplace' as const,
                       title: 'Merkez İş Yeri',
@@ -2618,6 +2859,38 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               )}
             </div>
           </div>
+
+          {/* Atanan Vardiya Bilgi Kartı (Personel için) */}
+          {!isAdmin && userActiveShift && (
+            <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-indigo-950 dark:text-indigo-100">
+                      {userActiveShift.name}
+                    </span>
+                    <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                      ({userActiveShift.startTime} - {userActiveShift.endTime})
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-indigo-600 dark:text-indigo-400">
+                    Erken giriş izni: {userActiveShift.earlyCheckInMinutes !== undefined ? userActiveShift.earlyCheckInMinutes : 30} dk önce
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigateToSection('shifts')}
+                className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold hover:bg-indigo-200 transition-colors shrink-0"
+              >
+                Vardiya Programı ➔
+              </button>
+            </div>
+          )}
 
           {/* Feedback Uyarısı */}
           {actionFeedback && (
@@ -4717,6 +4990,841 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     )}
   </div>
 )}
+
+      {/* ============================================================ */}
+      {/* MODÜL: TANIMLAMALAR (Sadece Yöneticiler için) */}
+      {/* ============================================================ */}
+      {activeSection === 'definitions' && isAdmin && (
+        <div className="space-y-6">
+          {/* Üst Sekmeler: Vardiya Saatleri | Şube Mola Süreleri */}
+          <div className="flex items-center gap-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 max-w-md">
+            <button
+              type="button"
+              onClick={() => setDefinitionsTab('shifts')}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                definitionsTab === 'shifts'
+                  ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Vardiya Saatleri</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-bold">
+                {shifts.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDefinitionsTab('breaks')}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                definitionsTab === 'breaks'
+                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Coffee className="w-4 h-4" />
+              <span>Şube Mola Süreleri</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold">
+                {branches.length}
+              </span>
+            </button>
+          </div>
+
+          {/* SEKME 1: VARDİYA SAATLERİ */}
+          {definitionsTab === 'shifts' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-cyan-500" />
+                    <span>Vardiya Saati Tanımlama</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Personellerin mesaiye başlayabileceği çalışma saatlerini ve erken giriş toleransını belirleyin.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenCreateShift}
+                  className="px-4 py-2.5 rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black shadow-md shadow-cyan-600/20 flex items-center gap-2 transition-all cursor-pointer self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Yeni Vardiya Tanımla</span>
+                </button>
+              </div>
+
+              {shifts.length === 0 ? (
+                <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 flex items-center justify-center mx-auto">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                    Henüz Tanımlanmış Vardiya Yok
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                    Personellerin çalışma saatlerini sınırlayabilmek için ilk vardiya şablonunuzu oluşturun. Örneğin: Sabah Vardiyası (08:30 - 17:30).
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateShift}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 text-white text-xs font-black hover:bg-cyan-700 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>İlk Vardiyayı Ekle</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {shifts.map((shift) => {
+                    const assignedStaffCount = shiftAssignments.filter((a) => a.shiftId === shift.id).length;
+                    const colorStyle = SHIFT_COLORS[shift.color || 'emerald'] || SHIFT_COLORS.emerald;
+                    const dayLabels = (shift.daysOfWeek || [1, 2, 3, 4, 5, 6]).map((d) => {
+                      const dayObj = DAYS_OF_WEEK.find((item) => item.id === d);
+                      return dayObj ? dayObj.label : String(d);
+                    });
+
+                    return (
+                      <div
+                        key={shift.id}
+                        className={`p-5 rounded-3xl bg-white dark:bg-slate-900 border ${colorStyle.border} shadow-sm space-y-4 flex flex-col justify-between hover:shadow-md transition-shadow`}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${colorStyle.dot}`} />
+                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                                {shift.name}
+                              </h4>
+                            </div>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${colorStyle.bg} ${colorStyle.text}`}>
+                              {assignedStaffCount} Personel
+                            </span>
+                          </div>
+
+                          {/* Saat Kutusu */}
+                          <div className={`p-3 rounded-2xl ${colorStyle.bg} border ${colorStyle.border} flex items-center justify-between`}>
+                            <div className="flex items-center gap-2">
+                              <Clock className={`w-4 h-4 ${colorStyle.text}`} />
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Mesai Saatleri:</span>
+                            </div>
+                            <span className="text-sm font-black text-slate-900 dark:text-slate-100 tracking-wide font-mono">
+                              {shift.startTime} - {shift.endTime}
+                            </span>
+                          </div>
+
+                          {/* Detay Bilgileri */}
+                          <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-slate-500">Erken Giriş İzni:</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">
+                                {shift.earlyCheckInMinutes !== undefined ? shift.earlyCheckInMinutes : 30} dk önce
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-slate-500">Çalışma Günleri:</span>
+                              <div className="flex items-center gap-1">
+                                {dayLabels.map((lbl, idx) => (
+                                  <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-700 dark:text-slate-300">
+                                    {lbl}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            {shift.description && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 italic pt-1 border-t border-slate-100 dark:border-slate-800">
+                                {shift.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Butonlar */}
+                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditShift(shift)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-cyan-600" />
+                            <span>Düzenle</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmShift(shift)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Sil</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SEKME 2: ŞUBE MOLA SÜRELERİ */}
+          {definitionsTab === 'breaks' && (
+            <div className="space-y-4">
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Coffee className="w-5 h-5 text-amber-500" />
+                  <span>Şube Mola Süresi Belirleme</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Her şube için personellerin günlük kullanabileceği toplam mola dakikasını ayrı ayrı tanımlayın.
+                </p>
+              </div>
+
+              {branches.length === 0 ? (
+                <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center mx-auto">
+                    <Store className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                    Kayıtlı Şube Bulunamadı
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                    Mola süresi belirleyebilmek için önce <strong>"Merkez İş Yeri"</strong> ekranından şubelerinizi oluşturmanız gerekmektedir.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('workplace')}
+                    className="px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-black hover:bg-teal-700 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Store className="w-3.5 h-3.5" />
+                    <span>Şube Yönetimine Git</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {branches.map((branch) => {
+                    const currentBreakMinutes = branchBreakDrafts[branch.id] !== undefined
+                      ? branchBreakDrafts[branch.id]
+                      : (branch.maxBreakMinutes || 60);
+                    const staffCount = branch.assignedUserIds?.length || 0;
+                    const isSaving = savingBranchBreakId === branch.id;
+
+                    return (
+                      <div
+                        key={branch.id}
+                        className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 shrink-0">
+                              <Store className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                                {branch.name}
+                              </h4>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {branch.address || 'Adres tanımlanmamış'}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                            {staffCount} Personel
+                          </span>
+                        </div>
+
+                        {/* Mola Dakikası Seçim Alanı */}
+                        <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
+                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                            <span>Günlük Toplam Mola Hakkı:</span>
+                            <span className="text-amber-600 dark:text-amber-400 font-black text-sm">
+                              {currentBreakMinutes} Dakika
+                            </span>
+                          </label>
+
+                          {/* Hızlı Seçim Butonları */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {[15, 30, 45, 60, 90, 120].map((mins) => (
+                              <button
+                                key={mins}
+                                type="button"
+                                onClick={() => setBranchBreakDrafts((prev) => ({ ...prev, [branch.id]: mins }))}
+                                className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                  currentBreakMinutes === mins
+                                    ? 'bg-amber-500 text-white shadow-sm font-black'
+                                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                                }`}
+                              >
+                                {mins} dk
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Kaydet Butonu */}
+                        <div className="flex items-center justify-end">
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={() => handleSaveBranchBreak(branch.id)}
+                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSaving ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                            <span>Mola Süresini Kaydet</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODÜL: VARDİYA (Personel & Yönetici Görünümü) */}
+      {/* ============================================================ */}
+      {activeSection === 'shifts' && (
+        <div className="space-y-6">
+          {/* YÖNETİCİ GÖRÜNÜMÜ: PERSONEL VARDİYA ATAMA */}
+          {isAdmin ? (
+            <div className="space-y-4">
+              {/* Üst Bilgi Kartı */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-500" />
+                    <span>Personel Vardiya Atamaları</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Personelleri tanımlı vardiyalara atayın. Personel sadece atandığı vardiya saatlerinde mesaiye başlayabilir.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateToSection('definitions')}
+                  className="px-4 py-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-black transition-all flex items-center gap-2 cursor-pointer self-start sm:self-auto"
+                >
+                  <Sliders className="w-4 h-4" />
+                  <span>Vardiya Tanımlamalarına Git</span>
+                </button>
+              </div>
+
+              {shifts.length === 0 ? (
+                <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center mx-auto">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                    Henüz Vardiya Tanımlanmamış
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                    Personellere vardiya ataması yapabilmek için önce <strong>"Tanımlamalar"</strong> bölümünden en az bir vardiya oluşturmalısınız.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigateToSection('definitions')}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 text-white text-xs font-black hover:bg-cyan-700 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Vardiya Tanımla</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Arama ve Filtre Çubuğu */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                    {/* Arama Input */}
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={shiftSearchQuery}
+                        onChange={(e) => setShiftSearchQuery(e.target.value)}
+                        placeholder="Personel adı veya kullanıcı adı ile ara..."
+                        className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      {shiftSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setShiftSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Şube Filtresi */}
+                    {branches && branches.length > 0 && (
+                      <select
+                        value={shiftBranchFilter}
+                        onChange={(e) => setShiftBranchFilter(e.target.value)}
+                        className="py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        <option value="all">Tüm Şubeler</option>
+                        {branches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Filtre Butonları */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                      {[
+                        { id: 'all' as const, label: 'Tümü' },
+                        { id: 'assigned' as const, label: `Atananlar (${shiftAssignments.length})` },
+                        { id: 'unassigned' as const, label: 'Vardiyasız' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setShiftFilterTab(tab.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            shiftFilterTab === tab.id
+                              ? 'bg-indigo-600 text-white font-black shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Personel Vardiya Atama Listesi */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredStaffUsers.map((staffUser) => {
+                      const assignment = shiftAssignments.find((a) => a.userId === staffUser.id);
+                      const assignedShift = assignment ? shifts.find((s) => s.id === assignment.shiftId) : null;
+                      const staffBranch = branches.find(
+                        (b) => (b.assignedUserIds && b.assignedUserIds.includes(staffUser.id)) || (staffUser.branchId && b.id === staffUser.branchId)
+                      );
+                      const isAssigning = assigningUserId === staffUser.id;
+
+                      return (
+                        <div
+                          key={staffUser.id}
+                          className={`p-5 rounded-3xl bg-white dark:bg-slate-900 border transition-all space-y-4 ${
+                            assignedShift
+                              ? 'border-indigo-200 dark:border-indigo-900/60 shadow-sm'
+                              : 'border-slate-200 dark:border-slate-800 opacity-90'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 font-black text-sm shrink-0">
+                                {staffUser.name?.charAt(0)?.toUpperCase() || 'P'}
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                  <span>{staffUser.name}</span>
+                                  {staffUser.role === 'admin' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                                      Yönetici
+                                    </span>
+                                  )}
+                                </h4>
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  <span>@{staffUser.username}</span>
+                                  {staffBranch && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-teal-600 dark:text-teal-400 font-semibold">{staffBranch.name}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Vardiya Seçim Select Kutusu */}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                              <span>Atanan Vardiya:</span>
+                              {isAssigning && <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />}
+                            </label>
+                            <select
+                              value={assignment?.shiftId || 'none'}
+                              onChange={(e) => handleAssignStaffShift(staffUser.id, staffUser.name, e.target.value)}
+                              disabled={isAssigning}
+                              className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
+                            >
+                              <option value="none">— Vardiya Atanmamış (Serbest) —</option>
+                              {shifts.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} ({s.startTime} - {s.endTime})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Atanmış Vardiya Detay Bilgisi */}
+                          {assignedShift ? (
+                            <div className="p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/40 text-xs space-y-1 text-indigo-900 dark:text-indigo-200">
+                              <div className="flex items-center justify-between font-bold">
+                                <span>Saatler:</span>
+                                <span className="font-mono">{assignedShift.startTime} - {assignedShift.endTime}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-indigo-700 dark:text-indigo-300">
+                                <span>Erken Giriş:</span>
+                                <span>{assignedShift.earlyCheckInMinutes !== undefined ? assignedShift.earlyCheckInMinutes : 30} dk önce</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 text-center font-medium">
+                              Bu personele henüz vardiya kısıtı atanmadı.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            /* PERSONEL GÖRÜNÜMÜ: KENDİ VARDİYASI */
+            <div className="max-w-2xl mx-auto space-y-5">
+              {userActiveShift ? (
+                <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border-2 border-indigo-300 dark:border-indigo-800 shadow-xl shadow-indigo-500/10 space-y-6">
+                  {/* Başlık ve Rozet */}
+                  <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                        <Clock className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                          Atanan Çalışma Vardiyanız
+                        </span>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-slate-100">
+                          {userActiveShift.name}
+                        </h3>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      Aktif Vardiya
+                    </span>
+                  </div>
+
+                  {/* Büyük Saat Göstergesi */}
+                  <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-500/10 via-indigo-500/5 to-transparent border border-indigo-200 dark:border-indigo-900 flex items-center justify-around text-center">
+                    <div>
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                        BAŞLANGIÇ
+                      </span>
+                      <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                        {userActiveShift.startTime}
+                      </span>
+                    </div>
+                    <div className="text-slate-300 dark:text-slate-600 font-thin text-3xl">➔</div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                        BİTİŞ
+                      </span>
+                      <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                        {userActiveShift.endTime}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Kural ve Detay Bilgileri */}
+                  <div className="space-y-3 text-xs">
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                      <span className="text-slate-600 dark:text-slate-400 font-semibold">Erken Giriş Toleransı:</span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100">
+                        {userActiveShift.earlyCheckInMinutes !== undefined ? userActiveShift.earlyCheckInMinutes : 30} dakika önceden
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                      <span className="text-slate-600 dark:text-slate-400 font-semibold">Çalışma Günleri:</span>
+                      <div className="flex items-center gap-1">
+                        {(userActiveShift.daysOfWeek || [1, 2, 3, 4, 5, 6]).map((d) => {
+                          const dayObj = DAYS_OF_WEEK.find((item) => item.id === d);
+                          return (
+                            <span key={d} className="px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-black text-[10px]">
+                              {dayObj ? dayObj.label : String(d)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {userAssignedBranch && (
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-600 dark:text-slate-400 font-semibold">Bağlı Şubeniz:</span>
+                        <span className="font-bold text-teal-600 dark:text-teal-400">
+                          {userAssignedBranch.name}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* İkaz Notu */}
+                  <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                    <p className="leading-relaxed font-medium">
+                      Kurum kuralları gereği, yalnızca size tanımlanmış olan vardiya saatleri aralığında mesaiye başlayabilirsiniz. Bu saatler haricinde sistem girişi kabul etmeyecektir.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 flex items-center justify-center mx-auto">
+                    <Clock className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                    Atanan Vardiya Bulunmuyor
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+                    Hesabınıza henüz özel bir vardiya saati atanmamıştır. Yöneticiniz vardiya tanımlaması yaptığında saatleriniz burada görüntülenecektir.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* --- MODAL: VARDİYA EKLE / DÜZENLE --- */}
+      {shiftModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800 flex items-center justify-center text-cyan-600 shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                    {shiftModal.mode === 'create' ? 'Yeni Vardiya Tanımla' : 'Vardiyayı Düzenle'}
+                  </h3>
+                  <span className="text-xs font-semibold text-slate-500">
+                    Çalışma Saati Şablonu
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShiftModal({ isOpen: false, mode: 'create' })}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Vardiya Adı */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Vardiya Adı *</label>
+                <input
+                  type="text"
+                  value={shiftFormName}
+                  onChange={(e) => setShiftFormName(e.target.value)}
+                  placeholder="Örn: Sabah Vardiyası, Akşam Vardiyası"
+                  className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+
+              {/* Başlangıç ve Bitiş Saati */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Başlangıç Saati *</label>
+                  <input
+                    type="time"
+                    value={shiftFormStartTime}
+                    onChange={(e) => setShiftFormStartTime(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-black text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Bitiş Saati *</label>
+                  <input
+                    type="time"
+                    value={shiftFormEndTime}
+                    onChange={(e) => setShiftFormEndTime(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-black text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Erken Giriş Toleransı */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Erken Giriş Toleransı:</span>
+                  <span className="text-cyan-600 dark:text-cyan-400 font-black">{shiftFormEarlyTolerance} Dakika Önce</span>
+                </label>
+                <div className="flex items-center gap-1.5">
+                  {[10, 15, 30, 45, 60].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setShiftFormEarlyTolerance(t)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        shiftFormEarlyTolerance === t
+                          ? 'bg-cyan-600 text-white font-black'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      {t} dk
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Çalışma Günleri */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Geçerli Günler *</label>
+                <div className="flex items-center gap-1">
+                  {DAYS_OF_WEEK.map((d) => {
+                    const isSelected = shiftFormDays.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setShiftFormDays(shiftFormDays.filter((id) => id !== d.id));
+                          } else {
+                            setShiftFormDays([...shiftFormDays, d.id].sort());
+                          }
+                        }}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white font-black shadow-sm'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200'
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Renk Teması */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Vardiya Rozet Rengi</label>
+                <div className="flex items-center gap-2">
+                  {[
+                    { id: 'emerald', bg: 'bg-emerald-500' },
+                    { id: 'blue', bg: 'bg-blue-500' },
+                    { id: 'indigo', bg: 'bg-indigo-500' },
+                    { id: 'purple', bg: 'bg-purple-500' },
+                    { id: 'amber', bg: 'bg-amber-500' },
+                    { id: 'rose', bg: 'bg-rose-500' },
+                  ].map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setShiftFormColor(c.id)}
+                      className={`w-7 h-7 rounded-full ${c.bg} transition-transform cursor-pointer flex items-center justify-center ${
+                        shiftFormColor === c.id ? 'ring-2 ring-offset-2 ring-cyan-500 scale-110' : 'opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      {shiftFormColor === c.id && <Check className="w-3.5 h-3.5 text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Açıklama */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Açıklama (Opsiyonel)</label>
+                <input
+                  type="text"
+                  value={shiftFormDesc}
+                  onChange={(e) => setShiftFormDesc(e.target.value)}
+                  placeholder="Örn: Hafta içi saha personeli için geçerlidir"
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+            </div>
+
+            {/* Butonlar */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShiftModal({ isOpen: false, mode: 'create' })}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={isSavingShift}
+                onClick={handleSaveShiftModal}
+                className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black shadow-md shadow-cyan-600/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isSavingShift ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                <span>{shiftModal.mode === 'create' ? 'Vardiyayı Kaydet' : 'Değişiklikleri Kaydet'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: VARDİYA SİLME ONAY MODALI (Non-blocking, no window.confirm) --- */}
+      {deleteConfirmShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/60 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                  Vardiyayı Sil
+                </h3>
+                <span className="text-xs text-rose-600 font-semibold">Geri Alınamaz</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              <strong>"{deleteConfirmShift.name}"</strong> vardiyasını silmek istediğinize emin misiniz? Bu vardiyaya atanmış personellerin vardiya bağlantısı otomatik kaldırılacaktır.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmShift(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (deleteConfirmShift) {
+                    try {
+                      await deleteShift(deleteConfirmShift.id);
+                      setActionFeedback({ type: 'success', text: `"${deleteConfirmShift.name}" vardiyası silindi.` });
+                    } catch {
+                      setActionFeedback({ type: 'error', text: 'Vardiya silinemedi.' });
+                    } finally {
+                      setDeleteConfirmShift(null);
+                    }
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-md shadow-rose-600/20 cursor-pointer"
+              >
+                Evet, Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (

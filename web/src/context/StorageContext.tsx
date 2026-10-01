@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment } from '../types/storage';
 import { isUserAdmin, canUserAddBranch } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -208,6 +208,15 @@ interface StorageContextType {
   deletePersonalNote: (id: string) => Promise<void>;
   togglePinPersonalNote: (id: string) => Promise<void>;
   refreshPersonalNotes: () => Promise<void>;
+  shifts: ShiftDefinition[];
+  shiftAssignments: ShiftAssignment[];
+  createShift: (shift: Omit<ShiftDefinition, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'> & { companyCode?: string }) => Promise<ShiftDefinition>;
+  updateShift: (id: string, updates: Partial<ShiftDefinition>) => Promise<void>;
+  deleteShift: (id: string) => Promise<void>;
+  assignUserShift: (userId: string, userName: string, shiftId: string) => Promise<void>;
+  removeUserShift: (userId: string) => Promise<void>;
+  updateBranchBreakMinutes: (branchId: string, maxBreakMinutes: number) => Promise<void>;
+  refreshShifts: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -282,6 +291,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [timedFollowUps, setTimedFollowUps] = useState<TimedFollowUp[]>([]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
+  const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
+  const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -373,6 +384,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCarilerTotal(0);
     setTimedFollowUps([]);
     setPersonalNotes([]);
+    setShifts([]);
+    setShiftAssignments([]);
     setActiveRingingAlarm(null);
     setIsLoading(true);
     setDataCompanyCode('');
@@ -410,6 +423,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setPersonalNotes(userCachedNotes);
             }
           }).catch(() => {});
+          // Fast cached shifts for company
+          StorageService.getShiftData().then((sData) => {
+            if (isMounted && sData) {
+              if (sData.definitions && sData.definitions.length > 0) setShifts(sData.definitions);
+              if (sData.assignments && sData.assignments.length > 0) setShiftAssignments(sData.assignments);
+            }
+          }).catch(() => {});
           // If cached data was loaded, unlock the UI immediately
           if (
             (cached.locations && cached.locations.length > 0) ||
@@ -427,7 +447,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -442,6 +462,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getSecurityLogs(),
           StorageService.getTimedFollowUps(),
           StorageService.getPersonalNotes(user.id),
+          StorageService.getShiftData(),
         ]);
         if (!isMounted) return;
 
@@ -605,6 +626,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCarilerTotal(cariData?.total || 0);
         setTimedFollowUps(followUps || []);
         setPersonalNotes(myPersonalNotes || []);
+        setShifts((shiftData && shiftData.definitions) || []);
+        setShiftAssignments((shiftData && shiftData.assignments) || []);
         setDataCompanyCode(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
@@ -3267,6 +3290,123 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const updateBranchBreakMinutes = async (branchId: string, maxBreakMinutes: number) => {
+    const updatedBranches = branches.map((b) =>
+      b.id === branchId ? { ...b, maxBreakMinutes, updatedAt: Date.now() } : b
+    );
+    setBranches(updatedBranches);
+    await StorageService.saveBranches(updatedBranches);
+  };
+
+  const createShift = async (
+    shiftData: Omit<ShiftDefinition, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'> & { companyCode?: string }
+  ): Promise<ShiftDefinition> => {
+    const newShift: ShiftDefinition = {
+      ...shiftData,
+      id: generateId(),
+      companyCode: shiftData.companyCode || compCode,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updatedShifts = [...shifts, newShift];
+    setShifts(updatedShifts);
+    await StorageService.saveShiftData({
+      definitions: updatedShifts,
+      assignments: shiftAssignments,
+    });
+    return newShift;
+  };
+
+  const updateShift = async (id: string, updates: Partial<ShiftDefinition>): Promise<void> => {
+    const updatedShifts = shifts.map((s) =>
+      s.id === id ? { ...s, ...updates, updatedAt: Date.now() } : s
+    );
+    setShifts(updatedShifts);
+    const updatedAssignments = shiftAssignments.map((a) => {
+      if (a.shiftId === id) {
+        return {
+          ...a,
+          shiftName: updates.name || a.shiftName,
+          startTime: updates.startTime || a.startTime,
+          endTime: updates.endTime || a.endTime,
+          updatedAt: Date.now(),
+        };
+      }
+      return a;
+    });
+    setShiftAssignments(updatedAssignments);
+    await StorageService.saveShiftData({
+      definitions: updatedShifts,
+      assignments: updatedAssignments,
+    });
+  };
+
+  const deleteShift = async (id: string): Promise<void> => {
+    const updatedShifts = shifts.filter((s) => s.id !== id);
+    const updatedAssignments = shiftAssignments.filter((a) => a.shiftId !== id);
+    setShifts(updatedShifts);
+    setShiftAssignments(updatedAssignments);
+    await StorageService.saveShiftData({
+      definitions: updatedShifts,
+      assignments: updatedAssignments,
+    });
+  };
+
+  const assignUserShift = async (userId: string, userName: string, shiftId: string): Promise<void> => {
+    const targetShift = shifts.find((s) => s.id === shiftId);
+    if (!targetShift) return;
+
+    const existingIdx = shiftAssignments.findIndex((a) => a.userId === userId);
+    let updatedAssignments = [...shiftAssignments];
+    if (existingIdx >= 0) {
+      updatedAssignments[existingIdx] = {
+        ...updatedAssignments[existingIdx],
+        shiftId: targetShift.id,
+        shiftName: targetShift.name,
+        startTime: targetShift.startTime,
+        endTime: targetShift.endTime,
+        userName: userName || updatedAssignments[existingIdx].userName,
+        updatedAt: Date.now(),
+        updatedBy: user?.name,
+      };
+    } else {
+      const newAssignment: ShiftAssignment = {
+        id: generateId(),
+        companyCode: compCode,
+        userId,
+        userName,
+        shiftId: targetShift.id,
+        shiftName: targetShift.name,
+        startTime: targetShift.startTime,
+        endTime: targetShift.endTime,
+        updatedAt: Date.now(),
+        updatedBy: user?.name,
+      };
+      updatedAssignments.push(newAssignment);
+    }
+
+    setShiftAssignments(updatedAssignments);
+    await StorageService.saveShiftData({
+      definitions: shifts,
+      assignments: updatedAssignments,
+    });
+  };
+
+  const removeUserShift = async (userId: string): Promise<void> => {
+    const updatedAssignments = shiftAssignments.filter((a) => a.userId !== userId);
+    setShiftAssignments(updatedAssignments);
+    await StorageService.saveShiftData({
+      definitions: shifts,
+      assignments: updatedAssignments,
+    });
+  };
+
+  const refreshShifts = async (): Promise<void> => {
+    const data = await StorageService.getShiftData();
+    setShifts(data.definitions);
+    setShiftAssignments(data.assignments);
+  };
+
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
@@ -3301,6 +3441,90 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           success: false,
           message: devCheck.error || 'Bu cihaz yetkili resmi cihazınız değildir. İşe giriş engellendi.',
         };
+      }
+    }
+
+    // --- VARDİYA SAATİ KONTROLÜ (Personele atanan vardiya saati haricinde mesaiye giriş yapamaz) ---
+    // Yöneticiler (admin) vardiya saatlerinden ve 20m kuralından tamamen muaftır.
+    if (user.role !== 'admin' && !isUserAdmin(user)) {
+      const userAssignment = shiftAssignments.find((a) => a.userId === user.id);
+      if (userAssignment) {
+        const shift = shifts.find((s) => s.id === userAssignment.shiftId) || {
+          id: userAssignment.shiftId,
+          companyCode: userAssignment.companyCode,
+          name: userAssignment.shiftName,
+          startTime: userAssignment.startTime,
+          endTime: userAssignment.endTime,
+          earlyCheckInMinutes: 30,
+          daysOfWeek: [1, 2, 3, 4, 5, 6],
+          createdAt: 0,
+          updatedAt: 0,
+        };
+
+        const now = new Date();
+        // 1. Gün kontrolü: 1=Pazartesi, ..., 7=Pazar
+        let currentDay = now.getDay();
+        if (currentDay === 0) currentDay = 7;
+
+        if (shift.daysOfWeek && shift.daysOfWeek.length > 0 && !shift.daysOfWeek.includes(currentDay)) {
+          const dayNames: Record<number, string> = {
+            1: 'Pazartesi',
+            2: 'Salı',
+            3: 'Çarşamba',
+            4: 'Perşembe',
+            5: 'Cuma',
+            6: 'Cumartesi',
+            7: 'Pazar',
+          };
+          const allowedDaysText = shift.daysOfWeek.map((d) => dayNames[d] || String(d)).join(', ');
+          return {
+            success: false,
+            message: `Bugün atanan vardiya günleriniz arasında değildir (${shift.name} - İzin verilen günler: ${allowedDaysText}). Vardiya günleriniz haricinde mesaiye giriş yapamazsınız.`,
+          };
+        }
+
+        // 2. Saat aralığı kontrolü
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const [startH, startM] = (shift.startTime || '08:30').split(':').map(Number);
+        const [endH, endM] = (shift.endTime || '17:30').split(':').map(Number);
+        const shiftStartMinutes = startH * 60 + startM;
+        const shiftEndMinutes = endH * 60 + endM;
+        const earlyTolerance = shift.earlyCheckInMinutes !== undefined ? shift.earlyCheckInMinutes : 30;
+
+        let allowedStart = shiftStartMinutes - earlyTolerance;
+
+        if (shiftEndMinutes >= shiftStartMinutes) {
+          // Normal gündüz mesaisi (örn: 08:30 - 17:30)
+          if (allowedStart < 0) allowedStart = 0;
+          const isWithin = currentMinutes >= allowedStart && currentMinutes <= shiftEndMinutes;
+          if (!isWithin) {
+            if (currentMinutes < allowedStart) {
+              const earliestH = Math.floor(allowedStart / 60);
+              const earliestM = allowedStart % 60;
+              const earliestStr = `${String(earliestH).padStart(2, '0')}:${String(earliestM).padStart(2, '0')}`;
+              return {
+                success: false,
+                message: `Atanan vardiyanız henüz başlamadı. Vardiya saatleriniz: ${shift.name} (${shift.startTime} - ${shift.endTime}). Girişe en erken saat ${earliestStr} (${earlyTolerance} dk önceden) izin verilmektedir.`,
+              };
+            } else {
+              return {
+                success: false,
+                message: `Atanan vardiya saatleriniz sona erdi (${shift.name}: ${shift.startTime} - ${shift.endTime}). Vardiya saatleriniz haricinde mesaiye giriş yapamazsınız.`,
+              };
+            }
+          }
+        } else {
+          // Gece vardiyası (örn: 22:00 - 06:00)
+          let nightAllowedStart = allowedStart;
+          if (nightAllowedStart < 0) nightAllowedStart += 1440;
+          const isWithin = currentMinutes >= nightAllowedStart || currentMinutes <= shiftEndMinutes;
+          if (!isWithin) {
+            return {
+              success: false,
+              message: `Atanan vardiya saatleriniz dışındasınız (${shift.name}: ${shift.startTime} - ${shift.endTime}). Vardiya saatleriniz haricinde mesaiye giriş yapamazsınız.`,
+            };
+          }
+        }
       }
     }
 
@@ -5628,6 +5852,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateBranch,
         deleteBranch,
         assignStaffToBranch,
+        updateBranchBreakMinutes,
+        shifts,
+        shiftAssignments,
+        createShift,
+        updateShift,
+        deleteShift,
+        assignUserShift,
+        removeUserShift,
+        refreshShifts,
         checkInStaff,
         checkOutStaff,
         startBreak,

@@ -114,12 +114,25 @@ export default function AttendanceScreen() {
     cancelLeaveRequest,
     refreshData,
     updateWorkplaceLocation,
+    shifts,
+    shiftAssignments,
   } = useStorage();
   const { user, users, logout } = useAuth();
   const { isDark, toggleTheme } = useAppTheme();
   const router = useRouter();
 
   const isAdmin = user?.role === 'admin';
+
+  // Personelin aktif vardiyası
+  const userShiftAssignment = useMemo(() => {
+    if (!user || !shiftAssignments || shiftAssignments.length === 0) return null;
+    return shiftAssignments.find((a) => a.userId === user.id) || null;
+  }, [user, shiftAssignments]);
+
+  const userActiveShift = useMemo(() => {
+    if (!userShiftAssignment || !shifts || shifts.length === 0) return null;
+    return shifts.find((s) => s.id === userShiftAssignment.shiftId) || null;
+  }, [userShiftAssignment, shifts]);
 
   // Ana Menü stili 5 alt bölüm yönetimi (Varsayılan olarak 'menu' başlar)
   type AttendanceSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace';
@@ -627,6 +640,8 @@ export default function AttendanceScreen() {
         res.message?.toLowerCase().includes('izin')
       ) {
         promptEnableLocation('İşe Giriş');
+      } else if (res.message?.toLowerCase().includes('vardiya')) {
+        Alert.alert('⚠️ Vardiya Giriş Engeli', res.message);
       } else {
         Alert.alert('Bilgi', res.message);
       }
@@ -1672,6 +1687,45 @@ export default function AttendanceScreen() {
                   </Text>
                 </View>
               </View>
+
+              {/* VARDİYA BİLGİ BANDI */}
+              {userActiveShift && !isAdmin && (
+                <View
+                  style={{
+                    backgroundColor: isDark ? '#064e3b' : '#ecfdf5',
+                    borderRadius: 16,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: isDark ? '#059669' : '#a7f3d0',
+                    marginBottom: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <Clock size={20} color={isDark ? '#34d399' : '#059669'} />
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '700',
+                        color: isDark ? '#34d399' : '#065f46',
+                      }}
+                    >
+                      Atanmış Vardiya: {userActiveShift.name}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: isDark ? '#a7f3d0' : '#047857',
+                        marginTop: 2,
+                      }}
+                    >
+                      Mesai Saatleri: {userActiveShift.startTime} - {userActiveShift.endTime} (Erken giriş: {userActiveShift.earlyCheckInMinutes || 0} dk)
+                    </Text>
+                  </View>
+                </View>
+              )}
 
               {/* Kart 1: İŞE GELDİM */}
               <TouchableOpacity

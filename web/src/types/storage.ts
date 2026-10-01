@@ -175,8 +175,43 @@ export interface Branch {
   radiusMeters: number;       // Varsayılan: 20 metre
   phone?: string;             // Şube telefonu (opsiyonel)
   assignedUserIds: string[];  // Şubeye atanmış personellerin ID listesi
+  maxBreakMinutes?: number;   // Şube için belirlenen günlük maksimum mola süresi (dakika)
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ShiftDefinition {
+  id: string;
+  companyCode: string;
+  name: string;                 // Örn: "Sabah Vardiyası (08:30 - 17:30)"
+  startTime: string;            // 'HH:mm' e.g. "08:30"
+  endTime: string;              // 'HH:mm' e.g. "17:30"
+  earlyCheckInMinutes?: number; // Kaç dakika önceden girişe izin verilir? (Varsayılan 30 dk)
+  daysOfWeek?: number[];        // 1 = Pazartesi, ..., 7 = Pazar (Varsayılan: [1,2,3,4,5,6])
+  color?: string;               // Renk teması: 'emerald' | 'blue' | 'amber' | 'purple' | 'rose' | 'indigo'
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ShiftAssignment {
+  id: string;
+  companyCode: string;
+  userId: string;
+  userName: string;
+  shiftId: string;
+  shiftName: string;
+  startTime: string;            // Anlık başlangıç saati
+  endTime: string;              // Anlık bitiş saati
+  branchId?: string;
+  branchName?: string;
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+export interface ShiftDataPayload {
+  definitions: ShiftDefinition[];
+  assignments: ShiftAssignment[];
 }
 
 export interface WorkplaceLocation {
@@ -264,6 +299,8 @@ export interface BackupData {
   securityLogs?: SecurityLogItem[];
   timedFollowUps?: TimedFollowUp[];
   personalNotes?: PersonalNote[];
+  shifts?: ShiftDefinition[];
+  shiftAssignments?: ShiftAssignment[];
 }
 
 export interface CariData {

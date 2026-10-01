@@ -13,6 +13,9 @@ import {
   TimedFollowUp,
   AdminReminder,
   SecurityLogItem,
+  ShiftDefinition,
+  ShiftAssignment,
+  ShiftDataPayload,
 } from '../types/storage';
 import carilerData from '../data/cariler.json';
 import * as XLSX from 'xlsx';
@@ -1256,5 +1259,53 @@ export const StorageService = {
     } catch (err) {
       console.error('exportCarilerToExcel error:', err);
     }
+  },
+
+  // 14. SHIFTS & ASSIGNMENTS (Vardiya & Tanımlamalar - Slot 18)
+  async getShiftData(): Promise<ShiftDataPayload> {
+    const localKey = `@shifts_${activeCompanyCode}`;
+    const local = await getLocal<ShiftDataPayload>(localKey);
+    if (local && (local.definitions || local.assignments)) {
+      return {
+        definitions: local.definitions || [],
+        assignments: local.assignments || [],
+      };
+    }
+    try {
+      const slotId = this.getSlotId(18);
+      const slot = await loadChunkedSlot<ShiftDataPayload>(slotId);
+      if (slot.data && (slot.data.definitions || slot.data.assignments)) {
+        const data: ShiftDataPayload = {
+          definitions: slot.data.definitions || [],
+          assignments: slot.data.assignments || [],
+        };
+        await setLocal(localKey, data);
+        return data;
+      }
+    } catch (e) {
+      console.warn('getShiftData cloud error:', e);
+    }
+    return { definitions: [], assignments: [] };
+  },
+
+  async saveShiftData(data: ShiftDataPayload): Promise<void> {
+    const localKey = `@shifts_${activeCompanyCode}`;
+    await setLocal(localKey, data);
+    try {
+      const slotId = this.getSlotId(18);
+      await saveChunkedSlot(slotId, data);
+    } catch (e) {
+      console.warn('saveShiftData cloud error:', e);
+    }
+  },
+
+  async getShifts(): Promise<ShiftDefinition[]> {
+    const data = await this.getShiftData();
+    return data.definitions || [];
+  },
+
+  async getShiftAssignments(): Promise<ShiftAssignment[]> {
+    const data = await this.getShiftData();
+    return data.assignments || [];
   },
 };

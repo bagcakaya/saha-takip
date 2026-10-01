@@ -172,6 +172,7 @@ export interface Branch {
   radiusMeters: number;       // Varsayılan: 20 metre
   phone?: string;             // Şube telefonu (opsiyonel)
   assignedUserIds: string[];  // Şubeye atanmış personellerin ID listesi
+  maxBreakMinutes?: number;   // Günlük izin verilen maksimum mola süresi (dakika)
   createdAt: number;
   updatedAt: number;
 }
@@ -356,3 +357,30 @@ export interface TimedFollowUp {
   currentMilestoneKey?: string;
 }
 
+// 18. SHIFT & DEFINITIONS (Vardiya & Tanımlamalar)
+export interface ShiftDefinition {
+  id: string;
+  companyCode: string;
+  name: string;               // e.g. "Sabah Vardiyası (08:30 - 17:30)"
+  startTime: string;          // "HH:mm" e.g. "08:30"
+  endTime: string;            // "HH:mm" e.g. "17:30"
+  earlyCheckInMinutes?: number;// Erken giriş toleransı (varsayılan: 30 dk)
+  daysOfWeek?: number[];       // [1,2,3,4,5,6] (0: Pazar, 1: Pzt, ... 6: Cmt)
+  color?: string;             // Renk kodu veya etiket
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ShiftAssignment {
+  userId: string;
+  userName: string;
+  shiftId: string;
+  assignedAt: number;
+  assignedBy?: string;
+}
+
+export interface ShiftDataPayload {
+  definitions: ShiftDefinition[];
+  assignments: ShiftAssignment[];
+}

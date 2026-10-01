@@ -14,6 +14,9 @@ import {
   SecurityLogItem,
   TimedFollowUp,
   PersonalNote,
+  ShiftDefinition,
+  ShiftAssignment,
+  ShiftDataPayload,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -35,6 +38,7 @@ const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
+const SHIFT_DATA_KEY = '@saha_takip_shift_data';
 
 const companyIdCache = new Map<string, number>([
   ['POLATLAR', 1],
@@ -2244,6 +2248,64 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves shift definitions and staff shift assignments (Slot 18 + IndexedDB cache)
+   */
+  async getShiftData(): Promise<ShiftDataPayload> {
+    const localKey = this.getStorageKey(SHIFT_DATA_KEY);
+    const slotId = this.getSlotId(18);
+
+    try {
+      const { data: cloudData } = await loadChunkedSlot<ShiftDataPayload>(slotId);
+      if (cloudData && typeof cloudData === 'object') {
+        const payload: ShiftDataPayload = {
+          definitions: Array.isArray(cloudData.definitions) ? cloudData.definitions : [],
+          assignments: Array.isArray(cloudData.assignments) ? cloudData.assignments : [],
+        };
+        await saveItem(localKey, payload);
+        return payload;
+      }
+    } catch (e) {
+      console.warn('Shift data cloud read error:', e);
+    }
+
+    const cached = await loadItem<ShiftDataPayload>(localKey);
+    return cached || { definitions: [], assignments: [] };
+  },
+
+  /**
+   * Saves shift definitions and staff shift assignments to Slot 18 & cache
+   */
+  async saveShiftData(data: ShiftDataPayload): Promise<void> {
+    const localKey = this.getStorageKey(SHIFT_DATA_KEY);
+    const payload: ShiftDataPayload = {
+      definitions: Array.isArray(data.definitions) ? data.definitions : [],
+      assignments: Array.isArray(data.assignments) ? data.assignments : [],
+    };
+    await saveItem(localKey, payload);
+    await saveChunkedSlot(this.getSlotId(18), payload);
+  },
+
+  async getShifts(): Promise<ShiftDefinition[]> {
+    const data = await this.getShiftData();
+    return data.definitions;
+  },
+
+  async saveShifts(definitions: ShiftDefinition[]): Promise<void> {
+    const current = await this.getShiftData();
+    await this.saveShiftData({ ...current, definitions });
+  },
+
+  async getShiftAssignments(): Promise<ShiftAssignment[]> {
+    const data = await this.getShiftData();
+    return data.assignments;
+  },
+
+  async saveShiftAssignments(assignments: ShiftAssignment[]): Promise<void> {
+    const current = await this.getShiftData();
+    await this.saveShiftData({ ...current, assignments });
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -2258,6 +2320,7 @@ export const StorageService = {
     const securityLogs = await this.getSecurityLogs();
     const cariData = await this.getCarilerData();
     const timedFollowUps = await this.getTimedFollowUps();
+    const shiftData = await this.getShiftData();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -2272,6 +2335,8 @@ export const StorageService = {
       securityLogs,
       cariler: cariData.cariler,
       timedFollowUps,
+      shifts: shiftData.definitions,
+      shiftAssignments: shiftData.assignments,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -2320,6 +2385,12 @@ export const StorageService = {
     }
     if (backupData.timedFollowUps && Array.isArray(backupData.timedFollowUps)) {
       await this.saveTimedFollowUps(backupData.timedFollowUps);
+    }
+    if ((backupData.shifts && Array.isArray(backupData.shifts)) || (backupData.shiftAssignments && Array.isArray(backupData.shiftAssignments))) {
+      await this.saveShiftData({
+        definitions: backupData.shifts || [],
+        assignments: backupData.shiftAssignments || [],
+      });
     }
   },
 };
