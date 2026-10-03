@@ -3830,6 +3830,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         }).catch(() => {});
@@ -3875,6 +3876,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, ${nearBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(nearDist)})`,
             targetMode: 'admin',
+            excludeUserIds: [user.id],
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
           }).catch(() => {});
@@ -3936,6 +3938,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         }).catch(() => {});
@@ -3998,6 +4001,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
         message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
@@ -4036,6 +4040,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🟢 Personel İşe Giriş Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
       targetMode: 'admin',
+      excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
@@ -4326,6 +4331,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
         message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta (20m dışı) işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       }).catch(() => {});
@@ -4381,6 +4387,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🔴 Personel İşten Çıkış Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${targetName} şubesinden çıkış yaptı. (Toplam Mesai: ${durationText})`,
       targetMode: 'admin',
+      excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
@@ -4439,6 +4446,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '☕ Personel Molaya Çıktı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Not: ${note})` : ''}`,
       targetMode: 'admin',
+      excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
@@ -4516,6 +4524,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🔄 Personel Moladan Döndü',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${durationMinutes} dk)`,
       targetMode: 'admin',
+      excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch(() => {});
@@ -4847,6 +4856,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
       } İzin talebinde bulundu. Neden: ${params.reason}`,
       targetMode: 'admin',
+      excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     }).catch((pushErr) => {

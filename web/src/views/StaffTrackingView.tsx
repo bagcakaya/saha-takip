@@ -117,9 +117,23 @@ export const StaffTrackingView: React.FC = () => {
   // Most recent attendance record for current user today
   const currentUserTodayRecord = useMemo(() => {
     if (!user) return null;
-    return attendanceRecords.find(
-      (r) => r.userId === user.id && r.date === todayStr
+    const userTodayRecords = attendanceRecords
+      .filter((r) => r.userId === user.id && r.date === todayStr)
+      .sort((a, b) => (b.checkInTime || 0) - (a.checkInTime || 0));
+
+    if (userTodayRecords.length === 0) return null;
+
+    // Aktif mesai (onay bekleyen veya mesaiye başlanmış) varsa öncelikle onu baz al
+    const active = userTodayRecords.find(
+      (r) =>
+        r.status === 'pending_checkin_approval' ||
+        r.status === 'checked_in' ||
+        r.status === 'pending_checkout_approval'
     );
+    if (active) return active;
+
+    // Yoksa günün en son tamamlanan mesai kaydını döndür
+    return userTodayRecords[0];
   }, [attendanceRecords, user, todayStr]);
 
   // Target location for live distance calculation & geofence UI (Yöneticiler 20m kuralı ve şube konumundan tamamen muaftır)

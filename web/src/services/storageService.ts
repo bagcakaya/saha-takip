@@ -1505,13 +1505,9 @@ export const StorageService = {
     let missingCount = 0;
 
     const cloudMap = new Map<string, AttendanceRecord>();
-    const cloudUserDateMap = new Map<string, AttendanceRecord>();
 
     cleanCloud.forEach((r) => {
       cloudMap.set(r.id, r);
-      if (r.userId && r.date) {
-        cloudUserDateMap.set(`${r.userId}_${r.date}`, r);
-      }
     });
 
     const merged = [...cleanCloud];
@@ -1520,21 +1516,15 @@ export const StorageService = {
       if (!localRec || !localRec.id) continue;
 
       let cloudRec = cloudMap.get(localRec.id);
-      if (!cloudRec && localRec.userId && localRec.date) {
-        cloudRec = cloudUserDateMap.get(`${localRec.userId}_${localRec.date}`);
-      }
 
       if (!cloudRec) {
-        // Yerelde var ama bulutta hiç yok (Çevrimdışı işe giriş yapılmış veya buluta gitmemiş)
+        // Yerelde var ama bulutta henüz yok (Yeni giriş talebi, farklı vardiya veya çevrimdışı işe giriş)
         merged.unshift(localRec);
         cloudMap.set(localRec.id, localRec);
-        if (localRec.userId && localRec.date) {
-          cloudUserDateMap.set(`${localRec.userId}_${localRec.date}`, localRec);
-        }
         hasCloudUpdates = true;
         missingCount++;
       } else {
-        // İki tarafta da var. Yerelde daha güncel çıkış, mola veya bilgi var mı kontrol et
+        // İki tarafta da aynı ID'li kayıt var. Yerelde daha güncel çıkış, mola veya onay bilgisi var mı kontrol et
         let localHasNewerData = false;
         const updated = { ...cloudRec };
 

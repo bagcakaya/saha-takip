@@ -614,6 +614,8 @@ export const OneSignalService = {
     targetMode?: 'all' | 'custom' | 'self' | 'admin';
     targetUserIds?: string[];
     targetSubscriptionIds?: string[];
+    excludeUserIds?: string[];
+    excludeSubscriptionIds?: string[];
     companyCode?: string;
     url?: string;
     sendAfter?: string;
@@ -626,6 +628,8 @@ export const OneSignalService = {
       targetMode = 'all',
       targetUserIds = [],
       targetSubscriptionIds = [],
+      excludeUserIds = [],
+      excludeSubscriptionIds = [],
       companyCode,
       url,
       sendAfter,
@@ -967,13 +971,28 @@ export const OneSignalService = {
           adminUserIds = ['admin-root', 'mtjsnufrp8pfa'];
         }
 
+        // Exclude specified users (e.g. sender staff who initiated request)
+        const cleanExcludeUserIds = Array.isArray(excludeUserIds)
+          ? excludeUserIds.map((id) => String(id).trim()).filter(Boolean)
+          : [];
+        if (cleanExcludeUserIds.length > 0) {
+          adminUserIds = adminUserIds.filter((id) => !cleanExcludeUserIds.includes(id));
+        }
+
         // Strategy A: Direct Device Registry Push (Fetches actual active admin devices for this company)
         let registryAdminSubIds: string[] = [];
         try {
           const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
           if (Array.isArray(registeredDevices)) {
             registryAdminSubIds = registeredDevices
-              .filter((d) => d.userRole === 'admin' && d.pushSubscriptionId && d.userId && adminUserIds.includes(d.userId))
+              .filter(
+                (d) =>
+                  d.userRole === 'admin' &&
+                  d.pushSubscriptionId &&
+                  d.userId &&
+                  adminUserIds.includes(d.userId) &&
+                  !cleanExcludeUserIds.includes(d.userId)
+              )
               .map((d) => d.pushSubscriptionId!)
               .filter(Boolean);
           }
@@ -985,6 +1004,19 @@ export const OneSignalService = {
           registryAdminSubIds = registryAdminSubIds.filter((sub) => !polatlarSubs.includes(sub));
         } else {
           registryAdminSubIds = registryAdminSubIds.filter((sub) => sub !== nesaAdminSub);
+        }
+
+        // Exclude specific subscription IDs and the current sender device's player ID
+        const cleanExcludeSubIds = Array.isArray(excludeSubscriptionIds)
+          ? excludeSubscriptionIds.map((s) => String(s).trim()).filter(Boolean)
+          : [];
+        const currentDeviceSub = typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_last_sub_id') : null;
+        if (currentDeviceSub) {
+          cleanExcludeSubIds.push(currentDeviceSub);
+        }
+
+        if (cleanExcludeSubIds.length > 0) {
+          registryAdminSubIds = registryAdminSubIds.filter((sub) => !cleanExcludeSubIds.includes(sub));
         }
 
         // If direct devices found, send directly and return
@@ -1012,6 +1044,11 @@ export const OneSignalService = {
           adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
         } else {
           adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
+        }
+        if (cleanExcludeUserIds.length > 0) {
+          cleanExcludeUserIds.forEach((exId) => {
+            adminFilters.push({ field: 'tag', key: 'userId', relation: '!=', value: exId });
+          });
         }
 
         try {
