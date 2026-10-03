@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/tenant-watchdog",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

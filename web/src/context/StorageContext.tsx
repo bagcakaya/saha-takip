@@ -305,6 +305,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const unreadLogsCount = useMemo(() => securityLogs.filter((l) => !l.read).length, [securityLogs]);
 
+  // 24/7 Autonomous Tenant Watchdog Heartbeat
+  // Runs silently on mount and every 30 minutes to auto-heal tenant isolation & verify push service health
+  useEffect(() => {
+    const runWatchdog = async () => {
+      try {
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
+        await fetch(`${baseUrl}/api/tenant-watchdog`, {
+          method: 'GET',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+      } catch {
+        // Silent background self-healing
+      }
+    };
+
+    const initialTimer = setTimeout(runWatchdog, 3000);
+    const intervalTimer = setInterval(runWatchdog, 30 * 60 * 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+    };
+  }, []);
+
   // Helper to strictly get admin IDs for a specific company (Prevents cross-tenant leak!)
   const getCompanyAdminIds = (targetCompCode?: string): string[] => {
     const cleanComp = (targetCompCode || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
