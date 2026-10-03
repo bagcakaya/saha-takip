@@ -316,6 +316,7 @@ export interface RegisteredDevice {
   userId: string;
   userName: string;
   userRole: string;
+  companyCode?: string;
   platform: 'ios' | 'android' | 'desktop';
   isStandalone: boolean;
   pushSubscriptionId: string | null;

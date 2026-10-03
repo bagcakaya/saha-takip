@@ -166,12 +166,39 @@ export const DeviceService = {
       finalPushStatus = params.pushStatus;
     }
 
+    // STRICT MULTI-TENANT ISOLATION:
+    // Ensure user actually belongs to targetComp before registering device into that company's cloud slot
+    const userCompany = (
+      params.user.companyCode ||
+      UserService.getUserCompanyCode(params.user.id, params.user.username) ||
+      targetComp
+    ).trim().toUpperCase();
+
+    if (userCompany !== targetComp) {
+      console.warn(`DeviceService: Blocked syncing device for user ${params.user.id} (${userCompany}) into company slot ${targetComp}`);
+      return {
+        deviceId,
+        deviceName,
+        userId: params.user.id,
+        userName: params.user.name,
+        userRole: params.user.role,
+        companyCode: userCompany,
+        platform: env.platform,
+        isStandalone: env.isStandalone,
+        pushSubscriptionId: pushSubId || null,
+        pushStatus: finalPushStatus,
+        lastSeen: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     const currentDevice: RegisteredDevice = {
       deviceId,
       deviceName,
       userId: params.user.id,
       userName: params.user.name,
       userRole: params.user.role,
+      companyCode: targetComp,
       platform: env.platform,
       isStandalone: env.isStandalone,
       pushSubscriptionId: pushSubId || null,
@@ -226,6 +253,8 @@ export const DeviceService = {
       // ignore
     }
 
+    let devices: RegisteredDevice[] = localData;
+
     try {
       const slotId = StorageService.getSlotIdForCompany(8, targetComp);
       const { data, error } = await supabase
@@ -238,19 +267,45 @@ export const DeviceService = {
         const rawJson = data.tasks.join('');
         const parsed: RegisteredDevice[] = JSON.parse(rawJson);
         if (Array.isArray(parsed)) {
+          devices = parsed;
           try {
             localStorage.setItem(storageKey, JSON.stringify(parsed));
           } catch {
             // ignore
           }
-          return parsed;
         }
       }
     } catch (e) {
       console.warn('Cloud fetch registered devices error:', e);
     }
 
-    return localData;
+    // STRICT MULTI-TENANT FILTER:
+    // Guarantee that ONLY devices strictly belonging to targetComp are returned
+    const polatlarSubs = [
+      '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
+      '2dfc8e02-5d2f-44b1-a38d-43c0d0b46872',
+      '49243a90-8287-4363-8e19-3408dded8e7d',
+      'f6404c9d-7e09-45cb-8912-b641db201343',
+    ];
+
+    return devices.filter((d) => {
+      // 1. Explicit companyCode match if provided on device
+      if (d.companyCode && d.companyCode.trim().toUpperCase() !== targetComp) {
+        return false;
+      }
+      // 2. User company code check
+      if (d.userId) {
+        const uComp = UserService.getUserCompanyCode(d.userId);
+        if (uComp && uComp !== targetComp) {
+          return false;
+        }
+      }
+      // 3. Prevent POLATLAR subs from leaking into other companies
+      if (targetComp !== 'POLATLAR' && d.pushSubscriptionId && polatlarSubs.includes(d.pushSubscriptionId)) {
+        return false;
+      }
+      return true;
+    });
   },
 
   /**

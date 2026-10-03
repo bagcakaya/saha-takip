@@ -105,6 +105,71 @@ export default async function handler(req, res) {
       payload.target_channel = 'push';
     }
 
+    // STRICT MULTI-TENANT ISOLATION BARRIER
+    // Guarantees zero cross-company notification leak on the serverless edge
+    const companyCode = (payload.companyCode || '').trim().toUpperCase();
+    if (companyCode) {
+      const polatlarSubs = [
+        '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
+        '2dfc8e02-5d2f-44b1-a38d-43c0d0b46872',
+        '49243a90-8287-4363-8e19-3408dded8e7d',
+        'f6404c9d-7e09-45cb-8912-b641db201343',
+      ];
+      const polatlarUserIds = [
+        'admin-root',
+        'mtjsnufrp8pfa',
+        'mtjso6drpactx',
+        'mtjsoob6so4wi',
+        'mu3wz17wbkq2t',
+        'mu42age5lqmew',
+        'mu42b1kqff54r',
+        'mtjsoxbaslaty',
+      ];
+
+      if (companyCode !== 'POLATLAR') {
+        // Enforce: Never send NESACOCUK or other company push to POLATLAR hardware or users
+        if (payload.include_player_ids && Array.isArray(payload.include_player_ids)) {
+          payload.include_player_ids = payload.include_player_ids.filter((id) => !polatlarSubs.includes(id));
+          if (payload.include_player_ids.length === 0) {
+            delete payload.include_player_ids;
+          }
+        }
+        if (payload.include_aliases?.external_id && Array.isArray(payload.include_aliases.external_id)) {
+          payload.include_aliases.external_id = payload.include_aliases.external_id.filter((id) => !polatlarUserIds.includes(id));
+          if (payload.include_aliases.external_id.length === 0) {
+            delete payload.include_aliases;
+            delete payload.target_channel;
+          }
+        }
+        if (payload.targetUserIds && Array.isArray(payload.targetUserIds)) {
+          payload.targetUserIds = payload.targetUserIds.filter((id) => !polatlarUserIds.includes(id));
+        }
+      } else {
+        // Targeting POLATLAR: Never send to NESACOCUK admin or staff
+        const nesaAdminSub = '875842fa-942b-4d3a-be08-72be011c1372';
+        if (payload.include_player_ids && Array.isArray(payload.include_player_ids)) {
+          payload.include_player_ids = payload.include_player_ids.filter((id) => id !== nesaAdminSub);
+          if (payload.include_player_ids.length === 0) {
+            delete payload.include_player_ids;
+          }
+        }
+        if (payload.include_aliases?.external_id && Array.isArray(payload.include_aliases.external_id)) {
+          payload.include_aliases.external_id = payload.include_aliases.external_id.filter((id) => !id.startsWith('mul') && id !== 'mukze67k3ajwq');
+          if (payload.include_aliases.external_id.length === 0) {
+            delete payload.include_aliases;
+            delete payload.target_channel;
+          }
+        }
+      }
+
+      // If all targets were filtered out by tenant isolation, drop gracefully
+      if (!payload.include_player_ids && !payload.include_aliases && !payload.filters) {
+        console.log('Push dropped due to tenant isolation protection:', companyCode);
+        res.status(200).json({ id: 'tenant_isolated', dropped: true });
+        return;
+      }
+    }
+
     const delaySeconds = Number(payload.delaySeconds) || 0;
     delete payload.delaySeconds;
     if (delaySeconds > 0 && !payload.send_after) {

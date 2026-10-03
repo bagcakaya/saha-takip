@@ -5,6 +5,7 @@ import {
   detectTabFromNotification,
   extractTabAndFilterFromUrl,
 } from '../utils/navigationUtils';
+import { isUserAdmin } from '../types/auth';
 
 declare global {
   interface Window {
@@ -369,10 +370,11 @@ export const OneSignalService = {
               role: targetUser.role,
               company_code: compCode,
               name: targetUser.name,
+              platform: '',
+              standalone: '',
+              lastHealed: '',
             };
-            if ((targetUser as any)?.email) {
-              cleanTags.email = (targetUser as any).email;
-            }
+
 
             if (OneSignal?.User?.addTags) {
               await OneSignal.User.addTags(cleanTags).catch(() => {});
@@ -730,12 +732,30 @@ export const OneSignalService = {
       }
     }
 
+    // Known hardware player IDs belonging to POLATLAR to prevent cross-tenant contamination
+    const polatlarSubs = [
+      '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
+      '2dfc8e02-5d2f-44b1-a38d-43c0d0b46872',
+      '49243a90-8287-4363-8e19-3408dded8e7d',
+      'f6404c9d-7e09-45cb-8912-b641db201343',
+    ];
+    const nesaAdminSub = '875842fa-942b-4d3a-be08-72be011c1372';
+
     // Collect any cached hardware player IDs for target user IDs
     const cachedSubIds: string[] = [];
     if (typeof localStorage !== 'undefined') {
       cleanIds.forEach((uid) => {
-        const cached = localStorage.getItem(`@saha_takip_sub_${uid}`);
+        const cached =
+          localStorage.getItem(`@saha_takip_sub_${targetCompanyCode}_${uid}`) ||
+          localStorage.getItem(`@saha_takip_sub_${uid}`);
         if (cached && !cleanSubIds.includes(cached)) {
+          // Strictly reject POLATLAR subs if targeting another company!
+          if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(cached)) {
+            return;
+          }
+          if (targetCompanyCode === 'POLATLAR' && cached === nesaAdminSub) {
+            return;
+          }
           cachedSubIds.push(cached);
         }
       });
@@ -752,7 +772,11 @@ export const OneSignalService = {
         }
         const mySub = localStorage.getItem('@saha_takip_last_sub_id');
         if (mySub && myUid && cleanIds.includes(myUid) && !cleanSubIds.includes(mySub) && !cachedSubIds.includes(mySub)) {
-          cachedSubIds.push(mySub);
+          if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(mySub)) {
+            // Drop
+          } else {
+            cachedSubIds.push(mySub);
+          }
         }
       }
     }
@@ -764,6 +788,12 @@ export const OneSignalService = {
         if (Array.isArray(regDevices)) {
           regDevices.forEach((d) => {
             if (d.pushSubscriptionId && d.userId && cleanIds.includes(d.userId)) {
+              if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(d.pushSubscriptionId)) {
+                return;
+              }
+              if (targetCompanyCode === 'POLATLAR' && d.pushSubscriptionId === nesaAdminSub) {
+                return;
+              }
               if (!cleanSubIds.includes(d.pushSubscriptionId) && !cachedSubIds.includes(d.pushSubscriptionId)) {
                 cachedSubIds.push(d.pushSubscriptionId);
               }
@@ -775,7 +805,13 @@ export const OneSignalService = {
       }
     }
 
-    const allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
+    let allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
+    if (targetCompanyCode !== 'POLATLAR') {
+      allHardwareSubIds = allHardwareSubIds.filter((sub) => !polatlarSubs.includes(sub));
+    } else {
+      allHardwareSubIds = allHardwareSubIds.filter((sub) => sub !== nesaAdminSub);
+    }
+
 
     if (targetMode === 'custom' && cleanIds.length === 0 && allHardwareSubIds.length === 0) {
       return { success: false, error: 'Hedef kullanıcı veya cihaz belirtilmedi.' };
@@ -819,11 +855,13 @@ export const OneSignalService = {
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
       url: targetUrl,
+      companyCode: targetCompanyCode,
       data: {
         url: targetUrl,
         launchURL: targetUrl,
         tab: targetTab,
         filter: targetFilter,
+        companyCode: targetCompanyCode,
       },
       chrome_web_icon: 'https://saha-takip-beige.vercel.app/icon.png',
       chrome_web_badge: 'https://saha-takip-beige.vercel.app/icon.png',
@@ -848,16 +886,22 @@ export const OneSignalService = {
     }
 
     try {
-      // 1. Target: All subscribers of this company (Single blast by company_code with alias fallback)
+      // 1. Target: All subscribers of this company (Strict tenant isolation)
       if (targetMode === 'all') {
-        const payload = {
-          ...basePayload,
-          filters: [
-            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
-          ],
-        };
+        const companyFilters: any[] = [
+          { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
+        ];
+        if (targetCompanyCode !== 'POLATLAR') {
+          companyFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
+        } else {
+          companyFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
+        }
+
         try {
-          const res = await this._postNotification(payload);
+          const res = await this._postNotification({
+            ...basePayload,
+            filters: companyFilters,
+          });
           return { success: true, data: res };
         } catch (filterErr) {
           // If tag filter failed, fallback to alias targeting for all users of this company
@@ -890,26 +934,37 @@ export const OneSignalService = {
         }
       }
 
-      // 2. Target: All admins of this company (Direct device registry + Tag filter + Alias fallback)
+      // 2. Target: All admins of this company (Strict tenant isolation)
       if (targetMode === 'admin') {
-        let adminUserIds = cleanIds;
-        if (adminUserIds.length === 0 && typeof localStorage !== 'undefined') {
+        let adminUserIds: string[] = [];
+        if (typeof localStorage !== 'undefined') {
           try {
             const raw = localStorage.getItem('@gorev_tamamlama_users_list');
             if (raw) {
               const parsed = JSON.parse(raw);
               if (Array.isArray(parsed)) {
                 adminUserIds = parsed
-                  .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode && u.role === 'admin' && u.id)
+                  .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode && (u.role === 'admin' || isUserAdmin(u)) && u.id)
                   .map((u: any) => String(u.id));
               }
             }
           } catch {}
         }
 
+        if (adminUserIds.length === 0 && cleanIds.length > 0) {
+          adminUserIds = cleanIds;
+        }
+
         // STRICT TENANT ISOLATION: Never include POLATLAR super admins if targeting another company!
         if (targetCompanyCode !== 'POLATLAR') {
-          adminUserIds = adminUserIds.filter((id) => id !== 'admin-root' && id !== 'mtjsnufrp8pfa');
+          adminUserIds = adminUserIds.filter(
+            (id) => id !== 'admin-root' && id !== 'mtjsnufrp8pfa' && id !== 'mtjso6drpactx'
+          );
+        }
+
+        // Fallback for POLATLAR only
+        if (adminUserIds.length === 0 && targetCompanyCode === 'POLATLAR') {
+          adminUserIds = ['admin-root', 'mtjsnufrp8pfa'];
         }
 
         // Strategy A: Direct Device Registry Push (Fetches actual active admin devices for this company)
@@ -918,109 +973,131 @@ export const OneSignalService = {
           const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
           if (Array.isArray(registeredDevices)) {
             registryAdminSubIds = registeredDevices
-              .filter((d) => d.userRole === 'admin' && d.pushSubscriptionId)
+              .filter((d) => d.userRole === 'admin' && d.pushSubscriptionId && d.userId && adminUserIds.includes(d.userId))
               .map((d) => d.pushSubscriptionId!)
               .filter(Boolean);
-            if (targetCompanyCode !== 'POLATLAR') {
-              registryAdminSubIds = registryAdminSubIds.filter(
-                (sub) => !registeredDevices.some((rd) => rd.pushSubscriptionId === sub && (rd.userId === 'admin-root' || rd.userId === 'mtjsnufrp8pfa'))
-              );
-            }
           }
         } catch (e) {
           console.warn('Error reading admin devices from registry:', e);
         }
 
-        // Güvenlik & Donanım Zırhı: Kayıtlı iPhone cihazlarına bildirim kesinlikle iletilir
-        if (targetCompanyCode === 'NESACOCUK') {
-          const nesaIphoneSub = '875842fa-942b-4d3a-be08-72be011c1372';
-          if (!registryAdminSubIds.includes(nesaIphoneSub)) {
-            registryAdminSubIds.push(nesaIphoneSub);
-          }
-          if (!adminUserIds.includes('mukze67k3ajwq')) {
-            adminUserIds.push('mukze67k3ajwq');
-          }
-        } else if (targetCompanyCode === 'POLATLAR') {
-          const polatlarIphoneSub = '49243a90-8287-4363-8e19-3408dded8e7d';
-          if (!registryAdminSubIds.includes(polatlarIphoneSub)) {
-            registryAdminSubIds.push(polatlarIphoneSub);
-          }
-          if (!adminUserIds.includes('mtjsnufrp8pfa')) {
-            adminUserIds.push('mtjsnufrp8pfa');
-          }
+        if (targetCompanyCode !== 'POLATLAR') {
+          registryAdminSubIds = registryAdminSubIds.filter((sub) => !polatlarSubs.includes(sub));
+        } else {
+          registryAdminSubIds = registryAdminSubIds.filter((sub) => sub !== nesaAdminSub);
         }
 
-        let sentViaDirect = false;
+        // If direct devices found, send directly and return
         if (registryAdminSubIds.length > 0) {
           try {
             const directPayload = {
               ...basePayload,
-              include_player_ids: registryAdminSubIds,
+              include_player_ids: Array.from(new Set(registryAdminSubIds)),
             };
             const directRes = await this._postNotification(directPayload);
             if (directRes && directRes.id) {
-              sentViaDirect = true;
+              return { success: true, data: directRes };
             }
           } catch (directErr) {
-            console.warn('Direct admin player ID notification failed:', directErr);
+            console.warn('Direct admin player ID notification failed, falling back:', directErr);
           }
         }
 
-        // Strategy B: Tag filter with strict company exclusion (Multi-layer blast)
+        // Strategy B: Tag filter with strict company targeting and mutual exclusion
         const adminFilters: any[] = [
           { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
           { field: 'tag', key: 'role', relation: '=', value: 'admin' },
         ];
         if (targetCompanyCode !== 'POLATLAR') {
           adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
+        } else {
+          adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
         }
 
-        const payload = {
-          ...basePayload,
-          filters: adminFilters,
-        };
         try {
-          const res = await this._postNotification(payload);
-          return { success: true, data: res };
+          const res = await this._postNotification({
+            ...basePayload,
+            filters: adminFilters,
+          });
+          if (res && res.id) {
+            return { success: true, data: res };
+          }
         } catch (filterErr) {
-          if (sentViaDirect) {
-            return { success: true };
-          }
-          if (adminUserIds.length > 0) {
-            try {
-              const aliasPayload = {
-                ...basePayload,
-                include_aliases: { external_id: adminUserIds },
-                target_channel: 'push',
-              };
-              const aliasRes = await this._postNotification(aliasPayload);
-              return { success: true, data: aliasRes };
-            } catch {}
-          }
-          throw filterErr;
+          console.warn('Admin tag filter push failed, trying alias fallback:', filterErr);
         }
+
+        // Strategy C: OneSignal external_id alias fallback (for target company admins only)
+        if (adminUserIds.length > 0) {
+          try {
+            const aliasPayload = {
+              ...basePayload,
+              include_aliases: { external_id: adminUserIds },
+              target_channel: 'push',
+            };
+            const aliasRes = await this._postNotification(aliasPayload);
+            return { success: true, data: aliasRes };
+          } catch (aliasErr) {
+            console.warn('Admin alias fallback push failed:', aliasErr);
+          }
+        }
+
+        return { success: false, error: 'Yönetici bildirimi iletilemedi.' };
       }
 
       // 3. Target: Explicit Hardware Player IDs (e.g. specific device test or locked screen test)
-      // When targetSubscriptionIds is explicitly supplied, try direct delivery to device first
       if (cleanSubIds.length > 0) {
-        try {
-          const subPayload = {
-            ...basePayload,
-            include_player_ids: cleanSubIds,
-          };
-          const subRes = await this._postNotification(subPayload);
-          if (subRes && subRes.id) {
-            return { success: true, data: subRes };
+        let validSubs = cleanSubIds;
+        if (targetCompanyCode !== 'POLATLAR') {
+          validSubs = validSubs.filter((sub) => !polatlarSubs.includes(sub));
+        } else {
+          validSubs = validSubs.filter((sub) => sub !== nesaAdminSub);
+        }
+        if (validSubs.length > 0) {
+          try {
+            const subPayload = {
+              ...basePayload,
+              include_player_ids: validSubs,
+            };
+            const subRes = await this._postNotification(subPayload);
+            if (subRes && subRes.id) {
+              return { success: true, data: subRes };
+            }
+          } catch (subErr) {
+            console.warn('Direct subscription push failed, falling back to alias/tags:', subErr);
           }
-        } catch (subErr) {
-          console.warn('Direct subscription push failed, falling back to alias/tags:', subErr);
         }
       }
 
       // 4. Target: Specific Users (Single-channel with waterfall fallback)
       if (cleanIds.length > 0) {
-        // Direct Hardware Delivery (Fastest & most reliable when player IDs are known)
+        // STRICT TENANT ISOLATION:
+        // Filter cleanIds to ensure every user belongs to targetCompanyCode!
+        let validTenantUserIds = cleanIds;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                validTenantUserIds = cleanIds.filter((uid) => {
+                  const match = parsed.find((u: any) => u.id === uid);
+                  if (match) {
+                    const uComp = (match.companyCode || 'POLATLAR').toUpperCase();
+                    return uComp === targetCompanyCode;
+                  }
+                  return true;
+                });
+              }
+            }
+          } catch {}
+        }
+
+        if (validTenantUserIds.length === 0) {
+          console.warn(`Tenant isolation: All target users were filtered out because they belong to other companies.`);
+          return { success: true, data: { tenantFiltered: true } };
+        }
+
+        // Direct Hardware Delivery for valid users only
         if (allHardwareSubIds.length > 0) {
           try {
             const subPayload = {
@@ -1036,38 +1113,37 @@ export const OneSignalService = {
           }
         }
 
-        // Step 4A: OneSignal external_id alias (Primary official method)
+        // Step 4A: OneSignal external_id alias (for validated tenant user IDs only)
         try {
           const aliasPayload = {
             ...basePayload,
-            include_aliases: { external_id: cleanIds },
+            include_aliases: { external_id: validTenantUserIds },
             target_channel: 'push',
           };
           const aliasRes = await this._postNotification(aliasPayload);
           if (aliasRes && aliasRes.id) {
-            // Successfully sent via alias! Return immediately to prevent duplicates.
             return { success: true, data: aliasRes };
           }
         } catch (aliasErr) {
           console.warn('OneSignal alias push failed, falling back to tag:', aliasErr);
         }
 
-        // Step 4B: Tag fallback (ONLY if alias request failed)
+        // Step 4B: Tag fallback (with company_code requirement!)
         try {
-          let tagPayload: Record<string, any>;
-          if (cleanIds.length === 1) {
-            tagPayload = {
-              ...basePayload,
-              filters: [{ field: 'tag', key: 'userId', relation: '=', value: cleanIds[0] }],
-            };
+          const filterArr: any[] = [
+            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
+          ];
+          if (validTenantUserIds.length === 1) {
+            filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: validTenantUserIds[0] });
           } else {
-            const filterArr: any[] = [];
-            cleanIds.forEach((id, idx) => {
-              if (idx > 0) filterArr.push({ operator: 'OR' });
-              filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: id });
+            const userFilters: any[] = [];
+            validTenantUserIds.forEach((id, idx) => {
+              if (idx > 0) userFilters.push({ operator: 'OR' });
+              userFilters.push({ field: 'tag', key: 'userId', relation: '=', value: id });
             });
-            tagPayload = { ...basePayload, filters: filterArr };
+            filterArr.push(userFilters);
           }
+          const tagPayload = { ...basePayload, filters: filterArr };
           const tagRes = await this._postNotification(tagPayload);
           if (tagRes && tagRes.id) {
             return { success: true, data: tagRes };
@@ -1094,6 +1170,7 @@ export const OneSignalService = {
       console.warn('OneSignal push gönderim hatası:', err);
       return { success: false, error: err?.message || 'Bildirim iletilemedi.' };
     }
+
   },
 
   /**
