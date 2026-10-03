@@ -3566,7 +3566,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
-    const hasBranches = branches && branches.length > 0;
+    let activeBranches = branches || [];
+    if (activeBranches.length === 0) {
+      try {
+        const freshBranches = await StorageService.getBranches();
+        if (freshBranches && freshBranches.length > 0) {
+          activeBranches = freshBranches;
+          setBranches(freshBranches);
+        }
+      } catch {}
+    }
+
+    const hasBranches = activeBranches && activeBranches.length > 0;
     const hasWorkplace = !!(workplaceLocation && workplaceLocation.latitude && workplaceLocation.longitude);
 
     if (!hasBranches && !hasWorkplace && user.role !== 'admin') {
@@ -3587,9 +3598,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
       if (user.role !== 'admin') {
+        const isLocDisabled = !!err?.isLocationDisabled || err?.code === 1;
         return {
           success: false,
-          isLocationDisabled: true,
+          isLocationDisabled: isLocDisabled,
           message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
         };
       }
@@ -4169,11 +4181,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: err.message,
         };
       }
+      const isLocDisabled = !!err?.isLocationDisabled || err?.code === 1;
       return {
         success: false,
-        isLocationDisabled: true,
+        isLocationDisabled: isLocDisabled,
         message: err?.message || 'İşten çıkış yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
       };
+    }
+
+    let activeBranches = branches || [];
+    if (activeBranches.length === 0) {
+      try {
+        const freshBranches = await StorageService.getBranches();
+        if (freshBranches && freshBranches.length > 0) {
+          activeBranches = freshBranches;
+          setBranches(freshBranches);
+        }
+      } catch {}
     }
 
     // Determine target location to measure checkout against:
@@ -4182,16 +4206,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let targetRadius = (workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10) ? workplaceLocation.radiusMeters : 20;
     let targetName = 'İş yeri';
 
-    if (record.branchId && branches.length > 0) {
-      const b = branches.find((item) => item.id === record.branchId);
+    if (record.branchId && activeBranches.length > 0) {
+      const b = activeBranches.find((item) => item.id === record.branchId);
       if (b) {
         targetLat = b.latitude;
         targetLon = b.longitude;
         targetRadius = b.radiusMeters || 20;
         targetName = b.name;
       }
-    } else if (branches.length > 0) {
-      const assignedBranch = branches.find(
+    }
+    
+    // Şube ID ile bulunamadıysa şube adı ile ara
+    if (!targetLat && record.branchName && activeBranches.length > 0) {
+      const b = activeBranches.find((item) => item.name.trim().toLowerCase() === record.branchName?.trim().toLowerCase());
+      if (b) {
+        targetLat = b.latitude;
+        targetLon = b.longitude;
+        targetRadius = b.radiusMeters || 20;
+        targetName = b.name;
+      }
+    }
+
+    if (!targetLat && activeBranches.length > 0) {
+      const assignedBranch = activeBranches.find(
         (b) => (b.assignedUserIds && b.assignedUserIds.includes(user.id)) || (user.branchId && b.id === user.branchId)
       );
       if (assignedBranch) {
@@ -4202,10 +4239,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
+    // KUSURSUZ GÜVENCE: Eğer şube bilgisi hala yoksa ama personelin sabah giriş yaptığı koordinatlar mevcutsa,
+    // personelin sabah mesaiye başladığı şube / konum koordinatlarını referans al (asla 'Şube konumu belirlenemedi' hatası verme!)
+    if ((!targetLat || !targetLon) && record.checkInLat && record.checkInLon) {
+      targetLat = record.checkInLat;
+      targetLon = record.checkInLon;
+      targetRadius = 20;
+      targetName = record.branchName || 'Mesai Şubesi';
+    }
+
     if (!targetLat || !targetLon) {
       return {
         success: false,
-        message: 'İş yeri veya şube konumu belirlenemedi.',
+        message: 'İş yeri veya şube konumu belirlenemedi. Lütfen yöneticiniz ile iletişime geçin.',
       };
     }
 

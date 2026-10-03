@@ -111,9 +111,65 @@ export const StaffTrackingView: React.FC = () => {
     return shifts.find((s) => s.id === userShiftAssignment.shiftId) || null;
   }, [userShiftAssignment, shifts]);
 
+  // Today's Date String
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Most recent attendance record for current user today
+  const currentUserTodayRecord = useMemo(() => {
+    if (!user) return null;
+    return attendanceRecords.find(
+      (r) => r.userId === user.id && r.date === todayStr
+    );
+  }, [attendanceRecords, user, todayStr]);
+
   // Target location for live distance calculation & geofence UI (Yöneticiler 20m kuralı ve şube konumundan tamamen muaftır)
   const targetLocation = useMemo(() => {
     if (isAdmin) return null;
+
+    // 1. Personel bugün zaten bir şubede mesaiye başlamışsa çıkış ve canlı mesafe o şubeyi referans alır
+    if (currentUserTodayRecord) {
+      if (currentUserTodayRecord.branchId && branches && branches.length > 0) {
+        const checkedInBranch = branches.find((b) => b.id === currentUserTodayRecord.branchId);
+        if (checkedInBranch) {
+          return {
+            name: checkedInBranch.name,
+            address: checkedInBranch.address,
+            latitude: checkedInBranch.latitude,
+            longitude: checkedInBranch.longitude,
+            radius: checkedInBranch.radiusMeters || 20,
+            isBranch: true,
+          };
+        }
+      }
+      if (currentUserTodayRecord.branchName && branches && branches.length > 0) {
+        const checkedInBranch = branches.find(
+          (b) => b.name.trim().toLowerCase() === currentUserTodayRecord.branchName?.trim().toLowerCase()
+        );
+        if (checkedInBranch) {
+          return {
+            name: checkedInBranch.name,
+            address: checkedInBranch.address,
+            latitude: checkedInBranch.latitude,
+            longitude: checkedInBranch.longitude,
+            radius: checkedInBranch.radiusMeters || 20,
+            isBranch: true,
+          };
+        }
+      }
+      // Fail-safe: Şube henüz belleğe yüklenmemiş olsa bile personelin sabah giriş yaptığı koordinatlar
+      if (currentUserTodayRecord.checkInLat && currentUserTodayRecord.checkInLon) {
+        return {
+          name: currentUserTodayRecord.branchName || 'Mesai Şubesi',
+          address: currentUserTodayRecord.checkInAddress || '',
+          latitude: currentUserTodayRecord.checkInLat,
+          longitude: currentUserTodayRecord.checkInLon,
+          radius: 20,
+          isBranch: true,
+        };
+      }
+    }
+
+    // 2. Personelin atanmış olduğu şube
     if (userAssignedBranch) {
       return {
         name: userAssignedBranch.name,
@@ -124,6 +180,8 @@ export const StaffTrackingView: React.FC = () => {
         isBranch: true,
       };
     }
+
+    // 3. Şirket merkez iş yeri konumu
     if (workplaceLocation?.latitude && workplaceLocation?.longitude) {
       return {
         name: 'Merkez İş Yeri',
@@ -137,6 +195,8 @@ export const StaffTrackingView: React.FC = () => {
         isBranch: false,
       };
     }
+
+    // 4. İlk aktif şube
     if (branches && branches.length > 0) {
       return {
         name: branches[0].name,
@@ -148,7 +208,7 @@ export const StaffTrackingView: React.FC = () => {
       };
     }
     return null;
-  }, [userAssignedBranch, workplaceLocation, branches, isAdmin]);
+  }, [isAdmin, currentUserTodayRecord, userAssignedBranch, workplaceLocation, branches]);
 
   const allowedRadius = targetLocation?.radius || 20;
 
@@ -359,7 +419,9 @@ export const StaffTrackingView: React.FC = () => {
   }, [targetLocation]);
 
   // --- 3. Check-in / Check-out Actions & Approval Flow ---
-  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [actionLoadingType, setActionLoadingType] = useState<'checkin' | 'checkout' | 'break' | null>(null);
+  const isProcessingAction = Boolean(actionLoadingType);
+  const setIsProcessingAction = (val: boolean) => setActionLoadingType(val ? 'checkin' : null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error';
@@ -409,7 +471,7 @@ export const StaffTrackingView: React.FC = () => {
   const handleCheckIn = async (allowOutside = false, customNote?: string) => {
     if (isAdmin) {
       try {
-        setIsProcessingAction(true);
+        setActionLoadingType('checkin');
         setActionFeedback(null);
         const res = await checkInStaff({ allowOutside: true, note: customNote });
         if (res.success) {
@@ -420,13 +482,13 @@ export const StaffTrackingView: React.FC = () => {
       } catch (err: any) {
         setActionFeedback({ type: 'error', text: err?.message || 'İşe giriş yapılırken bir hata oluştu.' });
       } finally {
-        setIsProcessingAction(false);
+        setActionLoadingType(null);
       }
       return;
     }
 
     try {
-      setIsProcessingAction(true);
+      setActionLoadingType('checkin');
       setActionFeedback(null);
       const res = await checkInStaff({ allowOutside, note: customNote });
 
@@ -469,14 +531,14 @@ export const StaffTrackingView: React.FC = () => {
         setActionFeedback({ type: 'error', text: e?.message || 'İşlem gerçekleştirilemedi.' });
       }
     } finally {
-      setIsProcessingAction(false);
+      setActionLoadingType(null);
     }
   };
 
   const handleCheckOut = async (allowOutside = false, customNote?: string) => {
     if (isAdmin) {
       try {
-        setIsProcessingAction(true);
+        setActionLoadingType('checkout');
         setActionFeedback(null);
         const res = await checkOutStaff({ allowOutside: true, note: customNote });
         if (res.success) {
@@ -488,13 +550,13 @@ export const StaffTrackingView: React.FC = () => {
       } catch (err: any) {
         setActionFeedback({ type: 'error', text: err?.message || 'İşten çıkış yapılırken bir hata oluştu.' });
       } finally {
-        setIsProcessingAction(false);
+        setActionLoadingType(null);
       }
       return;
     }
 
     try {
-      setIsProcessingAction(true);
+      setActionLoadingType('checkout');
       setActionFeedback(null);
       const res = await checkOutStaff({ allowOutside, note: customNote });
 
@@ -537,7 +599,7 @@ export const StaffTrackingView: React.FC = () => {
         setActionFeedback({ type: 'error', text: e?.message || 'İşlem gerçekleştirilemedi.' });
       }
     } finally {
-      setIsProcessingAction(false);
+      setActionLoadingType(null);
     }
   };
 
@@ -615,16 +677,6 @@ export const StaffTrackingView: React.FC = () => {
   };
 
   // --- 4. Today's Status for Current User & Pending Approvals ---
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
-
-  // Most recent attendance record for current user today
-  const currentUserTodayRecord = useMemo(() => {
-    if (!user) return null;
-    return attendanceRecords.find(
-      (r) => r.userId === user.id && r.date === todayStr
-    );
-  }, [attendanceRecords, user, todayStr]);
-
   const isCheckedIn = currentUserTodayRecord?.status === 'checked_in';
   const isCompletedToday = currentUserTodayRecord?.status === 'completed';
   const isPendingCheckIn = currentUserTodayRecord?.status === 'pending_checkin_approval';
@@ -3022,7 +3074,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center font-black">
-                  {isProcessingAction ? (
+                  {actionLoadingType === 'checkin' ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <UserCheck className="w-5 h-5" />
@@ -3073,7 +3125,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center font-black">
-                  {isProcessingAction ? (
+                  {actionLoadingType === 'checkout' ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <UserX className="w-5 h-5" />

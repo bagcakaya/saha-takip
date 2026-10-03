@@ -1969,15 +1969,14 @@ export const StorageService = {
     const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
     const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      // Sadece istenen kuruma ait şubeleri al (veya POLATLAR için companyCode'suz şubeler)
+      // Slot zaten ilgili kuruma ait olduğu için şubeleri güvenle al
       const filtered = cleanCode === 'POLATLAR'
         ? cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === 'POLATLAR')
-        : cloudData.filter((b) => b.companyCode && b.companyCode.toUpperCase() === cleanCode);
+        : cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === cleanCode);
 
-      if (filtered.length > 0 || cloudData.length === 0) {
-        await saveItem(localKey, filtered);
-        return filtered;
-      }
+      const toReturn = filtered.length > 0 ? filtered : cloudData;
+      await saveItem(localKey, toReturn);
+      return toReturn;
     }
     if (cleanCode !== 'POLATLAR' && notFound) {
       await saveItem(localKey, []);
@@ -1993,8 +1992,9 @@ export const StorageService = {
     const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
     const localKey = cleanCode === 'POLATLAR' ? BRANCHES_KEY : `${BRANCHES_KEY}_${cleanCode}`;
     const slotId = this.getSlotIdForCompany(14, cleanCode, companyId);
-    await saveItem(localKey, branches);
-    await saveChunkedSlot(slotId, branches);
+    const enriched = branches.map((b) => ({ ...b, companyCode: b.companyCode || cleanCode }));
+    await saveItem(localKey, enriched);
+    await saveChunkedSlot(slotId, enriched);
   },
 
   /**

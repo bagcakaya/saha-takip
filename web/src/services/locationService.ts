@@ -56,8 +56,16 @@ function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promis
           resolve(pos);
         },
         (err) => {
-          cleanup();
-          reject(err);
+          // İzin reddedildiyse hemen sonlandır
+          if (err.code === 1) {
+            cleanup();
+            reject(err);
+            return;
+          }
+          // Android Chrome ve iOS Safari cihazlarda GPS donanımı uyanırken
+          // ilk 1-2 saniye geçici POSITION_UNAVAILABLE (code 2) veya TIMEOUT (code 3) hatası atabilir.
+          // Bu durumda hemen reject ETME! Uyduların kilitlenmesini bekle (timeoutMs süresince dinlemeye devam et).
+          console.warn('watchPosition geçici uyarı (uydu aranıyor):', err?.message || err);
         },
         options
       );
@@ -71,11 +79,11 @@ function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promis
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
-   * Çok Katmanlı (Multi-Tier) Anında Algılama Mimarisi:
-   * 1. Hızlı Önbellek / Düşük Gecikmeli Konum (Varsa anında ~50ms'de döner)
-   * 2. Yüksek Hassasiyetli GPS Alıcısı (watchPosition ile donanım uydu kilidi)
-   * 3. İç Mekan / Depo Hücresel & Wi-Fi Ağ Konumu Kademeli Yedeklemesi (Asla asılı kalmaz)
-   * 4. Son oturum içi doğrulanmış konum tamponu (Acil durum kurtarma)
+   * Çok Katmanlı (Multi-Tier) Eşzamanlı Anında Algılama Mimarisi:
+   * 1. Hızlı Önbellek / Hücresel / Wi-Fi Konumu ile Yüksek Hassasiyetli GPS Eşzamanlı (Parallel) Başlatılır.
+   * 2. GPS anında yanıt verirse (<1.5s) donanım uydu hassasiyeti seçilir.
+   * 3. Depo, bodrum, kapalı alanda GPS gecikirse (<2.5s) ağ/hücresel konum anında devreye sokulur.
+   * 4. Son doğrulanmış konum tamponu ve net hata yönetimi (Konum açıkken asla "kapalı" demez).
    */
   async getCurrentPosition(options?: PositionOptions): Promise<GeolocationResult> {
     if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -87,64 +95,78 @@ export const LocationService = {
     let position: GeolocationPosition | null = null;
     let lastError: any = null;
 
-    // AŞAMA 1: Hızlı Önbellek Kontrolü (~50ms - 2000ms)
-    // Cihazın işletim sistemi veya tarayıcısı tarafından son 2 dakika içinde alınmış geçerli bir konum varsa anında döner
-    let fastCandidate: GeolocationPosition | null = null;
+    // Paralel Başlatma:
+    // A. Hızlı Ağ / Önbellek Konumu (Wi-Fi, Hücresel, OS Önbelleği)
+    const fastPromise = queryPosition({
+      enableHighAccuracy: false,
+      timeout: 3000,
+      maximumAge: 180000,
+    }).catch((err) => {
+      if (err?.code === 1) throw err;
+      return null;
+    });
+
+    // B. Yüksek Hassasiyetli GPS Alıcısı (Uydu Kilidi)
+    const gpsPromise = watchFirstPosition(
+      {
+        enableHighAccuracy: true,
+        timeout: 6000,
+        maximumAge: 30000,
+        ...options,
+      },
+      6000
+    ).catch((err) => {
+      if (err?.code === 1) throw err;
+      lastError = err;
+      return null;
+    });
+
     try {
-      fastCandidate = await queryPosition({
-        enableHighAccuracy: false,
-        timeout: 2000,
-        maximumAge: 120000,
-      });
-    } catch (fastErr: any) {
-      if (fastErr?.code === 1) {
-        const permErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
-        permErr.code = 1;
-        permErr.isLocationDisabled = true;
-        throw permErr;
-      }
-    }
+      // Önce hızlı gelen adayı kontrol et
+      const fastResult = await Promise.race([
+        fastPromise,
+        new Promise<null>((res) => setTimeout(() => res(null), 1200)),
+      ]);
 
-    // Eğer hızlı adayın doğruluğu çok iyiyse (<= 30 metre), doğrudan kabul et (anında işlem)
-    if (fastCandidate && fastCandidate.coords.accuracy !== null && fastCandidate.coords.accuracy <= 30) {
-      position = fastCandidate;
-    }
+      if (fastResult && fastResult.coords.accuracy !== null && fastResult.coords.accuracy <= 35) {
+        // Hızlı konum çok net (<= 35m), hemen kabul et!
+        position = fastResult;
+      } else {
+        // GPS uydusunu bekle veya hızlı adayı tamponla
+        const gpsResult = await Promise.race([
+          gpsPromise,
+          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
+        ]);
 
-    // AŞAMA 2: Yüksek Hassasiyetli GPS (Uydu Donanım Kilidi)
-    if (!position) {
-      try {
-        position = await watchFirstPosition(
-          {
-            enableHighAccuracy: true,
-            timeout: 8000,
-            maximumAge: 30000,
-            ...options,
-          },
-          8000
-        );
-      } catch (watchErr: any) {
-        lastError = watchErr;
-        if (watchErr?.code === 1) {
-          const permErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
-          permErr.code = 1;
-          permErr.isLocationDisabled = true;
-          throw permErr;
+        if (gpsResult) {
+          position = gpsResult;
+        } else {
+          // GPS 2.5 saniyede kilitlenemediyse (depo/iç mekan), hızlı adayı kontrol et
+          const fullFast = await fastPromise;
+          if (fullFast) {
+            position = fullFast;
+          } else {
+            // Son çare GPS'in kalan 3.5 saniyesini bekle
+            position = await gpsPromise;
+          }
         }
       }
+    } catch (permErr: any) {
+      if (permErr?.code === 1) {
+        const customErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
+        customErr.code = 1;
+        customErr.isLocationDisabled = true;
+        throw customErr;
+      }
+      lastError = permErr;
     }
 
-    // AŞAMA 3: Depo, bodrum, kapalı alanda uydu sinyali gecikirse:
-    // AŞAMA 1'de yakalanan hızlı adayı (fastCandidate) devreye sok
-    if (!position && fastCandidate) {
-      position = fastCandidate;
-    }
-
-    // AŞAMA 4: Hücresel / Wi-Fi Ağ Konumu Kademeli Yedek Alımı (İç mekan garantisi)
+    // AŞAMA 4: Depo, bodrum, kapalı alanda son çare hücresel / wifi ağ sorgusu
     if (!position) {
       try {
         position = await queryPosition({
           enableHighAccuracy: false,
-          timeout: 6000,
+          timeout: 4000,
           maximumAge: 300000,
         });
       } catch (netErr: any) {
@@ -171,17 +193,17 @@ export const LocationService = {
       }
     }
 
-    // Eğer tüm aşamalar başarısız olduysa net hata mesajı üret
+    // Eğer tüm aşamalar başarısız olduysa net ve doğru hata mesajı üret
     if (!position) {
-      let msg = 'Konum bilgisi alınamadı. Lütfen konum servisinizin açık olduğundan emin olun.';
+      let msg = 'Konum bilgisi alınamadı. Lütfen açık alana geçerek tekrar deneyin.';
       let isLocDisabled = false;
       if (lastError?.code === 1) {
         msg = 'Konum izni verilmedi. İşe giriş ve çıkış yapabilmek için lütfen tarayıcı ve cihaz ayarlarından konum iznini açın.';
         isLocDisabled = true;
       } else if (lastError?.code === 2) {
-        msg = 'Cihazınızın GPS sinyali alınamıyor. Lütfen açık alana geçerek tekrar deneyin.';
+        msg = 'Cihazınızın GPS sinyali alınamıyor veya bina içindesiniz. Lütfen açık alana veya pencere kenarına geçerek tekrar deneyin.';
       } else if (lastError?.code === 3 || lastError?.message === 'TIMEOUT' || lastError?.message === 'WATCH_TIMEOUT') {
-        msg = 'GPS sinyali zayıf veya iç mekandasınız. Lütfen açık alana veya pencere kenarına geçerek tekrar deneyin.';
+        msg = 'GPS uydu bağlantısı zaman aşımına uğradı. Lütfen cihazınızı açık alanda tutarak tekrar deneyin.';
       }
       const customError: any = new Error(msg);
       customError.code = lastError?.code;
