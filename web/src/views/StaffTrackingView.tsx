@@ -296,8 +296,11 @@ export const StaffTrackingView: React.FC = () => {
     } catch (err: any) {
       const msg = err?.message || 'Cihazınızın konum servisleri (GPS) kapalı veya ulaşılamıyor.';
       setDistanceError(msg);
-      setIsLocationDisabled(true);
-      setLocationErrorMessage(msg);
+      // Sadece gerçek izin engellemesi (PERMISSION_DENIED) varsa konum kapalı olarak işaretle
+      setIsLocationDisabled(!!err?.isLocationDisabled);
+      if (err?.isLocationDisabled) {
+        setLocationErrorMessage(msg);
+      }
       setCurrentDistance(null);
     } finally {
       setIsCheckingDistance(false);
@@ -312,12 +315,8 @@ export const StaffTrackingView: React.FC = () => {
     try {
       setIsCheckingDistance(true);
       setDistanceError('');
-      // Force fresh high-accuracy position from browser GPS
-      const pos = await LocationService.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      });
+      // Çok katmanlı hızlı algılama servisi ile anında konum tespiti
+      const pos = await LocationService.getCurrentPosition();
       const dist = LocationService.calculateDistance(
         pos.latitude,
         pos.longitude,
@@ -426,13 +425,6 @@ export const StaffTrackingView: React.FC = () => {
       return;
     }
 
-    // If location is disabled, block check-in and display informative modal
-    if (isLocationDisabled) {
-      setLocationModalIntent('checkin');
-      setIsLocationModalOpen(true);
-      return;
-    }
-
     try {
       setIsProcessingAction(true);
       setActionFeedback(null);
@@ -468,9 +460,9 @@ export const StaffTrackingView: React.FC = () => {
         if (res.distance !== undefined) setCurrentDistance(res.distance);
       }
     } catch (e: any) {
-      if (e?.isLocationDisabled || e?.message?.toLowerCase().includes('konum')) {
+      if (e?.isLocationDisabled) {
         setIsLocationDisabled(true);
-        setLocationErrorMessage(e?.message || 'Konum servisleri kapalı.');
+        setLocationErrorMessage(e?.message || 'Konum izni verilmedi.');
         setLocationModalIntent('checkin');
         setIsLocationModalOpen(true);
       } else {
@@ -498,13 +490,6 @@ export const StaffTrackingView: React.FC = () => {
       } finally {
         setIsProcessingAction(false);
       }
-      return;
-    }
-
-    // If location is disabled, block check-out and display informative modal
-    if (isLocationDisabled) {
-      setLocationModalIntent('checkout');
-      setIsLocationModalOpen(true);
       return;
     }
 
@@ -543,9 +528,10 @@ export const StaffTrackingView: React.FC = () => {
         if (res.distance !== undefined) setCurrentDistance(res.distance);
       }
     } catch (e: any) {
-      if (e?.isLocationDisabled || e?.message?.toLowerCase().includes('konum')) {
+      if (e?.isLocationDisabled) {
         setIsLocationDisabled(true);
-        setLocationErrorMessage(e?.message || 'Konum servisleri kapalı.');
+        setLocationErrorMessage(e?.message || 'Konum izni verilmedi.');
+        setLocationModalIntent('checkout');
         setIsLocationModalOpen(true);
       } else {
         setActionFeedback({ type: 'error', text: e?.message || 'İşlem gerçekleştirilemedi.' });

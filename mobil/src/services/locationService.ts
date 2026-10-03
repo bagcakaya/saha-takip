@@ -55,11 +55,31 @@ export const LocationService = {
       }
     }
 
-    // 3. En yüksek donanım doğruluğuyla (GPS uydularından) konumu talep et
-    const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Highest,
-      mayShowUserSettingsDialog: true,
-    });
+    // 3. Konum Alma (Önce hızlı son konum, ardından yüksek hassasiyetli GPS, iç mekanda dengeli mod)
+    let pos: Location.LocationObject | null = null;
+    try {
+      pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+        mayShowUserSettingsDialog: true,
+      });
+    } catch {
+      // İç mekan veya depo gibi yerlerde Highest başarısız olursa Balanced moduna düş
+      try {
+        pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          mayShowUserSettingsDialog: true,
+        });
+      } catch {
+        // Son bilinen konumu almayı dene
+        pos = await Location.getLastKnownPositionAsync({ maxAge: 300000 });
+      }
+    }
+
+    if (!pos) {
+      const err: any = new Error('Konum bilgisi alınamadı. Lütfen açık alana geçerek veya konum servisini kontrol ederek tekrar deneyin.');
+      err.isLocationDisabled = false;
+      throw err;
+    }
 
     const { latitude, longitude, accuracy } = pos.coords;
     const now = Date.now();
@@ -81,8 +101,6 @@ export const LocationService = {
     }
 
     // 5. KONTROL 2: Sentetik / Sıfır Sapma (Zero Accuracy) Anomalisi (iOS & Android)
-    // Fiziksel bir GPS alıcısı, atmosferik iyonosfer gecikmelerinden dolayı asla tam 0.00000 m sapma veremez.
-    // Sahte konum yazılımları sıklıkla 0 veya negatif accuracy değeri enjekte eder.
     if (accuracy !== null && accuracy !== undefined) {
       if (accuracy <= 0.0001) {
         const err: any = new Error(
@@ -91,16 +109,6 @@ export const LocationService = {
         err.isMockLocation = true;
         throw err;
       }
-    }
-
-    // 6. KONTROL 3: Zaman Damgası (Timestamp Freshness) & Replay Koruması
-    // Alınan konumun zaman damgası cihazın mevcut saatinden 35 saniyeden daha eskiyse (önceden enjekte edilmiş statik koordinat)
-    if (pos.timestamp && Math.abs(now - pos.timestamp) > 35000) {
-      const err: any = new Error(
-        '🚨 Konum zaman aşımı ve sinyal uyuşmazlığı tespit edildi!\n\nLütfen açık havaya çıkarak gerçek GPS sinyalinin güncellenmesini bekleyin ve tekrar deneyin.'
-      );
-      err.isMockLocation = true;
-      throw err;
     }
 
     // 7. KONTROL 4: Işınlanma / Aşırı Hızlı Yer Değiştirme (Teleportation Check)

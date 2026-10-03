@@ -18,10 +18,64 @@ const geocodeCache = new Map<string, string>();
 // Son doğrulanmış konum (Işınlanma / ani sıçrama tespiti)
 let lastVerifiedPositionWeb: { latitude: number; longitude: number; timestamp: number } | null = null;
 
+// Query single getCurrentPosition with custom options as a Promise
+function queryPosition(options: PositionOptions): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+// Watch position and resolve immediately upon first fix to wake up mobile GPS sensor
+function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    let watchId: number | null = null;
+    let timer: any = null;
+
+    const cleanup = () => {
+      if (watchId !== null) {
+        try {
+          navigator.geolocation.clearWatch(watchId);
+        } catch {}
+        watchId = null;
+      }
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('WATCH_TIMEOUT'));
+    }, timeoutMs);
+
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          cleanup();
+          resolve(pos);
+        },
+        (err) => {
+          cleanup();
+          reject(err);
+        },
+        options
+      );
+    } catch (e) {
+      cleanup();
+      reject(e);
+    }
+  });
+}
+
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
-   * Sahte konum (Mock Location / GPS spoofing) eklenti veya emülatörleri engellenir.
+   * Çok Katmanlı (Multi-Tier) Anında Algılama Mimarisi:
+   * 1. Hızlı Önbellek / Düşük Gecikmeli Konum (Varsa anında ~50ms'de döner)
+   * 2. Yüksek Hassasiyetli GPS Alıcısı (watchPosition ile donanım uydu kilidi)
+   * 3. İç Mekan / Depo Hücresel & Wi-Fi Ağ Konumu Kademeli Yedeklemesi (Asla asılı kalmaz)
+   * 4. Son oturum içi doğrulanmış konum tamponu (Acil durum kurtarma)
    */
   async getCurrentPosition(options?: PositionOptions): Promise<GeolocationResult> {
     if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -30,94 +84,172 @@ export const LocationService = {
       throw err;
     }
 
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude, accuracy } = position.coords;
-          const now = Date.now();
+    let position: GeolocationPosition | null = null;
+    let lastError: any = null;
 
-          // 1. Sentetik / Sıfır Accuracy Kontrolü (DevTools Geolocation Spoofing tespiti)
-          if (accuracy !== null && accuracy !== undefined && accuracy <= 0.0001) {
-            const err: any = new Error(
-              '🚨 SAHTE KONUM TESPİT EDİLDİ (Sentetik GPS / Tarayıcı Emülatör Sinyali)!\n\nTarayıcı veya üçüncü parti eklenti tarafından üretilen yapay konum saptandı. Yalnızca cihazın orijinal GPS konumu kabul edilmektedir.'
-            );
-            err.isMockLocation = true;
-            reject(err);
-            return;
-          }
+    // AŞAMA 1: Hızlı Önbellek Kontrolü (~50ms - 2000ms)
+    // Cihazın işletim sistemi veya tarayıcısı tarafından son 2 dakika içinde alınmış geçerli bir konum varsa anında döner
+    let fastCandidate: GeolocationPosition | null = null;
+    try {
+      fastCandidate = await queryPosition({
+        enableHighAccuracy: false,
+        timeout: 2000,
+        maximumAge: 120000,
+      });
+    } catch (fastErr: any) {
+      if (fastErr?.code === 1) {
+        const permErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
+        permErr.code = 1;
+        permErr.isLocationDisabled = true;
+        throw permErr;
+      }
+    }
 
-          // 2. Zaman damgası tutarlılığı
-          if (position.timestamp && Math.abs(now - position.timestamp) > 40000) {
-            const err: any = new Error('🚨 Konum sinyali zaman aşımı tespit edildi. Lütfen GPS sinyalinizin güncel olduğundan emin olun.');
-            err.isMockLocation = true;
-            reject(err);
-            return;
-          }
+    // Eğer hızlı adayın doğruluğu çok iyiyse (<= 30 metre), doğrudan kabul et (anında işlem)
+    if (fastCandidate && fastCandidate.coords.accuracy !== null && fastCandidate.coords.accuracy <= 30) {
+      position = fastCandidate;
+    }
 
-          // 3. Işınlanma / Teleportation kontrolü
-          if (lastVerifiedPositionWeb) {
-            const timeDiffSec = (now - lastVerifiedPositionWeb.timestamp) / 1000;
-            if (timeDiffSec > 0 && timeDiffSec < 60) {
-              const dist = LocationService.calculateDistance(
-                lastVerifiedPositionWeb.latitude,
-                lastVerifiedPositionWeb.longitude,
-                latitude,
-                longitude
-              );
-              const speedKmh = (dist / timeDiffSec) * 3.6;
-              if (dist > 500 && speedKmh > 250) {
-                const err: any = new Error(
-                  '🚨 Şüpheli ani konum değişikliği tespit edildi (Işınlanma engellendi)! Lütfen sahte konum yazılımlarını kapatın.'
-                );
-                err.isMockLocation = true;
-                reject(err);
-                return;
-              }
-            }
-          }
-
-          lastVerifiedPositionWeb = { latitude, longitude, timestamp: now };
-
-          let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-          try {
-            // Fast reverse geocoding with strict 700ms timeout to ensure instant UI response
-            const geocodePromise = LocationService.reverseGeocode(latitude, longitude);
-            const timeoutPromise = new Promise<string>((res) => setTimeout(() => res(''), 700));
-            const fastAddr = await Promise.race([geocodePromise, timeoutPromise]);
-            if (fastAddr) address = fastAddr;
-          } catch (e) {
-            console.warn('Reverse geocoding skipped/timeout:', e);
-          }
-
-          resolve({
-            latitude,
-            longitude,
-            accuracy,
-            address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
-          });
-        },
-        (error) => {
-          let msg = 'Konum servisleri kapalı veya konum bilgisi alınamadı.';
-          if (error.code === error.PERMISSION_DENIED) {
-            msg = 'Konum izni verilmedi veya kapalı. İşe giriş ve çıkış yapabilmek için lütfen tarayıcı ve cihaz ayarlarından konum servislerini açın.';
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            msg = 'Cihazınızın konum servisleri (GPS) kapalı. İşe giriş ve çıkış yapabilmek için lütfen cihazınızın konum servisini açın.';
-          } else if (error.code === error.TIMEOUT) {
-            msg = 'Konum bilgisi alınamadı (Zaman aşımı). Lütfen konum servislerinizin açık ve GPS sinyalinin aktif olduğundan emin olun.';
-          }
-          const customError: any = new Error(msg);
-          customError.code = error.code;
-          customError.isLocationDisabled = true;
-          reject(customError);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 6000,
-          maximumAge: 30000, // Reuse fresh location (<30s) for instant response
-          ...options,
+    // AŞAMA 2: Yüksek Hassasiyetli GPS (Uydu Donanım Kilidi)
+    if (!position) {
+      try {
+        position = await watchFirstPosition(
+          {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 30000,
+            ...options,
+          },
+          8000
+        );
+      } catch (watchErr: any) {
+        lastError = watchErr;
+        if (watchErr?.code === 1) {
+          const permErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
+          permErr.code = 1;
+          permErr.isLocationDisabled = true;
+          throw permErr;
         }
+      }
+    }
+
+    // AŞAMA 3: Depo, bodrum, kapalı alanda uydu sinyali gecikirse:
+    // AŞAMA 1'de yakalanan hızlı adayı (fastCandidate) devreye sok
+    if (!position && fastCandidate) {
+      position = fastCandidate;
+    }
+
+    // AŞAMA 4: Hücresel / Wi-Fi Ağ Konumu Kademeli Yedek Alımı (İç mekan garantisi)
+    if (!position) {
+      try {
+        position = await queryPosition({
+          enableHighAccuracy: false,
+          timeout: 6000,
+          maximumAge: 300000,
+        });
+      } catch (netErr: any) {
+        lastError = netErr;
+        if (netErr?.code === 1) {
+          const permErr: any = new Error('Konum izni verilmedi. İşe giriş/çıkış için lütfen tarayıcınızdan konum iznini açın.');
+          permErr.code = 1;
+          permErr.isLocationDisabled = true;
+          throw permErr;
+        }
+      }
+    }
+
+    // AŞAMA 5: Son Çare - Mevcut oturumda son 5 dakika içinde doğrulanmış konum varsa onu kullan
+    if (!position && lastVerifiedPositionWeb) {
+      const now = Date.now();
+      if (now - lastVerifiedPositionWeb.timestamp < 300000) {
+        return {
+          latitude: lastVerifiedPositionWeb.latitude,
+          longitude: lastVerifiedPositionWeb.longitude,
+          accuracy: 50,
+          address: `${lastVerifiedPositionWeb.latitude.toFixed(6)}, ${lastVerifiedPositionWeb.longitude.toFixed(6)}`,
+        };
+      }
+    }
+
+    // Eğer tüm aşamalar başarısız olduysa net hata mesajı üret
+    if (!position) {
+      let msg = 'Konum bilgisi alınamadı. Lütfen konum servisinizin açık olduğundan emin olun.';
+      let isLocDisabled = false;
+      if (lastError?.code === 1) {
+        msg = 'Konum izni verilmedi. İşe giriş ve çıkış yapabilmek için lütfen tarayıcı ve cihaz ayarlarından konum iznini açın.';
+        isLocDisabled = true;
+      } else if (lastError?.code === 2) {
+        msg = 'Cihazınızın GPS sinyali alınamıyor. Lütfen açık alana geçerek tekrar deneyin.';
+      } else if (lastError?.code === 3 || lastError?.message === 'TIMEOUT' || lastError?.message === 'WATCH_TIMEOUT') {
+        msg = 'GPS sinyali zayıf veya iç mekandasınız. Lütfen açık alana veya pencere kenarına geçerek tekrar deneyin.';
+      }
+      const customError: any = new Error(msg);
+      customError.code = lastError?.code;
+      customError.isLocationDisabled = isLocDisabled;
+      throw customError;
+    }
+
+    // Konum Doğrulama & Sahte Konum Güvenlik Kontrolleri:
+    const { latitude, longitude, accuracy } = position.coords;
+    const now = Date.now();
+
+    // 1. Sentetik / Sıfır Accuracy Kontrolü (DevTools Geolocation Spoofing tespiti)
+    if (accuracy !== null && accuracy !== undefined && accuracy <= 0.0001) {
+      const err: any = new Error(
+        '🚨 SAHTE KONUM TESPİT EDİLDİ (Sentetik GPS / Tarayıcı Emülatör Sinyali)!\n\nTarayıcı veya üçüncü parti eklenti tarafından üretilen yapay konum saptandı. Yalnızca cihazın orijinal GPS konumu kabul edilmektedir.'
       );
-    });
+      err.isMockLocation = true;
+      throw err;
+    }
+
+    // 2. İşletim sistemi sahte konum bayrağı
+    if ((position as any).mocked === true || (position.coords as any)?.mocked === true) {
+      const err: any = new Error(
+        '🚨 SAHTE KONUM TESPİT EDİLDİ!\n\nCihazınızda sahte konum yazılımı tespit edildi. Lütfen sahte konum yazılımlarını kapatın.'
+      );
+      err.isMockLocation = true;
+      throw err;
+    }
+
+    // 3. Işınlanma / Teleportation kontrolü (Yalnızca mantıksız sıçramalar: >2km ve >300 km/s)
+    if (lastVerifiedPositionWeb) {
+      const timeDiffSec = (now - lastVerifiedPositionWeb.timestamp) / 1000;
+      if (timeDiffSec > 0 && timeDiffSec < 60) {
+        const dist = LocationService.calculateDistance(
+          lastVerifiedPositionWeb.latitude,
+          lastVerifiedPositionWeb.longitude,
+          latitude,
+          longitude
+        );
+        const speedKmh = (dist / timeDiffSec) * 3.6;
+        if (dist > 2000 && speedKmh > 300) {
+          const err: any = new Error(
+            '🚨 Şüpheli ani konum değişikliği tespit edildi (Işınlanma engellendi)! Lütfen sahte konum yazılımlarını kapatın.'
+          );
+          err.isMockLocation = true;
+          throw err;
+        }
+      }
+    }
+
+    lastVerifiedPositionWeb = { latitude, longitude, timestamp: now };
+
+    let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    try {
+      const geocodePromise = LocationService.reverseGeocode(latitude, longitude);
+      const timeoutPromise = new Promise<string>((res) => setTimeout(() => res(''), 700));
+      const fastAddr = await Promise.race([geocodePromise, timeoutPromise]);
+      if (fastAddr) address = fastAddr;
+    } catch (e) {
+      console.warn('Reverse geocoding skipped/timeout:', e);
+    }
+
+    return {
+      latitude,
+      longitude,
+      accuracy,
+      address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+    };
   },
 
   /**
