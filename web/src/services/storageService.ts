@@ -1588,28 +1588,60 @@ export const StorageService = {
           updated.approvalNote = localRec.approvalNote;
         }
 
-        // 4. Onay / Ret durumu (Yerelde onaylanmış veya güncellenmişse bulutun eski verisi ezmesin)
-        if (
-          (localRec.checkInApprovalStatus && localRec.checkInApprovalStatus !== 'pending' && cloudRec.checkInApprovalStatus === 'pending') ||
-          (localRec.checkInApprovedBy && !cloudRec.checkInApprovedBy) ||
-          (localRec.checkInApprovedAt && !cloudRec.checkInApprovedAt)
-        ) {
-          updated.checkInApprovalStatus = localRec.checkInApprovalStatus;
-          updated.checkInApprovedBy = localRec.checkInApprovedBy;
-          updated.checkInApprovedAt = localRec.checkInApprovedAt;
-          updated.status = localRec.status || updated.status;
+        // 4. Onay / Ret durumu ve Bekleyen Talep Senkronizasyonu
+        // 4a. Giriş Onayı (Bekleyen veya Yönetici Tarafından Onaylanmış/Reddedilmiş)
+        if (localRec.checkInApprovalStatus && localRec.checkInApprovalStatus !== cloudRec.checkInApprovalStatus) {
+          // Eğer yerelde bekleyen onay talebi varsa veya yönetici onay vermişse buluta aktar
+          if (localRec.checkInApprovalStatus === 'pending') {
+            if (cloudRec.checkInApprovalStatus !== 'approved') {
+              updated.checkInApprovalStatus = 'pending';
+              updated.checkInOutside = true;
+              if (localRec.checkInDistance !== undefined) updated.checkInDistance = localRec.checkInDistance;
+              if (localRec.checkInAddress) updated.checkInAddress = localRec.checkInAddress;
+              if (localRec.checkInTime) updated.checkInTime = localRec.checkInTime;
+              if (localRec.approvalNote) updated.approvalNote = localRec.approvalNote;
+              updated.status = 'pending_checkin_approval';
+              localHasNewerData = true;
+            }
+          } else {
+            updated.checkInApprovalStatus = localRec.checkInApprovalStatus;
+            updated.checkInApprovedBy = localRec.checkInApprovedBy || updated.checkInApprovedBy;
+            updated.checkInApprovedAt = localRec.checkInApprovedAt || updated.checkInApprovedAt;
+            updated.status = localRec.status || (localRec.checkInApprovalStatus === 'approved' ? 'checked_in' : updated.status);
+            localHasNewerData = true;
+          }
+        } else if (localRec.status === 'pending_checkin_approval' && cloudRec.status !== 'pending_checkin_approval' && cloudRec.checkInApprovalStatus !== 'approved') {
+          updated.status = 'pending_checkin_approval';
+          updated.checkInApprovalStatus = 'pending';
+          updated.checkInOutside = true;
           localHasNewerData = true;
         }
 
-        if (
-          (localRec.checkOutApprovalStatus && localRec.checkOutApprovalStatus !== 'pending' && cloudRec.checkOutApprovalStatus === 'pending') ||
-          (localRec.checkOutApprovedBy && !cloudRec.checkOutApprovedBy) ||
-          (localRec.checkOutApprovedAt && !cloudRec.checkOutApprovedAt)
-        ) {
-          updated.checkOutApprovalStatus = localRec.checkOutApprovalStatus;
-          updated.checkOutApprovedBy = localRec.checkOutApprovedBy;
-          updated.checkOutApprovedAt = localRec.checkOutApprovedAt;
-          updated.status = localRec.status || updated.status;
+        // 4b. Çıkış Onayı (Bekleyen veya Yönetici Tarafından Onaylanmış/Reddedilmiş)
+        if (localRec.checkOutApprovalStatus && localRec.checkOutApprovalStatus !== cloudRec.checkOutApprovalStatus) {
+          if (localRec.checkOutApprovalStatus === 'pending') {
+            if (cloudRec.checkOutApprovalStatus !== 'approved') {
+              updated.checkOutApprovalStatus = 'pending';
+              updated.checkOutOutside = true;
+              if (localRec.checkOutDistance !== undefined) updated.checkOutDistance = localRec.checkOutDistance;
+              if (localRec.checkOutAddress) updated.checkOutAddress = localRec.checkOutAddress;
+              if (localRec.checkOutTime) updated.checkOutTime = localRec.checkOutTime;
+              if (localRec.approvalNote) updated.approvalNote = localRec.approvalNote;
+              updated.status = 'pending_checkout_approval';
+              localHasNewerData = true;
+            }
+          } else {
+            updated.checkOutApprovalStatus = localRec.checkOutApprovalStatus;
+            updated.checkOutApprovedBy = localRec.checkOutApprovedBy || updated.checkOutApprovedBy;
+            updated.checkOutApprovedAt = localRec.checkOutApprovedAt || updated.checkOutApprovedAt;
+            updated.status = localRec.status || (localRec.checkOutApprovalStatus === 'approved' ? 'completed' : 'checked_in');
+            localHasNewerData = true;
+          }
+        } else if (localRec.status === 'pending_checkout_approval' && cloudRec.status !== 'pending_checkout_approval' && cloudRec.checkOutApprovalStatus !== 'approved') {
+          updated.status = 'pending_checkout_approval';
+          updated.checkOutApprovalStatus = 'pending';
+          updated.checkOutOutside = true;
+          if (localRec.checkOutTime) updated.checkOutTime = localRec.checkOutTime;
           localHasNewerData = true;
         }
 

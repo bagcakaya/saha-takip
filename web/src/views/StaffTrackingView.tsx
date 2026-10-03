@@ -55,7 +55,7 @@ import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 import { StaffSelect } from '../components/common/StaffSelect';
 
 export const StaffTrackingView: React.FC = () => {
-  const { user, users, company } = useAuth();
+  const { user, users, company, viewingCompany } = useAuth();
   const {
     workplaceLocation,
     branches,
@@ -631,10 +631,10 @@ export const StaffTrackingView: React.FC = () => {
   const isPendingCheckOut = currentUserTodayRecord?.status === 'pending_checkout_approval';
   const isOnBreak = !!currentUserTodayRecord?.isOnBreak;
 
-  // Current active company code (e.g. 'POLATLAR', 'BURAKDEV')
+  // Current active company code (e.g. 'POLATLAR', 'NESACOCUK')
   const currentCompanyCode = useMemo(() => {
-    return (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
-  }, [company?.code, user?.companyCode]);
+    return (viewingCompany?.code || company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+  }, [viewingCompany?.code, company?.code, user?.companyCode]);
 
   // Users strictly belonging to the current company only
   const companyUsers = useMemo(() => {
@@ -655,13 +655,19 @@ export const StaffTrackingView: React.FC = () => {
       const isPending =
         r.status === 'pending_checkin_approval' ||
         r.status === 'pending_checkout_approval' ||
-        (r.checkInOutside && r.checkInApprovalStatus === 'pending') ||
-        (r.checkOutOutside && r.checkOutApprovalStatus === 'pending');
+        (Boolean(r.checkInOutside) && r.checkInApprovalStatus === 'pending') ||
+        (Boolean(r.checkOutOutside) && r.checkOutApprovalStatus === 'pending');
       if (!isPending) return false;
-      if (companyUserIds.size > 0 && !companyUserIds.has(r.userId)) return false;
+
+      const recCompany = (r.companyCode || '').trim().toUpperCase();
+      if (recCompany) {
+        if (recCompany !== currentCompanyCode) return false;
+      } else if (companyUserIds.size > 0 && !companyUserIds.has(r.userId)) {
+        return false;
+      }
       return true;
     });
-  }, [attendanceRecords, companyUserIds]);
+  }, [attendanceRecords, companyUserIds, currentCompanyCode]);
 
   // --- 5. Date Range, Branch & Staff Filters for Table & Analytics ---
   const [startDate, setStartDate] = useState<string>(todayStr);
@@ -2154,8 +2160,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         </div>
       )}
 
-      {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ --- */}
-      {activeSection === 'checkin_checkout' && isAdmin && pendingRequests.length > 0 && (
+      {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ (Hem Ana Menüde Hem İşe Giriş/Çıkış Modülünde Görünür) --- */}
+      {(activeSection === 'menu' || activeSection === 'checkin_checkout') && isAdmin && pendingRequests.length > 0 && (
         <div className="bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-orange-500/15 dark:from-amber-950/50 dark:via-slate-900 dark:to-orange-950/50 rounded-3xl p-5 sm:p-6 border-2 border-amber-400 dark:border-amber-600 shadow-xl shadow-amber-500/10 space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-amber-200 dark:border-amber-800/80 pb-3">
             <div className="flex items-center gap-3">

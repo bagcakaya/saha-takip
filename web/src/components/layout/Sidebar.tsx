@@ -107,7 +107,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const pendingStaffApprovalCount = React.useMemo(() => {
     if (!isAdmin) return 0;
     const pendingAttendance = attendanceRecords.filter(
-      (r) => r.status === 'pending_checkin_approval' || r.status === 'pending_checkout_approval'
+      (r) =>
+        r.status === 'pending_checkin_approval' ||
+        r.status === 'pending_checkout_approval' ||
+        (Boolean(r.checkInOutside) && r.checkInApprovalStatus === 'pending') ||
+        (Boolean(r.checkOutOutside) && r.checkOutApprovalStatus === 'pending')
     ).length;
     const pendingLeaves = leaveRequests.filter((l) => l.status === 'pending').length;
     return pendingAttendance + pendingLeaves;

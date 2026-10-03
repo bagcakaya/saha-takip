@@ -826,19 +826,32 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     };
 
+    const refreshCloudAttendance = async () => {
+      try {
+        if (!isMounted) return;
+        const latest = await StorageService.getAttendanceRecords();
+        if (isMounted && latest) {
+          setAttendanceRecords(latest);
+        }
+      } catch {}
+    };
+
     const handleOnline = () => {
       console.log('[Çevrimdışı Eşitleme] İnternet bağlantısı sağlandı, mesai kayıtları eşitleniyor...');
       triggerOfflineSync();
+      refreshCloudAttendance();
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         triggerOfflineSync();
+        refreshCloudAttendance();
       }
     };
 
     const handleWindowFocus = () => {
       triggerOfflineSync();
+      refreshCloudAttendance();
     };
 
     if (typeof window !== 'undefined') {
@@ -847,10 +860,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
-    // Her 30 saniyede bir hafif kontrol (Heartbeat sync)
+    // Her 20 saniyede bir hafif kontrol ve bulut eşitleme (Heartbeat sync)
     const syncInterval = setInterval(() => {
       triggerOfflineSync();
-    }, 30000);
+      refreshCloudAttendance();
+    }, 20000);
 
     return () => {
       isMounted = false;
@@ -3741,7 +3755,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             isOtherBranch: true,
             approvalNote: options.note,
             notes: `Farklı Şube Talebi: Asıl şubesi (${assignedBranch.name}) yerine ${otherBranch.name} şubesinde mesaiye başladı.${options.note ? ' Not: ' + options.note : ''}`,
-            status: 'checked_in',
+            status: 'pending_checkin_approval',
           };
 
           const updated = [newRecord, ...attendanceRecords];
@@ -3793,7 +3807,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           branchId: assignedBranch.id,
           branchName: assignedBranch.name,
           approvalNote: options.note,
-          status: 'checked_in',
+          status: 'pending_checkin_approval',
         };
 
         const updated = [newRecord, ...attendanceRecords];
@@ -3899,7 +3913,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           branchId: closestBranch.id,
           branchName: closestBranch.name,
           approvalNote: options.note,
-          status: 'checked_in',
+          status: 'pending_checkin_approval',
         };
 
         const updated = [newRecord, ...attendanceRecords];
@@ -3961,7 +3975,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkInOutside: true,
         checkInApprovalStatus: 'pending',
         approvalNote: options.note,
-        status: 'checked_in',
+        status: 'pending_checkin_approval',
       };
 
       const updated = [newRecord, ...attendanceRecords];
