@@ -59,8 +59,8 @@ export default async function handler(req, res) {
 
     const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
     payload.url = targetUrl;
-    payload.web_url = targetUrl;
-    payload.app_url = targetUrl;
+    delete payload.web_url;
+    delete payload.app_url;
 
     let targetTab = 'notes';
     let targetFilter = '';
@@ -94,6 +94,10 @@ export default async function handler(req, res) {
     if (!payload.contents || !payload.contents.en) {
       const cText = payload.message || payload.contents?.tr || 'Yeni bildirim';
       payload.contents = { en: cText, tr: cText };
+    }
+
+    if (payload.targetSubscriptionIds && Array.isArray(payload.targetSubscriptionIds) && payload.targetSubscriptionIds.length > 0 && !payload.include_player_ids) {
+      payload.include_player_ids = payload.targetSubscriptionIds;
     }
 
     if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids && !payload.filters) {

@@ -59,8 +59,8 @@ export default async function handler(req, res) {
 
     const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
     payload.url = targetUrl;
-    payload.web_url = targetUrl;
-    payload.app_url = targetUrl;
+    delete payload.web_url;
+    delete payload.app_url;
 
     let targetTab = 'notes';
     let targetFilter = '';
@@ -96,6 +96,10 @@ export default async function handler(req, res) {
       payload.contents = { en: cText, tr: cText };
     }
 
+    if (payload.targetSubscriptionIds && Array.isArray(payload.targetSubscriptionIds) && payload.targetSubscriptionIds.length > 0 && !payload.include_player_ids) {
+      payload.include_player_ids = payload.targetSubscriptionIds;
+    }
+
     if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids && !payload.filters) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';
@@ -108,9 +112,16 @@ export default async function handler(req, res) {
       payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
     }
 
-    // High priority and sound for iOS APNs & Android FCM
+    // High priority and sound for iOS APNs & Android FCM (wake up locked/killed devices)
     payload.priority = 10;
     payload.ios_sound = 'default';
+    payload.android_sound = 'default';
+    payload.android_visibility = 1; // 1 = Public (show full content on lock screen)
+    payload.content_available = true; // Wakes iOS app in background
+    if (payload.ios_badgeType === undefined) {
+      payload.ios_badgeType = 'Increase';
+      payload.ios_badgeCount = 1;
+    }
 
     // APNs deduplication via collapse_id & web_push_topic
     if (payload.collapse_id) {

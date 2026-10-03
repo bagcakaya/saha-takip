@@ -756,6 +756,25 @@ export const OneSignalService = {
         }
       }
     }
+
+    // Also include any registered devices for these users from DeviceService
+    if (cleanIds.length > 0) {
+      try {
+        const regDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
+        if (Array.isArray(regDevices)) {
+          regDevices.forEach((d) => {
+            if (d.pushSubscriptionId && d.userId && cleanIds.includes(d.userId)) {
+              if (!cleanSubIds.includes(d.pushSubscriptionId) && !cachedSubIds.includes(d.pushSubscriptionId)) {
+                cachedSubIds.push(d.pushSubscriptionId);
+              }
+            }
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
 
     if (targetMode === 'custom' && cleanIds.length === 0 && allHardwareSubIds.length === 0) {
@@ -800,8 +819,6 @@ export const OneSignalService = {
       headings: { en: title, tr: title },
       contents: { en: message, tr: message },
       url: targetUrl,
-      web_url: targetUrl,
-      app_url: targetUrl,
       data: {
         url: targetUrl,
         launchURL: targetUrl,
@@ -1003,6 +1020,22 @@ export const OneSignalService = {
 
       // 4. Target: Specific Users (Single-channel with waterfall fallback)
       if (cleanIds.length > 0) {
+        // Direct Hardware Delivery (Fastest & most reliable when player IDs are known)
+        if (allHardwareSubIds.length > 0) {
+          try {
+            const subPayload = {
+              ...basePayload,
+              include_player_ids: allHardwareSubIds,
+            };
+            const subRes = await this._postNotification(subPayload);
+            if (subRes && subRes.id) {
+              return { success: true, data: subRes };
+            }
+          } catch (subErr) {
+            console.warn('Direct hardware push failed, falling back to alias/tag:', subErr);
+          }
+        }
+
         // Step 4A: OneSignal external_id alias (Primary official method)
         try {
           const aliasPayload = {
@@ -1043,22 +1076,6 @@ export const OneSignalService = {
           console.warn('OneSignal tag push failed, falling back to cached hardware ID:', tagErr);
         }
 
-        // Step 4C: Cached Hardware Subscription fallback (ONLY if alias AND tag failed)
-        if (allHardwareSubIds.length > 0) {
-          try {
-            const subPayload = {
-              ...basePayload,
-              include_player_ids: allHardwareSubIds,
-            };
-            const subRes = await this._postNotification(subPayload);
-            if (subRes && subRes.id) {
-              return { success: true, data: subRes };
-            }
-          } catch (subErr) {
-            console.warn('OneSignal hardware fallback failed:', subErr);
-          }
-        }
-
         return { success: false, error: 'Kullanıcıya bildirim iletilemedi.' };
       }
 
@@ -1083,15 +1100,34 @@ export const OneSignalService = {
    * Internal helper to post to OneSignal REST API (with serverless proxy fallback)
    */
   async _postNotification(payload: Record<string, any>): Promise<any> {
+    const cleanPayload = { ...payload };
+    if (cleanPayload.url) {
+      delete cleanPayload.web_url;
+      delete cleanPayload.app_url;
+    }
+    if (cleanPayload.include_aliases && cleanPayload.include_aliases.external_id && cleanPayload.include_aliases.external_id.length === 0) {
+      delete cleanPayload.include_aliases;
+      delete cleanPayload.target_channel;
+    }
+    if (cleanPayload.include_player_ids && cleanPayload.include_player_ids.length === 0) {
+      delete cleanPayload.include_player_ids;
+    }
+    if (cleanPayload.filters && cleanPayload.filters.length === 0) {
+      delete cleanPayload.filters;
+    }
+
     // 1. Try serverless API proxy first (bypasses browser CORS & prevents unmount cancellation)
     try {
       const proxyRes = await fetch('/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(cleanPayload),
       });
       if (proxyRes.ok) {
         const data = await proxyRes.json();
+        if (data?.id) {
+          return data;
+        }
         if (data && data.errors && (Array.isArray(data.errors) ? data.errors.length > 0 : Object.keys(data.errors).length > 0)) {
           const errMsg = Array.isArray(data.errors)
             ? data.errors.join(', ')
@@ -1101,10 +1137,10 @@ export const OneSignalService = {
           console.error('OneSignal API error from proxy:', data.errors);
           throw new Error(errMsg);
         }
-        if (data?.id) {
-          return data;
-        }
         throw new Error(data?.error || 'OneSignal bildirim ID üretmedi.');
+      } else {
+        const errText = await proxyRes.text().catch(() => '');
+        console.warn(`Proxy /api/send-notification returned ${proxyRes.status}:`, errText);
       }
     } catch (proxyErr) {
       console.warn('Proxy /api/send-notification unavailable or failed, falling back to direct REST:', proxyErr);
@@ -1118,9 +1154,12 @@ export const OneSignalService = {
           'Content-Type': 'application/json; charset=utf-8',
           Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(cleanPayload),
       });
       const result = await response.json();
+      if (result?.id) {
+        return result;
+      }
       if (result && result.errors && (Array.isArray(result.errors) ? result.errors.length > 0 : Object.keys(result.errors).length > 0)) {
         const errMsg = Array.isArray(result.errors)
           ? result.errors.join(', ')
@@ -1129,9 +1168,6 @@ export const OneSignalService = {
           : String(result.errors);
         console.error('OneSignal API returned error:', result.errors);
         throw new Error(errMsg);
-      }
-      if (result?.id) {
-        return result;
       }
       throw new Error(result?.error || 'OneSignal REST API bildirim ID üretmedi.');
     } catch (e) {

@@ -401,6 +401,11 @@ app.post('/api/send-notification', async (req, res) => {
 
     if (!payload.app_id) payload.app_id = appId;
 
+    if (payload.url) {
+      delete payload.web_url;
+      delete payload.app_url;
+    }
+
     if (!payload.headings || !payload.headings.en) {
       const hText = payload.title || payload.headings?.tr || 'Bildirim';
       payload.headings = { en: hText, tr: hText };
