@@ -36,6 +36,7 @@ import {
   Sliders,
   Plus,
   Edit2,
+  Building2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -85,6 +86,7 @@ export const StaffTrackingView: React.FC = () => {
     assignUserShift,
     removeUserShift,
     updateBranchBreakMinutes,
+    updateWorkplaceBreakMinutes,
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
@@ -135,6 +137,18 @@ export const StaffTrackingView: React.FC = () => {
     // Yoksa günün en son tamamlanan mesai kaydını döndür
     return userTodayRecords[0];
   }, [attendanceRecords, user, todayStr]);
+
+  // Staff's daily break quota (from assigned branch, check-in branch, or workplaceLocation)
+  const currentUserMaxBreakMinutes = useMemo(() => {
+    if (userAssignedBranch && userAssignedBranch.maxBreakMinutes) {
+      return userAssignedBranch.maxBreakMinutes;
+    }
+    if (currentUserTodayRecord?.branchId && branches && branches.length > 0) {
+      const b = branches.find((item) => item.id === currentUserTodayRecord.branchId);
+      if (b && b.maxBreakMinutes) return b.maxBreakMinutes;
+    }
+    return workplaceLocation?.maxBreakMinutes || 60;
+  }, [userAssignedBranch, currentUserTodayRecord, branches, workplaceLocation]);
 
   // Target location for live distance calculation & geofence UI (Yöneticiler 20m kuralı ve şube konumundan tamamen muaftır)
   const targetLocation = useMemo(() => {
@@ -2018,6 +2032,24 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
   };
 
+  const handleSaveWorkplaceBreak = async () => {
+    const minutes = branchBreakDrafts['__workplace__'] !== undefined
+      ? branchBreakDrafts['__workplace__']
+      : (workplaceLocation?.maxBreakMinutes || 60);
+    try {
+      setSavingBranchBreakId('__workplace__');
+      await updateWorkplaceBreakMinutes(Number(minutes) || 60);
+      setActionFeedback({
+        type: 'success',
+        text: `Merkez İş Yeri için günlük mola süresi ${minutes} dk olarak kaydedildi!`,
+      });
+    } catch {
+      setActionFeedback({ type: 'error', text: 'Merkez mola süresi kaydedilemedi.' });
+    } finally {
+      setSavingBranchBreakId(null);
+    }
+  };
+
   const handleAssignStaffShift = async (staffId: string, staffName: string, targetShiftId: string) => {
     try {
       setAssigningUserId(staffId);
@@ -3307,8 +3339,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     </div>
                     <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
                       {isOnBreak ? (
-                        <span className="font-semibold text-amber-700 dark:text-amber-300">
-                          Geçen Mola Süresi: <span className="font-black text-base tracking-wide text-amber-600 dark:text-amber-400">{liveBreakTimerText || 'Hesaplanıyor...'}</span>
+                        <span className="font-semibold text-amber-700 dark:text-amber-300 flex flex-wrap items-center gap-2">
+                          <span>
+                            Geçen Mola: <strong className="font-black text-base tracking-wide text-amber-600 dark:text-amber-400">{liveBreakTimerText || 'Hesaplanıyor...'}</strong>
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            (Günlük Hak: {currentUserMaxBreakMinutes} dk)
+                          </span>
                         </span>
                       ) : isAdmin ? (
                         <span>
@@ -3321,7 +3358,22 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                         </span>
                       ) : (
                         <span className="text-slate-500 dark:text-slate-400">
-                          Molaya ayrılmak için butona basabilirsiniz.
+                          Günlük Mola Hakkı: <strong className="text-amber-600 dark:text-amber-400 font-bold">{currentUserMaxBreakMinutes} dk</strong>
+                          {currentUserTodayRecord?.breaks && currentUserTodayRecord.breaks.length > 0 && (
+                            <>
+                              {' '}• Kullanılan: <strong className="text-slate-700 dark:text-slate-300">{calculateRecordBreakMinutes(currentUserTodayRecord)} dk</strong>
+                              {' '}• Kalan:{' '}
+                              <strong
+                                className={
+                                  currentUserMaxBreakMinutes >= calculateRecordBreakMinutes(currentUserTodayRecord)
+                                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                                    : 'text-rose-600 dark:text-rose-400 font-black'
+                                }
+                              >
+                                {Math.max(0, currentUserMaxBreakMinutes - calculateRecordBreakMinutes(currentUserTodayRecord))} dk
+                              </strong>
+                            </>
+                          )}
                         </span>
                       )}
                     </p>
@@ -5081,9 +5133,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               }`}
             >
               <Coffee className="w-4 h-4" />
-              <span>Şube Mola Süreleri</span>
+              <span>Mola Süreleri</span>
               <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold">
-                {branches.length}
+                {branches.length > 0 ? branches.length + 1 : 1}
               </span>
             </button>
           </div>
@@ -5223,119 +5275,201 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
           )}
 
-          {/* SEKME 2: ŞUBE MOLA SÜRELERİ */}
+          {/* SEKME 2: MOLA SÜRELERİ (Merkez & Şubeler) */}
           {definitionsTab === 'breaks' && (
             <div className="space-y-4">
               <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
                 <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Coffee className="w-5 h-5 text-amber-500" />
-                  <span>Şube Mola Süresi Belirleme</span>
+                  <span>Mola Süresi Belirleme</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Her şube için personellerin günlük kullanabileceği toplam mola dakikasını ayrı ayrı tanımlayın.
+                  Merkez iş yeri ve şubeler için personellerin günlük kullanabileceği toplam mola dakikasını tanımlayın.
                 </p>
               </div>
 
-              {branches.length === 0 ? (
-                <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center mx-auto">
-                    <Store className="w-6 h-6" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. MERKEZ İŞ YERİ MOLA SÜRESİ KARTI (Şube olmasa dahi her zaman tanımlanabilir!) */}
+                {(() => {
+                  const centerBreakMinutes =
+                    branchBreakDrafts['__workplace__'] !== undefined
+                      ? branchBreakDrafts['__workplace__']
+                      : (workplaceLocation?.maxBreakMinutes || 60);
+                  const centerStaffCount = companyStaffUsers.filter(
+                    (u) => !u.branchId && !branches.some((b) => b.assignedUserIds?.includes(u.id))
+                  ).length;
+                  const isSavingCenter = savingBranchBreakId === '__workplace__';
+
+                  return (
+                    <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border-2 border-amber-400/80 dark:border-amber-600/80 shadow-sm space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/30">
+                            <Building2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                                Merkez İş Yeri
+                              </h4>
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                                Ana Merkez
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                              {workplaceLocation?.address || 'Merkez adresi tanımlanmamış (Genel Çalışma Alanı)'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                          {branches.length === 0 ? companyStaffUsers.length : centerStaffCount} Personel
+                        </span>
+                      </div>
+
+                      {/* Mola Dakikası Seçim Alanı */}
+                      <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                          <span>Günlük Toplam Mola Hakkı:</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-black text-sm">
+                            {centerBreakMinutes} Dakika
+                          </span>
+                        </label>
+
+                        {/* Hızlı Seçim Butonları */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {[15, 30, 45, 60, 90, 120].map((mins) => (
+                            <button
+                              key={mins}
+                              type="button"
+                              onClick={() => setBranchBreakDrafts((prev) => ({ ...prev, __workplace__: mins }))}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                centerBreakMinutes === mins
+                                  ? 'bg-amber-500 text-white shadow-sm font-black'
+                                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                              }`}
+                            >
+                              {mins} dk
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Kaydet Butonu */}
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          disabled={isSavingCenter}
+                          onClick={handleSaveWorkplaceBreak}
+                          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingCenter ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          <span>Merkez Mola Süresini Kaydet</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. KAYITLI ŞUBELERİN MOLA KARTLARI (Varsa listelenir) */}
+                {branches.map((branch) => {
+                  const currentBreakMinutes =
+                    branchBreakDrafts[branch.id] !== undefined
+                      ? branchBreakDrafts[branch.id]
+                      : (branch.maxBreakMinutes || 60);
+                  const staffCount = branch.assignedUserIds?.length || 0;
+                  const isSaving = savingBranchBreakId === branch.id;
+
+                  return (
+                    <div
+                      key={branch.id}
+                      className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 shrink-0">
+                            <Store className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                              {branch.name}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                              {branch.address || 'Adres tanımlanmamış'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                          {staffCount} Personel
+                        </span>
+                      </div>
+
+                      {/* Mola Dakikası Seçim Alanı */}
+                      <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                          <span>Günlük Toplam Mola Hakkı:</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-black text-sm">
+                            {currentBreakMinutes} Dakika
+                          </span>
+                        </label>
+
+                        {/* Hızlı Seçim Butonları */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {[15, 30, 45, 60, 90, 120].map((mins) => (
+                            <button
+                              key={mins}
+                              type="button"
+                              onClick={() => setBranchBreakDrafts((prev) => ({ ...prev, [branch.id]: mins }))}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                currentBreakMinutes === mins
+                                  ? 'bg-amber-500 text-white shadow-sm font-black'
+                                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                              }`}
+                            >
+                              {mins} dk
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Kaydet Butonu */}
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => handleSaveBranchBreak(branch.id)}
+                          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSaving ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          <span>Şube Mola Süresini Kaydet</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Şubesi olmayan işletmeler için bilgi ve şube ekleme kısayolu */}
+              {branches.length === 0 && (
+                <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 text-slate-600 dark:text-slate-400">
+                    <Store className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>Şubesiz işletmeler için Merkez Mola Süresi tüm personeller için geçerlidir. İleride şubeler eklerseniz şube bazlı farklı mola süreleri de belirleyebilirsiniz.</span>
                   </div>
-                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                    Kayıtlı Şube Bulunamadı
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                    Mola süresi belirleyebilmek için önce <strong>"Merkez İş Yeri"</strong> ekranından şubelerinizi oluşturmanız gerekmektedir.
-                  </p>
                   <button
                     type="button"
                     onClick={() => setActiveSection('workplace')}
-                    className="px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-black hover:bg-teal-700 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                    className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 font-bold text-slate-700 dark:text-slate-200 transition-colors shrink-0 self-start sm:self-auto cursor-pointer"
                   >
-                    <Store className="w-3.5 h-3.5" />
-                    <span>Şube Yönetimine Git</span>
+                    Şube Ekle / Yönet
                   </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {branches.map((branch) => {
-                    const currentBreakMinutes = branchBreakDrafts[branch.id] !== undefined
-                      ? branchBreakDrafts[branch.id]
-                      : (branch.maxBreakMinutes || 60);
-                    const staffCount = branch.assignedUserIds?.length || 0;
-                    const isSaving = savingBranchBreakId === branch.id;
-
-                    return (
-                      <div
-                        key={branch.id}
-                        className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 shrink-0">
-                              <Store className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                                {branch.name}
-                              </h4>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
-                                {branch.address || 'Adres tanımlanmamış'}
-                              </p>
-                            </div>
-                          </div>
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
-                            {staffCount} Personel
-                          </span>
-                        </div>
-
-                        {/* Mola Dakikası Seçim Alanı */}
-                        <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                            <span>Günlük Toplam Mola Hakkı:</span>
-                            <span className="text-amber-600 dark:text-amber-400 font-black text-sm">
-                              {currentBreakMinutes} Dakika
-                            </span>
-                          </label>
-
-                          {/* Hızlı Seçim Butonları */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {[15, 30, 45, 60, 90, 120].map((mins) => (
-                              <button
-                                key={mins}
-                                type="button"
-                                onClick={() => setBranchBreakDrafts((prev) => ({ ...prev, [branch.id]: mins }))}
-                                className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                  currentBreakMinutes === mins
-                                    ? 'bg-amber-500 text-white shadow-sm font-black'
-                                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-amber-400'
-                                }`}
-                              >
-                                {mins} dk
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Kaydet Butonu */}
-                        <div className="flex items-center justify-end">
-                          <button
-                            type="button"
-                            disabled={isSaving}
-                            onClick={() => handleSaveBranchBreak(branch.id)}
-                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isSaving ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                            <span>Mola Süresini Kaydet</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               )}
             </div>

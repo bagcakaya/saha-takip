@@ -219,6 +219,7 @@ export interface WorkplaceLocation {
   latitude: number;
   longitude: number;
   radiusMeters: number; // default: 20 meters
+  maxBreakMinutes?: number; // Günlük maksimum mola süresi (dakika)
   updatedAt: number;
   updatedBy?: string;
   updatedByName?: string;

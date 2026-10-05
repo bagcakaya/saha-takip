@@ -216,6 +216,7 @@ interface StorageContextType {
   assignUserShift: (userId: string, userName: string, shiftId: string) => Promise<void>;
   removeUserShift: (userId: string) => Promise<void>;
   updateBranchBreakMinutes: (branchId: string, maxBreakMinutes: number) => Promise<void>;
+  updateWorkplaceBreakMinutes: (maxBreakMinutes: number) => Promise<void>;
   refreshShifts: () => Promise<void>;
 }
 
@@ -3336,6 +3337,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveBranches(updatedBranches);
   };
 
+  const updateWorkplaceBreakMinutes = async (maxBreakMinutes: number) => {
+    const currentLoc = workplaceLocation || {
+      address: 'Genel Merkez / İş Yeri',
+      latitude: 0,
+      longitude: 0,
+      radiusMeters: 20,
+      updatedAt: Date.now(),
+    };
+    const updated: WorkplaceLocation = {
+      ...currentLoc,
+      maxBreakMinutes,
+      updatedAt: Date.now(),
+      updatedBy: user?.id,
+      updatedByName: user?.name,
+    };
+    setWorkplaceLocation(updated);
+    await StorageService.saveWorkplaceLocation(updated);
+  };
+
   const createShift = async (
     shiftData: Omit<ShiftDefinition, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'> & { companyCode?: string }
   ): Promise<ShiftDefinition> => {
@@ -5947,6 +5967,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteBranch,
         assignStaffToBranch,
         updateBranchBreakMinutes,
+        updateWorkplaceBreakMinutes,
         shifts,
         shiftAssignments,
         createShift,
