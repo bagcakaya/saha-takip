@@ -162,9 +162,6 @@ export const LoginView: React.FC = () => {
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-md">
               İş Takip Sistemi
             </h1>
-            <p className="text-xs sm:text-sm font-medium text-slate-300/90 mt-1">
-              İş Takip, Görev & Tutanak Portalı
-            </p>
           </div>
 
           {/* Live Auto Weather Indicator Pill (Click/tap to refresh GPS location) */}

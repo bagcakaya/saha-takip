@@ -122,9 +122,8 @@ export default function LoginScreen() {
             />
           </View>
 
-          {/* Title & Subtitle */}
+          {/* Title */}
           <Text style={styles.appTitle}>İş Takip Sistemi</Text>
-          <Text style={styles.appSubtitle}>İş Takip, Görev & Tutanak Portalı</Text>
 
           {/* Weather Pill (Matches Görsel 4: [ 📍 Erzurum • 23°C • Bulutlu / Kapalı ]) */}
           <View style={styles.weatherPill}>
