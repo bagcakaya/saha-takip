@@ -543,13 +543,31 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const now = Date.now();
+
+    // Determine break quota minutes from branch or workplace
+    let branchBreakMins: number | undefined;
+    const assignedBranch = branches.find((b) => b.assignedUserIds && b.assignedUserIds.includes(user.id));
+    if (assignedBranch?.maxBreakMinutes) {
+      branchBreakMins = assignedBranch.maxBreakMinutes;
+    }
+    if (!branchBreakMins && record.branchId) {
+      const b = branches.find((item) => item.id === record.branchId);
+      if (b?.maxBreakMinutes) {
+        branchBreakMins = b.maxBreakMinutes;
+      }
+    }
+    const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 15;
+    const existingBreaks = Array.isArray(record.breaks) ? record.breaks : [];
+    const alreadyUsedMinutes = existingBreaks.reduce((sum, b) => sum + (b.durationMinutes || 0), 0);
+    const allowedMinutes = quotaMinutes > alreadyUsedMinutes ? (quotaMinutes - alreadyUsedMinutes) : quotaMinutes;
+    const targetIsoDate = new Date(now + allowedMinutes * 60 * 1000).toISOString();
+
     const newBreak: BreakItem = {
       id: `brk_${now}_${Math.random().toString(36).substring(2, 7)}`,
       startTime: now,
       note: note || 'Mola',
     };
 
-    const existingBreaks = Array.isArray(record.breaks) ? record.breaks : [];
     const updatedRecord: AttendanceRecord = {
       ...record,
       isOnBreak: true,
@@ -563,6 +581,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
+
+    // Schedule hardware push notification via OneSignal cloud server
+    // Fires at targetIsoDate even if the phone is locked or app is killed!
+    MobilePushService.scheduleBreakOverPush({
+      userId: user.id,
+      userName: user.name,
+      targetIsoDate,
+      breakMinutes: allowedMinutes,
+      companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+    }).then((scheduledId) => {
+      if (scheduledId) {
+        newBreak.scheduledNotificationId = scheduledId;
+        updatedRecord.currentBreakNotificationId = scheduledId;
+        StorageService.saveAttendanceRecords(updated).catch(() => {});
+      }
+    }).catch((err) => {
+      console.warn('Failed to schedule break over push from mobile:', err);
+    });
 
     return { success: true, message: 'Molaya çıkışınız kaydedildi. İyi dinlenmeler!' };
   };
@@ -592,6 +628,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : now);
     const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
 
+    // Cancel scheduled break-over cloud notification
+    const notifIdToCancel =
+      record.currentBreakNotificationId ||
+      (record.breaks && record.breaks.length > 0
+        ? record.breaks[record.breaks.length - 1].scheduledNotificationId
+        : undefined);
+
+    if (notifIdToCancel) {
+      MobilePushService.cancelScheduledPush(notifIdToCancel).catch(() => {});
+    }
+
     const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
     if (existingBreaks.length > 0) {
       const lastIndex = existingBreaks.length - 1;
@@ -608,6 +655,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ...record,
       isOnBreak: false,
       currentBreakStartTime: undefined,
+      currentBreakNotificationId: undefined,
       breaks: existingBreaks,
       totalBreakMinutes,
     };

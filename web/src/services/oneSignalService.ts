@@ -1342,4 +1342,35 @@ export const OneSignalService = {
 
     return false;
   },
+
+  /**
+   * Schedules a hardware push notification for staff when break duration expires.
+   * Delivered by OneSignal APNs/FCM directly to the locked/killed phone at targetIsoDate.
+   */
+  async scheduleBreakOverPush(params: {
+    userId: string;
+    userName?: string;
+    targetIsoDate: string;
+    breakMinutes: number;
+    companyCode: string;
+  }): Promise<string | undefined> {
+    try {
+      const res = await this.sendPushNotification({
+        title: '☕ Mola Süreniz Doldu!',
+        message: `Mola süreniz (${params.breakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+        targetMode: 'custom',
+        targetUserIds: [params.userId],
+        sendAfter: params.targetIsoDate,
+        companyCode: params.companyCode || 'POLATLAR',
+        collapseId: `break_over_${params.userId}`,
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      });
+      if (res?.success && res.data?.id) {
+        return res.data.id;
+      }
+    } catch (e) {
+      console.warn('scheduleBreakOverPush error in web:', e);
+    }
+    return undefined;
+  },
 };

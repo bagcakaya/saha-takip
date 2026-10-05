@@ -182,6 +182,7 @@ export interface WorkplaceLocation {
   latitude: number;
   longitude: number;
   radiusMeters: number; // default: 20 meters
+  maxBreakMinutes?: number; // Günlük izin verilen maksimum mola süresi (dakika)
   updatedAt: number;
   updatedBy?: string;
   updatedByName?: string;
@@ -200,6 +201,7 @@ export interface BreakItem {
   endTime?: number;
   durationMinutes?: number;
   note?: string;
+  scheduledNotificationId?: string;
 }
 
 export interface AttendanceRecord {
@@ -244,6 +246,7 @@ export interface AttendanceRecord {
   isOnBreak?: boolean;
   currentBreakStartTime?: number;
   totalBreakMinutes?: number;
+  currentBreakNotificationId?: string;
 }
 
 export interface BackupData {

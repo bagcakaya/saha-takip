@@ -238,6 +238,7 @@ export interface BreakItem {
   endTime?: number;
   durationMinutes?: number;
   note?: string;
+  scheduledNotificationId?: string;
 }
 
 export interface AttendanceRecord {
@@ -283,6 +284,7 @@ export interface AttendanceRecord {
   isOnBreak?: boolean;
   currentBreakStartTime?: number;
   totalBreakMinutes?: number;
+  currentBreakNotificationId?: string;
 }
 
 export interface BackupData {

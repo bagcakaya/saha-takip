@@ -37,12 +37,15 @@ import {
   Plus,
   Edit2,
   Building2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { AttendanceRecord, LeaveRequest, Branch, ShiftDefinition } from '../types/storage';
 import { LocationService } from '../services/locationService';
+import { NotificationService } from '../services/notificationService';
 import {
   exportAttendanceToExcel,
   exportAttendanceToPdf,
@@ -1336,7 +1339,16 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   // Break state & live stopwatch timer (1-second tick)
   const [liveBreakTimerText, setLiveBreakTimerText] = useState('');
   const [isProcessingBreak, setIsProcessingBreak] = useState(false);
+  const [breakAlarmActive, setBreakAlarmActive] = useState(false);
+  const [breakAlarmDismissed, setBreakAlarmDismissed] = useState(false);
   const [expandedBreakRecordIds, setExpandedBreakRecordIds] = useState<Set<string>>(new Set());
+
+  // Cleanup audio alarm on unmount
+  useEffect(() => {
+    return () => {
+      NotificationService.stopAlarmSound();
+    };
+  }, []);
 
   const toggleRecordBreakAccordion = (recordId: string) => {
     setExpandedBreakRecordIds((prev) => {
@@ -1353,6 +1365,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   useEffect(() => {
     if (!isOnBreak || !currentUserTodayRecord?.currentBreakStartTime) {
       setLiveBreakTimerText('');
+      setBreakAlarmActive(false);
+      setBreakAlarmDismissed(false);
+      NotificationService.stopAlarmSound();
       return;
     }
 
@@ -1370,12 +1385,25 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       } else {
         setLiveBreakTimerText(`${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
       }
+
+      // Check break limit overflow for foreground alert & audible alarm
+      const breakLimitMs = currentUserMaxBreakMinutes * 60 * 1000;
+      if (diffMs >= breakLimitMs && !breakAlarmActive && !breakAlarmDismissed) {
+        setBreakAlarmActive(true);
+        NotificationService.playAlarmSound();
+        NotificationService.sendNotification(
+          '☕ Mola Süreniz Doldu!',
+          `Mola süreniz (${currentUserMaxBreakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+          'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          { skipIfVisible: false }
+        );
+      }
     };
 
     updateBreakTimer();
     const interval = setInterval(updateBreakTimer, 1000);
     return () => clearInterval(interval);
-  }, [isOnBreak, currentUserTodayRecord?.currentBreakStartTime]);
+  }, [isOnBreak, currentUserTodayRecord?.currentBreakStartTime, currentUserMaxBreakMinutes, breakAlarmActive, breakAlarmDismissed]);
 
   const handleStartBreak = async () => {
     if (isProcessingBreak) return;
@@ -1397,6 +1425,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const handleEndBreak = async () => {
     if (isProcessingBreak) return;
     setIsProcessingBreak(true);
+    NotificationService.stopAlarmSound();
+    setBreakAlarmActive(false);
     try {
       const res = await endBreak();
       if (!res.success) {
@@ -3313,6 +3343,48 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 ? 'bg-amber-500/10 dark:bg-amber-950/40 border-amber-500 shadow-xl shadow-amber-500/15'
                 : 'bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-800 shadow-sm'
             }`}>
+              {/* Mola Aşımı Sesli Alarm ve Uyarı Kutusu */}
+              {isOnBreak && breakAlarmActive && (
+                <div className="mb-4 p-4 rounded-2xl bg-rose-600 text-white shadow-xl shadow-rose-600/30 animate-pulse flex flex-col sm:flex-row items-center justify-between gap-3 border-2 border-white/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                      <Volume2 className="w-6 h-6 animate-bounce text-white" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-sm sm:text-base flex items-center gap-2">
+                        <span>☕ Mola Süreniz Doldu!</span>
+                      </h4>
+                      <p className="text-xs text-rose-100 font-semibold mt-0.5">
+                        {currentUserMaxBreakMinutes} dakikalık mola süreniz tamamlandı. Lütfen mesaiye dönünüz!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        NotificationService.stopAlarmSound();
+                        setBreakAlarmActive(false);
+                        setBreakAlarmDismissed(true);
+                      }}
+                      className="px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <VolumeX className="w-4 h-4" />
+                      <span>Alarmı Sustur</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleEndBreak}
+                      disabled={isProcessingBreak}
+                      className="px-4 py-2 rounded-xl bg-white text-rose-700 hover:bg-rose-50 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Play className="w-4 h-4 fill-rose-700" />
+                      <span>Molayı Bitir</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${

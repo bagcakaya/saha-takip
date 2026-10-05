@@ -43,6 +43,46 @@ export const MobilePushService = {
   },
 
   /**
+   * Schedules a break end push notification for staff.
+   * Delivered by OneSignal FCM/APNs at targetIsoDate even if the app is killed or device is locked.
+   */
+  async scheduleBreakOverPush(params: {
+    userId: string;
+    userName?: string;
+    targetIsoDate: string;
+    breakMinutes: number;
+    companyCode: string;
+  }): Promise<string | undefined> {
+    try {
+      const response = await fetch(NOTIFICATION_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: '☕ Mola Süreniz Doldu!',
+          message: `Mola süreniz (${params.breakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+          targetUserIds: [params.userId],
+          companyCode: params.companyCode || 'POLATLAR',
+          send_after: params.targetIsoDate,
+          collapse_id: `break_over_${params.userId}`,
+          url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.id) {
+          return data.id;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to schedule break over push from mobile:', err);
+    }
+    return undefined;
+  },
+
+  /**
    * Cancels a scheduled push notification from OneSignal cloud
    */
   async cancelScheduledPush(notificationId: string): Promise<boolean> {

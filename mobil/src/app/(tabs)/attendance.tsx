@@ -15,6 +15,7 @@ import {
   BackHandler,
   PanResponder,
   Linking,
+  Vibration,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
@@ -681,10 +682,30 @@ export default function AttendanceScreen() {
     ]);
   };
 
+  // Staff's assigned branch & break quota calculation
+  const userAssignedBranch = useMemo(() => {
+    if (!user || !branches || branches.length === 0) return null;
+    return branches.find((b) => Array.isArray(b.assignedUserIds) && b.assignedUserIds.includes(user.id)) || null;
+  }, [user, branches]);
+
+  const currentUserMaxBreakMinutes = useMemo(() => {
+    if (userAssignedBranch && userAssignedBranch.maxBreakMinutes) {
+      return userAssignedBranch.maxBreakMinutes;
+    }
+    if (todayRecord?.branchId && branches && branches.length > 0) {
+      const b = branches.find((item) => item.id === todayRecord.branchId);
+      if (b && b.maxBreakMinutes) return b.maxBreakMinutes;
+    }
+    return workplaceLocation?.maxBreakMinutes || 15;
+  }, [userAssignedBranch, todayRecord, branches, workplaceLocation]);
+
+  const [breakAlarmTriggered, setBreakAlarmTriggered] = useState(false);
+
   // Live break stopwatch
   useEffect(() => {
     if (!isOnBreak || !todayRecord?.currentBreakStartTime) {
       setLiveBreakTimerText('');
+      setBreakAlarmTriggered(false);
       return;
     }
 
@@ -702,12 +723,30 @@ export default function AttendanceScreen() {
       } else {
         setLiveBreakTimerText(`${mins.toString().padStart(2, '0')} dk ${secs.toString().padStart(2, '0')} sn`);
       }
+
+      // Check if break duration exceeded limit while in foreground
+      const limitMs = currentUserMaxBreakMinutes * 60 * 1000;
+      if (diffMs >= limitMs && !breakAlarmTriggered) {
+        setBreakAlarmTriggered(true);
+        try {
+          Vibration.vibrate([0, 500, 300, 500, 300, 1000]);
+        } catch {}
+        Alert.alert(
+          '☕ Mola Süreniz Doldu!',
+          `Mola süreniz (${currentUserMaxBreakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+          [
+            { text: 'Molayı Bitir ve Mesaiye Dön', onPress: () => handleEndBreak() },
+            { text: 'Tamam', style: 'cancel' },
+          ],
+          { cancelable: false }
+        );
+      }
     };
 
     updateBreakTimer();
     const interval = setInterval(updateBreakTimer, 1000);
     return () => clearInterval(interval);
-  }, [isOnBreak, todayRecord?.currentBreakStartTime]);
+  }, [isOnBreak, todayRecord?.currentBreakStartTime, currentUserMaxBreakMinutes, breakAlarmTriggered]);
 
   const handleStartBreak = async () => {
     if (isProcessingBreak) return;
@@ -727,6 +766,7 @@ export default function AttendanceScreen() {
   const handleEndBreak = async () => {
     if (isProcessingBreak) return;
     setIsProcessingBreak(true);
+    setBreakAlarmTriggered(false);
     try {
       const res = await endBreak();
       if (!res.success) {
@@ -1897,6 +1937,7 @@ export default function AttendanceScreen() {
                       {isOnBreak ? (
                         <Text style={{ color: '#d97706', fontWeight: '700' }}>
                           Geçen Mola: <Text style={{ fontWeight: '900', color: '#b45309' }}>{liveBreakTimerText || 'Hesaplanıyor...'}</Text>
+                          <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}> (Hak: {currentUserMaxBreakMinutes} dk)</Text>
                         </Text>
                       ) : isAdmin ? (
                         `Bugün: ${
@@ -1905,9 +1946,20 @@ export default function AttendanceScreen() {
                             : 'Henüz molaya çıkılmadı'
                         }`
                       ) : (
-                        'Molaya ayrılmak için butona dokunabilirsiniz.'
+                        `Mola Hakkı: ${currentUserMaxBreakMinutes} dk${
+                          todayRecord?.breaks && todayRecord.breaks.length > 0
+                            ? ` • Kullanılan: ${calculateRecordBreakMinutes(todayRecord)} dk • Kalan: ${Math.max(0, currentUserMaxBreakMinutes - calculateRecordBreakMinutes(todayRecord))} dk`
+                            : ''
+                        }`
                       )}
                     </Text>
+                    {isOnBreak && breakAlarmTriggered && (
+                      <View style={{ marginTop: 6, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fca5a5' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '900', color: '#b91c1c' }}>
+                          ⚠️ Mola Süreniz Doldu! Lütfen mesaiye dönünüz.
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
