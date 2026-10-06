@@ -303,18 +303,30 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
     chunks.push(rawJson.slice(i, i + chunkSize));
   }
 
-  // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
-  if (ServerConfigService.isLocalMode()) {
-    await localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks });
-    return;
+  // DUAL-WRITE: Hem Yerel Sunucuya (MSSQL) hem de Supabase Bulutuna (Pro) eşzamanlı kaydet
+  const writePromises: Promise<any>[] = [];
+
+  // 1. Yerel Sunucu (Local MSSQL Server)
+  if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+    writePromises.push(
+      localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
+        console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err)
+      )
+    );
   }
 
-  // 2. Bulut (Supabase Cloud)
-  try {
-    await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
-  } catch (err) {
-    console.warn(`Cloud save error for slot ${slotId}:`, err);
-  }
+  // 2. Supabase Bulut (Pro Plan)
+  writePromises.push(
+    supabase
+      .from('standard_tasks')
+      .upsert({ id: slotId, tasks: chunks })
+      .then(({ error }) => {
+        if (error) console.warn(`[Dual-Write Supabase] Slot ${slotId} hata:`, error);
+      })
+      .catch((err) => console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err))
+  );
+
+  await Promise.allSettled(writePromises);
 }
 
 export const StorageService = {
@@ -617,53 +629,60 @@ export const StorageService = {
         rejection_reason: loc.rejectionReason || null,
       }));
 
-      // 1. Yerel Sunucu (Local Mode)
-      if (ServerConfigService.isLocalMode()) {
-        if (fullRows.length > 0) {
-          await localApiPost('/api/tables/locations/upsert', { rows: fullRows });
-        }
-        await saveChunkedSlot(11, locations);
-        return;
-      }
+      // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
+      const writeOps: Promise<any>[] = [];
 
-      // 2. Supabase Cloud Fallback
-      try {
-        if (fullRows.length > 0) {
-          const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
-          if (upsertErr) {
-            // Fallback if columns do not exist in locations table
-            const basicRows = locations.map((loc) => ({
-              id: loc.id,
-              name: loc.name,
-              address: loc.address || '',
-              notes: loc.notes || '',
-              photos: loc.photos || [],
-              latitude: loc.latitude || null,
-              longitude: loc.longitude || null,
-              created_at: loc.createdAt,
-              created_by: loc.createdBy || null,
-              created_by_name: loc.createdByName || null,
-              tasks: loc.tasks || [],
-            }));
-            await supabase.from('locations').upsert(basicRows);
-          }
-          const currentIds = locations.map((l) => l.id);
-          const { data: cloudData } = await supabase.from('locations').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('locations').delete().in('id', idsToDelete);
-            }
-          }
-        } else {
-          await supabase.from('locations').delete().neq('id', '___');
+      if (fullRows.length > 0) {
+        // 1. Yerel Sunucu
+        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+          writeOps.push(
+            localApiPost('/api/tables/locations/upsert', { rows: fullRows }).catch((err) =>
+              console.warn('[Dual-Write Yerel] locations upsert hata:', err)
+            )
+          );
         }
-      } catch (err) {
-        console.warn('Supabase save locations error:', err);
+
+        // 2. Supabase Bulut
+        writeOps.push(
+          (async () => {
+            try {
+              const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
+              if (upsertErr) {
+                const basicRows = locations.map((loc) => ({
+                  id: loc.id,
+                  name: loc.name,
+                  address: loc.address || '',
+                  notes: loc.notes || '',
+                  photos: loc.photos || [],
+                  latitude: loc.latitude || null,
+                  longitude: loc.longitude || null,
+                  created_at: loc.createdAt,
+                  created_by: loc.createdBy || null,
+                  created_by_name: loc.createdByName || null,
+                  tasks: loc.tasks || [],
+                }));
+                await supabase.from('locations').upsert(basicRows);
+              }
+              const currentIds = locations.map((l) => l.id);
+              const { data: cloudData } = await supabase.from('locations').select('id');
+              if (cloudData) {
+                const idsToDelete = cloudData
+                  .map((c) => c.id)
+                  .filter((id) => !currentIds.includes(id));
+                if (idsToDelete.length > 0) {
+                  await supabase.from('locations').delete().in('id', idsToDelete);
+                }
+              }
+            } catch (err) {
+              console.warn('[Dual-Write Supabase] save locations error:', err);
+            }
+          })()
+        );
+      } else {
+        writeOps.push(supabase.from('locations').delete().neq('id', '___'));
       }
-      await saveChunkedSlot(11, locations);
+      writeOps.push(saveChunkedSlot(11, locations));
+      await Promise.allSettled(writeOps);
     } else {
       // Isolated chunked slot 11 for other companies
       await saveChunkedSlot(this.getSlotId(11), locations);
@@ -680,17 +699,19 @@ export const StorageService = {
     await saveItem(localKey, updated);
 
     if (activeCompanyCode === 'POLATLAR') {
-      if (ServerConfigService.isLocalMode()) {
-        await localApiPost('/api/tables/locations/delete', { ids: [id] });
-        await saveChunkedSlot(11, updated);
-        return;
+      const deleteOps: Promise<any>[] = [];
+      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        deleteOps.push(localApiPost('/api/tables/locations/delete', { ids: [id] }));
       }
-      try {
-        await supabase.from('locations').delete().eq('id', id);
-        await saveChunkedSlot(11, updated);
-      } catch (e) {
-        console.warn('deleteLocation error:', e);
-      }
+      deleteOps.push(
+        supabase
+          .from('locations')
+          .delete()
+          .eq('id', id)
+          .then(undefined, (e) => console.warn('deleteLocation Supabase error:', e))
+      );
+      deleteOps.push(saveChunkedSlot(11, updated));
+      await Promise.allSettled(deleteOps);
     } else {
       await saveChunkedSlot(this.getSlotId(11), updated);
     }
@@ -1020,72 +1041,74 @@ export const StorageService = {
         rejection_reason: n.rejectionReason || null,
       }));
 
-      // 1. Yerel Sunucu (Local Mode)
-      if (ServerConfigService.isLocalMode()) {
-        if (fullRows.length > 0) {
-          await localApiPost('/api/tables/notes/upsert', { rows: fullRows });
+      // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
+      const writeOps: Promise<any>[] = [];
+
+      if (fullRows.length > 0) {
+        // 1. Yerel Sunucu
+        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+          writeOps.push(
+            localApiPost('/api/tables/notes/upsert', { rows: fullRows }).catch((err) =>
+              console.warn('[Dual-Write Yerel] notes upsert hata:', err)
+            )
+          );
         }
-        await saveChunkedSlot(4, cleanNotes);
-        return;
-      }
 
-      // 2. Supabase Cloud Fallback
-      try {
-        if (fullRows.length > 0) {
-          const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
-          if (upsertErr) {
-            console.warn('saveNotes primary upsert error, falling back to basic columns:', upsertErr);
-            const basicRows = cleanNotes.map((n) => ({
-              id: n.id,
-              content: n.content,
-              created_at: n.createdAt,
-              created_by: n.createdBy || null,
-              created_by_name: n.createdByName || null,
-              target_mode: n.targetMode || 'self',
-              target_user_ids: n.targetUserIds || [],
-              target_user_names: n.targetUserNames || [],
-              target_user_id: n.targetUserId || null,
-              target_user_name: n.targetUserName || null,
-              reminder_active: Boolean(n.reminderActive),
-              reminder_date: n.reminderDate || null,
-              notified: Boolean(n.notified),
-              status: n.status || 'pending',
-              completed_at: n.completedAt || null,
-              completed_by: n.completedBy || null,
-              completed_by_name: n.completedByName || null,
-              completion_note: n.completionNote || null,
-              approved_at: n.approvedAt || null,
-              approved_by: n.approvedBy || null,
-              approved_by_name: n.approvedByName || null,
-              rejected_at: n.rejectedAt || null,
-              rejected_by: n.rejectedBy || null,
-              rejected_by_name: n.rejectedByName || null,
-              rejection_reason: n.rejectionReason || null,
-            }));
-            await supabase.from('notes').upsert(basicRows);
-          }
+        // 2. Supabase Bulut
+        writeOps.push(
+          (async () => {
+            try {
+              const basicRows = cleanNotes.map((n) => ({
+                id: n.id,
+                content: n.content,
+                created_at: n.createdAt,
+                created_by: n.createdBy || null,
+                created_by_name: n.createdByName || null,
+                target_mode: n.targetMode || 'self',
+                target_user_ids: n.targetUserIds || [],
+                target_user_names: n.targetUserNames || [],
+                target_user_id: n.targetUserId || null,
+                target_user_name: n.targetUserName || null,
+                reminder_active: Boolean(n.reminderActive),
+                reminder_date: n.reminderDate || null,
+                notified: Boolean(n.notified),
+                status: n.status || 'pending',
+                completed_at: n.completedAt || null,
+                completed_by: n.completedBy || null,
+                completed_by_name: n.completedByName || null,
+                completion_note: n.completionNote || null,
+                approved_at: n.approvedAt || null,
+                approved_by: n.approvedBy || null,
+                approved_by_name: n.approvedByName || null,
+                rejected_at: n.rejectedAt || null,
+                rejected_by: n.rejectedBy || null,
+                rejected_by_name: n.rejectedByName || null,
+                rejection_reason: n.rejectionReason || null,
+              }));
+              await supabase.from('notes').upsert(basicRows);
 
-          const currentIds = cleanNotes.map((n) => n.id);
-          if (currentIds.length > 0) {
-            const { data: cloudData } = await supabase.from('notes').select('id');
-            if (cloudData) {
-              const idsToDelete = cloudData
-                .map((c) => c.id)
-                .filter((id) => !currentIds.includes(id) || deletedIds.has(id));
-              if (idsToDelete.length > 0) {
-                await supabase.from('notes').delete().in('id', idsToDelete);
+              const currentIds = cleanNotes.map((n) => n.id);
+              if (currentIds.length > 0) {
+                const { data: cloudData } = await supabase.from('notes').select('id');
+                if (cloudData) {
+                  const idsToDelete = cloudData
+                    .map((c) => c.id)
+                    .filter((id) => !currentIds.includes(id) || deletedIds.has(id));
+                  if (idsToDelete.length > 0) {
+                    await supabase.from('notes').delete().in('id', idsToDelete);
+                  }
+                }
               }
+            } catch (err) {
+              console.warn('[Dual-Write Supabase] save notes error:', err);
             }
-          } else {
-            await supabase.from('notes').delete().neq('id', '___');
-          }
-        } else {
-          await supabase.from('notes').delete().neq('id', '___');
-        }
-      } catch (err) {
-        console.warn('Supabase save notes error:', err);
+          })()
+        );
+      } else {
+        writeOps.push(supabase.from('notes').delete().neq('id', '___'));
       }
-      await saveChunkedSlot(4, cleanNotes);
+      writeOps.push(saveChunkedSlot(4, cleanNotes));
+      await Promise.allSettled(writeOps);
     } else {
       await saveChunkedSlot(this.getSlotId(4), cleanNotes);
     }
@@ -1105,31 +1128,28 @@ export const StorageService = {
 
     // 2. Server / Cloud delete
     if (activeCompanyCode === 'POLATLAR') {
-      if (ServerConfigService.isLocalMode()) {
-        await localApiPost('/api/tables/notes/delete', { ids: [id] });
-        const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
-        if (slot4Data && Array.isArray(slot4Data)) {
-          const cleaned = slot4Data.filter((n) => n.id !== id);
-          await saveChunkedSlot(4, cleaned);
-        }
-        return;
+      const deleteOps: Promise<any>[] = [];
+      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        deleteOps.push(localApiPost('/api/tables/notes/delete', { ids: [id] }));
       }
-
-      try {
-        await supabase.from('notes').delete().eq('id', id);
-      } catch (e) {
-        console.warn('Supabase deleteNote error:', e);
-      }
-
-      try {
-        const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
-        if (slot4Data && Array.isArray(slot4Data)) {
-          const cleaned = slot4Data.filter((n) => n.id !== id);
-          await saveChunkedSlot(4, cleaned);
-        }
-      } catch (e) {
-        console.warn('Slot 4 deleteNote error:', e);
-      }
+      deleteOps.push(
+        supabase
+          .from('notes')
+          .delete()
+          .eq('id', id)
+          .then(undefined, (e) => console.warn('deleteNote Supabase error:', e))
+      );
+      deleteOps.push(
+        (async () => {
+          const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
+          if (slot4Data && Array.isArray(slot4Data)) {
+            const cleaned = slot4Data.filter((n) => n.id !== id);
+            await saveChunkedSlot(4, cleaned);
+          }
+        })()
+      );
+      await Promise.allSettled(deleteOps);
+      return;
     } else {
       try {
         const slotId = this.getSlotId(4);
@@ -1481,59 +1501,66 @@ export const StorageService = {
         follow_up_by_name: item.followUpByName || null,
       }));
 
-      // 1. Yerel Sunucu (Local Mode)
-      if (ServerConfigService.isLocalMode()) {
-        if (fullRows.length > 0) {
-          await localApiPost('/api/tables/return_warranty/upsert', { rows: fullRows });
+      // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
+      const writeOps: Promise<any>[] = [];
+
+      if (fullRows.length > 0) {
+        // 1. Yerel Sunucu
+        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+          writeOps.push(
+            localApiPost('/api/tables/return_warranty/upsert', { rows: fullRows }).catch((err) =>
+              console.warn('[Dual-Write Yerel] return_warranty upsert hata:', err)
+            )
+          );
         }
-        await saveChunkedSlot(2, items);
-        return;
-      }
 
-      // 2. Supabase Cloud Fallback
-      try {
-        if (fullRows.length > 0) {
-          const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
-          if (upsertErr) {
-            // Fallback in case cari_name column hasn't been added to SQL yet
-            const basicRows = items.map((item) => ({
-              id: item.id,
-              type: item.type,
-              company_name: item.companyName,
-              sent_date: item.sentDate,
-              serial_number: item.serialNumber || null,
-              tracking_code: item.trackingCode || null,
-              serial_number_photo: item.serialNumberPhoto || null,
-              tracking_code_photo: item.trackingCodePhoto || null,
-              notes: item.notes || null,
-              status: item.status,
-              reminder_date: item.reminderDate || null,
-              reminder_active: item.reminderActive,
-              notified: item.notified || false,
-              created_at: item.createdAt,
-              created_by: item.createdBy || null,
-              created_by_name: item.createdByName || null,
-            }));
-            await supabase.from('return_warranty').upsert(basicRows);
-          }
+        // 2. Supabase Bulut
+        writeOps.push(
+          (async () => {
+            try {
+              const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
+              if (upsertErr) {
+                const basicRows = items.map((item) => ({
+                  id: item.id,
+                  type: item.type,
+                  company_name: item.companyName,
+                  sent_date: item.sentDate,
+                  serial_number: item.serialNumber || null,
+                  tracking_code: item.trackingCode || null,
+                  serial_number_photo: item.serialNumberPhoto || null,
+                  tracking_code_photo: item.trackingCodePhoto || null,
+                  notes: item.notes || null,
+                  status: item.status,
+                  reminder_date: item.reminderDate || null,
+                  reminder_active: item.reminderActive,
+                  notified: item.notified || false,
+                  created_at: item.createdAt,
+                  created_by: item.createdBy || null,
+                  created_by_name: item.createdByName || null,
+                }));
+                await supabase.from('return_warranty').upsert(basicRows);
+              }
 
-          const currentIds = items.map((i) => i.id);
-          const { data: cloudData } = await supabase.from('return_warranty').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('return_warranty').delete().in('id', idsToDelete);
+              const currentIds = items.map((i) => i.id);
+              const { data: cloudData } = await supabase.from('return_warranty').select('id');
+              if (cloudData) {
+                const idsToDelete = cloudData
+                  .map((c) => c.id)
+                  .filter((id) => !currentIds.includes(id));
+                if (idsToDelete.length > 0) {
+                  await supabase.from('return_warranty').delete().in('id', idsToDelete);
+                }
+              }
+            } catch (err) {
+              console.warn('[Dual-Write Supabase] return_warranty error:', err);
             }
-          }
-        } else {
-          await supabase.from('return_warranty').delete().neq('id', '___');
-        }
-      } catch (err) {
-        console.warn('Native return_warranty table sync skipped:', err);
+          })()
+        );
+      } else {
+        writeOps.push(supabase.from('return_warranty').delete().neq('id', '___'));
       }
-      await saveChunkedSlot(2, items);
+      writeOps.push(saveChunkedSlot(2, items));
+      await Promise.allSettled(writeOps);
     } else {
       await saveChunkedSlot(this.getSlotId(2), items);
     }
@@ -1549,10 +1576,20 @@ export const StorageService = {
     await saveItem(localKey, updated);
 
     if (activeCompanyCode === 'POLATLAR') {
-      if (ServerConfigService.isLocalMode()) {
-        await localApiPost('/api/tables/return_warranty/delete', { ids: [id] });
-        await saveChunkedSlot(2, updated);
-        return;
+      const deleteOps: Promise<any>[] = [];
+      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        deleteOps.push(localApiPost('/api/tables/return_warranty/delete', { ids: [id] }));
+      }
+      deleteOps.push(
+        supabase
+          .from('return_warranty')
+          .delete()
+          .eq('id', id)
+          .then(undefined, (e) => console.warn('deleteReturnWarrantyItem Supabase error:', e))
+      );
+      deleteOps.push(saveChunkedSlot(2, updated));
+      await Promise.allSettled(deleteOps);
+      return;
       }
       try {
         await supabase.from('return_warranty').delete().eq('id', id);
@@ -1727,52 +1764,57 @@ export const StorageService = {
         rejection_reason: item.rejectionReason || null,
       }));
 
-      // 1. Yerel Sunucu (Local Mode)
-      if (ServerConfigService.isLocalMode()) {
-        if (fullRows.length > 0) {
-          await localApiPost('/api/tables/services/upsert', { rows: fullRows });
-        }
-        await saveChunkedSlot(3, items);
-        return;
-      }
+      // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
+      const writeOps: Promise<any>[] = [];
 
-      // 2. Supabase Cloud Fallback
-      try {
-        if (fullRows.length > 0) {
-          const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
-          if (upsertErr) {
-            // Fallback if columns do not exist in services table
-            const basicRows = items.map((item) => ({
-              id: item.id,
-              company_name: item.companyName,
-              location: item.location || null,
-              latitude: item.latitude || null,
-              longitude: item.longitude || null,
-              work_done: item.workDone,
-              date: item.date || null,
-              created_at: item.createdAt,
-              created_by: item.createdBy || null,
-              created_by_name: item.createdByName || null,
-            }));
-            await supabase.from('services').upsert(basicRows);
-          }
-          const currentIds = items.map((i) => i.id);
-          const { data: cloudData } = await supabase.from('services').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('services').delete().in('id', idsToDelete);
-            }
-          }
-        } else {
-          await supabase.from('services').delete().neq('id', '___');
+      if (fullRows.length > 0) {
+        // 1. Yerel Sunucu
+        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+          writeOps.push(
+            localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
+              console.warn('[Dual-Write Yerel] services upsert hata:', err)
+            )
+          );
         }
-      } catch (err) {
-        console.warn('Native services table sync skipped:', err);
+
+        // 2. Supabase Bulut
+        writeOps.push(
+          (async () => {
+            try {
+              const basicRows = items.map((item) => ({
+                id: item.id,
+                company_name: item.companyName,
+                location: item.location || null,
+                latitude: item.latitude || null,
+                longitude: item.longitude || null,
+                work_done: item.workDone,
+                date: item.date || null,
+                created_at: item.createdAt,
+                created_by: item.createdBy || null,
+                created_by_name: item.createdByName || null,
+              }));
+              await supabase.from('services').upsert(basicRows);
+
+              const currentIds = items.map((i) => i.id);
+              const { data: cloudData } = await supabase.from('services').select('id');
+              if (cloudData) {
+                const idsToDelete = cloudData
+                  .map((c) => c.id)
+                  .filter((id) => !currentIds.includes(id));
+                if (idsToDelete.length > 0) {
+                  await supabase.from('services').delete().in('id', idsToDelete);
+                }
+              }
+            } catch (err) {
+              console.warn('[Dual-Write Supabase] save services error:', err);
+            }
+          })()
+        );
+      } else {
+        writeOps.push(supabase.from('services').delete().neq('id', '___'));
       }
-      await saveChunkedSlot(3, items);
+      writeOps.push(saveChunkedSlot(3, items));
+      await Promise.allSettled(writeOps);
     } else {
       await saveChunkedSlot(this.getSlotId(3), items);
     }
@@ -1788,17 +1830,20 @@ export const StorageService = {
     await saveItem(localKey, updated);
 
     if (activeCompanyCode === 'POLATLAR') {
-      if (ServerConfigService.isLocalMode()) {
-        await localApiPost('/api/tables/services/delete', { ids: [id] });
-        await saveChunkedSlot(3, updated);
-        return;
+      const deleteOps: Promise<any>[] = [];
+      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        deleteOps.push(localApiPost('/api/tables/services/delete', { ids: [id] }));
       }
-      try {
-        await supabase.from('services').delete().eq('id', id);
-        await saveChunkedSlot(3, updated);
-      } catch (e) {
-        console.warn('deleteService error:', e);
-      }
+      deleteOps.push(
+        supabase
+          .from('services')
+          .delete()
+          .eq('id', id)
+          .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
+      );
+      deleteOps.push(saveChunkedSlot(3, updated));
+      await Promise.allSettled(deleteOps);
+      return;
     } else {
       await saveChunkedSlot(this.getSlotId(3), updated);
     }
