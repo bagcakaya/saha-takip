@@ -4797,6 +4797,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
 
+    // Personele yöneticinin molayı sonlandırdığını anında OneSignal bildirimiyle ilet
+    if (record.userId) {
+      OneSignalService.sendPushNotification({
+        title: '☕ Molanız Sonlandırıldı',
+        message: `Yönetici tarafından molanız sonlandırıldı (${durationMinutes} dk). Mesainize başarıyla döndürüldünüz.`,
+        targetMode: 'custom',
+        targetUserIds: [record.userId],
+        companyCode: (record.companyCode || user?.companyCode || dataCompanyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+        collapseId: `break_end_${record.id}`,
+      }).catch((err) => console.warn('OneSignal endBreak push error:', err));
+    }
+
     return {
       success: true,
       message: `${record.userName} personelinin molası başarıyla sonlandırıldı (${durationMinutes} dk). Mesaiye döndürüldü.`,

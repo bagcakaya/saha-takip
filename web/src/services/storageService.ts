@@ -1950,35 +1950,91 @@ export const StorageService = {
           localHasNewerData = true;
         }
 
-        // 2. Mola bilgileri (yerelde molaya çıkılmış veya mola bitirilmişse)
+        // 2. Mola bilgileri senkronizasyonu (Hassas Mola Çatışma Çözücü / Conflict Resolution)
         const localBreaks = Array.isArray(localRec.breaks) ? localRec.breaks : [];
         const cloudBreaks = Array.isArray(cloudRec.breaks) ? cloudRec.breaks : [];
         const localLastBreak = localBreaks[localBreaks.length - 1];
         const cloudLastBreak = cloudBreaks[cloudBreaks.length - 1];
 
-        const localHasMoreBreaks = localBreaks.length > cloudBreaks.length;
-        const localEndedBreak = Boolean(cloudRec.isOnBreak && !localRec.isOnBreak);
-        const localBreakHasEndTime = Boolean(localLastBreak?.endTime && !cloudLastBreak?.endTime);
-        const localStartedNewerBreak = Boolean(!cloudRec.isOnBreak && localRec.isOnBreak);
-        const localNewerStartTime = Boolean(
-          localRec.currentBreakStartTime &&
-          (!cloudRec.currentBreakStartTime || localRec.currentBreakStartTime > (cloudRec.currentBreakStartTime || 0))
-        );
-        const localMoreBreakMinutes = (localRec.totalBreakMinutes || 0) > (cloudRec.totalBreakMinutes || 0);
+        const localBreakStart = localRec.currentBreakStartTime || localLastBreak?.startTime || 0;
+        const cloudBreakStart = cloudRec.currentBreakStartTime || cloudLastBreak?.startTime || 0;
+        const localBreakEnd = localLastBreak?.endTime || 0;
+        const cloudBreakEnd = cloudLastBreak?.endTime || 0;
 
-        if (
-          localHasMoreBreaks ||
-          localEndedBreak ||
-          localBreakHasEndTime ||
-          localStartedNewerBreak ||
-          localNewerStartTime ||
-          localMoreBreakMinutes
+        // Durum A: Bulutta mola sonlandırılmış (Yönetici uzaktan bitirdi veya başka cihazdan bitirildi)
+        // Eğer bulutta mola kapalıysa (!cloudRec.isOnBreak) ve yerelde açık görünüyorsa (localRec.isOnBreak):
+        // Yerel mola, bulutun bitirdiği mola ile aynıysa veya bulut bitişinden önce/sırasında başlamışsa:
+        // Bulutun sonlandırma kararı KESİNLİKLE kabul edilir; yerel cihaz bu molayı tekrar canlandırmaz (ping-pong zırhı).
+        const isSameBreakEndedByCloud = Boolean(
+          localLastBreak &&
+          cloudLastBreak &&
+          localLastBreak.id === cloudLastBreak.id &&
+          cloudBreakEnd > 0 &&
+          !cloudRec.isOnBreak
+        );
+        const isLocalBreakStartedBeforeOrDuringCloudBreak = Boolean(
+          cloudBreakEnd > 0 &&
+          !cloudRec.isOnBreak &&
+          localBreakStart > 0 &&
+          localBreakStart <= cloudBreakEnd
+        );
+        const isCloudBreakClosure = Boolean(
+          !cloudRec.isOnBreak &&
+          localRec.isOnBreak &&
+          (isSameBreakEndedByCloud || isLocalBreakStartedBeforeOrDuringCloudBreak || (!localLastBreak?.endTime && cloudBreakEnd > 0))
+        );
+
+        if (isCloudBreakClosure) {
+          // Bulut molayı sonlandırmış: Yerel cihaz bulutun kapalı mola durumunu benimsemelidir
+          updated.isOnBreak = false;
+          updated.currentBreakStartTime = undefined;
+          updated.currentBreakNotificationId = undefined;
+          updated.breaks = cloudBreaks;
+          updated.totalBreakMinutes = cloudRec.totalBreakMinutes || 0;
+          // ÖNEMLİ: localHasNewerData KESİNLİKLE FALSE kalır, buluta sahte canlandırma yazılmaz!
+        }
+        // Durum B: Bulutta mola BAŞLATILMIŞ (cloudRec.isOnBreak) ama yerel henüz açık görmüyor (!localRec.isOnBreak)
+        else if (
+          cloudRec.isOnBreak &&
+          !localRec.isOnBreak &&
+          cloudBreakStart >= localBreakEnd
         ) {
-          updated.breaks = localBreaks.length > 0 ? localBreaks : (cloudBreaks.length > 0 ? cloudBreaks : []);
-          updated.isOnBreak = Boolean(localRec.isOnBreak);
-          updated.currentBreakStartTime = localRec.currentBreakStartTime;
-          updated.totalBreakMinutes = localRec.totalBreakMinutes || 0;
-          localHasNewerData = true;
+          // Bulutta yeni mola başlamış: Yerel cihaz bulutun açık mola durumunu benimsemelidir
+          updated.isOnBreak = true;
+          updated.currentBreakStartTime = cloudRec.currentBreakStartTime || cloudBreakStart;
+          updated.currentBreakNotificationId = cloudRec.currentBreakNotificationId;
+          updated.breaks = cloudBreaks;
+          updated.totalBreakMinutes = cloudRec.totalBreakMinutes || 0;
+          // localHasNewerData FALSE kalır, buluttaki açık mola ezilmez
+        }
+        // Durum C: Yerelde GERÇEKTEN daha yeni bir mola işlemi yapılmışsa (Çevrimdışıyken başlatma veya bitirme)
+        else {
+          // 1. Yerelde çevrimdışıyken mola bitirilmiş:
+          const localLegitimatelyEndedBreak = Boolean(
+            localBreakEnd > 0 &&
+            (!cloudBreakEnd || localBreakEnd > cloudBreakEnd) &&
+            (!cloudRec.isOnBreak || localBreakEnd >= cloudBreakStart)
+          );
+
+          // 2. Yerelde bulut mola bitirdikten SONRA yepyeni bir molaya çıkılmış:
+          const localLegitimatelyStartedNewBreak = Boolean(
+            localRec.isOnBreak &&
+            !cloudRec.isOnBreak &&
+            localBreakStart > cloudBreakEnd &&
+            localBreaks.length >= cloudBreaks.length
+          );
+
+          // 3. Yerelde daha fazla tamamlanmış mola kaydı var:
+          const localHasMoreBreaks = localBreaks.length > cloudBreaks.length;
+
+          if (localLegitimatelyEndedBreak || localLegitimatelyStartedNewBreak || localHasMoreBreaks) {
+            updated.breaks = localBreaks.length > 0 ? localBreaks : (cloudBreaks.length > 0 ? cloudBreaks : []);
+            updated.isOnBreak = Boolean(localRec.isOnBreak);
+            updated.currentBreakStartTime = localRec.currentBreakStartTime;
+            updated.currentBreakNotificationId = localRec.currentBreakNotificationId;
+            updated.totalBreakMinutes = localRec.totalBreakMinutes || 0;
+            localHasNewerData = true;
+          }
         }
 
         // 3. Onay notu varsa koru

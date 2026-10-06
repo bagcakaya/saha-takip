@@ -3908,12 +3908,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                             {isAdmin && (
                               <button
                                 type="button"
+                                disabled={isProcessingBreak}
                                 onClick={() => handleForceEndBreak(rec)}
-                                className="px-2.5 py-1 rounded-xl text-[11px] font-black bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                                className={`px-2.5 py-1 rounded-xl text-[11px] font-black bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1 ${isProcessingBreak ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                                 title="Bu personelin molasını sonlandır ve mesaiye döndür"
                               >
                                 <Play className="w-3 h-3 fill-white" />
-                                <span>Molayı Bitir</span>
+                                <span>{isProcessingBreak ? 'İşleniyor...' : 'Molayı Bitir'}</span>
                               </button>
                             )}
                           </div>
