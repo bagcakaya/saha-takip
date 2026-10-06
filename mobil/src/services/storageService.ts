@@ -158,6 +158,44 @@ async function setLocal(key: string, val: any): Promise<void> {
   }
 }
 
+async function localApiGet<T>(endpoint: string): Promise<T | null> {
+  const apiUrl = MobileServerConfigService.getActiveApiUrl();
+  if (!apiUrl) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`${apiUrl}${endpoint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn(`[Yerel Sunucu] GET ${endpoint} hatası:`, err);
+  }
+  return null;
+}
+
+async function localApiPost(endpoint: string, body: any): Promise<boolean> {
+  const apiUrl = MobileServerConfigService.getActiveApiUrl();
+  if (!apiUrl) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`${apiUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch (err) {
+    console.warn(`[Yerel Sunucu] POST ${endpoint} hatası:`, err);
+  }
+  return false;
+}
+
 export const StorageService = {
   setCompany(code: string, id?: number) {
     activeCompanyCode = (code || 'POLATLAR').trim().toUpperCase();
@@ -186,6 +224,39 @@ export const StorageService = {
     const localKey = `@locations_${activeCompanyCode}`;
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        if (MobileServerConfigService.isLocalMode()) {
+          const res = await localApiGet<any[]>('/api/tables/locations');
+          if (res && Array.isArray(res) && res.length > 0) {
+            const mapped: LocationItem[] = res.map((row) => ({
+              id: row.id,
+              name: row.name,
+              cariName: row.cari_name || undefined,
+              address: row.address || '',
+              notes: row.notes || '',
+              photos: Array.isArray(row.photos) ? row.photos : [],
+              latitude: row.latitude || undefined,
+              longitude: row.longitude || undefined,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              tasks: Array.isArray(row.tasks) ? row.tasks : [],
+              status: row.status || 'pending',
+              completedAt: row.completed_at || undefined,
+              completedBy: row.completed_by || undefined,
+              completedByName: row.completed_by_name || undefined,
+              completionNote: row.completion_note || undefined,
+              completionPhotos: Array.isArray(row.completion_photos) ? row.completion_photos : [],
+            }));
+            await setLocal(localKey, mapped);
+            return mapped;
+          }
+          const slot = await loadChunkedSlot<LocationItem[]>(11);
+          if (slot.data && Array.isArray(slot.data) && slot.data.length > 0) {
+            await setLocal(localKey, slot.data);
+            return slot.data;
+          }
+        }
+
         const { data, error } = await supabase
           .from('locations')
           .select('*')
@@ -254,6 +325,13 @@ export const StorageService = {
           completion_note: loc.completionNote || null,
           completion_photos: loc.completionPhotos || [],
         }));
+
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/locations/upsert', { rows });
+          await saveChunkedSlot(11, locations);
+          return;
+        }
+
         await supabase.from('locations').upsert(rows);
       } else {
         await saveChunkedSlot(this.getSlotId(11), locations);
@@ -270,6 +348,11 @@ export const StorageService = {
     await setLocal(localKey, updated);
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/locations/delete', { ids: [id] });
+          await saveChunkedSlot(11, updated);
+          return;
+        }
         await supabase.from('locations').delete().eq('id', id);
       } else {
         await saveChunkedSlot(this.getSlotId(11), updated);
@@ -284,6 +367,34 @@ export const StorageService = {
     const localKey = `@services_${activeCompanyCode}`;
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        if (MobileServerConfigService.isLocalMode()) {
+          const res = await localApiGet<any[]>('/api/tables/services');
+          if (res && Array.isArray(res) && res.length > 0) {
+            const mapped: ServiceItem[] = res.map((r) => ({
+              id: r.id,
+              companyName: r.company_name,
+              cariName: r.cari_name || undefined,
+              location: r.location || '',
+              latitude: r.latitude || undefined,
+              longitude: r.longitude || undefined,
+              workDone: r.work_done || '',
+              date: r.date || '',
+              photos: Array.isArray(r.photos) ? r.photos : [],
+              createdAt: Number(r.created_at) || Date.now(),
+              createdBy: r.created_by || '',
+              createdByName: r.created_by_name || '',
+              status: r.status || 'pending',
+            }));
+            await setLocal(localKey, mapped);
+            return mapped;
+          }
+          const slot = await loadChunkedSlot<ServiceItem[]>(3);
+          if (slot.data && Array.isArray(slot.data) && slot.data.length > 0) {
+            await setLocal(localKey, slot.data);
+            return slot.data;
+          }
+        }
+
         const { data, error } = await supabase
           .from('services')
           .select('*')
@@ -342,6 +453,13 @@ export const StorageService = {
           created_by_name: s.createdByName || null,
           status: s.status || 'pending',
         }));
+
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/services/upsert', { rows });
+          await saveChunkedSlot(3, services);
+          return;
+        }
+
         await supabase.from('services').upsert(rows);
       } else {
         await saveChunkedSlot(this.getSlotId(3), services);
@@ -358,6 +476,11 @@ export const StorageService = {
     await setLocal(localKey, updated);
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/services/delete', { ids: [id] });
+          await saveChunkedSlot(3, updated);
+          return;
+        }
         await supabase.from('services').delete().eq('id', id);
       } else {
         await saveChunkedSlot(this.getSlotId(3), updated);
@@ -371,7 +494,7 @@ export const StorageService = {
   async getAttendanceRecords(): Promise<AttendanceRecord[]> {
     const localKey = `@attendance_${activeCompanyCode}`;
     try {
-      const slot = await loadChunkedSlot<AttendanceRecord[]>(this.getSlotId(8));
+      const slot = await loadChunkedSlot<AttendanceRecord[]>(this.getSlotId(6));
       if (slot.data && slot.data.length > 0) {
         await setLocal(localKey, slot.data);
         return slot.data;
@@ -515,7 +638,7 @@ export const StorageService = {
   async saveAttendanceRecords(records: AttendanceRecord[]): Promise<void> {
     const localKey = `@attendance_${activeCompanyCode}`;
     await setLocal(localKey, records);
-    await saveChunkedSlot(this.getSlotId(8), records);
+    await saveChunkedSlot(this.getSlotId(6), records);
   },
 
   // 4. WORKPLACE LOCATION (İşyeri Konumu & Çemberi)
@@ -644,7 +767,7 @@ export const StorageService = {
   async getLeaveRequests(): Promise<LeaveRequest[]> {
     const localKey = `@leave_requests_${activeCompanyCode}`;
     try {
-      const slot = await loadChunkedSlot<LeaveRequest[]>(this.getSlotId(12));
+      const slot = await loadChunkedSlot<LeaveRequest[]>(this.getSlotId(10));
       if (slot.data) {
         await setLocal(localKey, slot.data);
         return slot.data;
@@ -658,7 +781,7 @@ export const StorageService = {
   async saveLeaveRequests(requests: LeaveRequest[]): Promise<void> {
     const localKey = `@leave_requests_${activeCompanyCode}`;
     await setLocal(localKey, requests);
-    await saveChunkedSlot(this.getSlotId(12), requests);
+    await saveChunkedSlot(this.getSlotId(10), requests);
   },
 
   // 7. RETURN & WARRANTY (İade & Garanti)
@@ -673,6 +796,44 @@ export const StorageService = {
             fallbackItems = slot.data;
           }
         } catch {}
+
+        if (MobileServerConfigService.isLocalMode()) {
+          const res = await localApiGet<any[]>('/api/tables/return_warranty');
+          if (res && Array.isArray(res) && res.length > 0) {
+            const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
+            const mapped: ReturnWarrantyItem[] = res.map((r) => {
+              const fb = fallbackMap.get(r.id);
+              return {
+                id: r.id,
+                type: r.type || 'warranty',
+                companyName: r.company_name,
+                cariName: r.cari_name || fb?.cariName || undefined,
+                sentDate: r.sent_date,
+                serialNumber: r.serial_number || fb?.serialNumber || '',
+                trackingCode: r.tracking_code || fb?.trackingCode || '',
+                serialNumberPhoto: r.serial_number_photo || fb?.serialNumberPhoto || undefined,
+                trackingCodePhoto: r.tracking_code_photo || fb?.trackingCodePhoto || undefined,
+                notes: r.notes || fb?.notes || '',
+                status: r.status || 'pending',
+                reminderDate: r.reminder_date || fb?.reminderDate || undefined,
+                reminderActive: r.reminder_active || false,
+                notified: r.notified || false,
+                createdAt: Number(r.created_at) || Date.now(),
+                createdBy: r.created_by || '',
+                createdByName: r.created_by_name || '',
+              };
+            });
+            const cloudIds = new Set(mapped.map((c) => c.id));
+            const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
+            const merged = [...mapped, ...missingFallback];
+            await setLocal(localKey, merged);
+            return merged;
+          }
+          if (fallbackItems.length > 0) {
+            await setLocal(localKey, fallbackItems);
+            return fallbackItems;
+          }
+        }
 
         const { data, error } = await supabase
           .from('return_warranty')
@@ -756,6 +917,13 @@ export const StorageService = {
           created_by: i.createdBy || null,
           created_by_name: i.createdByName || null,
         }));
+
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/return_warranty/upsert', { rows });
+          await saveChunkedSlot(this.getSlotId(2), items);
+          return;
+        }
+
         await supabase.from('return_warranty').upsert(rows);
       } else {
         await saveChunkedSlot(this.getSlotId(2), items);
@@ -796,14 +964,66 @@ export const StorageService = {
     const deletedIds = await this.getDeletedNoteIds();
     try {
       if (activeCompanyCode === 'POLATLAR') {
-        // 1. Fetch fallback cloud sync slot (standard_tasks id: 4)
+        // 1. Fetch fallback sync slot (standard_tasks id: 4)
         let fallbackNotes: GeneralNote[] = [];
         const stFallback = await loadChunkedSlot<GeneralNote[]>(4);
         if (stFallback.data && Array.isArray(stFallback.data)) {
           fallbackNotes = stFallback.data.filter((n) => !deletedIds.has(n.id));
         }
 
-        // 2. Try fetching from Supabase native notes table
+        // Yerel Sunucu (Local Mode)
+        if (MobileServerConfigService.isLocalMode()) {
+          const res = await localApiGet<any[]>('/api/tables/notes');
+          if (res && Array.isArray(res) && res.length > 0) {
+            const validRows = res.filter((r: any) => !deletedIds.has(r.id));
+            const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
+            const mapped: GeneralNote[] = validRows.map((r: any) => {
+              const fb = fallbackMap.get(r.id);
+              return {
+                id: r.id,
+                content: r.content,
+                cariName: fb?.cariName || r.cari_name || undefined,
+                createdAt: Number(r.created_at) || Date.now(),
+                createdBy: r.created_by || undefined,
+                createdByName: r.created_by_name || undefined,
+                targetMode: r.target_mode || 'self',
+                targetUserIds: Array.isArray(r.target_user_ids) ? r.target_user_ids : [],
+                targetUserNames: Array.isArray(r.target_user_names) ? r.target_user_names : [],
+                targetUserId: r.target_user_id || undefined,
+                targetUserName: r.target_user_name || undefined,
+                reminderActive: Boolean(r.reminder_active),
+                reminderDate: r.reminder_date || undefined,
+                notified: Boolean(r.notified),
+                photos: fb?.photos && fb.photos.length > 0 ? fb.photos : (Array.isArray(r.photos) ? r.photos : []),
+                completionPhotos: fb?.completionPhotos && fb.completionPhotos.length > 0 ? fb.completionPhotos : (Array.isArray(r.completion_photos) ? r.completion_photos : []),
+                status: fb?.status || r.status || 'pending',
+                completedAt: fb?.completedAt || (r.completed_at ? Number(r.completed_at) : undefined),
+                completedBy: fb?.completedBy || r.completed_by || undefined,
+                completedByName: fb?.completedByName || r.completed_by_name || undefined,
+                completionNote: fb?.completionNote || r.completion_note || undefined,
+                approvedAt: fb?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
+                approvedBy: fb?.approvedBy || r.approved_by || undefined,
+                approvedByName: fb?.approvedByName || r.approved_by_name || undefined,
+                rejectedAt: fb?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
+                rejectedBy: fb?.rejectedBy || r.rejected_by || undefined,
+                rejectedByName: fb?.rejectedByName || r.rejected_by_name || undefined,
+                rejectionReason: fb?.rejectionReason || r.rejection_reason || undefined,
+              };
+            });
+            const dataIds = new Set(validRows.map((r: any) => r.id));
+            const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id));
+            const merged = [...mapped.filter((n) => !deletedIds.has(n.id)), ...missingFallback];
+            await setLocal(localKey, merged);
+            return merged;
+          }
+          if (fallbackNotes.length > 0) {
+            const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id));
+            await setLocal(localKey, filtered);
+            return filtered;
+          }
+        }
+
+        // Supabase Bulut
         const { data, error } = await supabase
           .from('notes')
           .select('*')
@@ -911,6 +1131,14 @@ export const StorageService = {
           rejected_by_name: n.rejectedByName || null,
           rejection_reason: n.rejectionReason || null,
         }));
+
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/notes/upsert', { rows });
+          await saveChunkedSlot(4, notes);
+          await saveChunkedSlot(this.getSlotId(4), notes);
+          return;
+        }
+
         const { error: upsertErr } = await supabase.from('notes').upsert(rows);
         if (upsertErr) {
           console.warn('mobil saveNotes primary upsert error, falling back to basic columns:', upsertErr);
@@ -961,6 +1189,14 @@ export const StorageService = {
     await setLocal(localKey, updated);
     try {
       if (activeCompanyCode === 'POLATLAR') {
+        if (MobileServerConfigService.isLocalMode()) {
+          await localApiPost('/api/tables/notes/delete', { ids: [id] });
+          const slot4 = await loadChunkedSlot<GeneralNote[]>(4);
+          if (slot4.data && Array.isArray(slot4.data)) {
+            await saveChunkedSlot(4, slot4.data.filter((n) => n.id !== id));
+          }
+          return;
+        }
         await supabase.from('notes').delete().eq('id', id);
         const slot4 = await loadChunkedSlot<GeneralNote[]>(4);
         if (slot4.data && Array.isArray(slot4.data)) {

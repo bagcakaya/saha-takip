@@ -105,9 +105,47 @@ export default async function handler(req, res) {
       payload.target_channel = 'push';
     }
 
+    const companyCode = (payload.companyCode || '').trim().toUpperCase();
+
+    // Resolve targetMode: 'admin' or 'all' if no explicit recipients provided
+    if (!payload.include_player_ids && !payload.include_aliases && !payload.filters) {
+      const targetCompany = companyCode || 'POLATLAR';
+      const cleanExcludeUserIds = Array.isArray(payload.excludeUserIds)
+        ? payload.excludeUserIds.map((u) => String(u).trim()).filter(Boolean)
+        : [];
+
+      if (payload.targetMode === 'admin') {
+        const adminFilters = [
+          { field: 'tag', key: 'company_code', relation: '=', value: targetCompany },
+          { field: 'tag', key: 'role', relation: '=', value: 'admin' },
+        ];
+        if (targetCompany !== 'POLATLAR') {
+          adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
+        } else {
+          adminFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
+        }
+        cleanExcludeUserIds.forEach((uid) => {
+          adminFilters.push({ field: 'tag', key: 'userId', relation: '!=', value: uid });
+        });
+        payload.filters = adminFilters;
+      } else if (payload.targetMode === 'all') {
+        const allFilters = [
+          { field: 'tag', key: 'company_code', relation: '=', value: targetCompany },
+        ];
+        if (targetCompany !== 'POLATLAR') {
+          allFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'POLATLAR' });
+        } else {
+          allFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
+        }
+        cleanExcludeUserIds.forEach((uid) => {
+          allFilters.push({ field: 'tag', key: 'userId', relation: '!=', value: uid });
+        });
+        payload.filters = allFilters;
+      }
+    }
+
     // STRICT MULTI-TENANT ISOLATION BARRIER
     // Guarantees zero cross-company notification leak on the serverless edge
-    const companyCode = (payload.companyCode || '').trim().toUpperCase();
     if (companyCode) {
       const polatlarSubs = [
         '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
@@ -216,7 +254,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const response = await fetch('https://onesignal.com/api/v1/notifications', {
+    let response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
@@ -225,7 +263,42 @@ export default async function handler(req, res) {
       body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    let data = await response.json().catch(() => ({}));
+
+    // Fallback for admin notifications if tag filter fails or delivers to 0
+    if ((!response.ok || (data && data.errors && !data.id)) && payload.targetMode === 'admin') {
+      const cleanExclude = Array.isArray(payload.excludeUserIds) ? payload.excludeUserIds : [];
+      let fallbackAdmins = [];
+      if (companyCode === 'POLATLAR' || !companyCode) {
+        fallbackAdmins = ['admin-root', 'mtjsnufrp8pfa'];
+      } else if (companyCode === 'NESACOCUK') {
+        fallbackAdmins = ['mukze67k3ajwq'];
+      }
+      fallbackAdmins = fallbackAdmins.filter((id) => !cleanExclude.includes(id));
+
+      if (fallbackAdmins.length > 0) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.filters;
+        fallbackPayload.include_aliases = { external_id: fallbackAdmins };
+        fallbackPayload.target_channel = 'push';
+
+        const fbResponse = await fetch('https://onesignal.com/api/v1/notifications', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Authorization: 'Basic ' + getApiKey(),
+          },
+          body: JSON.stringify(fallbackPayload),
+        });
+        const fbData = await fbResponse.json().catch(() => ({}));
+        if (fbData && fbData.id) {
+          delete fbData.errors;
+          res.status(200).json(fbData);
+          return;
+        }
+      }
+    }
+
     if (data && data.id) {
       delete data.errors;
       res.status(200).json(data);

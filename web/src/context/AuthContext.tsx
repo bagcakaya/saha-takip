@@ -6,6 +6,7 @@ import { StorageService } from '../services/storageService';
 import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
 import { DeviceService } from '../services/deviceService';
+import { ServerConfigService } from '../services/serverConfigService';
 
 interface AuthContextType {
   user: User | null;
@@ -342,8 +343,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
       .subscribe();
 
+    const userPollTimer = setInterval(async () => {
+      if (ServerConfigService.isLocalMode()) {
+        try {
+          const freshUsers = await UserService.fetchUsersFromCloud();
+          setUsers(freshUsers);
+          syncCurrentSession(freshUsers);
+        } catch {
+          // ignore
+        }
+      }
+    }, 25000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(userPollTimer);
     };
   }, []);
 

@@ -22,7 +22,7 @@ import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
 import defaultCarilerData from '../data/cariler.json';
-import { ServerConfigService } from './serverConfigService';
+import { ServerConfigService, getResolvedApiUrl } from './serverConfigService';
 
 const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
@@ -197,50 +197,72 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
   }
 }
 
+async function localApiGet<T>(endpoint: string): Promise<T | null> {
+  const apiUrl = ServerConfigService.getActiveApiUrl();
+  if (!apiUrl) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
+    const res = await fetch(resolvedUrl, {
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn(`[Yerel Sunucu] GET ${endpoint} hatası:`, err);
+  }
+  return null;
+}
+
+async function localApiPost(endpoint: string, body: any): Promise<boolean> {
+  const apiUrl = ServerConfigService.getActiveApiUrl();
+  if (!apiUrl) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
+    const res = await fetch(resolvedUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch (err) {
+    console.warn(`[Yerel Sunucu] POST ${endpoint} hatası:`, err);
+  }
+  return false;
+}
+
 // Helper to load chunked JSON from standard_tasks slot
 async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; notFound: boolean }> {
   // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
   if (ServerConfigService.isLocalMode()) {
-    const apiUrl = ServerConfigService.getActiveApiUrl();
-    if (apiUrl) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        const res = await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' },
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const json = await res.json();
-          if (json && !json.notFound && json.tasks) {
-            let parsed: any = json.tasks;
-            if (Array.isArray(json.tasks) && json.tasks.length > 0 && typeof json.tasks[0] === 'string' && json.tasks[0].startsWith('[')) {
-              try {
-                parsed = JSON.parse(json.tasks.join(''));
-              } catch {
-                parsed = json.tasks;
-              }
-            } else if (typeof json.tasks === 'string') {
-              try {
-                parsed = JSON.parse(json.tasks);
-              } catch {
-                parsed = json.tasks;
-              }
-            }
-            return { data: parsed as T, notFound: false };
-          }
-          if (json && json.notFound) {
-            return { data: null, notFound: true };
-          }
-        } else if (res.status === 404) {
-          return { data: null, notFound: true };
+    const json = await localApiGet<any>(`/api/standard_tasks/${slotId}`);
+    if (json && !json.notFound && json.tasks) {
+      let parsed: any = json.tasks;
+      if (Array.isArray(json.tasks) && json.tasks.length > 0 && typeof json.tasks[0] === 'string' && json.tasks[0].startsWith('[')) {
+        try {
+          parsed = JSON.parse(json.tasks.join(''));
+        } catch {
+          parsed = json.tasks;
         }
-      } catch (err) {
-        console.warn(`[Yerel Sunucu] Slot ${slotId} yüklenemedi, buluta geçiliyor:`, err);
+      } else if (typeof json.tasks === 'string') {
+        try {
+          parsed = JSON.parse(json.tasks);
+        } catch {
+          parsed = json.tasks;
+        }
       }
+      return { data: parsed as T, notFound: false };
     }
+    if (json && json.notFound) {
+      return { data: null, notFound: true };
+    }
+    return { data: null, notFound: false };
   }
 
   // 2. Bulut (Supabase Cloud)
@@ -283,25 +305,11 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
 
   // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
   if (ServerConfigService.isLocalMode()) {
-    const apiUrl = ServerConfigService.getActiveApiUrl();
-    if (apiUrl) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasks: chunks }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-      } catch (err) {
-        console.warn(`[Yerel Sunucu] Slot ${slotId} kaydedilemedi, buluta aktarılıyor:`, err);
-      }
-    }
+    await localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks });
+    return;
   }
 
-  // 2. Bulut (Supabase Cloud) - Her zaman buluta da yazarak senkronizasyonu garanti et (Dual-Write)
+  // 2. Bulut (Supabase Cloud)
   try {
     await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
   } catch (err) {
@@ -455,7 +463,56 @@ export const StorageService = {
       const fallbackLocations = (await loadChunkedSlot<LocationItem[]>(11)).data || [];
       const fallbackMap = new Map(fallbackLocations.map((l) => [l.id, l]));
 
-      // Primary POLATLAR table in Supabase
+      // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+      if (ServerConfigService.isLocalMode()) {
+        const res = await localApiGet<any[]>('/api/tables/locations');
+        if (res && Array.isArray(res) && res.length > 0) {
+          const cloudLocations: LocationItem[] = res.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              name: row.name,
+              cariName: row.cari_name || undefined,
+              address: row.address || '',
+              notes: row.notes || '',
+              photos: Array.isArray(row.photos) ? row.photos : [],
+              latitude: row.latitude || undefined,
+              longitude: row.longitude || undefined,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              tasks: Array.isArray(row.tasks) ? row.tasks : [],
+              status: (row as any).status || fb?.status || 'pending',
+              completedAt: (row as any).completed_at || fb?.completedAt,
+              completedBy: (row as any).completed_by || fb?.completedBy,
+              completedByName: (row as any).completed_by_name || fb?.completedByName,
+              completionNote: (row as any).completion_note || fb?.completionNote,
+              completionPhotos: Array.isArray((row as any).completion_photos)
+                ? (row as any).completion_photos
+                : fb?.completionPhotos || [],
+              approvedAt: (row as any).approved_at || fb?.approvedAt,
+              approvedBy: (row as any).approved_by || fb?.approvedBy,
+              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
+              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
+              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
+              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
+              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
+            };
+          });
+
+          await saveItem(localKey, cloudLocations);
+          return cloudLocations;
+        }
+
+        if (fallbackLocations.length > 0) {
+          await saveItem(localKey, fallbackLocations);
+          return fallbackLocations;
+        }
+
+        return (await loadItem<LocationItem[]>(localKey)) || [];
+      }
+
+      // 2. Primary POLATLAR table in Supabase
       try {
         const { data, error } = await supabase
           .from('locations')
@@ -526,41 +583,51 @@ export const StorageService = {
   },
 
   /**
-   * Saves locations to local cache and syncs with Supabase
+   * Saves locations to local cache and syncs with server
    */
   async saveLocations(locations: LocationItem[]): Promise<void> {
     const localKey = this.getStorageKey(LOCATIONS_KEY);
     await saveItem(localKey, locations);
 
     if (activeCompanyCode === 'POLATLAR') {
-      try {
-        const fullRows = locations.map((loc) => ({
-          id: loc.id,
-          name: loc.name,
-          address: loc.address || '',
-          notes: loc.notes || '',
-          photos: loc.photos || [],
-          latitude: loc.latitude || null,
-          longitude: loc.longitude || null,
-          created_at: loc.createdAt,
-          created_by: loc.createdBy || null,
-          created_by_name: loc.createdByName || null,
-          tasks: loc.tasks || [],
-          status: loc.status || 'pending',
-          completed_at: loc.completedAt || null,
-          completed_by: loc.completedBy || null,
-          completed_by_name: loc.completedByName || null,
-          completion_note: loc.completionNote || null,
-          completion_photos: loc.completionPhotos || [],
-          approved_at: loc.approvedAt || null,
-          approved_by: loc.approvedBy || null,
-          approved_by_name: loc.approvedByName || null,
-          rejected_at: loc.rejectedAt || null,
-          rejected_by: loc.rejectedBy || null,
-          rejected_by_name: loc.rejectedByName || null,
-          rejection_reason: loc.rejectionReason || null,
-        }));
+      const fullRows = locations.map((loc) => ({
+        id: loc.id,
+        name: loc.name,
+        address: loc.address || '',
+        notes: loc.notes || '',
+        photos: loc.photos || [],
+        latitude: loc.latitude || null,
+        longitude: loc.longitude || null,
+        created_at: loc.createdAt,
+        created_by: loc.createdBy || null,
+        created_by_name: loc.createdByName || null,
+        tasks: loc.tasks || [],
+        status: loc.status || 'pending',
+        completed_at: loc.completedAt || null,
+        completed_by: loc.completedBy || null,
+        completed_by_name: loc.completedByName || null,
+        completion_note: loc.completionNote || null,
+        completion_photos: loc.completionPhotos || [],
+        approved_at: loc.approvedAt || null,
+        approved_by: loc.approvedBy || null,
+        approved_by_name: loc.approvedByName || null,
+        rejected_at: loc.rejectedAt || null,
+        rejected_by: loc.rejectedBy || null,
+        rejected_by_name: loc.rejectedByName || null,
+        rejection_reason: loc.rejectionReason || null,
+      }));
 
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        if (fullRows.length > 0) {
+          await localApiPost('/api/tables/locations/upsert', { rows: fullRows });
+        }
+        await saveChunkedSlot(11, locations);
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
+      try {
         if (fullRows.length > 0) {
           const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
           if (upsertErr) {
@@ -600,6 +667,32 @@ export const StorageService = {
     } else {
       // Isolated chunked slot 11 for other companies
       await saveChunkedSlot(this.getSlotId(11), locations);
+    }
+  },
+
+  /**
+   * Deletes a location by id across local cache, SQL Server, and cloud
+   */
+  async deleteLocation(id: string): Promise<void> {
+    const localKey = this.getStorageKey(LOCATIONS_KEY);
+    const current = (await loadItem<LocationItem[]>(localKey)) || [];
+    const updated = current.filter((l) => l.id !== id);
+    await saveItem(localKey, updated);
+
+    if (activeCompanyCode === 'POLATLAR') {
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/locations/delete', { ids: [id] });
+        await saveChunkedSlot(11, updated);
+        return;
+      }
+      try {
+        await supabase.from('locations').delete().eq('id', id);
+        await saveChunkedSlot(11, updated);
+      } catch (e) {
+        console.warn('deleteLocation error:', e);
+      }
+    } else {
+      await saveChunkedSlot(this.getSlotId(11), updated);
     }
   },
 
@@ -661,11 +754,7 @@ export const StorageService = {
   async saveStandardTasks(tasks: string[]): Promise<void> {
     const localKey = this.getStorageKey(STANDARD_TASKS_KEY);
     await saveItem(localKey, tasks);
-    try {
-      await supabase.from('standard_tasks').upsert({ id: this.getSlotId(1), tasks });
-    } catch (err) {
-      console.warn('Supabase save standard tasks error:', err);
-    }
+    await saveChunkedSlot(this.getSlotId(1), tasks);
   },
 
   getDeletedNotesStorageKey(): string {
@@ -725,7 +814,68 @@ export const StorageService = {
         fallbackNotes = stFallback.data.filter((n) => !deletedIds.has(n.id));
       }
 
-      // 2. Try fetching from Supabase native notes table
+      // 2. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+      if (ServerConfigService.isLocalMode()) {
+        const serverRows = await localApiGet<any[]>('/api/tables/notes');
+        if (serverRows && Array.isArray(serverRows)) {
+          const validRows = serverRows.filter((r) => !deletedIds.has(r.id));
+          const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
+          const mergedNotes: GeneralNote[] = validRows.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              content: row.content,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              targetMode: row.target_mode || 'self',
+              targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
+              targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
+              targetUserId: row.target_user_id || undefined,
+              targetUserName: row.target_user_name || undefined,
+              reminderActive: Boolean(row.reminder_active),
+              reminderDate: row.reminder_date || undefined,
+              notified: Boolean(row.notified),
+              cariName: fb?.cariName || (row as any).cari_name || undefined,
+              photos: fb?.photos || (row as any).photos || [],
+              completionPhotos: fb?.completionPhotos || (row as any).completion_photos || [],
+              status: fb?.status || (row as any).status || 'pending',
+              completedAt: fb?.completedAt || (row.completed_at ? Number(row.completed_at) : undefined),
+              completedBy: fb?.completedBy || row.completed_by || undefined,
+              completedByName: fb?.completedByName || row.completed_by_name || undefined,
+              completionNote: fb?.completionNote || row.completion_note || undefined,
+              approvedAt: fb?.approvedAt || (row.approved_at ? Number(row.approved_at) : undefined),
+              approvedBy: fb?.approvedBy || row.approved_by || undefined,
+              approvedByName: fb?.approvedByName || row.approved_by_name || undefined,
+              rejectedAt: fb?.rejectedAt || (row.rejected_at ? Number(row.rejected_at) : undefined),
+              rejectedBy: fb?.rejectedBy || row.rejected_by || undefined,
+              rejectedByName: fb?.rejectedByName || row.rejected_by_name || undefined,
+              rejectionReason: fb?.rejectionReason || row.rejection_reason || undefined,
+              processedAt: fb?.processedAt || (row.processed_at ? Number(row.processed_at) : undefined),
+              processedBy: fb?.processedBy || (row as any).processed_by || undefined,
+              processedByName: fb?.processedByName || (row as any).processed_by_name || undefined,
+            };
+          });
+
+          const dataIds = new Set(validRows.map((r) => r.id));
+          const missingFromTable = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id));
+          const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
+
+          await saveItem(localKey, finalNotes);
+          return finalNotes;
+        }
+
+        if (fallbackNotes.length > 0) {
+          const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id));
+          await saveItem(localKey, filtered);
+          return filtered;
+        }
+
+        const localCached = (await loadItem<GeneralNote[]>(localKey)) || [];
+        return localCached.filter((n) => !deletedIds.has(n.id));
+      }
+
+      // 3. Try fetching from Supabase native notes table
       try {
         const { data, error } = await supabase
           .from('notes')
@@ -832,7 +982,7 @@ export const StorageService = {
   },
 
   /**
-   * Saves notes to local cache and syncs with Supabase
+   * Saves notes to local cache and syncs with server
    */
   async saveNotes(notes: GeneralNote[]): Promise<void> {
     const deletedIds = await this.getDeletedNoteIds();
@@ -841,36 +991,46 @@ export const StorageService = {
     await saveItem(localKey, cleanNotes);
 
     if (activeCompanyCode === 'POLATLAR') {
-      try {
-        const fullRows = cleanNotes.map((n) => ({
-          id: n.id,
-          content: n.content,
-          cari_name: n.cariName || null,
-          created_at: n.createdAt,
-          created_by: n.createdBy || null,
-          created_by_name: n.createdByName || null,
-          target_mode: n.targetMode || 'self',
-          target_user_ids: n.targetUserIds || [],
-          target_user_names: n.targetUserNames || [],
-          target_user_id: n.targetUserId || null,
-          target_user_name: n.targetUserName || null,
-          reminder_active: n.reminderActive,
-          reminder_date: n.reminderDate || null,
-          notified: n.notified || false,
-          status: n.status || 'pending',
-          completed_at: n.completedAt || null,
-          completed_by: n.completedBy || null,
-          completed_by_name: n.completedByName || null,
-          completion_note: n.completionNote || null,
-          approved_at: n.approvedAt || null,
-          approved_by: n.approvedBy || null,
-          approved_by_name: n.approvedByName || null,
-          rejected_at: n.rejectedAt || null,
-          rejected_by: n.rejectedBy || null,
-          rejected_by_name: n.rejectedByName || null,
-          rejection_reason: n.rejectionReason || null,
-        }));
+      const fullRows = cleanNotes.map((n) => ({
+        id: n.id,
+        content: n.content,
+        cari_name: n.cariName || null,
+        created_at: n.createdAt,
+        created_by: n.createdBy || null,
+        created_by_name: n.createdByName || null,
+        target_mode: n.targetMode || 'self',
+        target_user_ids: n.targetUserIds || [],
+        target_user_names: n.targetUserNames || [],
+        target_user_id: n.targetUserId || null,
+        target_user_name: n.targetUserName || null,
+        reminder_active: n.reminderActive,
+        reminder_date: n.reminderDate || null,
+        notified: n.notified || false,
+        status: n.status || 'pending',
+        completed_at: n.completedAt || null,
+        completed_by: n.completedBy || null,
+        completed_by_name: n.completedByName || null,
+        completion_note: n.completionNote || null,
+        approved_at: n.approvedAt || null,
+        approved_by: n.approvedBy || null,
+        approved_by_name: n.approvedByName || null,
+        rejected_at: n.rejectedAt || null,
+        rejected_by: n.rejectedBy || null,
+        rejected_by_name: n.rejectedByName || null,
+        rejection_reason: n.rejectionReason || null,
+      }));
 
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        if (fullRows.length > 0) {
+          await localApiPost('/api/tables/notes/upsert', { rows: fullRows });
+        }
+        await saveChunkedSlot(4, cleanNotes);
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
+      try {
         if (fullRows.length > 0) {
           const { error: upsertErr } = await supabase.from('notes').upsert(fullRows);
           if (upsertErr) {
@@ -943,8 +1103,18 @@ export const StorageService = {
     const updatedNotes = currentNotes.filter((n) => n.id !== id);
     await saveItem(localKey, updatedNotes);
 
-    // 2. Cloud delete
+    // 2. Server / Cloud delete
     if (activeCompanyCode === 'POLATLAR') {
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/notes/delete', { ids: [id] });
+        const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
+        if (slot4Data && Array.isArray(slot4Data)) {
+          const cleaned = slot4Data.filter((n) => n.id !== id);
+          await saveChunkedSlot(4, cleaned);
+        }
+        return;
+      }
+
       try {
         await supabase.from('notes').delete().eq('id', id);
       } catch (e) {
@@ -1009,7 +1179,7 @@ export const StorageService = {
   },
 
   /**
-   * Atomically saves a single note to local cache and Supabase without overwriting other notes
+   * Atomically saves a single note to local cache and server without overwriting other notes
    */
   async saveSingleNote(note: GeneralNote): Promise<void> {
     await this.unmarkNoteAsDeleted(note.id);
@@ -1026,8 +1196,17 @@ export const StorageService = {
     await saveItem(localKey, updated);
 
     if (activeCompanyCode === 'POLATLAR') {
+      const row = this.mapNoteToRow(note);
+
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/notes/upsert', { rows: [row] });
+        saveChunkedSlot(4, updated).catch(() => {});
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
       try {
-        const row = this.mapNoteToRow(note);
         const { error: singleErr } = await supabase.from('notes').upsert([row]);
         if (singleErr) {
           console.warn('saveSingleNote primary upsert error, falling back to basic columns:', singleErr);
@@ -1070,7 +1249,7 @@ export const StorageService = {
   },
 
   /**
-   * Atomically saves multiple notes to local cache and Supabase in a single batch
+   * Atomically saves multiple notes to local cache and server in a single batch
    */
   async saveMultipleNotes(notesToSave: GeneralNote[]): Promise<void> {
     if (!notesToSave || notesToSave.length === 0) return;
@@ -1086,8 +1265,17 @@ export const StorageService = {
     await saveItem(localKey, updated);
 
     if (activeCompanyCode === 'POLATLAR') {
+      const rows = notesToSave.map((n) => this.mapNoteToRow(n));
+
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/notes/upsert', { rows });
+        saveChunkedSlot(4, updated).catch(() => {});
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
       try {
-        const rows = notesToSave.map((n) => this.mapNoteToRow(n));
         const { error: batchErr } = await supabase.from('notes').upsert(rows);
         if (batchErr) {
           console.warn('saveMultipleNotes primary upsert error, falling back to basic columns:', batchErr);
@@ -1142,6 +1330,53 @@ export const StorageService = {
         fallbackItems = stFallback.data;
       }
 
+      // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+      if (ServerConfigService.isLocalMode()) {
+        const res = await localApiGet<any[]>('/api/tables/return_warranty');
+        if (res && Array.isArray(res) && res.length > 0) {
+          const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
+          const cloudItems: ReturnWarrantyItem[] = res.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              type: row.type as any,
+              companyName: row.company_name,
+              cariName: fb?.cariName || (row as any).cari_name || undefined,
+              sentDate: row.sent_date,
+              serialNumber: row.serial_number || undefined,
+              trackingCode: row.tracking_code || undefined,
+              serialNumberPhoto: row.serial_number_photo || fb?.serialNumberPhoto || undefined,
+              trackingCodePhoto: row.tracking_code_photo || fb?.trackingCodePhoto || undefined,
+              notes: row.notes || undefined,
+              status: row.status as any,
+              reminderDate: row.reminder_date || undefined,
+              reminderActive: Boolean(row.reminder_active),
+              notified: Boolean(row.notified),
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              followUpNote: (row as any).follow_up_note || fb?.followUpNote || undefined,
+              followUpDate: (row as any).follow_up_date || fb?.followUpDate || undefined,
+              followUpByName: (row as any).follow_up_by_name || fb?.followUpByName || undefined,
+            };
+          });
+
+          const cloudIds = new Set(cloudItems.map((c) => c.id));
+          const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
+          const mergedItems = [...cloudItems, ...missingFallback];
+
+          await saveItem(localKey, mergedItems);
+          return mergedItems;
+        }
+
+        if (fallbackItems.length > 0) {
+          await saveItem(localKey, fallbackItems);
+          return fallbackItems;
+        }
+        return (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
+      }
+
+      // 2. Primary POLATLAR table in Supabase
       try {
         const { data, error } = await supabase
           .from('return_warranty')
@@ -1216,37 +1451,47 @@ export const StorageService = {
   },
 
   /**
-   * Saves return & warranty items to local cache and syncs with Supabase
+   * Saves return & warranty items to local cache and syncs with server
    */
   async saveReturnWarrantyItems(items: ReturnWarrantyItem[]): Promise<void> {
     const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
-      try {
-        const fullRows = items.map((item) => ({
-          id: item.id,
-          type: item.type,
-          company_name: item.companyName,
-          cari_name: item.cariName || null,
-          sent_date: item.sentDate,
-          serial_number: item.serialNumber || null,
-          tracking_code: item.trackingCode || null,
-          serial_number_photo: item.serialNumberPhoto || null,
-          tracking_code_photo: item.trackingCodePhoto || null,
-          notes: item.notes || null,
-          status: item.status,
-          reminder_date: item.reminderDate || null,
-          reminder_active: item.reminderActive,
-          notified: item.notified || false,
-          created_at: item.createdAt,
-          created_by: item.createdBy || null,
-          created_by_name: item.createdByName || null,
-          follow_up_note: item.followUpNote || null,
-          follow_up_date: item.followUpDate || null,
-          follow_up_by_name: item.followUpByName || null,
-        }));
+      const fullRows = items.map((item) => ({
+        id: item.id,
+        type: item.type,
+        company_name: item.companyName,
+        cari_name: item.cariName || null,
+        sent_date: item.sentDate,
+        serial_number: item.serialNumber || null,
+        tracking_code: item.trackingCode || null,
+        serial_number_photo: item.serialNumberPhoto || null,
+        tracking_code_photo: item.trackingCodePhoto || null,
+        notes: item.notes || null,
+        status: item.status,
+        reminder_date: item.reminderDate || null,
+        reminder_active: item.reminderActive,
+        notified: item.notified || false,
+        created_at: item.createdAt,
+        created_by: item.createdBy || null,
+        created_by_name: item.createdByName || null,
+        follow_up_note: item.followUpNote || null,
+        follow_up_date: item.followUpDate || null,
+        follow_up_by_name: item.followUpByName || null,
+      }));
 
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        if (fullRows.length > 0) {
+          await localApiPost('/api/tables/return_warranty/upsert', { rows: fullRows });
+        }
+        await saveChunkedSlot(2, items);
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
+      try {
         if (fullRows.length > 0) {
           const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
           if (upsertErr) {
@@ -1295,6 +1540,32 @@ export const StorageService = {
   },
 
   /**
+   * Deletes a return warranty item across local cache and server
+   */
+  async deleteReturnWarrantyItem(id: string): Promise<void> {
+    const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
+    const current = (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
+    const updated = current.filter((r) => r.id !== id);
+    await saveItem(localKey, updated);
+
+    if (activeCompanyCode === 'POLATLAR') {
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/return_warranty/delete', { ids: [id] });
+        await saveChunkedSlot(2, updated);
+        return;
+      }
+      try {
+        await supabase.from('return_warranty').delete().eq('id', id);
+        await saveChunkedSlot(2, updated);
+      } catch (e) {
+        console.warn('deleteReturnWarrantyItem error:', e);
+      }
+    } else {
+      await saveChunkedSlot(this.getSlotId(2), updated);
+    }
+  },
+
+  /**
    * Retrieves services (Supabase cloud + local cache)
    */
   async getServices(): Promise<ServiceItem[]> {
@@ -1304,6 +1575,54 @@ export const StorageService = {
       const fallbackServices = (await loadChunkedSlot<ServiceItem[]>(3)).data || [];
       const fallbackMap = new Map(fallbackServices.map((s) => [s.id, s]));
 
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        const res = await localApiGet<any[]>('/api/tables/services');
+        if (res && Array.isArray(res) && res.length > 0) {
+          const cloudServices: ServiceItem[] = res.map((row) => {
+            const fb = fallbackMap.get(row.id);
+            return {
+              id: row.id,
+              companyName: row.company_name,
+              location: row.location || undefined,
+              latitude: row.latitude != null ? Number(row.latitude) : undefined,
+              longitude: row.longitude != null ? Number(row.longitude) : undefined,
+              workDone: row.work_done,
+              date: row.date || undefined,
+              createdAt: Number(row.created_at) || Date.now(),
+              createdBy: row.created_by || undefined,
+              createdByName: row.created_by_name || undefined,
+              status: (row as any).status || fb?.status || 'pending',
+              completedAt: (row as any).completed_at || fb?.completedAt,
+              completedBy: (row as any).completed_by || fb?.completedBy,
+              completedByName: (row as any).completed_by_name || fb?.completedByName,
+              completionNote: (row as any).completion_note || fb?.completionNote,
+              completionPhotos: Array.isArray((row as any).completion_photos)
+                ? (row as any).completion_photos
+                : fb?.completionPhotos || [],
+              approvedAt: (row as any).approved_at || fb?.approvedAt,
+              approvedBy: (row as any).approved_by || fb?.approvedBy,
+              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
+              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
+              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
+              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
+              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
+            };
+          });
+
+          await saveItem(localKey, cloudServices);
+          return cloudServices;
+        }
+
+        if (fallbackServices.length > 0) {
+          await saveItem(localKey, fallbackServices);
+          return fallbackServices;
+        }
+
+        return (await loadItem<ServiceItem[]>(localKey)) || [];
+      }
+
+      // 2. Primary POLATLAR table in Supabase
       try {
         const { data, error } = await supabase
           .from('services')
@@ -1375,40 +1694,50 @@ export const StorageService = {
   },
 
   /**
-   * Saves services to local cache and syncs with Supabase
+   * Saves services to local cache and syncs with server
    */
   async saveServices(items: ServiceItem[]): Promise<void> {
     const localKey = this.getStorageKey(SERVICES_KEY);
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
-      try {
-        const fullRows = items.map((item) => ({
-          id: item.id,
-          company_name: item.companyName,
-          location: item.location || null,
-          latitude: item.latitude || null,
-          longitude: item.longitude || null,
-          work_done: item.workDone,
-          date: item.date || null,
-          created_at: item.createdAt,
-          created_by: item.createdBy || null,
-          created_by_name: item.createdByName || null,
-          status: item.status || 'pending',
-          completed_at: item.completedAt || null,
-          completed_by: item.completedBy || null,
-          completed_by_name: item.completedByName || null,
-          completion_note: item.completionNote || null,
-          completion_photos: item.completionPhotos || [],
-          approved_at: item.approvedAt || null,
-          approved_by: item.approvedBy || null,
-          approved_by_name: item.approvedByName || null,
-          rejected_at: item.rejectedAt || null,
-          rejected_by: item.rejectedBy || null,
-          rejected_by_name: item.rejectedByName || null,
-          rejection_reason: item.rejectionReason || null,
-        }));
+      const fullRows = items.map((item) => ({
+        id: item.id,
+        company_name: item.companyName,
+        location: item.location || null,
+        latitude: item.latitude || null,
+        longitude: item.longitude || null,
+        work_done: item.workDone,
+        date: item.date || null,
+        created_at: item.createdAt,
+        created_by: item.createdBy || null,
+        created_by_name: item.createdByName || null,
+        status: item.status || 'pending',
+        completed_at: item.completedAt || null,
+        completed_by: item.completedBy || null,
+        completed_by_name: item.completedByName || null,
+        completion_note: item.completionNote || null,
+        completion_photos: item.completionPhotos || [],
+        approved_at: item.approvedAt || null,
+        approved_by: item.approvedBy || null,
+        approved_by_name: item.approvedByName || null,
+        rejected_at: item.rejectedAt || null,
+        rejected_by: item.rejectedBy || null,
+        rejected_by_name: item.rejectedByName || null,
+        rejection_reason: item.rejectionReason || null,
+      }));
 
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        if (fullRows.length > 0) {
+          await localApiPost('/api/tables/services/upsert', { rows: fullRows });
+        }
+        await saveChunkedSlot(3, items);
+        return;
+      }
+
+      // 2. Supabase Cloud Fallback
+      try {
         if (fullRows.length > 0) {
           const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
           if (upsertErr) {
@@ -1446,6 +1775,32 @@ export const StorageService = {
       await saveChunkedSlot(3, items);
     } else {
       await saveChunkedSlot(this.getSlotId(3), items);
+    }
+  },
+
+  /**
+   * Deletes a service item across local cache and server
+   */
+  async deleteService(id: string): Promise<void> {
+    const localKey = this.getStorageKey(SERVICES_KEY);
+    const current = (await loadItem<ServiceItem[]>(localKey)) || [];
+    const updated = current.filter((s) => s.id !== id);
+    await saveItem(localKey, updated);
+
+    if (activeCompanyCode === 'POLATLAR') {
+      if (ServerConfigService.isLocalMode()) {
+        await localApiPost('/api/tables/services/delete', { ids: [id] });
+        await saveChunkedSlot(3, updated);
+        return;
+      }
+      try {
+        await supabase.from('services').delete().eq('id', id);
+        await saveChunkedSlot(3, updated);
+      } catch (e) {
+        console.warn('deleteService error:', e);
+      }
+    } else {
+      await saveChunkedSlot(this.getSlotId(3), updated);
     }
   },
 

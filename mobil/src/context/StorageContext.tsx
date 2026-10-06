@@ -6,6 +6,7 @@ import { StorageService } from '../services/storageService';
 import { LocationService } from '../services/locationService';
 import { parseDueDateTime, getRemainingDays } from '../utils/dateUtils';
 import { MobilePushService } from '../services/pushService';
+import { MobileServerConfigService } from '../services/serverConfigService';
 import {
   LocationItem,
   ServiceItem,
@@ -264,41 +265,53 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (user) {
       loadData();
 
-      // Realtime listener for live sync without full polling
-      const channel = supabase
-        .channel(`mobile-db-changes-${user.companyCode}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, async () => {
-          const l = await StorageService.getLocations();
-          setLocations(l);
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, async () => {
-          const s = await StorageService.getServices();
-          setServices(s);
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'return_warranty' }, async () => {
-          const r = await StorageService.getReturnWarrantyItems();
-          setReturnWarrantyItems(r);
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, async () => {
-          const n = await StorageService.getNotes();
-          setNotes(n);
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'standard_tasks' }, async () => {
-          const [att, lReq, wp, br] = await Promise.all([
-            StorageService.getAttendanceRecords(),
-            StorageService.getLeaveRequests(),
-            StorageService.getWorkplaceLocation(),
-            StorageService.getBranches(),
-          ]);
-          setAttendanceRecords(att);
-          setLeaveRequests(lReq);
-          setWorkplaceLocation(wp);
-          setBranches(br);
-        })
-        .subscribe();
+      // Periodic sync loop for local server mode (12 seconds)
+      let localSyncTimer: any = null;
+      if (MobileServerConfigService.isLocalMode()) {
+        localSyncTimer = setInterval(() => {
+          loadData();
+        }, 12000);
+      }
+
+      // Realtime listener for live sync without full polling (when using Supabase)
+      let channel: any = null;
+      if (!MobileServerConfigService.isLocalMode()) {
+        channel = supabase
+          .channel(`mobile-db-changes-${user.companyCode}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, async () => {
+            const l = await StorageService.getLocations();
+            setLocations(l);
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, async () => {
+            const s = await StorageService.getServices();
+            setServices(s);
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'return_warranty' }, async () => {
+            const r = await StorageService.getReturnWarrantyItems();
+            setReturnWarrantyItems(r);
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, async () => {
+            const n = await StorageService.getNotes();
+            setNotes(n);
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'standard_tasks' }, async () => {
+            const [att, lReq, wp, br] = await Promise.all([
+              StorageService.getAttendanceRecords(),
+              StorageService.getLeaveRequests(),
+              StorageService.getWorkplaceLocation(),
+              StorageService.getBranches(),
+            ]);
+            setAttendanceRecords(att);
+            setLeaveRequests(lReq);
+            setWorkplaceLocation(wp);
+            setBranches(br);
+          })
+          .subscribe();
+      }
 
       return () => {
-        supabase.removeChannel(channel);
+        if (localSyncTimer) clearInterval(localSyncTimer);
+        if (channel) supabase.removeChannel(channel);
       };
     }
   }, [user, loadData]);
@@ -423,6 +436,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAttendanceRecords(updated);
       await StorageService.saveAttendanceRecords(updated);
 
+      // Push notification to admins about check-in
+      fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: checkInOutside ? '⚠️ Dış Giriş (Onay Bekliyor)' : '🟢 Personel Mesaiye Başladı',
+          message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı.${checkInOutside ? ' (İş yeri dışı giriş)' : ''}`,
+          targetMode: 'admin',
+          excludeUserIds: [user.id],
+          companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+        }),
+      }).catch(() => {});
+
       const msg = checkInOutside
         ? `Mesai başlatıldı (İş yerine ${LocationService.formatDistance(checkInDistance)} mesafedesiniz, onay bekleniyor).`
         : 'Mesai başarıyla başlatıldı. İyi çalışmalar!';
@@ -518,6 +545,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = attendanceRecords.map((r) => (r.id === activeRec.id ? updatedRec : r));
       setAttendanceRecords(updated);
       await StorageService.saveAttendanceRecords(updated);
+
+      // Push notification to admins about check-out
+      fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: checkOutOutside ? '⚠️ Dış Çıkış (Onay Bekliyor)' : '🔴 Personel Mesaiyi Bitirdi',
+          message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla mesaisini tamamladı.${notesParam ? ` (Not: ${notesParam})` : ''}`,
+          targetMode: 'admin',
+          excludeUserIds: [user.id],
+          companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+        }),
+      }).catch(() => {});
 
       return { success: true, message: 'Mesai çıkışı başarıyla kaydedildi.' };
     } catch (e: any) {
@@ -976,6 +1017,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = locations.map((l) => (l.id === id ? updatedLoc : l));
     setLocations(updated);
     await StorageService.saveLocations(updated);
+
+    // Push notification to admins about completed location
+    fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '🛠️ Montaj / İş Emri Tamamlandı',
+        message: `${user.name}, "${target.name}" görevini tamamladı.${note ? ` (Not: ${note})` : ''}`,
+        targetMode: 'admin',
+        excludeUserIds: [user.id],
+        companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=locations',
+      }),
+    }).catch(() => {});
+
     return { success: true, message: 'İş emri tamamlandı olarak kaydedildi.' };
   };
 
@@ -1061,6 +1117,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [newNote, ...notes];
     setNotes(updated);
     await StorageService.saveNotes(updated);
+
+    // Push notification to admins about new work order
+    fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '📋 Yeni İş Emri Eklendi',
+        message: `${user.name} tarafından yeni iş emri oluşturuldu: ${params.content.slice(0, 70)}`,
+        targetMode: 'admin',
+        excludeUserIds: [user.id],
+        companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes',
+      }),
+    }).catch(() => {});
+
     return { success: true, message: 'İş emri başarıyla kaydedildi.' };
   };
 
@@ -1090,6 +1161,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     setNotes(updated);
     await StorageService.updateNoteStatus(id, status);
+
+    const targetNote = notes.find((n) => n.id === id);
+    if (targetNote) {
+      const statusTitle =
+        status === 'approved' ? '✅ İş Emri Onaylandı' :
+        status === 'processed' ? '🆗 İş Emri Sisteme İşlendi' :
+        status === 'completed' ? '⏳ İş Emri Tamamlandı (Onay Bekliyor)' : '🔄 İş Emri Güncellendi';
+      const statusMsg = `${targetNote.cariName ? targetNote.cariName + ': ' : ''}${targetNote.content.slice(0, 60)} durumu "${status}" olarak güncellendi.`;
+
+      fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: statusTitle,
+          message: statusMsg,
+          targetMode: 'admin',
+          excludeUserIds: [user?.id || ''],
+          companyCode: (user?.companyCode || 'POLATLAR').toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes',
+        }),
+      }).catch(() => {});
+    }
+
     return { success: true, message: 'İş emri durumu güncellendi.' };
   };
 

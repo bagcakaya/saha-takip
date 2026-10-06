@@ -12,6 +12,9 @@
       "bundleIdentifier": "com.sahatakip.app",
       "supportsTablet": true,
       "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
         "NSLocationWhenInUseUsageDescription": "Mesai başlangıcı ve iş emri konum doğrulaması için konum izni gereklidir.",
         "NSCameraUsageDescription": "Görev ve servis fotoğrafları çekmek için kamera izni gereklidir.",
         "NSPhotoLibraryUsageDescription": "Fotoğraf seçebilmek için galeri izni gereklidir."
@@ -20,6 +23,7 @@
     "android": {
       "package": "com.sahatakip.app",
       "googleServicesFile": "./google-services.json",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

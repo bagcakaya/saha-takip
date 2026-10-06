@@ -8,6 +8,7 @@ import { MobileOneSignalService } from '../services/oneSignalService';
 import { PasswordSecurity } from '../services/passwordSecurity';
 import { MobileAuthSecurityService } from '../services/authSecurityService';
 import { MobileSanitizeService } from '../services/sanitizeService';
+import { MobileServerConfigService } from '../services/serverConfigService';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -81,6 +82,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         chunks.push(json.substring(i, i + chunkSize));
       }
 
+      if (MobileServerConfigService.isLocalMode()) {
+        const apiUrl = MobileServerConfigService.getActiveApiUrl();
+        if (apiUrl) {
+          try {
+            await fetch(`${apiUrl}/api/standard_tasks/${USERS_SLOT_ID}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tasks: chunks }),
+            });
+            const appUserRows = usersList.map((u) => {
+              const compCode = (u.companyCode || 'POLATLAR').toUpperCase();
+              let cloudUsername = compCode === 'POLATLAR' ? u.username : `${compCode}:${u.username}`;
+              if (u.email) {
+                cloudUsername = `${cloudUsername}#${u.email}`;
+              }
+              return {
+                id: u.id,
+                username: cloudUsername,
+                password: u.password,
+                name: u.name,
+                role: u.role,
+                created_at: u.createdAt || Date.now(),
+              };
+            });
+            await fetch(`${apiUrl}/api/tables/app_users/upsert`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rows: appUserRows }),
+            });
+            return;
+          } catch (e) {
+            console.warn('Yerel sunucuya kullanıcı kaydetme hatası:', e);
+          }
+        }
+      }
+
       await supabase.from('standard_tasks').upsert({
         id: USERS_SLOT_ID,
         tasks: chunks,
@@ -124,6 +161,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {
       // ignore
+    }
+
+    // Yerel Sunucu (Local Mode)
+    if (MobileServerConfigService.isLocalMode()) {
+      const apiUrl = MobileServerConfigService.getActiveApiUrl();
+      if (apiUrl) {
+        try {
+          const res = await fetch(`${apiUrl}/api/standard_tasks/${USERS_SLOT_ID}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json && json.tasks) {
+              const rawJson = Array.isArray(json.tasks) ? json.tasks.join('') : json.tasks;
+              const cloudUsers = JSON.parse(rawJson);
+              if (Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+                await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(cloudUsers));
+                return cloudUsers;
+              }
+            }
+          }
+        } catch (e) {}
+
+        try {
+          const res = await fetch(`${apiUrl}/api/tables/app_users`);
+          if (res.ok) {
+            const appUsersData = await res.json();
+            if (Array.isArray(appUsersData) && appUsersData.length > 0) {
+              const mappedAppUsers: UserAccount[] = appUsersData.map((row: any) => {
+                let companyCode = 'POLATLAR';
+                let username = row.username;
+                let email: string | undefined = undefined;
+
+                if (row.username && row.username.includes('#')) {
+                  const hashParts = row.username.split('#');
+                  username = hashParts[0];
+                  email = hashParts[1]?.toLowerCase();
+                }
+
+                if (username && username.includes(':')) {
+                  const parts = username.split(':');
+                  companyCode = parts[0].toUpperCase();
+                  username = parts.slice(1).join(':');
+                }
+
+                return {
+                  id: row.id,
+                  username,
+                  password: row.password,
+                  name: row.name,
+                  role: (row.role as UserRole) || 'staff',
+                  companyCode,
+                  email,
+                  createdAt: Number(row.created_at) || Date.now(),
+                };
+              });
+
+              if (mappedAppUsers.length > 0) {
+                await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(mappedAppUsers));
+                return mappedAppUsers;
+              }
+            }
+          }
+        } catch (e) {}
+      }
     }
 
     try {

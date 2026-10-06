@@ -11,6 +11,7 @@ import { UserService } from '../services/userService';
 import { TabType } from '../components/layout/Header';
 import { LocationService } from '../services/locationService';
 import { DeviceService } from '../services/deviceService';
+import { ServerConfigService } from '../services/serverConfigService';
 import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
 
 interface StorageContextType {
@@ -870,6 +871,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       refreshCloudAttendance();
     }, 20000);
 
+    // Yerel Sunucu (Local Mode) Canlı Kalp Atışı (Live Heartbeat Sync - her 12 saniyede bir)
+    const localSyncTimer = setInterval(async () => {
+      if (!isMounted || !ServerConfigService.isLocalMode()) return;
+      try {
+        const [freshNotes, freshLocs, freshServices, freshReturns, freshAtt] = await Promise.all([
+          StorageService.getNotes(),
+          StorageService.getLocations(),
+          StorageService.getServices(),
+          StorageService.getReturnWarrantyItems(),
+          StorageService.getAttendanceRecords(),
+        ]);
+        if (isMounted) {
+          if (freshNotes && freshNotes.length > 0) setAllNotes(freshNotes);
+          if (freshLocs && freshLocs.length > 0) setAllLocations(freshLocs);
+          if (freshServices && freshServices.length > 0) setAllServices(freshServices);
+          if (freshReturns && freshReturns.length > 0) setReturnWarrantyItems(freshReturns);
+          if (freshAtt && freshAtt.length > 0) setAttendanceRecords(freshAtt);
+        }
+      } catch (err) {
+        // silent heartbeat
+      }
+    }, 12000);
+
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
@@ -879,6 +903,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
       clearInterval(syncInterval);
+      clearInterval(localSyncTimer);
     };
   }, [user?.id, activeCompCode, activeCompId]);
 

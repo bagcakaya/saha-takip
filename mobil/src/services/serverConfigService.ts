@@ -25,7 +25,7 @@ export function normalizeServerUrl(url: string): string {
   return 'http://' + cleaned;
 }
 
-const MIGRATION_KEY = '@saha_takip_migrated_to_local_v1';
+const MIGRATION_KEY = '@saha_takip_permanent_server_v2';
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
   mode: 'local',
@@ -44,7 +44,7 @@ export const MobileServerConfigService = {
     try {
       const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
       if (!migrated) {
-        // Bir defalık otomatik geçiş: Tüm kullanıcıları doğrudan yerel sunucuya geçir
+        // Kalıcı geçiş: Tüm kullanıcıları doğrudan yerel sunucuya geçir
         await AsyncStorage.setItem(MIGRATION_KEY, 'true');
         const currentRaw = await AsyncStorage.getItem(SERVER_CONFIG_KEY);
         const currentParsed = currentRaw ? JSON.parse(currentRaw) : {};
@@ -63,7 +63,12 @@ export const MobileServerConfigService = {
       const raw = await AsyncStorage.getItem(SERVER_CONFIG_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        inMemoryConfig = { ...DEFAULT_SERVER_CONFIG, ...parsed, localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl) };
+        inMemoryConfig = {
+          ...DEFAULT_SERVER_CONFIG,
+          ...parsed,
+          mode: 'local', // Her zaman yerel sunucu modunu zorunlu kıl
+          localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl),
+        };
       }
     } catch {
       // ignore

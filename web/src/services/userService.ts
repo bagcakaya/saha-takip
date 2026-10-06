@@ -5,6 +5,7 @@ import { PasswordSecurity } from './passwordSecurity';
 import { AuthSecurityService } from './authSecurityService';
 import { StorageService } from './storageService';
 import { SanitizeService } from './sanitizeService';
+import { ServerConfigService } from './serverConfigService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
 const USERS_SLOT_ID = 101;
@@ -212,6 +213,56 @@ export const UserService = {
   async syncToSlot101(userList: UserAccount[]): Promise<void> {
     try {
       let existingList: UserAccount[] = [];
+
+      // 1. Yerel Sunucu (Local Mode)
+      if (ServerConfigService.isLocalMode()) {
+        try {
+          const slotRes = await ServerConfigService.apiGet<{ tasks: string[] }>(`/api/standard_tasks/${USERS_SLOT_ID}`);
+          if (slotRes.data?.tasks && Array.isArray(slotRes.data.tasks) && slotRes.data.tasks.length > 0) {
+            existingList = JSON.parse(slotRes.data.tasks.join(''));
+          }
+        } catch {}
+
+        const userMap = new Map<string, UserAccount>();
+        existingList.forEach((u) => {
+          const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+          userMap.set(key, u);
+        });
+        userList.forEach((u) => {
+          const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
+          userMap.set(key, u);
+        });
+
+        const merged = Array.from(userMap.values());
+        const json = JSON.stringify(merged);
+        const chunkSize = 3000;
+        const chunks: string[] = [];
+        for (let i = 0; i < json.length; i += chunkSize) {
+          chunks.push(json.substring(i, i + chunkSize));
+        }
+
+        await ServerConfigService.apiPost(`/api/standard_tasks/${USERS_SLOT_ID}`, { tasks: chunks });
+
+        const appUserRows = merged.map((u) => {
+          const compCode = (u.companyCode || 'POLATLAR').toUpperCase();
+          let cloudUsername = compCode === 'POLATLAR' ? u.username : `${compCode}:${u.username}`;
+          if (u.email) {
+            cloudUsername = `${cloudUsername}#${u.email}`;
+          }
+          return {
+            id: u.id,
+            username: cloudUsername,
+            password: u.password,
+            name: u.name,
+            role: u.role,
+            created_at: u.createdAt || Date.now(),
+          };
+        });
+        await ServerConfigService.apiPost('/api/tables/app_users/upsert', { rows: appUserRows });
+        return;
+      }
+
+      // 2. Supabase Cloud Mode
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
@@ -259,6 +310,34 @@ export const UserService = {
    */
   async removeFromSlot101(userId?: string, username?: string, companyCode?: string): Promise<void> {
     try {
+      let existingList: UserAccount[] = [];
+
+      if (ServerConfigService.isLocalMode()) {
+        const slotRes = await ServerConfigService.apiGet<{ tasks: string[] }>(`/api/standard_tasks/${USERS_SLOT_ID}`);
+        if (slotRes.data?.tasks && Array.isArray(slotRes.data.tasks) && slotRes.data.tasks.length > 0) {
+          try {
+            existingList = JSON.parse(slotRes.data.tasks.join(''));
+          } catch {
+            return;
+          }
+        }
+        const cleanComp = (companyCode || 'POLATLAR').toUpperCase();
+        const cleanUser = (username || '').toLowerCase();
+        const filtered = existingList.filter((u) => {
+          if (userId && u.id === userId) return false;
+          if (cleanUser && (u.companyCode || 'POLATLAR').toUpperCase() === cleanComp && (u.username || '').toLowerCase() === cleanUser) return false;
+          return true;
+        });
+        const json = JSON.stringify(filtered);
+        const chunkSize = 3000;
+        const chunks: string[] = [];
+        for (let i = 0; i < json.length; i += chunkSize) {
+          chunks.push(json.substring(i, i + chunkSize));
+        }
+        await ServerConfigService.apiPost(`/api/standard_tasks/${USERS_SLOT_ID}`, { tasks: chunks });
+        return;
+      }
+
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
@@ -266,7 +345,6 @@ export const UserService = {
         .single();
 
       if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        let existingList: UserAccount[] = [];
         try {
           existingList = JSON.parse(data.tasks.join(''));
         } catch {
@@ -434,6 +512,82 @@ export const UserService = {
    */
   async fetchUsersFromCloud(companyCodeFilter?: string): Promise<UserAccount[]> {
     const localUsers = this.getUsers();
+
+    // 0. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+    if (ServerConfigService.isLocalMode()) {
+      try {
+        const slotRes = await ServerConfigService.apiGet<{ id: number; tasks: string[]; notFound?: boolean }>(
+          `/api/standard_tasks/${USERS_SLOT_ID}`
+        );
+        if (slotRes.data && Array.isArray(slotRes.data.tasks) && slotRes.data.tasks.length > 0) {
+          const rawJson = slotRes.data.tasks.join('');
+          const parsed = JSON.parse(rawJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let filtered = parsed;
+            if (companyCodeFilter) {
+              const cleanFilter = companyCodeFilter.trim().toUpperCase();
+              filtered = parsed.filter(
+                (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
+              );
+            }
+            this.saveUsers(parsed);
+            return filtered;
+          }
+        }
+      } catch (err) {
+        console.warn('Yerel sunucu slot 101 okunurken hata:', err);
+      }
+
+      try {
+        const tableRes = await ServerConfigService.apiGet<any[]>('/api/tables/app_users');
+        if (tableRes.data && Array.isArray(tableRes.data) && tableRes.data.length > 0) {
+          const mapped: UserAccount[] = tableRes.data.map((row) => {
+            let companyCode = 'POLATLAR';
+            let username = row.username;
+            let email: string | undefined = undefined;
+
+            if (row.username && row.username.includes('#')) {
+              const hashParts = row.username.split('#');
+              username = hashParts[0];
+              email = hashParts[1]?.toLowerCase();
+            }
+
+            if (username && username.includes(':')) {
+              const parts = username.split(':');
+              companyCode = parts[0].toUpperCase();
+              username = parts.slice(1).join(':');
+            }
+
+            const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+
+            return {
+              id: row.id,
+              username,
+              password: row.password,
+              name: row.name,
+              role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
+              createdAt: Number(row.created_at) || Date.now(),
+              companyCode,
+              email,
+            };
+          });
+
+          let filtered = mapped;
+          if (companyCodeFilter) {
+            const cleanFilter = companyCodeFilter.trim().toUpperCase();
+            filtered = mapped.filter(
+              (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
+            );
+          }
+          this.saveUsers(mapped);
+          return filtered;
+        }
+      } catch (err) {
+        console.warn('Yerel sunucu app_users tablosu okunurken hata:', err);
+      }
+
+      return localUsers;
+    }
 
     try {
       // 1. Fetch companies directory to enrich admin users with their registered email
@@ -838,7 +992,14 @@ export const UserService = {
     const filtered = users.filter((u) => u.id !== id);
     this.saveUsers(filtered);
 
-    // Sync delete to Supabase
+    // 1. Yerel Sunucu (Local Mode)
+    if (ServerConfigService.isLocalMode()) {
+      await ServerConfigService.apiPost('/api/tables/app_users/delete', { ids: [id] });
+      await this.removeFromSlot101(id, target.username, target.companyCode);
+      return { success: true };
+    }
+
+    // 2. Supabase Cloud Fallback
     try {
       await supabase.from('app_users').delete().eq('id', id);
     } catch (err) {
@@ -865,6 +1026,16 @@ export const UserService = {
     const toDelete = users.filter((u) => (u.companyCode || '').toUpperCase() === clean);
     const filtered = users.filter((u) => (u.companyCode || '').toUpperCase() !== clean);
     this.saveUsers(filtered);
+
+    if (ServerConfigService.isLocalMode()) {
+      const ids = toDelete.map((u) => u.id);
+      if (ids.length > 0) {
+        await ServerConfigService.apiPost('/api/tables/app_users/delete', { ids });
+      }
+      await this.removeCompanyFromSlot101(clean);
+      return;
+    }
+
     for (const u of toDelete) {
       try {
         await supabase.from('app_users').delete().eq('id', u.id);
