@@ -63,6 +63,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   };
 
   const handleSave = () => {
+    const isModeChanged = mode !== config.mode;
     ServerConfigService.saveConfig({
       mode,
       localUrl,
@@ -71,6 +72,12 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
     });
     if (onSaved) onSaved();
     onClose();
+
+    if (isModeChanged && typeof window !== 'undefined') {
+      setTimeout(() => {
+        window.location.reload();
+      }, 250);
+    }
   };
 
   return (

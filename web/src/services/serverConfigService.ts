@@ -38,10 +38,10 @@ export function getResolvedApiUrl(targetBaseUrl: string, endpoint: string): stri
   return `${cleanBase}${cleanEp}`;
 }
 
-const MIGRATION_KEY = '@saha_takip_permanent_server_v2';
+const CLOUD_DEFAULT_MIGRATION_KEY = '@saha_takip_default_cloud_v1';
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  mode: 'local',
+  mode: 'cloud',
   localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
@@ -56,30 +56,31 @@ export const ServerConfigService = {
     if (inMemoryConfig) return inMemoryConfig;
     try {
       if (typeof localStorage !== 'undefined') {
-        const migrated = localStorage.getItem(MIGRATION_KEY);
-        if (!migrated) {
-          // Kalıcı yerel sunucuya zorunlu geçiş
-          localStorage.setItem(MIGRATION_KEY, 'true');
+        const cloudDefaultDone = localStorage.getItem(CLOUD_DEFAULT_MIGRATION_KEY);
+        if (!cloudDefaultDone) {
+          // Kullanıcı isteği: Bulut üzerinden devam edilsin ve varsayılan bulut olsun
+          localStorage.setItem(CLOUD_DEFAULT_MIGRATION_KEY, 'true');
           const currentRaw = localStorage.getItem(SERVER_CONFIG_KEY);
           const currentParsed = currentRaw ? JSON.parse(currentRaw) : {};
-          const migratedConfig: ServerConfig = {
+          const cloudConfig: ServerConfig = {
             ...DEFAULT_SERVER_CONFIG,
             ...currentParsed,
-            mode: 'local',
-            localUrl: 'http://81.213.219.69:3001',
+            mode: 'cloud',
+            localUrl: normalizeServerUrl(currentParsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl),
           };
-          localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(migratedConfig));
-          inMemoryConfig = migratedConfig;
+          localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(cloudConfig));
+          inMemoryConfig = cloudConfig;
           return inMemoryConfig;
         }
 
         const raw = localStorage.getItem(SERVER_CONFIG_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
+          const savedMode = (parsed.mode === 'local' || parsed.mode === 'cloud') ? parsed.mode : 'cloud';
           inMemoryConfig = {
             ...DEFAULT_SERVER_CONFIG,
             ...parsed,
-            mode: 'local',
+            mode: savedMode,
             localUrl: normalizeServerUrl(parsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl),
           };
           return inMemoryConfig!;
