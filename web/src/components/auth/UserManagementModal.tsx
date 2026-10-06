@@ -128,13 +128,56 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   }, [branches, isPolatlarAdmin, userCompanyCode]);
 
+  // Device bindings state
+  const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+
+  const loadBindings = useCallback(async () => {
+    try {
+      const activeComp = (selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+      const list = await DeviceService.getUserDeviceBindings(activeComp);
+      setUserBindings(list);
+    } catch {
+      // ignore
+    }
+  }, [selectedCompanyCode, currentUser?.companyCode]);
+
+  const handleRefreshAll = useCallback(async () => {
+    if (isRefreshingUsers || loadingAllBranches) return;
+    setIsRefreshingUsers(true);
+    try {
+      await Promise.allSettled([
+        loadCompaniesAndBranches(),
+        refreshUsers(),
+        loadBindings(),
+      ]);
+    } finally {
+      setIsRefreshingUsers(false);
+    }
+  }, [loadCompaniesAndBranches, refreshUsers, loadBindings, isRefreshingUsers, loadingAllBranches]);
+
+  const hasLoadedOnOpenRef = React.useRef(false);
+
+  // Initial load when modal opens - runs exactly once per opening
   useEffect(() => {
     if (isOpen) {
-      loadCompaniesAndBranches();
-      setIsRefreshingUsers(true);
-      refreshUsers().finally(() => setIsRefreshingUsers(false));
+      if (!hasLoadedOnOpenRef.current) {
+        hasLoadedOnOpenRef.current = true;
+        loadCompaniesAndBranches();
+        loadBindings();
+      }
+    } else {
+      hasLoadedOnOpenRef.current = false;
+      setIsRefreshingUsers(false);
     }
-  }, [isOpen, selectedCompanyCode, loadCompaniesAndBranches, refreshUsers]);
+  }, [isOpen, loadCompaniesAndBranches, loadBindings]);
+
+  // When selected company changes in dropdown, refresh device bindings for that company
+  useEffect(() => {
+    if (isOpen && hasLoadedOnOpenRef.current) {
+      loadBindings();
+    }
+  }, [isOpen, selectedCompanyCode, loadBindings]);
 
   // Filter users belonging to selected company
   const companyUsers = React.useMemo(() => {
@@ -187,38 +230,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [changedPassword, setChangedPassword] = useState('');
 
-  // Device bindings state
-  const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
-  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
-  const loadBindings = useCallback(async () => {
-    try {
-      const activeComp = (selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
-      const list = await DeviceService.getUserDeviceBindings(activeComp);
-      setUserBindings(list);
-    } catch {
-      // ignore
-    }
-  }, [selectedCompanyCode, currentUser?.companyCode]);
-
-  const handleRefreshAll = useCallback(async () => {
-    setIsRefreshingUsers(true);
-    try {
-      await Promise.allSettled([
-        loadCompaniesAndBranches(),
-        refreshUsers(),
-        loadBindings(),
-      ]);
-    } finally {
-      setIsRefreshingUsers(false);
-    }
-  }, [loadCompaniesAndBranches, refreshUsers, loadBindings]);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadBindings();
-    }
-  }, [isOpen, loadBindings]);
 
   const handleResetDeviceLock = async (userId: string, userName: string, companyCode?: string) => {
     if (

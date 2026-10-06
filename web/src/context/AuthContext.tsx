@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { User, UserAccount, UserRole, Company, isUserAdmin, LicenseInfo, getCompanyLicenseInfo, canUserManageCompanyModules } from '../types/auth';
 import { UserService } from '../services/userService';
 import { CompanyService } from '../services/companyService';
@@ -304,7 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
-  const syncCurrentSession = (cloudUsers: UserAccount[]) => {
+  const syncCurrentSession = useCallback((cloudUsers: UserAccount[]) => {
     setUser((currentUser) => {
       if (!currentUser) return null;
       const fresh = cloudUsers.find(
@@ -332,7 +332,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return currentUser;
     });
-  };
+  }, []);
 
   // Initial cloud fetch & realtime subscription for app_users
   useEffect(() => {
@@ -366,9 +366,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       supabase.removeChannel(channel);
       clearInterval(userPollTimer);
     };
-  }, []);
+  }, [syncCurrentSession]);
 
-  const refreshUsers = async () => {
+  const refreshUsers = useCallback(async () => {
     try {
       const cloudUsers = await UserService.fetchUsersFromCloud();
       setUsers(cloudUsers);
@@ -376,7 +376,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn('Kullanıcılar yenilenirken hata:', e);
     }
-  };
+  }, [syncCurrentSession]);
 
   const login = async (
     companyCode: string,
