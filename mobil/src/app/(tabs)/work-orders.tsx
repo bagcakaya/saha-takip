@@ -50,7 +50,7 @@ import { CreateCompanyModal } from '../../components/CreateCompanyModal';
 import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
 
-type FilterTab = 'all' | 'pending' | 'approved';
+type FilterTab = 'all' | 'pending' | 'processed' | 'approved';
 
 export default function WorkOrdersScreen() {
   const { notes, refreshData, deleteNote, updateNoteStatus } = useStorage();
@@ -87,8 +87,9 @@ export default function WorkOrdersScreen() {
   const counts = useMemo(() => {
     const total = notes.length;
     const pending = notes.filter((n) => (n.status || 'pending') === 'pending').length;
+    const processed = notes.filter((n) => n.status === 'processed').length;
     const approved = notes.filter((n) => n.status === 'approved' || n.status === 'completed').length;
-    return { total, pending, approved };
+    return { total, pending, processed, approved };
   }, [notes]);
 
   const filteredNotes = useMemo(() => {
@@ -96,6 +97,7 @@ export default function WorkOrdersScreen() {
       // Tab filter
       const status = n.status || 'pending';
       if (activeTab === 'pending' && status !== 'pending') return false;
+      if (activeTab === 'processed' && status !== 'processed') return false;
       if (activeTab === 'approved' && status !== 'approved' && status !== 'completed') return false;
 
       // Search query filter
@@ -109,24 +111,34 @@ export default function WorkOrdersScreen() {
     });
 
     return [...list].sort((a, b) => {
-      // 1. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
+      // 1. Sisteme İşlenenler sekmesinde en son sisteme işlenen iş emri en üstte
+      if (activeTab === 'processed') {
+        const aProc = a.processedAt || a.approvedAt || a.completedAt || a.createdAt || 0;
+        const bProc = b.processedAt || b.approvedAt || b.completedAt || b.createdAt || 0;
+        return bProc - aProc;
+      }
+
+      // 2. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
       if (activeTab === 'approved') {
         const aAppr = a.approvedAt || a.completedAt || a.createdAt || 0;
         const bAppr = b.approvedAt || b.completedAt || b.createdAt || 0;
         return bAppr - aAppr;
       }
 
-      // 2. Diğer sekmelerde (Tümü vb.):
-      // Onaylanmışsa onay zamanı, bekleyen onay ise tamamlanma zamanı, değilse oluşturulma zamanı
+      // 3. Diğer sekmelerde (Tümü vb.):
       const aTime =
-        (a.status === 'approved' || a.status === 'completed') && a.approvedAt
+        a.status === 'processed' && a.processedAt
+          ? a.processedAt
+          : (a.status === 'approved' || a.status === 'completed') && a.approvedAt
           ? a.approvedAt
           : a.status === 'pending_approval' && a.completedAt
           ? a.completedAt
           : a.createdAt || 0;
 
       const bTime =
-        (b.status === 'approved' || b.status === 'completed') && b.approvedAt
+        b.status === 'processed' && b.processedAt
+          ? b.processedAt
+          : (b.status === 'approved' || b.status === 'completed') && b.approvedAt
           ? b.approvedAt
           : b.status === 'pending_approval' && b.completedAt
           ? b.completedAt
@@ -188,13 +200,32 @@ export default function WorkOrdersScreen() {
   };
 
   const handleToggleStatus = async (item: GeneralNote) => {
-    const isCompleted = item.status === 'approved' || item.status === 'completed';
+    const isCompleted = item.status === 'approved' || item.status === 'completed' || item.status === 'processed';
     const newStatus = isCompleted ? 'pending' : 'approved';
     await updateNoteStatus(item.id, newStatus);
   };
 
+  const handleToggleProcess = async (item: GeneralNote) => {
+    if (!isAdmin) return;
+    if (item.status === 'processed') {
+      Alert.alert(
+        'Geri Al',
+        'Bu iş emrini "Sisteme İşlenenler" kısmından çıkarıp tekrar "Onaylananlar" kısmına almak istiyor musunuz?',
+        [
+          { text: 'Vazgeç', style: 'cancel' },
+          {
+            text: 'Onaylananlara Al',
+            onPress: () => updateNoteStatus(item.id, 'approved'),
+          },
+        ]
+      );
+    } else {
+      await updateNoteStatus(item.id, 'processed');
+    }
+  };
+
   const renderNoteCard = ({ item }: { item: GeneralNote }) => {
-    const isCompleted = item.status === 'approved' || item.status === 'completed';
+    const isCompleted = item.status === 'approved' || item.status === 'completed' || item.status === 'processed';
 
     return (
       <View
@@ -202,7 +233,9 @@ export default function WorkOrdersScreen() {
           styles.noteCard,
           {
             backgroundColor: isDark ? '#0c152e' : '#ffffff',
-            borderColor: isCompleted
+            borderColor: item.status === 'processed'
+              ? 'rgba(37, 99, 235, 0.5)'
+              : isCompleted
               ? 'rgba(16, 185, 129, 0.4)'
               : isDark
               ? '#1e293b'
@@ -246,24 +279,27 @@ export default function WorkOrdersScreen() {
             )}
           </View>
 
-          <View
-            style={[
-              styles.statusBadge,
-              isCompleted ? styles.statusBadgeDone : styles.statusBadgePending,
-            ]}
-          >
-            {isCompleted ? (
-              <>
-                <CheckCircle2 size={12} color="#10b981" />
-                <Text style={styles.statusTextDone}>Onaylandı</Text>
-              </>
-            ) : (
-              <>
-                <Clock size={12} color="#f59e0b" />
-                <Text style={styles.statusTextPending}>Bekliyor</Text>
-              </>
-            )}
-          </View>
+          {item.status === 'processed' ? (
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: 'rgba(37, 99, 235, 0.15)', borderColor: 'rgba(37, 99, 235, 0.4)' },
+              ]}
+            >
+              <Text style={{ fontSize: 11, marginRight: 2 }}>🆗</Text>
+              <Text style={[styles.statusTextDone, { color: '#3b82f6' }]}>Sisteme İşlendi</Text>
+            </View>
+          ) : isCompleted ? (
+            <View style={[styles.statusBadge, styles.statusBadgeDone]}>
+              <CheckCircle2 size={12} color="#10b981" />
+              <Text style={styles.statusTextDone}>Onaylandı</Text>
+            </View>
+          ) : (
+            <View style={[styles.statusBadge, styles.statusBadgePending]}>
+              <Clock size={12} color="#f59e0b" />
+              <Text style={styles.statusTextPending}>Bekliyor</Text>
+            </View>
+          )}
         </View>
 
         {/* Content Box */}
@@ -391,6 +427,15 @@ export default function WorkOrdersScreen() {
                 </Text>
               </>
             ) : null}
+            {item.processedAt ? (
+              <>
+                <Text style={styles.metaDivider}>•</Text>
+                <Text style={{ fontSize: 11 }}>🆗</Text>
+                <Text style={[styles.metaText, { color: '#3b82f6', fontWeight: '700' }]}>
+                  İşleyen: {item.processedByName || 'Yönetici'}
+                </Text>
+              </>
+            ) : null}
           </View>
 
           <View style={styles.actionButtonsRow}>
@@ -414,14 +459,27 @@ export default function WorkOrdersScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* WhatsApp Share */}
-            <TouchableOpacity
-              style={styles.whatsappBtn}
-              onPress={() => shareViaWhatsApp(item)}
-              activeOpacity={0.8}
-            >
-              <Share2 size={13} color="#10b981" />
-            </TouchableOpacity>
+            {/* If approved or processed, show 🆗 button in place of WhatsApp */}
+            {isAdmin && (item.status === 'approved' || item.status === 'completed' || item.status === 'processed') ? (
+              <TouchableOpacity
+                style={[
+                  styles.okBtn,
+                  item.status === 'processed' && styles.okBtnActive,
+                ]}
+                onPress={() => handleToggleProcess(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '900', color: '#ffffff' }}>🆗</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.whatsappBtn}
+                onPress={() => shareViaWhatsApp(item)}
+                activeOpacity={0.8}
+              >
+                <Share2 size={13} color="#10b981" />
+              </TouchableOpacity>
+            )}
 
             {/* Delete */}
             <TouchableOpacity
@@ -624,6 +682,28 @@ export default function WorkOrdersScreen() {
                   ]}
                 >
                   Bekleyenler ({counts.pending})
+                </Text>
+              </TouchableOpacity>
+
+              {/* Sisteme İşlenenler (X) */}
+              <TouchableOpacity
+                style={[
+                  styles.filterPill,
+                  activeTab === 'processed'
+                    ? styles.pillProcessedActive
+                    : styles.pillInactiveProcessed,
+                ]}
+                onPress={() => setActiveTab('processed')}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 13, marginRight: 2 }}>🆗</Text>
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    { color: activeTab === 'processed' ? '#ffffff' : '#3b82f6' },
+                  ]}
+                >
+                  Sisteme İşlenenler ({counts.processed})
                 </Text>
               </TouchableOpacity>
 
@@ -908,6 +988,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  pillProcessedActive: {
+    backgroundColor: '#2563eb',
+  },
+  pillInactiveProcessed: {
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.4)',
   },
   pillApprovedActive: {
     backgroundColor: '#059669',
@@ -1201,6 +1289,20 @@ const styles = StyleSheet.create({
   toggleBtnText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  okBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  okBtnActive: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
   },
   whatsappBtn: {
     backgroundColor: 'rgba(16, 185, 129, 0.12)',

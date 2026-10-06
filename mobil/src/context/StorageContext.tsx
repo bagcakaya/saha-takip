@@ -1078,9 +1078,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return {
           ...n,
           status,
-          approvedAt: status === 'approved' ? now : (status === 'pending' ? undefined : n.approvedAt),
-          approvedBy: status === 'approved' ? user?.id : (status === 'pending' ? undefined : n.approvedBy),
-          approvedByName: status === 'approved' ? (user?.name || 'Yönetici') : (status === 'pending' ? undefined : n.approvedByName),
+          approvedAt: status === 'approved' ? (n.approvedAt || now) : (status === 'pending' ? undefined : n.approvedAt),
+          approvedBy: status === 'approved' ? (n.approvedBy || user?.id) : (status === 'pending' ? undefined : n.approvedBy),
+          approvedByName: status === 'approved' ? (n.approvedByName || user?.name || 'Yönetici') : (status === 'pending' ? undefined : n.approvedByName),
+          processedAt: status === 'processed' ? now : (status === 'pending' || status === 'approved' ? undefined : n.processedAt),
+          processedBy: status === 'processed' ? user?.id : (status === 'pending' || status === 'approved' ? undefined : n.processedBy),
+          processedByName: status === 'processed' ? (user?.name || 'Yönetici') : (status === 'pending' || status === 'approved' ? undefined : n.processedByName),
         };
       }
       return n;

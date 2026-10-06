@@ -86,6 +86,9 @@ interface StorageContextType {
   rejectNote: (id: string, reason?: string) => Promise<void>;
   approveMultipleNotes: (ids: string[]) => Promise<void>;
   completeMultipleNotes: (ids: string[], completionNote?: string) => Promise<void>;
+  processNote: (id: string) => Promise<void>;
+  unprocessNote: (id: string) => Promise<void>;
+  processMultipleNotes: (ids: string[]) => Promise<void>;
   addAdminReminder: (data: {
     title: string;
     content: string;
@@ -2831,6 +2834,103 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('OneSignal completeMultipleNotes push error:', pushErr);
       }
     })();
+  };
+
+  // Admin marks approved work order as processed into the company system (Sisteme İşlendi)
+  const processNote = async (id: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler iş emirlerini sisteme işlendi olarak işaretleyebilir.');
+      return;
+    }
+
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
+    if (!targetNote || targetNote.status === 'processed') return;
+
+    const processedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      status: 'processed' as const,
+      processedAt,
+      processedBy: user?.id,
+      processedByName: adminName,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    // Background atomic persistence
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote processNote error:', err);
+    });
+  };
+
+  // Revert back from processed to approved
+  const unprocessNote = async (id: string) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler bu işlemi yapabilir.');
+      return;
+    }
+
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
+    if (!targetNote || targetNote.status !== 'processed') return;
+
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      status: 'approved' as const,
+      processedAt: undefined,
+      processedBy: undefined,
+      processedByName: undefined,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote unprocessNote error:', err);
+    });
+  };
+
+  // Bulk: Admin marks multiple approved work orders as processed in one batch
+  const processMultipleNotes = async (ids: string[]) => {
+    if (user?.role !== 'admin') {
+      alert('Yalnızca yöneticiler iş emirlerini sisteme işlendi olarak işaretleyebilir.');
+      return;
+    }
+    if (!ids || ids.length === 0) return;
+
+    const currentNotes = allNotesRef.current;
+    const targetSet = new Set(ids);
+    const processedAt = Date.now();
+    const adminName = user?.name || user?.username || 'Yönetici';
+
+    const updatedNotesList: GeneralNote[] = [];
+    const newNotes = currentNotes.map((n) => {
+      if (targetSet.has(n.id) && n.status !== 'processed') {
+        const updated: GeneralNote = {
+          ...n,
+          status: 'processed' as const,
+          processedAt,
+          processedBy: user?.id,
+          processedByName: adminName,
+        };
+        updatedNotesList.push(updated);
+        return updated;
+      }
+      return n;
+    });
+
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    Promise.all(updatedNotesList.map((n) => StorageService.saveSingleNote(n))).catch((err) => {
+      console.warn('processMultipleNotes error:', err);
+    });
   };
 
   // Admin Reminder / Directive Management
@@ -6008,6 +6108,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rejectNote,
         approveMultipleNotes,
         completeMultipleNotes,
+        processNote,
+        unprocessNote,
+        processMultipleNotes,
         addAdminReminder,
         updateAdminReminder,
         deleteAdminReminder,

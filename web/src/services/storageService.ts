@@ -773,6 +773,9 @@ export const StorageService = {
               rejectedBy: fb?.rejectedBy || row.rejected_by || undefined,
               rejectedByName: fb?.rejectedByName || row.rejected_by_name || undefined,
               rejectionReason: fb?.rejectionReason || row.rejection_reason || undefined,
+              processedAt: fb?.processedAt || (row.processed_at ? Number(row.processed_at) : undefined),
+              processedBy: fb?.processedBy || (row as any).processed_by || undefined,
+              processedByName: fb?.processedByName || (row as any).processed_by_name || undefined,
             };
           });
 
@@ -999,6 +1002,9 @@ export const StorageService = {
       rejected_by: n.rejectedBy || null,
       rejected_by_name: n.rejectedByName || null,
       rejection_reason: n.rejectionReason || null,
+      processed_at: n.processedAt || null,
+      processed_by: n.processedBy || null,
+      processed_by_name: n.processedByName || null,
     };
   },
 

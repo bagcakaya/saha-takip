@@ -1,5 +1,5 @@
 export type TaskStatus = 'pending' | 'completed' | 'not_present';
-export type ApprovalStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected';
+export type ApprovalStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected' | 'processed';
 
 export interface Task {
   id: string;
@@ -69,6 +69,9 @@ export interface GeneralNote {
   rejectedBy?: string;
   rejectedByName?: string;
   rejectionReason?: string; // Yöneticinin reddederken girdiği gerekçe
+  processedAt?: number; // Sisteme işlenme tarihi
+  processedBy?: string; // Sisteme işleyen yönetici ID
+  processedByName?: string; // Sisteme işleyen yönetici adı
 }
 
 export type AdminReminderCategory = 'general' | 'procedure' | 'rule' | 'urgent';

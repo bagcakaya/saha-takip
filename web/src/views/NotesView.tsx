@@ -31,13 +31,14 @@ export const NotesView: React.FC = () => {
     deleteNote,
     approveMultipleNotes,
     completeMultipleNotes,
+    processMultipleNotes,
   } = useStorage();
   const { user: currentUser } = useAuth();
   const isAdmin = isUserAdmin(currentUser);
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  type NoteFilterType = 'all' | 'pending' | 'approved' | 'rejected' | 'reminders' | 'direct';
+  type NoteFilterType = 'all' | 'pending' | 'processed' | 'approved' | 'rejected' | 'reminders' | 'direct';
   const filterStorageKey = `@saha_takip_notes_active_filter_${currentUser?.id || 'default'}`;
 
   const [activeFilter, setActiveFilterState] = useState<NoteFilterType>(() => {
@@ -47,7 +48,7 @@ export const NotesView: React.FC = () => {
         const urlFilter = urlParams.get('filter');
         if (
           urlFilter &&
-          ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(urlFilter)
+          ['all', 'pending', 'processed', 'approved', 'rejected', 'reminders', 'direct'].includes(urlFilter)
         ) {
           return urlFilter as NoteFilterType;
         }
@@ -57,7 +58,7 @@ export const NotesView: React.FC = () => {
         );
         if (
           saved &&
-          ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(saved)
+          ['all', 'pending', 'processed', 'approved', 'rejected', 'reminders', 'direct'].includes(saved)
         ) {
           return saved as NoteFilterType;
         }
@@ -85,7 +86,7 @@ export const NotesView: React.FC = () => {
       const newFilter = e?.detail?.filter;
       if (
         newFilter &&
-        ['all', 'pending', 'approved', 'rejected', 'reminders', 'direct'].includes(newFilter)
+        ['all', 'pending', 'processed', 'approved', 'rejected', 'reminders', 'direct'].includes(newFilter)
       ) {
         setActiveFilter(newFilter as NoteFilterType);
       }
@@ -108,24 +109,35 @@ export const NotesView: React.FC = () => {
 
   const sortedNotes = useMemo(() => {
     return [...notes].sort((a, b) => {
-      // 1. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
+      // 1. Sisteme İşlenenler sekmesinde en son sisteme işlenen iş emri en üstte
+      if (activeFilter === 'processed') {
+        const aProc = a.processedAt || a.approvedAt || a.completedAt || a.createdAt || 0;
+        const bProc = b.processedAt || b.approvedAt || b.completedAt || b.createdAt || 0;
+        return bProc - aProc;
+      }
+
+      // 2. Onaylananlar sekmesinde en son onaylanan iş emri en üstte
       if (activeFilter === 'approved') {
         const aAppr = a.approvedAt || a.completedAt || a.createdAt || 0;
         const bAppr = b.approvedAt || b.completedAt || b.createdAt || 0;
         return bAppr - aAppr;
       }
 
-      // 2. Diğer sekmelerde (Tümü vb.):
-      // Onaylanmışsa onay zamanı, bekleyen onay ise tamamlanma zamanı, değilse oluşturulma zamanı
+      // 3. Diğer sekmelerde (Tümü vb.):
+      // Sisteme işlenmişse işlenme zamanı, onaylanmışsa onay zamanı, bekleyen onay ise tamamlanma zamanı, değilse oluşturulma zamanı
       const aTime =
-        a.status === 'approved' && a.approvedAt
+        a.status === 'processed' && a.processedAt
+          ? a.processedAt
+          : a.status === 'approved' && a.approvedAt
           ? a.approvedAt
           : a.status === 'pending_approval' && a.completedAt
           ? a.completedAt
           : a.createdAt || 0;
 
       const bTime =
-        b.status === 'approved' && b.approvedAt
+        b.status === 'processed' && b.processedAt
+          ? b.processedAt
+          : b.status === 'approved' && b.approvedAt
           ? b.approvedAt
           : b.status === 'pending_approval' && b.completedAt
           ? b.completedAt
@@ -143,6 +155,10 @@ export const NotesView: React.FC = () => {
 
   const pendingApprovalNotes = useMemo(() => {
     return notes.filter((n) => n.status === 'pending_approval');
+  }, [notes]);
+
+  const processedNotesCount = useMemo(() => {
+    return notes.filter((n) => n.status === 'processed').length;
   }, [notes]);
 
   const approvedNotesCount = useMemo(() => {
@@ -188,6 +204,9 @@ export const NotesView: React.FC = () => {
       if (activeFilter === 'pending') {
         return !n.status || n.status === 'pending' || n.status === 'pending_approval';
       }
+      if (activeFilter === 'processed') {
+        return n.status === 'processed';
+      }
       if (activeFilter === 'approved') {
         return n.status === 'approved';
       }
@@ -217,6 +236,12 @@ export const NotesView: React.FC = () => {
 
   const selectableNotes = useMemo(() => {
     if (isAdmin) {
+      if (activeFilter === 'approved') {
+        return filteredNotes.filter((n) => n.status === 'approved');
+      }
+      if (activeFilter === 'processed') {
+        return filteredNotes.filter((n) => n.status === 'processed');
+      }
       const approvable = filteredNotes.filter(
         (n) => n.status === 'pending_approval' || n.status === 'rejected'
       );
@@ -226,7 +251,30 @@ export const NotesView: React.FC = () => {
       (n) => !n.status || n.status === 'pending' || n.status === 'rejected'
     );
     return completable.length > 0 ? completable : filteredNotes;
-  }, [filteredNotes, isAdmin]);
+  }, [filteredNotes, isAdmin, activeFilter]);
+
+  const handleProcessSelected = async () => {
+    if (selectedIds.length === 0 || isBulkProcessing) return;
+    if (
+      !window.confirm(
+        `Seçilen ${selectedIds.length} iş emrini "Sisteme İşlenenler" kısmına aktarmak istediğinize emin misiniz?`
+      )
+    ) {
+      return;
+    }
+    const idsToProcess = [...selectedIds];
+    setSelectionMode(false);
+    setSelectedIds([]);
+    setIsBulkProcessing(true);
+    try {
+      await processMultipleNotes(idsToProcess);
+    } catch (err) {
+      console.error('Seçilenleri sisteme işleme hatası:', err);
+      alert('İşlem sırasında bir hata oluştu.');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
 
   const handleToggleSelect = (noteId: string) => {
     setSelectedIds((prev) =>
@@ -437,6 +485,19 @@ export const NotesView: React.FC = () => {
             <span>Bekleyenler ({pendingNotesCount})</span>
           </button>
 
+          {/* Sisteme İşlenenler Tab (Bekleyenler kısmının hemen sağında) */}
+          <button
+            onClick={() => setActiveFilter('processed')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'processed'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/40'
+            }`}
+          >
+            <span className="text-xs leading-none select-none">🆗</span>
+            <span>Sisteme İşlenenler ({processedNotesCount})</span>
+          </button>
+
           <button
             onClick={() => setActiveFilter('approved')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -588,18 +649,33 @@ export const NotesView: React.FC = () => {
             </button>
 
             {isAdmin ? (
-              <button
-                disabled={selectedIds.length === 0 || isBulkProcessing}
-                onClick={handleApproveSelected}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
-              >
-                {isBulkProcessing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCheck className="w-4 h-4" />
-                )}
-                <span>Seçilenleri Onayla ({selectedIds.length})</span>
-              </button>
+              activeFilter === 'approved' ? (
+                <button
+                  disabled={selectedIds.length === 0 || isBulkProcessing}
+                  onClick={handleProcessSelected}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isBulkProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm leading-none select-none">🆗</span>
+                  )}
+                  <span>Seçilenleri Sisteme İşle ({selectedIds.length})</span>
+                </button>
+              ) : (
+                <button
+                  disabled={selectedIds.length === 0 || isBulkProcessing}
+                  onClick={handleApproveSelected}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isBulkProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCheck className="w-4 h-4" />
+                  )}
+                  <span>Seçilenleri Onayla ({selectedIds.length})</span>
+                </button>
+              )
             ) : (
               <button
                 disabled={selectedIds.length === 0 || isBulkProcessing}
@@ -637,6 +713,8 @@ export const NotesView: React.FC = () => {
               ? 'Aramayla eşleşen iş emri bulunamadı'
               : activeFilter === 'pending'
               ? 'Bekleyen iş emri bulunmuyor'
+              : activeFilter === 'processed'
+              ? 'Henüz sisteme işlenen bir iş emri bulunmuyor'
               : activeFilter === 'approved'
               ? 'Henüz onaylanan iş emri bulunmuyor'
               : activeFilter === 'rejected'
@@ -652,6 +730,8 @@ export const NotesView: React.FC = () => {
               ? 'Lütfen arama teriminizi kontrol edin.'
               : activeFilter === 'pending'
               ? 'Tüm iş emirleri tamamlanmış veya onaylanmış durumdadır.'
+              : activeFilter === 'processed'
+              ? 'Yönetici tarafından resmi sisteme işlenmiş (🆗) iş emirleri burada saklanır.'
               : activeFilter === 'approved'
               ? 'Personel tarafından tamamlanan ve yönetici tarafından onaylanan işler burada listelenir.'
               : activeFilter === 'rejected'
