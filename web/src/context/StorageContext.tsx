@@ -13,6 +13,7 @@ import { LocationService } from '../services/locationService';
 import { DeviceService } from '../services/deviceService';
 import { ServerConfigService } from '../services/serverConfigService';
 import { FastActionAgent } from '../services/fastActionAgent';
+import { ShiftReminderService } from '../services/shiftReminderService';
 import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
 
 interface StorageContextType {
@@ -3775,6 +3776,35 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
+    const registerShiftRemindersOnCheckIn = (record: AttendanceRecord) => {
+      if (!user || user.role === 'admin' || isUserAdmin(user)) return;
+      const assigned = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
+      if (!assigned) return;
+
+      ShiftReminderService.scheduleShiftCheckoutReminders({
+        record,
+        shift: assigned.shift,
+        companyCode: compCode,
+      }).then(({ shift10mId, shift20mId }) => {
+        if (shift10mId || shift20mId) {
+          setAttendanceRecords((prev) => {
+            const idx = prev.findIndex((r) => r.id === record.id);
+            if (idx === -1) return prev;
+            const updated = [...prev];
+            updated[idx] = {
+              ...updated[idx],
+              shiftCheckout10mNotificationId: shift10mId,
+              shiftCheckout20mNotificationId: shift20mId,
+            };
+            FastActionAgent.enqueueAttendanceSync(compCode, updated);
+            return updated;
+          });
+        }
+      }).catch((err) => {
+        console.warn('[ShiftReminder] Check-in reminder scheduling error:', err);
+      });
+    };
+
     // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR ---
     // Yönetici nerede olursa olsun "İşe Geldim" dediğinde anında onaylı mesaiye başlar. Şubeden konum almaz.
     if (user.role === 'admin') {
@@ -3847,6 +3877,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
             title: '🟢 Personel İşe Giriş Yaptı',
@@ -3921,6 +3952,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
             title: '⚠️ Farklı Şubede Mesai Başladı (Onay Bekliyor)',
@@ -3973,6 +4005,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
+        registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
@@ -4019,6 +4052,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
             title: '🟢 Personel İşe Giriş Yaptı',
@@ -4081,6 +4115,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
+        registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
@@ -4144,6 +4179,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
+      registerShiftRemindersOnCheckIn(newRecord);
 
       FastActionAgent.enqueuePushNotification({
         title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
@@ -4183,6 +4219,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [newRecord, ...attendanceRecords];
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
+    registerShiftRemindersOnCheckIn(newRecord);
 
     FastActionAgent.enqueuePushNotification({
       title: '🟢 Personel İşe Giriş Yaptı',
@@ -4316,6 +4353,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
       return {
         success: true,
@@ -4473,6 +4511,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
       // CRITICAL: Push notification to admins
       FastActionAgent.enqueuePushNotification({
@@ -4529,6 +4568,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setAttendanceRecords(updatedRecords);
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+    ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
     // Push notification to admins
     FastActionAgent.enqueuePushNotification({
@@ -4830,6 +4870,30 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkInApprovedAt: Date.now(),
       };
 
+      const assigned = ShiftReminderService.getAssignedShiftForToday(record.userId, shifts, shiftAssignments);
+      if (assigned) {
+        ShiftReminderService.scheduleShiftCheckoutReminders({
+          record: updatedRecord,
+          shift: assigned.shift,
+          companyCode: record.companyCode || compCode,
+        }).then(({ shift10mId, shift20mId }) => {
+          if (shift10mId || shift20mId) {
+            setAttendanceRecords((prev) => {
+              const i = prev.findIndex((r) => r.id === updatedRecord.id);
+              if (i === -1) return prev;
+              const up = [...prev];
+              up[i] = {
+                ...up[i],
+                shiftCheckout10mNotificationId: shift10mId,
+                shiftCheckout20mNotificationId: shift20mId,
+              };
+              FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, up);
+              return up;
+            });
+          }
+        }).catch(() => {});
+      }
+
       FastActionAgent.enqueuePushNotification({
         title: '✅ İşe Girişiniz Onaylandı',
         message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onayladı. İyi çalışmalar!`,
@@ -4845,6 +4909,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const hours = Math.floor(durationMinutes / 60);
       const mins = durationMinutes % 60;
       const durationText = hours > 0 ? `${hours} saat ${mins} dakika` : `${mins} dakika`;
+
+      ShiftReminderService.cancelShiftCheckoutReminders(record, record.companyCode || compCode);
 
       updatedRecord = {
         ...record,
@@ -5728,6 +5794,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const interval = setInterval(checkPersonalNotesReminders, 8000);
     return () => clearInterval(interval);
   }, [personalNotes, user?.id]);
+
+  // --- VARDİYA ÇIKIŞ HATIRLATICI & ESCALATION SERVİSİ (Her 20 saniyede bir kontrol) ---
+  // Vardiya bitiminden 10 dk sonra çıkış yapmamış personele, 20 dk sonra yöneticiye bildirim
+  // SADECE vardiya tahsis edilen personel için çalışır.
+  useEffect(() => {
+    if (!attendanceRecords || attendanceRecords.length === 0 || !shiftAssignments || shiftAssignments.length === 0) {
+      return;
+    }
+
+    const runShiftCheckoutWatcher = () => {
+      ShiftReminderService.checkShiftCheckoutReminders({
+        attendanceRecords,
+        shifts,
+        shiftAssignments,
+        companyCode: compCode,
+        currentUser: user || undefined,
+        onUpdateRecord: (updatedRecord) => {
+          setAttendanceRecords((prev) => {
+            const idx = prev.findIndex((r) => r.id === updatedRecord.id);
+            if (idx === -1) return prev;
+            const updated = [...prev];
+            updated[idx] = updatedRecord;
+            FastActionAgent.enqueueAttendanceSync(compCode, updated);
+            return updated;
+          });
+        },
+      });
+    };
+
+    runShiftCheckoutWatcher();
+    const shiftInterval = setInterval(runShiftCheckoutWatcher, 20000);
+    return () => clearInterval(shiftInterval);
+  }, [attendanceRecords, shifts, shiftAssignments, compCode, user]);
 
   const [lastReadTime, setLastReadTime] = useState<number>(() => {
     if (typeof window !== 'undefined' && user?.id) {

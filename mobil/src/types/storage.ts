@@ -250,6 +250,14 @@ export interface AttendanceRecord {
   currentBreakStartTime?: number;
   totalBreakMinutes?: number;
   currentBreakNotificationId?: string;
+
+  // Vardiya Çıkış Hatırlatıcı Alanları (Shift checkout reminders: +10m staff, +20m admin)
+  shiftCheckout10mNotified?: boolean;
+  shiftCheckout10mNotifiedAt?: number;
+  shiftCheckout10mNotificationId?: string;
+  shiftCheckout20mNotified?: boolean;
+  shiftCheckout20mNotifiedAt?: number;
+  shiftCheckout20mNotificationId?: string;
 }
 
 export interface BackupData {

@@ -441,6 +441,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('Background checkIn save error:', err);
       });
 
+      // Pre-schedule shift checkout reminders (+10m staff, +20m admin) if assigned
+      if (!isUserAdminRole && shiftAssignments && shiftAssignments.length > 0 && shifts && shifts.length > 0) {
+        const assignment = shiftAssignments.find((a) => a.userId === user.id);
+        if (assignment) {
+          const assignedShift = shifts.find((s) => s.id === assignment.shiftId);
+          if (assignedShift && assignedShift.endTime) {
+            const [endH, endM] = assignedShift.endTime.split(':').map(Number);
+            const nowD = new Date();
+            const shiftEndDate = new Date();
+            shiftEndDate.setHours(endH, endM, 0, 0);
+            const shiftEndMs = shiftEndDate.getTime();
+            const target10mMs = shiftEndMs + 10 * 60 * 1000;
+            const target20mMs = shiftEndMs + 20 * 60 * 1000;
+
+            if (target10mMs > nowD.getTime() || target20mMs > nowD.getTime()) {
+              MobilePushService.scheduleShiftCheckoutPush({
+                recordId: newRec.id,
+                userId: user.id,
+                userName: user.name,
+                shiftName: assignedShift.name || assignedShift.endTime,
+                target10mIso: new Date(target10mMs).toISOString(),
+                target20mIso: new Date(target20mMs).toISOString(),
+                companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+              }).then(({ shift10mId, shift20mId }) => {
+                if (shift10mId || shift20mId) {
+                  setAttendanceRecords((prev) => {
+                    const idx = prev.findIndex((r) => r.id === newRec.id);
+                    if (idx === -1) return prev;
+                    const up = [...prev];
+                    up[idx] = {
+                      ...up[idx],
+                      shiftCheckout10mNotificationId: shift10mId,
+                      shiftCheckout20mNotificationId: shift20mId,
+                    };
+                    StorageService.saveAttendanceRecords(up).catch(() => {});
+                    return up;
+                  });
+                }
+              }).catch(() => {});
+            }
+          }
+        }
+      }
+
       // Push notification to admins about check-in
       fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
         method: 'POST',
@@ -553,6 +597,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       StorageService.saveAttendanceRecords(updated).catch((err) => {
         console.warn('Background checkOut save error:', err);
       });
+
+      // Cancel any pre-scheduled shift checkout reminders
+      if (activeRec.shiftCheckout10mNotificationId) {
+        MobilePushService.cancelScheduledPush(activeRec.shiftCheckout10mNotificationId).catch(() => {});
+      }
+      if (activeRec.shiftCheckout20mNotificationId) {
+        MobilePushService.cancelScheduledPush(activeRec.shiftCheckout20mNotificationId).catch(() => {});
+      }
 
       // Push notification to admins about check-out
       fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
