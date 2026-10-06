@@ -58,6 +58,7 @@ interface AuthContextType {
   ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
   suggestUsername: (name: string) => string;
+  refreshUsers: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -303,38 +304,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
+  const syncCurrentSession = (cloudUsers: UserAccount[]) => {
+    setUser((currentUser) => {
+      if (!currentUser) return null;
+      const fresh = cloudUsers.find(
+        (u) =>
+          u.id === currentUser.id ||
+          ((u.companyCode || 'POLATLAR').toUpperCase() === (currentUser.companyCode || 'POLATLAR').toUpperCase() &&
+            u.username.toLowerCase() === currentUser.username.toLowerCase())
+      );
+      const shouldBeAdmin = isUserAdmin(currentUser) || (fresh && isUserAdmin(fresh));
+      const finalRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : currentUser.role);
+      const finalName = fresh ? fresh.name : currentUser.name;
+
+      if (finalRole !== currentUser.role || finalName !== currentUser.name) {
+        const updated: User = {
+          ...currentUser,
+          role: finalRole,
+          name: finalName,
+        };
+        try {
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        return updated;
+      }
+      return currentUser;
+    });
+  };
+
   // Initial cloud fetch & realtime subscription for app_users
   useEffect(() => {
-    const syncCurrentSession = (cloudUsers: UserAccount[]) => {
-      setUser((currentUser) => {
-        if (!currentUser) return null;
-        const fresh = cloudUsers.find(
-          (u) =>
-            u.id === currentUser.id ||
-            ((u.companyCode || 'POLATLAR').toUpperCase() === (currentUser.companyCode || 'POLATLAR').toUpperCase() &&
-              u.username.toLowerCase() === currentUser.username.toLowerCase())
-        );
-        const shouldBeAdmin = isUserAdmin(currentUser) || (fresh && isUserAdmin(fresh));
-        const finalRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : currentUser.role);
-        const finalName = fresh ? fresh.name : currentUser.name;
-
-        if (finalRole !== currentUser.role || finalName !== currentUser.name) {
-          const updated: User = {
-            ...currentUser,
-            role: finalRole,
-            name: finalName,
-          };
-          try {
-            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
-          } catch {
-            // ignore
-          }
-          return updated;
-        }
-        return currentUser;
-      });
-    };
-
     UserService.fetchUsersFromCloud().then((cloudUsers) => {
       setUsers(cloudUsers);
       syncCurrentSession(cloudUsers);
@@ -368,8 +369,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshUsers = async () => {
-    const cloudUsers = await UserService.fetchUsersFromCloud();
-    setUsers(cloudUsers);
+    try {
+      const cloudUsers = await UserService.fetchUsersFromCloud();
+      setUsers(cloudUsers);
+      syncCurrentSession(cloudUsers);
+    } catch (e) {
+      console.warn('Kullanıcılar yenilenirken hata:', e);
+    }
   };
 
   const login = async (
@@ -626,6 +632,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateUser,
         deleteUser,
         suggestUsername,
+        refreshUsers,
       }}
     >
       {children}

@@ -45,6 +45,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     updateUser,
     deleteUser,
     suggestUsername,
+    refreshUsers,
   } = useAuth();
   const { branches, assignStaffToBranch } = useStorage();
 
@@ -65,6 +66,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   );
   const [allBranchesMap, setAllBranchesMap] = useState<Record<string, Branch[]>>({});
   const [loadingAllBranches, setLoadingAllBranches] = useState<boolean>(false);
+  const [isRefreshingUsers, setIsRefreshingUsers] = useState<boolean>(false);
 
   // Flattened list of all branches with company codes
   const allBranchesList = useMemo(() => {
@@ -129,8 +131,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       loadCompaniesAndBranches();
+      setIsRefreshingUsers(true);
+      refreshUsers().finally(() => setIsRefreshingUsers(false));
     }
-  }, [isOpen, loadCompaniesAndBranches]);
+  }, [isOpen, selectedCompanyCode, loadCompaniesAndBranches, refreshUsers]);
 
   // Filter users belonging to selected company
   const companyUsers = React.useMemo(() => {
@@ -187,7 +191,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
-  const loadBindings = async () => {
+  const loadBindings = useCallback(async () => {
     try {
       const activeComp = (selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
       const list = await DeviceService.getUserDeviceBindings(activeComp);
@@ -195,13 +199,26 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     } catch {
       // ignore
     }
-  };
+  }, [selectedCompanyCode, currentUser?.companyCode]);
+
+  const handleRefreshAll = useCallback(async () => {
+    setIsRefreshingUsers(true);
+    try {
+      await Promise.allSettled([
+        loadCompaniesAndBranches(),
+        refreshUsers(),
+        loadBindings(),
+      ]);
+    } finally {
+      setIsRefreshingUsers(false);
+    }
+  }, [loadCompaniesAndBranches, refreshUsers, loadBindings]);
 
   useEffect(() => {
     if (isOpen) {
       loadBindings();
     }
-  }, [isOpen, selectedCompanyCode]);
+  }, [isOpen, loadBindings]);
 
   const handleResetDeviceLock = async (userId: string, userName: string, companyCode?: string) => {
     if (
@@ -346,12 +363,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 </select>
                 <button
                   type="button"
-                  onClick={() => loadCompaniesAndBranches()}
-                  disabled={loadingAllBranches}
+                  onClick={() => handleRefreshAll()}
+                  disabled={loadingAllBranches || isRefreshingUsers}
                   className="p-1.5 text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg cursor-pointer disabled:opacity-50 transition-all shrink-0"
-                  title="Kurum ve şube listesini yenile"
+                  title="Kurum, şube ve kullanıcı listesini sunucudan yenile"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAllBranches ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAllBranches || isRefreshingUsers ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             ) : (
@@ -393,6 +410,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
           >
             <Users className="w-4 h-4" />
             <span>Kullanıcı Listesi ({companyUsers.length})</span>
+            {isRefreshingUsers && (
+              <RefreshCw className="w-3 h-3 text-blue-500 animate-spin shrink-0" />
+            )}
           </button>
 
           <button
@@ -441,31 +461,52 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
               {filteredCompanyUsers.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs font-medium bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <Users className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                  {companyUsers.length === 0 ? (
-                    <>
-                      <p>"{selectedCompanyCode}" kurumuna ait kayıtlı kullanıcı bulunamadı.</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTargetAddCompanyCode(selectedCompanyCode);
-                          setActiveSubTab('add');
-                        }}
-                        className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
-                      >
-                        + Yeni Kullanıcı Ekle
-                      </button>
-                    </>
+                  {isRefreshingUsers ? (
+                    <div className="flex flex-col items-center justify-center py-4 gap-2">
+                      <RefreshCw className="w-7 h-7 text-blue-500 animate-spin" />
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                        "{selectedCompanyCode}" kullanıcıları sunucudan yükleniyor...
+                      </p>
+                    </div>
                   ) : (
                     <>
-                      <p>"{userSearchQuery}" aramasına uygun personel bulunamadı.</p>
-                      <button
-                        type="button"
-                        onClick={() => setUserSearchQuery('')}
-                        className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
-                      >
-                        Aramayı Temizle
-                      </button>
+                      <Users className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                      {companyUsers.length === 0 ? (
+                        <>
+                          <p>"{selectedCompanyCode}" kurumuna ait kayıtlı kullanıcı bulunamadı.</p>
+                          <div className="flex items-center justify-center gap-3 mt-3">
+                            <button
+                              type="button"
+                              onClick={() => handleRefreshAll()}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-bold hover:bg-blue-100 cursor-pointer text-xs"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              Tekrar Dene / Yenile
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTargetAddCompanyCode(selectedCompanyCode);
+                                setActiveSubTab('add');
+                              }}
+                              className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                            >
+                              + Yeni Kullanıcı Ekle
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p>"{userSearchQuery}" aramasına uygun personel bulunamadı.</p>
+                          <button
+                            type="button"
+                            onClick={() => setUserSearchQuery('')}
+                            className="mt-2 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                          >
+                            Aramayı Temizle
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>

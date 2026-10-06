@@ -259,6 +259,15 @@ export const UserService = {
           };
         });
         await ServerConfigService.apiPost('/api/tables/app_users/upsert', { rows: appUserRows });
+
+        // Dual-write background mirror to Supabase cloud to maintain 100% parity
+        void (async () => {
+          try {
+            await supabase.from('standard_tasks').upsert({ id: USERS_SLOT_ID, tasks: chunks });
+            await supabase.from('app_users').upsert(appUserRows);
+          } catch {}
+        })();
+
         return;
       }
 
@@ -335,6 +344,17 @@ export const UserService = {
           chunks.push(json.substring(i, i + chunkSize));
         }
         await ServerConfigService.apiPost(`/api/standard_tasks/${USERS_SLOT_ID}`, { tasks: chunks });
+        
+        // Mirror delete to Supabase in background
+        void (async () => {
+          try {
+            await supabase.from('standard_tasks').upsert({ id: USERS_SLOT_ID, tasks: chunks });
+            if (userId) {
+              await supabase.from('app_users').delete().eq('id', userId);
+            }
+          } catch {}
+        })();
+
         return;
       }
 
@@ -508,40 +528,41 @@ export const UserService = {
 
 
   /**
-   * Fetches latest users from Supabase cloud database with company isolation scoping
+   * Fetches users directly from Supabase (both app_users table and standard_tasks slot 101)
    */
-  async fetchUsersFromCloud(companyCodeFilter?: string): Promise<UserAccount[]> {
-    const localUsers = this.getUsers();
-
-    // 0. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
-    if (ServerConfigService.isLocalMode()) {
+  async fetchUsersDirectFromSupabase(companyCodeFilter?: string): Promise<UserAccount[]> {
+    try {
+      const companiesMap = new Map<string, string>();
       try {
-        const slotRes = await ServerConfigService.apiGet<{ id: number; tasks: string[]; notFound?: boolean }>(
-          `/api/standard_tasks/${USERS_SLOT_ID}`
-        );
-        if (slotRes.data && Array.isArray(slotRes.data.tasks) && slotRes.data.tasks.length > 0) {
-          const rawJson = slotRes.data.tasks.join('');
-          const parsed = JSON.parse(rawJson);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            let filtered = parsed;
-            if (companyCodeFilter) {
-              const cleanFilter = companyCodeFilter.trim().toUpperCase();
-              filtered = parsed.filter(
-                (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
-              );
-            }
-            this.saveUsers(parsed);
-            return filtered;
+        const companies = await CompanyService.fetchCompanies();
+        companies.forEach((c) => {
+          if (c.code && c.adminEmail) {
+            companiesMap.set(c.code.toUpperCase(), c.adminEmail.toLowerCase());
+          }
+        });
+      } catch {}
+
+      const userMap = new Map<string, UserAccount>();
+
+      // 1. Fetch from app_users table
+      try {
+        let query = supabase
+          .from('app_users')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (companyCodeFilter) {
+          const cleanFilter = companyCodeFilter.trim().toUpperCase();
+          if (cleanFilter === 'POLATLAR') {
+            query = query.or('username.not.like.%:%,username.ilike.POLATLAR:%');
+          } else {
+            query = query.ilike('username', `${cleanFilter}:%`);
           }
         }
-      } catch (err) {
-        console.warn('Yerel sunucu slot 101 okunurken hata:', err);
-      }
 
-      try {
-        const tableRes = await ServerConfigService.apiGet<any[]>('/api/tables/app_users');
-        if (tableRes.data && Array.isArray(tableRes.data) && tableRes.data.length > 0) {
-          const mapped: UserAccount[] = tableRes.data.map((row) => {
+        const { data, error } = await query;
+        if (!error && data && data.length > 0) {
+          data.forEach((row) => {
             let companyCode = 'POLATLAR';
             let username = row.username;
             let email: string | undefined = undefined;
@@ -558,9 +579,12 @@ export const UserService = {
               username = parts.slice(1).join(':');
             }
 
-            const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+            if (!email && row.role === 'admin' && companiesMap.has(companyCode)) {
+              email = companiesMap.get(companyCode);
+            }
 
-            return {
+            const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+            const u: UserAccount = {
               id: row.id,
               username,
               password: row.password,
@@ -570,153 +594,180 @@ export const UserService = {
               companyCode,
               email,
             };
+            userMap.set(`${companyCode}:${username.toLowerCase()}`, u);
           });
-
-          let filtered = mapped;
-          if (companyCodeFilter) {
-            const cleanFilter = companyCodeFilter.trim().toUpperCase();
-            filtered = mapped.filter(
-              (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
-            );
-          }
-          this.saveUsers(mapped);
-          return filtered;
         }
       } catch (err) {
-        console.warn('Yerel sunucu app_users tablosu okunurken hata:', err);
+        console.warn('Supabase app_users sorgulanamadı:', err);
+      }
+
+      // 2. Also inspect standard_tasks slot 101 on Supabase
+      try {
+        const { data: slot101Data } = await supabase
+          .from('standard_tasks')
+          .select('tasks')
+          .eq('id', USERS_SLOT_ID)
+          .single();
+
+        if (slot101Data?.tasks && Array.isArray(slot101Data.tasks) && slot101Data.tasks.length > 0) {
+          const raw = slot101Data.tasks.join('');
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((u: UserAccount) => {
+              const comp = (u.companyCode || 'POLATLAR').toUpperCase();
+              const key = `${comp}:${(u.username || '').toLowerCase()}`;
+              if (!userMap.has(key)) {
+                userMap.set(key, { ...u, companyCode: comp });
+              }
+            });
+          }
+        }
+      } catch {}
+
+      const all = Array.from(userMap.values());
+      if (companyCodeFilter) {
+        const clean = companyCodeFilter.trim().toUpperCase();
+        return all.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === clean);
+      }
+      return all;
+    } catch (e) {
+      console.warn('fetchUsersDirectFromSupabase error:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Fetches latest users with Local Server / Supabase cloud multi-tenant resilience
+   */
+  async fetchUsersFromCloud(companyCodeFilter?: string): Promise<UserAccount[]> {
+    const localUsers = this.getUsers();
+
+    // 0. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
+    if (ServerConfigService.isLocalMode()) {
+      let localFoundUsers: UserAccount[] | null = null;
+      try {
+        const slotRes = await ServerConfigService.apiGet<{ id: number; tasks: string[]; notFound?: boolean }>(
+          `/api/standard_tasks/${USERS_SLOT_ID}`
+        );
+        if (slotRes.data && Array.isArray(slotRes.data.tasks) && slotRes.data.tasks.length > 0) {
+          const rawJson = slotRes.data.tasks.join('');
+          const parsed = JSON.parse(rawJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localFoundUsers = parsed;
+          }
+        }
+      } catch (err) {
+        console.warn('Yerel sunucu slot 101 okunurken hata:', err);
+      }
+
+      if (!localFoundUsers || localFoundUsers.length === 0) {
+        try {
+          const tableRes = await ServerConfigService.apiGet<any[]>('/api/tables/app_users');
+          if (tableRes.data && Array.isArray(tableRes.data) && tableRes.data.length > 0) {
+            localFoundUsers = tableRes.data.map((row) => {
+              let companyCode = 'POLATLAR';
+              let username = row.username;
+              let email: string | undefined = undefined;
+
+              if (row.username && row.username.includes('#')) {
+                const hashParts = row.username.split('#');
+                username = hashParts[0];
+                email = hashParts[1]?.toLowerCase();
+              }
+
+              if (username && username.includes(':')) {
+                const parts = username.split(':');
+                companyCode = parts[0].toUpperCase();
+                username = parts.slice(1).join(':');
+              }
+
+              const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+
+              return {
+                id: row.id,
+                username,
+                password: row.password,
+                name: row.name,
+                role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
+                createdAt: Number(row.created_at) || Date.now(),
+                companyCode,
+                email,
+              };
+            });
+          }
+        } catch (err) {
+          console.warn('Yerel sunucu app_users tablosu okunurken hata:', err);
+        }
+      }
+
+      // Check if we need Supabase fallback or merge
+      let needCloudFallback = !localFoundUsers || localFoundUsers.length === 0;
+      if (companyCodeFilter && localFoundUsers && localFoundUsers.length > 0) {
+        const cleanFilter = companyCodeFilter.trim().toUpperCase();
+        const hasCompanyUsers = localFoundUsers.some(
+          (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
+        );
+        if (!hasCompanyUsers) {
+          needCloudFallback = true;
+        }
+      }
+
+      if (needCloudFallback) {
+        try {
+          const cloudUsers = await this.fetchUsersDirectFromSupabase(companyCodeFilter);
+          if (cloudUsers && cloudUsers.length > 0) {
+            const userMap = new Map<string, UserAccount>();
+            (localFoundUsers || []).forEach((u) => {
+              userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
+            });
+            cloudUsers.forEach((u) => {
+              userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
+            });
+            const merged = Array.from(userMap.values());
+            this.saveUsers(merged);
+            this.syncToSlot101(merged).catch(() => {});
+            return companyCodeFilter
+              ? merged.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCodeFilter.trim().toUpperCase())
+              : merged;
+          }
+        } catch (e) {
+          console.warn('Supabase fallback error:', e);
+        }
+      }
+
+      if (localFoundUsers && localFoundUsers.length > 0) {
+        this.saveUsers(localFoundUsers);
+        if (companyCodeFilter) {
+          const cleanFilter = companyCodeFilter.trim().toUpperCase();
+          return localFoundUsers.filter(
+            (u) => (u.companyCode || 'POLATLAR').toUpperCase() === cleanFilter
+          );
+        }
+        return localFoundUsers;
       }
 
       return localUsers;
     }
 
+    // 1. Supabase Cloud Mode
     try {
-      // 1. Fetch companies directory to enrich admin users with their registered email
-      const companiesMap = new Map<string, string>();
-      try {
-        const companies = await CompanyService.fetchCompanies();
-        companies.forEach((c) => {
-          if (c.code && c.adminEmail) {
-            companiesMap.set(c.code.toUpperCase(), c.adminEmail.toLowerCase());
-          }
+      const cloudUsers = await this.fetchUsersDirectFromSupabase(companyCodeFilter);
+      if (cloudUsers && cloudUsers.length > 0) {
+        const userMap = new Map<string, UserAccount>();
+        localUsers.forEach((u) => {
+          userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
         });
-      } catch {
-        // ignore
-      }
-
-      let query = supabase
-        .from('app_users')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (companyCodeFilter) {
-        const cleanFilter = companyCodeFilter.trim().toUpperCase();
-        if (cleanFilter === 'POLATLAR') {
-          query = query.or('username.not.like.%:%,username.ilike.POLATLAR:%');
-        } else {
-          query = query.ilike('username', `${cleanFilter}:%`);
-        }
-      }
-
-      const { data, error } = await query;
-
-      if (!error && data && data.length > 0) {
-        const cloudUsers: UserAccount[] = data.map((row) => {
-          let companyCode = 'POLATLAR';
-          let username = row.username;
-          let email: string | undefined = undefined;
-
-          // Parse embedded email format (e.g. "BURAKDEV:admin#b.agcakaya@gmail.com")
-          if (row.username && row.username.includes('#')) {
-            const hashParts = row.username.split('#');
-            username = hashParts[0];
-            email = hashParts[1]?.toLowerCase();
-          }
-
-          // Parse composite companyCode:username format
-          if (username && username.includes(':')) {
-            const parts = username.split(':');
-            companyCode = parts[0].toUpperCase();
-            username = parts.slice(1).join(':');
-          }
-
-          // If email is not in username, resolve from company directory if admin
-          if (!email && row.role === 'admin' && companiesMap.has(companyCode)) {
-            email = companiesMap.get(companyCode);
-          }
-
-          const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
-
-          return {
-            id: row.id,
-            username,
-            password: row.password,
-            name: row.name,
-            role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
-            createdAt: Number(row.created_at) || Date.now(),
-            companyCode,
-            email,
-          };
+        cloudUsers.forEach((u) => {
+          userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
         });
-
-        // Merge any local users not yet in cloud
-        const cloudKeys = new Set(cloudUsers.map((u) => `${u.companyCode}:${u.username.toLowerCase()}`));
-        const missingLocal = localUsers.filter(
-          (u) => !cloudKeys.has(`${u.companyCode}:${u.username.toLowerCase()}`)
-        );
-
-        if (missingLocal.length > 0) {
-          try {
-            await supabase.from('app_users').upsert(
-              missingLocal.map((u) => {
-                let cloudUsername =
-                  u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`;
-                if (u.email) {
-                  cloudUsername = `${cloudUsername}#${u.email}`;
-                }
-                return {
-                  id: u.id,
-                  username: cloudUsername,
-                  password: u.password,
-                  name: u.name,
-                  role: u.role,
-                  created_at: u.createdAt,
-                };
-              })
-            );
-          } catch {
-            // ignore
-          }
-        }
-
-        const merged = [...cloudUsers, ...missingLocal];
+        const merged = Array.from(userMap.values());
         this.saveUsers(merged);
-        return merged;
-      } else if (!error && data && data.length === 0 && localUsers.length > 0) {
-        // Cloud table exists but empty -> seed from local
-        try {
-          await supabase.from('app_users').upsert(
-            localUsers.map((u) => {
-              let cloudUsername =
-                u.companyCode === 'POLATLAR' ? u.username : `${u.companyCode}:${u.username}`;
-              if (u.email) {
-                cloudUsername = `${cloudUsername}#${u.email}`;
-              }
-              return {
-                id: u.id,
-                username: cloudUsername,
-                password: u.password,
-                name: u.name,
-                role: u.role,
-                created_at: u.createdAt,
-              };
-            })
-          );
-        } catch {
-          // ignore
-        }
+        return companyCodeFilter
+          ? merged.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCodeFilter.trim().toUpperCase())
+          : merged;
       }
     } catch (e) {
-      console.warn('Supabase kullanıcı senkronizasyonu atlandı:', e);
+      console.warn('Supabase kullanıcı senkronizasyonu hatası:', e);
     }
 
     return localUsers;
