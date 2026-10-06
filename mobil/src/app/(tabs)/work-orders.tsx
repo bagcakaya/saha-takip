@@ -685,28 +685,6 @@ export default function WorkOrdersScreen() {
                 </Text>
               </TouchableOpacity>
 
-              {/* Sisteme İşlenenler (X) */}
-              <TouchableOpacity
-                style={[
-                  styles.filterPill,
-                  activeTab === 'processed'
-                    ? styles.pillProcessedActive
-                    : styles.pillInactiveProcessed,
-                ]}
-                onPress={() => setActiveTab('processed')}
-                activeOpacity={0.8}
-              >
-                <Text style={{ fontSize: 13, marginRight: 2 }}>🆗</Text>
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    { color: activeTab === 'processed' ? '#ffffff' : '#3b82f6' },
-                  ]}
-                >
-                  Sisteme İşlenenler ({counts.processed})
-                </Text>
-              </TouchableOpacity>
-
               {/* Onaylananlar (X) */}
               <TouchableOpacity
                 style={[
@@ -729,6 +707,28 @@ export default function WorkOrdersScreen() {
                   ]}
                 >
                   Onaylananlar ({counts.approved})
+                </Text>
+              </TouchableOpacity>
+
+              {/* Sisteme İşlenenler (X) */}
+              <TouchableOpacity
+                style={[
+                  styles.filterPill,
+                  activeTab === 'processed'
+                    ? styles.pillProcessedActive
+                    : styles.pillInactiveProcessed,
+                ]}
+                onPress={() => setActiveTab('processed')}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 13, marginRight: 2 }}>🆗</Text>
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    { color: activeTab === 'processed' ? '#ffffff' : '#3b82f6' },
+                  ]}
+                >
+                  Sisteme İşlenenler ({counts.processed})
                 </Text>
               </TouchableOpacity>
             </ScrollView>

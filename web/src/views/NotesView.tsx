@@ -485,19 +485,6 @@ export const NotesView: React.FC = () => {
             <span>Bekleyenler ({pendingNotesCount})</span>
           </button>
 
-          {/* Sisteme İşlenenler Tab (Bekleyenler kısmının hemen sağında) */}
-          <button
-            onClick={() => setActiveFilter('processed')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-              activeFilter === 'processed'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/40'
-            }`}
-          >
-            <span className="text-xs leading-none select-none">🆗</span>
-            <span>Sisteme İşlenenler ({processedNotesCount})</span>
-          </button>
-
           <button
             onClick={() => setActiveFilter('approved')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -508,6 +495,19 @@ export const NotesView: React.FC = () => {
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Onaylananlar ({approvedNotesCount})</span>
+          </button>
+
+          {/* Sisteme İşlenenler Tab (Onaylananlar kısmının hemen sağında) */}
+          <button
+            onClick={() => setActiveFilter('processed')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'processed'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/40'
+            }`}
+          >
+            <span className="text-xs leading-none select-none">🆗</span>
+            <span>Sisteme İşlenenler ({processedNotesCount})</span>
           </button>
 
           <button
