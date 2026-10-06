@@ -748,11 +748,14 @@ export default function AttendanceScreen() {
     return () => clearInterval(interval);
   }, [isOnBreak, todayRecord?.currentBreakStartTime, currentUserMaxBreakMinutes, breakAlarmTriggered]);
 
-  const handleStartBreak = async () => {
+  const [isBreakModalOpen, setIsBreakModalOpen] = useState(false);
+  const [breakNoteInput, setBreakNoteInput] = useState('');
+
+  const handleStartBreak = async (note?: string) => {
     if (isProcessingBreak) return;
     setIsProcessingBreak(true);
     try {
-      const res = await startBreak();
+      const res = await startBreak(note || undefined);
       if (!res.success) {
         Alert.alert('Bilgi', res.message);
       }
@@ -1953,6 +1956,19 @@ export default function AttendanceScreen() {
                         }`
                       )}
                     </Text>
+                    {isOnBreak && todayRecord?.breaks && todayRecord.breaks.length > 0 && (() => {
+                      const lastB = todayRecord.breaks[todayRecord.breaks.length - 1];
+                      if (lastB?.note && lastB.note !== 'Mola') {
+                        return (
+                          <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(245, 158, 11, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#b45309' }}>
+                              📝 "{lastB.note}"
+                            </Text>
+                          </View>
+                        );
+                      }
+                      return null;
+                    })()}
                     {isOnBreak && breakAlarmTriggered && (
                       <View style={{ marginTop: 6, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fca5a5' }}>
                         <Text style={{ fontSize: 11, fontWeight: '900', color: '#b91c1c' }}>
@@ -1968,7 +1984,10 @@ export default function AttendanceScreen() {
                     styles.molaActionBtn,
                     isOnBreak ? styles.molaActionBtnEnd : styles.molaActionBtnStart,
                   ]}
-                  onPress={isOnBreak ? handleEndBreak : handleStartBreak}
+                  onPress={isOnBreak ? handleEndBreak : () => {
+                    setBreakNoteInput('');
+                    setIsBreakModalOpen(true);
+                  }}
                   disabled={isProcessingBreak}
                   activeOpacity={0.85}
                 >
@@ -3467,6 +3486,124 @@ export default function AttendanceScreen() {
                 <Text style={{ color: '#64748b', fontSize: 11 }}>{staff.role}</Text>
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mola Açıklama Modal */}
+      <Modal
+        visible={isBreakModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsBreakModalOpen(false)}
+      >
+        <View style={styles.pickerBackdrop}>
+          <View style={[styles.breakModalCard, { backgroundColor: isDark ? '#0f172a' : '#ffffff' }]}>
+            <View style={styles.pickerHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={styles.breakModalIconBox}>
+                  <Coffee size={18} color="#d97706" />
+                </View>
+                <View>
+                  <Text style={[styles.pickerTitle, { color: isDark ? '#ffffff' : '#0f172a' }]}>
+                    Molaya Çıkış
+                  </Text>
+                  <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+                    Mola amacınızı belirtebilirsiniz (İsteğe bağlı)
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setIsBreakModalOpen(false)} style={{ padding: 4 }}>
+                <X size={20} color={isDark ? '#94a3b8' : '#64748b'} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Hızlı Seçenekler */}
+            <View style={{ marginVertical: 12 }}>
+              <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginBottom: 8 }]}>
+                HIZLI SEÇENEKLER
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[
+                  '🛒 Market',
+                  '🚶 Dışarı Çıktım',
+                  '🍔 Yemek',
+                  '☕ Çay/Kahve',
+                  '💊 Eczane',
+                ].map((chip) => (
+                  <TouchableOpacity
+                    key={chip}
+                    style={[
+                      styles.breakChip,
+                      breakNoteInput === chip && styles.breakChipActive,
+                      { backgroundColor: breakNoteInput === chip ? '#f59e0b' : (isDark ? '#1e293b' : '#f1f5f9') },
+                    ]}
+                    onPress={() => setBreakNoteInput(chip)}
+                  >
+                    <Text
+                      style={[
+                        styles.breakChipText,
+                        { color: breakNoteInput === chip ? '#ffffff' : (isDark ? '#e2e8f0' : '#334155') },
+                      ]}
+                    >
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Not Girişi */}
+            <Text style={[styles.leaveFieldLabel, { color: isDark ? '#cbd5e1' : '#475569', marginBottom: 6 }]}>
+              AÇIKLAMA / NOT
+            </Text>
+            <TextInput
+              style={[
+                styles.breakNoteInput,
+                {
+                  backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                  color: isDark ? '#ffffff' : '#0f172a',
+                  borderColor: isDark ? '#334155' : '#e2e8f0',
+                },
+              ]}
+              placeholder="Örn: Markete gidiyorum, 10 dk..."
+              placeholderTextColor={isDark ? '#64748b' : '#94a3b8'}
+              value={breakNoteInput}
+              onChangeText={setBreakNoteInput}
+              maxLength={150}
+              multiline
+              numberOfLines={3}
+            />
+
+            {/* Aksiyon Butonları */}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <TouchableOpacity
+                style={[styles.breakModalBtnCancel, { borderColor: isDark ? '#334155' : '#cbd5e1' }]}
+                onPress={() => {
+                  setIsBreakModalOpen(false);
+                  setBreakNoteInput('');
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#cbd5e1' : '#64748b' }}>
+                  Vazgeç
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.breakModalBtnConfirm}
+                onPress={async () => {
+                  const note = breakNoteInput.trim();
+                  setIsBreakModalOpen(false);
+                  setBreakNoteInput('');
+                  await handleStartBreak(note);
+                }}
+                disabled={isProcessingBreak}
+              >
+                <Coffee size={16} color="#ffffff" />
+                <Text style={{ fontSize: 13, fontWeight: '900', color: '#ffffff' }}>
+                  Molayı Başlat
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -5283,5 +5420,74 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '900',
+  },
+
+  /* Mola Açıklama Modal Stilleri */
+  breakModalCard: {
+    width: '92%',
+    maxWidth: 440,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  breakModalIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(217, 119, 6, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  breakChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  breakChipActive: {
+    borderColor: '#f59e0b',
+  },
+  breakChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  breakNoteInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlignVertical: 'top',
+    minHeight: 70,
+  },
+  breakModalBtnCancel: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  breakModalBtnConfirm: {
+    backgroundColor: '#f59e0b',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
   },
 });

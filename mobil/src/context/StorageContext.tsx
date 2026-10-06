@@ -600,6 +600,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('Failed to schedule break over push from mobile:', err);
     });
 
+    // Push notification to admins about break start (includes note if provided)
+    fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '☕ Personel Molaya Çıktı',
+        message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Açıklama: ${note})` : ''}`,
+        targetMode: 'admin',
+        excludeUserIds: [user.id],
+        companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }),
+    }).catch(() => {});
+
     return { success: true, message: 'Molaya çıkışınız kaydedildi. İyi dinlenmeler!' };
   };
 
@@ -666,6 +680,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     await StorageService.saveAttendanceRecords(updated);
+
+    // Push notification to admins about break end
+    fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '🔄 Personel Moladan Döndü',
+        message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${durationMinutes} dk)`,
+        targetMode: 'admin',
+        excludeUserIds: [user.id],
+        companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      }),
+    }).catch(() => {});
 
     return {
       success: true,
