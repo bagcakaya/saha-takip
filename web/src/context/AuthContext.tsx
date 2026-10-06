@@ -66,7 +66,13 @@ const AUTH_STORAGE_KEY = '@gorev_tamamlama_auth_user';
 const VIEWING_COMPANY_STORAGE_KEY = '@saha_takip_viewing_company_code';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    try {
+      return UserService.getUsers();
+    } catch {
+      return [];
+    }
+  });
   const [homeCompany, setHomeCompany] = useState<Company | null>(null);
   const [viewingCompany, setViewingCompany] = useState<Company | null>(null);
 

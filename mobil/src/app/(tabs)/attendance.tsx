@@ -433,6 +433,11 @@ export default function AttendanceScreen() {
 
   useEffect(() => {
     fetchGps();
+    refreshData().catch(() => {});
+    const interval = setInterval(() => {
+      refreshData().catch(() => {});
+    }, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const onRefresh = async () => {
@@ -525,6 +530,12 @@ export default function AttendanceScreen() {
 
   const activeStaffOnBreak = useMemo(() => {
     return attendanceRecords.filter((r) => r.date === todayStr && r.isOnBreak);
+  }, [attendanceRecords, todayStr]);
+
+  const activeStaffList = useMemo(() => {
+    return (attendanceRecords || []).filter(
+      (r) => r && r.date === todayStr && Boolean(r.checkInTime) && !r.checkOutTime
+    );
   }, [attendanceRecords, todayStr]);
 
   const [isProcessingBreak, setIsProcessingBreak] = useState(false);
@@ -897,8 +908,10 @@ export default function AttendanceScreen() {
       if (r.userName) staffSet.add(r.userName);
       if (r.checkInTime) checkInCount++;
       if (r.status === 'completed') completedCount++;
-      if (r.isOnBreak) onBreakCount++;
-      else if (r.status === 'checked_in') inWorkCount++;
+      if (r.checkInTime && !r.checkOutTime) {
+        if (r.isOnBreak) onBreakCount++;
+        else inWorkCount++;
+      }
     });
 
     const hours = Math.floor(totalMinutes / 60);
@@ -1202,7 +1215,9 @@ export default function AttendanceScreen() {
                   title: 'İşe Giriş / Çıkış',
                   icon: UserCheck,
                   glowColor: '#10b981',
-                  badgeText: isCheckedIn ? 'Mesaide' : isCheckedOut ? 'Çıkış' : undefined,
+                  badgeText: isAdmin
+                    ? (stats.inWorkCount > 0 ? `${stats.inWorkCount} Mesaide` : undefined)
+                    : (isCheckedIn ? 'Mesaide' : isCheckedOut ? 'Çıkış' : undefined),
                   badgeCount: isAdmin && pendingAttendanceCount > 0 ? pendingAttendanceCount : undefined,
                 },
                 {
@@ -1695,6 +1710,105 @@ export default function AttendanceScreen() {
                       </View>
                     );
                   })}
+              </View>
+            )}
+
+            {/* YÖNETİCİ İÇİN CANLI MESAİDEKİ PERSONELLER KARTI */}
+            {isAdmin && (
+              <View
+                style={[
+                  styles.cardBox,
+                  {
+                    backgroundColor: isDark ? '#0c152e' : '#ffffff',
+                    borderColor: '#10b981',
+                    borderWidth: 1.5,
+                    marginBottom: 16,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10b981' }} />
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: isDark ? '#ffffff' : '#0f172a' }}>
+                      Canlı Mesaideki Personeller
+                    </Text>
+                  </View>
+                  <View style={{ backgroundColor: activeStaffList.length > 0 ? '#dcfce7' : (isDark ? '#334155' : '#f1f5f9'), paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: activeStaffList.length > 0 ? '#15803d' : (isDark ? '#94a3b8' : '#64748b') }}>
+                      {activeStaffList.length} Personel Aktif
+                    </Text>
+                  </View>
+                </View>
+
+                {activeStaffList.length === 0 ? (
+                  <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                    <Text style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 13, textAlign: 'center' }}>
+                      Şu an sahada veya ofiste aktif mesaide olan personel bulunmuyor.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 10 }}>
+                    {activeStaffList.map((rec) => {
+                      const checkInHour = rec.checkInTime
+                        ? new Date(rec.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+                        : '--:--';
+                      return (
+                        <View
+                          key={rec.id}
+                          style={{
+                            padding: 12,
+                            borderRadius: 12,
+                            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                            borderWidth: 1,
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontWeight: '700', fontSize: 14, color: isDark ? '#ffffff' : '#0f172a' }}>
+                                {rec.userName}
+                              </Text>
+                              {rec.branchName && (
+                                <Text style={{ fontSize: 11, color: '#64748b' }}>({rec.branchName})</Text>
+                              )}
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
+                              <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                                Giriş: <Text style={{ fontWeight: '700', color: isDark ? '#cbd5e1' : '#1e293b' }}>{checkInHour}</Text>
+                              </Text>
+                              {rec.checkInDistance !== undefined && (
+                                <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                                  Mesafe: <Text style={{ fontWeight: '700', color: rec.checkInOutside ? '#ef4444' : '#10b981' }}>{Math.round(rec.checkInDistance)} m</Text>
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          <View
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 8,
+                              backgroundColor: rec.isOnBreak ? '#fef3c7' : '#dcfce7',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '700',
+                                color: rec.isOnBreak ? '#d97706' : '#16a34a',
+                              }}
+                            >
+                              {rec.isOnBreak ? 'Molada' : 'Mesaide'}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
             )}
 

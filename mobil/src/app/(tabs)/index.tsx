@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -76,9 +76,18 @@ export default function HomeDashboardScreen() {
     securityLogs,
     standardTasks,
     unreadNotificationsCount,
+    refreshData,
   } = useStorage();
   const { isDark, toggleTheme, colors } = useAppTheme();
   const router = useRouter();
+
+  useEffect(() => {
+    refreshData().catch(() => {});
+    const interval = setInterval(() => {
+      refreshData().catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Modals state
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -95,8 +104,14 @@ export default function HomeDashboardScreen() {
   const activeReturnsCount = (returnWarrantyItems || []).filter((i) => i && i.status === 'pending').length;
   const activeInstallationsCount = (locations || []).filter((l) => l && l.status !== 'completed').length;
   const activeAttendanceCount = (attendanceRecords || []).filter(
-    (r) => r && r.date === todayStr && (r.status === 'checked_in' || r.status === 'completed')
+    (r) => r && r.date === todayStr && Boolean(r.checkInTime) && !r.checkOutTime
   ).length;
+
+  const myTodayRecord = (attendanceRecords || []).find(
+    (r) => (r.userId === user?.id || r.userName === user?.name) && r.date === todayStr
+  );
+  const isMeCheckedIn = Boolean(myTodayRecord && myTodayRecord.checkInTime && !myTodayRecord.checkOutTime);
+  const isMeCheckedOut = Boolean(myTodayRecord && myTodayRecord.checkOutTime);
   const pendingFollowUpsCount = (timedFollowUps || []).filter((f) => {
     if (!f || f.status !== 'pending') return false;
     try {
@@ -188,8 +203,10 @@ export default function HomeDashboardScreen() {
       icon: UserCheck,
       color: '#047857',
       glowColor: '#34d399',
-      badgeText: `${activeAttendanceCount} Aktif`,
-      activeCount: activeAttendanceCount,
+      badgeText: isAdmin
+        ? (activeAttendanceCount > 0 ? `${activeAttendanceCount} Mesaide` : '0 Mesaide')
+        : (isMeCheckedIn ? 'Mesaide' : isMeCheckedOut ? 'Çıkış' : 'Giriş Yap'),
+      activeCount: isAdmin ? activeAttendanceCount : (isMeCheckedIn ? 1 : 0),
       action: () => router.push('/(tabs)/attendance'),
       visible: true,
     },
@@ -385,6 +402,94 @@ export default function HomeDashboardScreen() {
             </Text>
           </View>
         </View>
+
+        {/* HIZLI MESAI DURUM VE YÖNLENDİRME BANT/KARTI */}
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/attendance')}
+          activeOpacity={0.85}
+          style={{
+            marginHorizontal: 16,
+            marginBottom: 12,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderRadius: 14,
+            backgroundColor: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+              ? (isDark ? '#451a03' : '#fef3c7')
+              : (isDark ? '#064e3b' : '#ecfdf5'),
+            borderWidth: 1,
+            borderColor: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+              ? (isDark ? '#b45309' : '#f59e0b')
+              : (isDark ? '#059669' : '#10b981'),
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+                  ? '#f59e0b'
+                  : '#10b981',
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '800',
+                  color: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+                    ? (isDark ? '#fef3c7' : '#92400e')
+                    : (isDark ? '#ecfdf5' : '#065f46'),
+                }}
+              >
+                {isAdmin
+                  ? (activeAttendanceCount > 0
+                    ? `🟢 ${activeAttendanceCount} Personel Şu An Mesaide`
+                    : '👥 Henüz Mesaiye Başlayan Personel Yok')
+                  : (isMeCheckedIn
+                    ? '🟢 Mesainiz Aktif (Çalışıyorsunuz)'
+                    : isMeCheckedOut
+                    ? '🏁 Bugünkü Mesainiz Tamamlandı'
+                    : '⚠️ Bugün Henüz Mesaiye Başlamadınız')}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+                    ? (isDark ? '#fde68a' : '#b45309')
+                    : (isDark ? '#a7f3d0' : '#047857'),
+                  marginTop: 2,
+                }}
+              >
+                {isAdmin
+                  ? 'Giriş saatleri, GPS ve mola durumlarını canlı izleyin'
+                  : (isMeCheckedIn
+                    ? 'Mola başlatmak veya çıkış yapmak için dokunun'
+                    : isMeCheckedOut
+                    ? 'Günlük mesai özetinizi görüntülemek için dokunun'
+                    : 'GPS konum doğrulaması ile tek dokunuşla giriş yapın')}
+              </Text>
+            </View>
+          </View>
+          <View
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: !isAdmin && !isMeCheckedIn && !isMeCheckedOut
+                ? '#f59e0b'
+                : '#10b981',
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#ffffff' }}>
+              {!isAdmin && !isMeCheckedIn && !isMeCheckedOut ? 'GİRİŞ YAP' : 'İncele ➔'}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
         {/* 3. Görsel-1: 3-Column Circular App Launcher Grid (Tek Ekrana Sığan Düzen) */}
         <View style={styles.launcherGrid}>

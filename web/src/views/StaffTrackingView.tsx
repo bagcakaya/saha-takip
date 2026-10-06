@@ -90,6 +90,7 @@ export const StaffTrackingView: React.FC = () => {
     removeUserShift,
     updateBranchBreakMinutes,
     updateWorkplaceBreakMinutes,
+    refreshAttendance,
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
@@ -751,6 +752,20 @@ export const StaffTrackingView: React.FC = () => {
       return true;
     });
   }, [attendanceRecords, companyUserIds, currentCompanyCode]);
+
+  // Admin & Overview: All attendance records belonging to today for current company
+  const todayActiveStaffRecords = useMemo(() => {
+    return attendanceRecords.filter((r) => {
+      if (r.date !== todayStr) return false;
+      const recCompany = (r.companyCode || '').trim().toUpperCase();
+      if (recCompany) {
+        if (recCompany !== currentCompanyCode) return false;
+      } else if (companyUserIds.size > 0 && !companyUserIds.has(r.userId)) {
+        return false;
+      }
+      return true;
+    }).sort((a, b) => (b.checkInTime || 0) - (a.checkInTime || 0));
+  }, [attendanceRecords, todayStr, currentCompanyCode, companyUserIds]);
 
   // --- 5. Date Range, Branch & Staff Filters for Table & Analytics ---
   const [startDate, setStartDate] = useState<string>(todayStr);
@@ -1649,6 +1664,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Personel Takip Ekranı Canlı Eşitleme (Açılışta ve her 8 saniyede bir otomatik yenile)
+  useEffect(() => {
+    refreshAttendance().catch(() => {});
+    const interval = setInterval(() => {
+      refreshAttendance().catch(() => {});
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [refreshAttendance]);
+
   // iOS ve Mobil Cihazlar için Kenardan Sağa Kaydırma (Edge Swipe Right) Desteği
   useEffect(() => {
     let touchStartX = 0;
@@ -2150,7 +2174,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 glowColor: 'text-emerald-500',
                 borderColor: 'border-emerald-500',
                 bgGlow: 'bg-emerald-500/15',
-                badgeText: isCheckedIn ? 'Mesaide' : isCompletedToday ? 'Çıkış' : undefined,
+                badgeText: isAdmin
+                  ? (stats.active > 0 ? `${stats.active} Mesaide` : undefined)
+                  : (isCheckedIn ? 'Mesaide' : isCompletedToday ? 'Çıkış' : undefined),
                 badgeCount: isAdmin && pendingRequests.length > 0 ? pendingRequests.length : undefined,
               },
               {
@@ -2799,6 +2825,117 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           </div>
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* --- ADMIN: CANLI MESAİDEKİ PERSONELLER PANELİ --- */}
+        {isAdmin && (
+          <div className="lg:col-span-3 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-teal-500/10 dark:from-emerald-950/40 dark:via-slate-900 dark:to-teal-950/40 rounded-3xl p-5 sm:p-6 border-2 border-emerald-400 dark:border-emerald-600 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-200 dark:border-emerald-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/30">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <span>Canlı Mesaideki Personeller</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-sm animate-pulse">
+                      {todayActiveStaffRecords.filter((r) => r.status === 'checked_in').length} Kişi
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Bugün işe giriş yapan personellerin anlık durumu ({new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => refreshAttendance()}
+                  className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Yenile</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateToSection('summary')}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <span>Tüm Tabloyu Gör</span>
+                  <span>➔</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Personel Listesi Grid */}
+            {todayActiveStaffRecords.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs font-medium">
+                Bugün henüz işe giriş yapan personel bulunmuyor.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {todayActiveStaffRecords.map((rec) => {
+                  const checkInDate = rec.checkInTime ? new Date(rec.checkInTime) : null;
+                  const timeStr = checkInDate
+                    ? checkInDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+                    : '-';
+                  const isChecked = rec.status === 'checked_in';
+                  const isBreak = !!rec.isOnBreak;
+
+                  return (
+                    <div
+                      key={rec.id}
+                      className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between gap-2 shadow-sm ${
+                        isBreak
+                          ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800'
+                          : isChecked
+                          ? 'bg-white dark:bg-slate-800/90 border-emerald-300 dark:border-emerald-800/80'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-75'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black text-white ${
+                            isBreak ? 'bg-amber-500' : isChecked ? 'bg-emerald-600' : 'bg-slate-500'
+                          }`}>
+                            {(rec.userName || 'P').charAt(0)}
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
+                              {rec.userName}
+                            </h4>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {rec.branchName || 'Merkez Şube'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                          isBreak
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 animate-pulse'
+                            : isChecked
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                          {isBreak ? '🟡 Molada' : isChecked ? '🟢 Mesaide' : '⚪ Çıkış Yaptı'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-400">
+                        <span>Giriş: <strong className="text-slate-900 dark:text-slate-100">{timeStr}</strong></span>
+                        {rec.checkInDistance !== undefined && (
+                          <span className="text-[10px] font-medium text-slate-500">
+                            {rec.checkInDistance < 50 ? '📍 İş yerinde' : `📍 ${Math.round(rec.checkInDistance)}m`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Sol Kolon: Canlı Geofence ve Şube / İş Yeri Bilgisi (Yöneticiler 20m ve Şubeden Muaf) */}
         {isAdmin ? (
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-blue-200 dark:border-blue-900/60 shadow-sm flex flex-col justify-between space-y-4">
