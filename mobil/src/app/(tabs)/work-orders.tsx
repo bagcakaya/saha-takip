@@ -86,17 +86,21 @@ export default function WorkOrdersScreen() {
 
   const counts = useMemo(() => {
     const total = notes.length;
-    const pending = notes.filter((n) => (n.status || 'pending') === 'pending').length;
+    const pending = notes.filter((n) => !n.status || n.status === 'pending' || n.status === 'pending_approval').length;
     const processed = notes.filter((n) => n.status === 'processed').length;
     const approved = notes.filter((n) => n.status === 'approved' || n.status === 'completed').length;
     return { total, pending, processed, approved };
+  }, [notes]);
+
+  const pendingApprovalNotes = useMemo(() => {
+    return notes.filter((n) => n.status === 'pending_approval');
   }, [notes]);
 
   const filteredNotes = useMemo(() => {
     const list = notes.filter((n) => {
       // Tab filter
       const status = n.status || 'pending';
-      if (activeTab === 'pending' && status !== 'pending') return false;
+      if (activeTab === 'pending' && status !== 'pending' && status !== 'pending_approval') return false;
       if (activeTab === 'processed' && status !== 'processed') return false;
       if (activeTab === 'approved' && status !== 'approved' && status !== 'completed') return false;
 
@@ -224,6 +228,25 @@ export default function WorkOrdersScreen() {
     }
   };
 
+  const handleApproveAllPending = () => {
+    if (pendingApprovalNotes.length === 0) return;
+    Alert.alert(
+      'Tümünü Onayla',
+      `Onay bekleyen ${pendingApprovalNotes.length} iş emrinin tümünü onaylamak istediğinize emin misiniz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Onayla',
+          onPress: async () => {
+            for (const n of pendingApprovalNotes) {
+              await updateNoteStatus(n.id, 'approved');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderNoteCard = ({ item }: { item: GeneralNote }) => {
     const isCompleted = item.status === 'approved' || item.status === 'completed' || item.status === 'processed';
 
@@ -235,6 +258,8 @@ export default function WorkOrdersScreen() {
             backgroundColor: isDark ? '#0c152e' : '#ffffff',
             borderColor: item.status === 'processed'
               ? 'rgba(37, 99, 235, 0.5)'
+              : item.status === 'pending_approval'
+              ? 'rgba(245, 158, 11, 0.6)'
               : isCompleted
               ? 'rgba(16, 185, 129, 0.4)'
               : isDark
@@ -288,6 +313,16 @@ export default function WorkOrdersScreen() {
             >
               <Text style={{ fontSize: 11, marginRight: 2 }}>🆗</Text>
               <Text style={[styles.statusTextDone, { color: '#3b82f6' }]}>Sisteme İşlendi</Text>
+            </View>
+          ) : item.status === 'pending_approval' ? (
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.5)' },
+              ]}
+            >
+              <Clock size={12} color="#f59e0b" />
+              <Text style={[styles.statusTextPending, { fontWeight: '800' }]}>Onay Bekliyor</Text>
             </View>
           ) : isCompleted ? (
             <View style={[styles.statusBadge, styles.statusBadgeDone]}>
@@ -732,6 +767,25 @@ export default function WorkOrdersScreen() {
                 </Text>
               </TouchableOpacity>
             </ScrollView>
+
+            {/* Onay Bekleyen İş Emirleri Bildirim Bandı */}
+            {isAdmin && pendingApprovalNotes.length > 0 && (
+              <View style={styles.pendingApprovalBanner}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <Clock size={16} color="#d97706" />
+                  <Text style={styles.pendingApprovalBannerText}>
+                    Onay Bekleyen {pendingApprovalNotes.length} İş Emri Var
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.approveAllBtn}
+                  onPress={handleApproveAllPending}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.approveAllBtnText}>Tümünü Onayla</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         }
         ListEmptyComponent={
@@ -1313,5 +1367,33 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     padding: 7,
     borderRadius: 8,
+  },
+  pendingApprovalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  pendingApprovalBannerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#d97706',
+  },
+  approveAllBtn: {
+    backgroundColor: '#d97706',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  approveAllBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

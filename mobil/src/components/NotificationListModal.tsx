@@ -113,16 +113,40 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
     // 2. Notes / İş Emirleri
     notes.forEach((n) => {
-      list.push({
-        id: `note_${n.id}`,
-        type: 'note',
-        title: '📋 Yeni İş Emri',
-        senderName: n.createdByName || 'Murat POLAT',
-        senderRole: 'Yönetici',
-        timeAgo: getTimeAgo(n.createdAt),
-        content: n.content,
-        createdAt: n.createdAt,
-      });
+      if (n.status === 'pending_approval') {
+        list.push({
+          id: `approval_${n.id}_${n.completedAt || n.createdAt}`,
+          type: 'note',
+          title: '⏳ İş Emri Onay Bekliyor',
+          senderName: n.completedByName || n.createdByName || 'Saha Personeli',
+          senderRole: 'staff',
+          timeAgo: getTimeAgo(n.completedAt || n.createdAt),
+          content: `${n.completedByName || 'Personel'} iş emrini tamamladı ve onayınıza gönderdi.${n.cariName ? ` [${n.cariName}]` : ''}: "${(n.content || '').slice(0, 80)}${(n.content || '').length > 80 ? '...' : ''}"`,
+          createdAt: n.completedAt || n.createdAt,
+        });
+      } else if (n.status === 'approved' || n.status === 'completed') {
+        list.push({
+          id: `approved_${n.id}_${n.approvedAt || n.createdAt}`,
+          type: 'note',
+          title: '✅ İş Emri Onaylandı',
+          senderName: n.approvedByName || 'Yönetici',
+          senderRole: 'Yönetici',
+          timeAgo: getTimeAgo(n.approvedAt || n.createdAt),
+          content: `${n.cariName ? `[${n.cariName}] ` : ''}${(n.content || '').slice(0, 80)}${(n.content || '').length > 80 ? '...' : ''}`,
+          createdAt: n.approvedAt || n.createdAt,
+        });
+      } else {
+        list.push({
+          id: `note_${n.id}`,
+          type: 'note',
+          title: '📋 Yeni İş Emri',
+          senderName: n.createdByName || 'Murat POLAT',
+          senderRole: 'Yönetici',
+          timeAgo: getTimeAgo(n.createdAt),
+          content: n.content,
+          createdAt: n.createdAt,
+        });
+      }
     });
 
     // 3. Leave Requests (İzin Talepleri)
