@@ -1,4 +1,4 @@
-import { get, set } from 'idb-keyval';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import {
   LocationItem,
   GeneralNote,
@@ -159,7 +159,7 @@ let activeCompanyId =
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
   try {
-    const idbVal = await get<T>(key);
+    const idbVal = await idbGet<T>(key);
     if (idbVal !== undefined && idbVal !== null) {
       return idbVal;
     }
@@ -182,7 +182,7 @@ async function loadItem<T>(key: string): Promise<T | null> {
 // Helper to safely save data to IndexedDB and localStorage mirror
 async function saveItem<T>(key: string, value: T): Promise<void> {
   try {
-    await set(key, value);
+    await idbSet(key, value);
   } catch (e) {
     console.warn(`IndexedDB write failed for ${key}:`, e);
   }
@@ -307,7 +307,7 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
   const writePromises: Promise<any>[] = [];
 
   // 1. Yerel Sunucu (Local MSSQL Server)
-  if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+  if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
     writePromises.push(
       localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
         console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err)
@@ -317,13 +317,14 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
 
   // 2. Supabase Bulut (Pro Plan)
   writePromises.push(
-    supabase
-      .from('standard_tasks')
-      .upsert({ id: slotId, tasks: chunks })
-      .then(({ error }) => {
+    (async () => {
+      try {
+        const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
         if (error) console.warn(`[Dual-Write Supabase] Slot ${slotId} hata:`, error);
-      })
-      .catch((err) => console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err))
+      } catch (err) {
+        console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err);
+      }
+    })()
   );
 
   await Promise.allSettled(writePromises);
@@ -634,7 +635,7 @@ export const StorageService = {
 
       if (fullRows.length > 0) {
         // 1. Yerel Sunucu
-        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
           writeOps.push(
             localApiPost('/api/tables/locations/upsert', { rows: fullRows }).catch((err) =>
               console.warn('[Dual-Write Yerel] locations upsert hata:', err)
@@ -679,7 +680,7 @@ export const StorageService = {
           })()
         );
       } else {
-        writeOps.push(supabase.from('locations').delete().neq('id', '___'));
+        writeOps.push(Promise.resolve(supabase.from('locations').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(11, locations));
       await Promise.allSettled(writeOps);
@@ -700,15 +701,17 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       const deleteOps: Promise<any>[] = [];
-      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+      if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
         deleteOps.push(localApiPost('/api/tables/locations/delete', { ids: [id] }));
       }
       deleteOps.push(
-        supabase
-          .from('locations')
-          .delete()
-          .eq('id', id)
-          .then(undefined, (e) => console.warn('deleteLocation Supabase error:', e))
+        Promise.resolve(
+          supabase
+            .from('locations')
+            .delete()
+            .eq('id', id)
+            .then(undefined, (e) => console.warn('deleteLocation Supabase error:', e))
+        )
       );
       deleteOps.push(saveChunkedSlot(11, updated));
       await Promise.allSettled(deleteOps);
@@ -1046,7 +1049,7 @@ export const StorageService = {
 
       if (fullRows.length > 0) {
         // 1. Yerel Sunucu
-        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
           writeOps.push(
             localApiPost('/api/tables/notes/upsert', { rows: fullRows }).catch((err) =>
               console.warn('[Dual-Write Yerel] notes upsert hata:', err)
@@ -1105,7 +1108,7 @@ export const StorageService = {
           })()
         );
       } else {
-        writeOps.push(supabase.from('notes').delete().neq('id', '___'));
+        writeOps.push(Promise.resolve(supabase.from('notes').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(4, cleanNotes));
       await Promise.allSettled(writeOps);
@@ -1129,15 +1132,17 @@ export const StorageService = {
     // 2. Server / Cloud delete
     if (activeCompanyCode === 'POLATLAR') {
       const deleteOps: Promise<any>[] = [];
-      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+      if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
         deleteOps.push(localApiPost('/api/tables/notes/delete', { ids: [id] }));
       }
       deleteOps.push(
-        supabase
-          .from('notes')
-          .delete()
-          .eq('id', id)
-          .then(undefined, (e) => console.warn('deleteNote Supabase error:', e))
+        Promise.resolve(
+          supabase
+            .from('notes')
+            .delete()
+            .eq('id', id)
+            .then(undefined, (e) => console.warn('deleteNote Supabase error:', e))
+        )
       );
       deleteOps.push(
         (async () => {
@@ -1506,7 +1511,7 @@ export const StorageService = {
 
       if (fullRows.length > 0) {
         // 1. Yerel Sunucu
-        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
           writeOps.push(
             localApiPost('/api/tables/return_warranty/upsert', { rows: fullRows }).catch((err) =>
               console.warn('[Dual-Write Yerel] return_warranty upsert hata:', err)
@@ -1557,7 +1562,7 @@ export const StorageService = {
           })()
         );
       } else {
-        writeOps.push(supabase.from('return_warranty').delete().neq('id', '___'));
+        writeOps.push(Promise.resolve(supabase.from('return_warranty').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(2, items));
       await Promise.allSettled(writeOps);
@@ -1577,26 +1582,21 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       const deleteOps: Promise<any>[] = [];
-      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+      if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
         deleteOps.push(localApiPost('/api/tables/return_warranty/delete', { ids: [id] }));
       }
       deleteOps.push(
-        supabase
-          .from('return_warranty')
-          .delete()
-          .eq('id', id)
-          .then(undefined, (e) => console.warn('deleteReturnWarrantyItem Supabase error:', e))
+        Promise.resolve(
+          supabase
+            .from('return_warranty')
+            .delete()
+            .eq('id', id)
+            .then(undefined, (e) => console.warn('deleteReturnWarrantyItem Supabase error:', e))
+        )
       );
       deleteOps.push(saveChunkedSlot(2, updated));
       await Promise.allSettled(deleteOps);
       return;
-      }
-      try {
-        await supabase.from('return_warranty').delete().eq('id', id);
-        await saveChunkedSlot(2, updated);
-      } catch (e) {
-        console.warn('deleteReturnWarrantyItem error:', e);
-      }
     } else {
       await saveChunkedSlot(this.getSlotId(2), updated);
     }
@@ -1769,7 +1769,7 @@ export const StorageService = {
 
       if (fullRows.length > 0) {
         // 1. Yerel Sunucu
-        if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+        if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
           writeOps.push(
             localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
               console.warn('[Dual-Write Yerel] services upsert hata:', err)
@@ -1811,7 +1811,7 @@ export const StorageService = {
           })()
         );
       } else {
-        writeOps.push(supabase.from('services').delete().neq('id', '___'));
+        writeOps.push(Promise.resolve(supabase.from('services').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(3, items));
       await Promise.allSettled(writeOps);
@@ -1831,15 +1831,17 @@ export const StorageService = {
 
     if (activeCompanyCode === 'POLATLAR') {
       const deleteOps: Promise<any>[] = [];
-      if (ServerConfigService.isLocalMode() || getResolvedApiUrl()) {
+      if (ServerConfigService.isLocalMode() || ServerConfigService.getActiveApiUrl()) {
         deleteOps.push(localApiPost('/api/tables/services/delete', { ids: [id] }));
       }
       deleteOps.push(
-        supabase
-          .from('services')
-          .delete()
-          .eq('id', id)
-          .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
+        Promise.resolve(
+          supabase
+            .from('services')
+            .delete()
+            .eq('id', id)
+            .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
+        )
       );
       deleteOps.push(saveChunkedSlot(3, updated));
       await Promise.allSettled(deleteOps);

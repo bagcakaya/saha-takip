@@ -53,7 +53,7 @@ import { NotificationListModal } from '../../components/NotificationListModal';
 type FilterTab = 'all' | 'pending' | 'processed' | 'approved';
 
 export default function WorkOrdersScreen() {
-  const { notes, refreshData, deleteNote, updateNoteStatus } = useStorage();
+  const { notes, refreshData, deleteNote, updateNoteStatus, approveMultipleNotes, completeNote } = useStorage();
   const { isDark, toggleTheme } = useAppTheme();
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -205,8 +205,22 @@ export default function WorkOrdersScreen() {
 
   const handleToggleStatus = async (item: GeneralNote) => {
     const isCompleted = item.status === 'approved' || item.status === 'completed' || item.status === 'processed';
-    const newStatus = isCompleted ? 'pending' : 'approved';
-    await updateNoteStatus(item.id, newStatus);
+    if (isAdmin) {
+      const newStatus = isCompleted ? 'pending' : 'approved';
+      await updateNoteStatus(item.id, newStatus);
+    } else {
+      // Saha personeli: Yönetici onayına gönder
+      if (item.status === 'pending_approval') {
+        Alert.alert('Bilgi', 'Bu iş emri zaten yönetici onayına gönderilmiş durumdadır.');
+        return;
+      }
+      if (isCompleted) {
+        Alert.alert('Bilgi', 'Bu iş emri yönetici tarafından onaylanmıştır.');
+        return;
+      }
+      await completeNote(item.id);
+      Alert.alert('Başarılı', 'İş emri tamamlandı ve yönetici onayına gönderildi.');
+    }
   };
 
   const handleToggleProcess = async (item: GeneralNote) => {
@@ -232,15 +246,14 @@ export default function WorkOrdersScreen() {
     if (pendingApprovalNotes.length === 0) return;
     Alert.alert(
       'Tümünü Onayla',
-      `Onay bekleyen ${pendingApprovalNotes.length} iş emrinin tümünü onaylamak istediğinize emin misiniz?`,
+      `Onay bekleyen ${pendingApprovalNotes.length} iş emrinin tümünü tek tıkla onaylamak istediğinize emin misiniz?`,
       [
         { text: 'Vazgeç', style: 'cancel' },
         {
           text: 'Onayla',
           onPress: async () => {
-            for (const n of pendingApprovalNotes) {
-              await updateNoteStatus(n.id, 'approved');
-            }
+            const ids = pendingApprovalNotes.map((n) => n.id);
+            await approveMultipleNotes(ids);
           },
         },
       ]
@@ -478,19 +491,52 @@ export default function WorkOrdersScreen() {
             <TouchableOpacity
               style={[
                 styles.toggleBtn,
-                isCompleted ? styles.toggleBtnDone : styles.toggleBtnPending,
+                isCompleted
+                  ? styles.toggleBtnDone
+                  : item.status === 'pending_approval'
+                  ? styles.toggleBtnPending
+                  : isAdmin
+                  ? styles.toggleBtnPending
+                  : styles.toggleBtnBlue,
               ]}
               onPress={() => handleToggleStatus(item)}
               activeOpacity={0.8}
             >
-              <Check size={12} color={isCompleted ? '#10b981' : '#f59e0b'} />
+              <Check
+                size={12}
+                color={
+                  isCompleted
+                    ? '#10b981'
+                    : item.status === 'pending_approval'
+                    ? '#f59e0b'
+                    : isAdmin
+                    ? '#f59e0b'
+                    : '#3b82f6'
+                }
+              />
               <Text
                 style={[
                   styles.toggleBtnText,
-                  { color: isCompleted ? '#10b981' : '#f59e0b' },
+                  {
+                    color: isCompleted
+                      ? '#10b981'
+                      : item.status === 'pending_approval'
+                      ? '#f59e0b'
+                      : isAdmin
+                      ? '#f59e0b'
+                      : '#3b82f6',
+                  },
                 ]}
               >
-                {isCompleted ? 'Tamamlandı' : 'Onayla'}
+                {isCompleted
+                  ? 'Tamamlandı'
+                  : item.status === 'pending_approval'
+                  ? isAdmin
+                    ? 'Yönetici Onayla'
+                    : 'Onay Bekliyor'
+                  : isAdmin
+                  ? 'Onayla'
+                  : 'Yöneticiye Onay Gönder'}
               </Text>
             </TouchableOpacity>
 
@@ -1339,6 +1385,9 @@ const styles = StyleSheet.create({
   },
   toggleBtnDone: {
     backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  toggleBtnBlue: {
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
   },
   toggleBtnText: {
     fontSize: 11,

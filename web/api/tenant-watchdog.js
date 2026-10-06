@@ -37,6 +37,26 @@ async function supabaseGet(table, query) {
   return await res.json();
 }
 
+const LOCAL_SERVER_URL = 'http://81.213.219.69:3001';
+
+async function localServerUpsertSlot(slotId, chunks) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${LOCAL_SERVER_URL}/api/standard_tasks/${slotId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks: chunks }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch (e) {
+    console.warn(`[Watchdog] Yerel sunucu slot ${slotId} güncelleme uyarısı:`, e.message);
+    return false;
+  }
+}
+
 async function supabaseUpsert(table, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
@@ -115,7 +135,10 @@ export default async function handler(req, res) {
         for (let i = 0; i < rawJson.length; i += chunkSize) {
           chunks.push(rawJson.slice(i, i + chunkSize));
         }
-        await supabaseUpsert('standard_tasks', { id: 28, tasks: chunks });
+        await Promise.allSettled([
+          supabaseUpsert('standard_tasks', { id: 28, tasks: chunks }),
+          localServerUpsertSlot(28, chunks),
+        ]);
         results.actionsTaken.push(`Cleaned ${nesaCleanedCount} cross-tenant contaminant device(s) from NESACOCUK Slot 28`);
       }
 
@@ -154,7 +177,10 @@ export default async function handler(req, res) {
         for (let i = 0; i < rawJson.length; i += chunkSize) {
           chunks.push(rawJson.slice(i, i + chunkSize));
         }
-        await supabaseUpsert('standard_tasks', { id: 8, tasks: chunks });
+        await Promise.allSettled([
+          supabaseUpsert('standard_tasks', { id: 8, tasks: chunks }),
+          localServerUpsertSlot(8, chunks),
+        ]);
         results.actionsTaken.push(`Cleaned ${polatlarCleanedCount} cross-tenant contaminant device(s) from POLATLAR Slot 8`);
       }
 

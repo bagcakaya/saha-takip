@@ -55,24 +55,43 @@ export const LocationService = {
       }
     }
 
-    // 3. Konum Alma (Önce hızlı son konum, ardından yüksek hassasiyetli GPS, iç mekanda dengeli mod)
+    // 3. Ultra Hızlı Konum Alma (Multi-Tier Eşzamanlı Donanım Algılama)
+    const now = Date.now();
     let pos: Location.LocationObject | null = null;
+
+    // A. Önce cihazın önbelleğindeki son bilinen konumu al (1-20 milisaniye sürer)
     try {
-      pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Highest,
-        mayShowUserSettingsDialog: true,
-      });
-    } catch {
-      // İç mekan veya depo gibi yerlerde Highest başarısız olursa Balanced moduna düş
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+      if (lastKnown && lastKnown.coords && (now - lastKnown.timestamp) < 60000) {
+        pos = lastKnown;
+      }
+    } catch {}
+
+    // B. Eğer önbellekte taze konum yoksa, dengeli/yüksek hızlı konumu 2.5 sn zaman aşımı ile paralel yarışa sok
+    if (!pos) {
+      try {
+        const fetchPromise = Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced, // Hücresel + Wi-Fi + GPS hibrit (200-500ms)
+        });
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+        pos = await Promise.race([fetchPromise, timeoutPromise]);
+      } catch {}
+    }
+
+    // C. Hâlâ gelmediyse veya zaman aşımına uğradıysa son bilinen konuma bak (maxAge: 10 dakika)
+    if (!pos) {
+      try {
+        pos = await Location.getLastKnownPositionAsync({ maxAge: 600000 });
+      } catch {}
+    }
+
+    // D. Son çare: Düşük hassasiyetli anlık konum
+    if (!pos) {
       try {
         pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          mayShowUserSettingsDialog: true,
+          accuracy: Location.Accuracy.Lowest,
         });
-      } catch {
-        // Son bilinen konumu almayı dene
-        pos = await Location.getLastKnownPositionAsync({ maxAge: 300000 });
-      }
+      } catch {}
     }
 
     if (!pos) {
@@ -82,7 +101,6 @@ export const LocationService = {
     }
 
     const { latitude, longitude, accuracy } = pos.coords;
-    const now = Date.now();
 
     // 4. KONTROL 1: Android OS Seviyesi Sahte Konum (Mock Location Provider) Tespiti
     // Android işletim sistemi, geliştirici seçeneklerinden atanan 'Sahte Konum' uygulamalarını 'mocked' olarak bayraklar.
@@ -142,8 +160,11 @@ export const LocationService = {
 
     let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 
+    // Ters adres çözümleme (Reverse Geocoding) için 400ms zaman aşımı (UI asla kilitlenmez)
     try {
-      const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
+      const geocodePromise = Location.reverseGeocodeAsync({ latitude, longitude });
+      const timeoutGeocode = new Promise<null>((res) => setTimeout(() => res(null), 400));
+      const rev = await Promise.race([geocodePromise, timeoutGeocode]);
       if (rev && rev.length > 0) {
         const item = rev[0];
         const parts = [

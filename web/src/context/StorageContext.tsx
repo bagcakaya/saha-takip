@@ -4602,7 +4602,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background startBreak save error:', err);
+    });
 
     // Schedule hardware push notification via OneSignal cloud server
     // Fires at targetIsoDate even if the phone is locked or app is killed!
@@ -4710,7 +4712,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background endBreak save error:', err);
+    });
 
     // Push notification to admins about break end
     OneSignalService.sendPushNotification({
@@ -4860,8 +4864,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated = [...attendanceRecords];
     updated[idx] = updatedRecord;
+    // Optimistic instant state update (0ms UI reflex)
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background approveAttendance save error:', err);
+    });
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
 
@@ -4881,8 +4888,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (actionType === 'checkin') {
       const updated = attendanceRecords.filter((r) => r.id !== recordId);
+      // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated, { deletedRecordId: recordId });
+      StorageService.saveAttendanceRecords(updated, { deletedRecordId: recordId }).catch((err) => {
+        console.warn('Background rejectAttendance save error:', err);
+      });
 
       OneSignalService.sendPushNotification({
         title: '❌ İşe Giriş Talebiniz Reddedildi',
@@ -4907,8 +4917,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
       const updated = [...attendanceRecords];
       updated[idx] = updatedRecord;
+      // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      StorageService.saveAttendanceRecords(updated).catch((err) => {
+        console.warn('Background rejectAttendance save error:', err);
+      });
 
       OneSignalService.sendPushNotification({
         title: '❌ İşten Çıkış Talebiniz Reddedildi',

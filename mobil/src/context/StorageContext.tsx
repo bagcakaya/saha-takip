@@ -111,6 +111,8 @@ interface StorageContextType {
   }) => Promise<{ success: boolean; message: string }>;
   deleteNote: (id: string) => Promise<{ success: boolean; message: string }>;
   updateNoteStatus: (id: string, status: any) => Promise<{ success: boolean; message: string }>;
+  approveMultipleNotes: (ids: string[]) => Promise<{ success: boolean; count: number }>;
+  completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<{ success: boolean; message: string }>;
   addBranch: (params: {
     name: string;
     address: string;
@@ -433,8 +435,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
 
       const updated = [newRec, ...attendanceRecords.filter((r) => r.id !== newRec.id)];
+      // Optimistic 0ms state update
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      StorageService.saveAttendanceRecords(updated).catch((err) => {
+        console.warn('Background checkIn save error:', err);
+      });
 
       // Push notification to admins about check-in
       fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
@@ -543,8 +548,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
 
       const updated = attendanceRecords.map((r) => (r.id === activeRec.id ? updatedRec : r));
+      // Optimistic 0ms state update
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      StorageService.saveAttendanceRecords(updated).catch((err) => {
+        console.warn('Background checkOut save error:', err);
+      });
 
       // Push notification to admins about check-out
       fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
@@ -621,7 +629,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background startBreak save error:', err);
+    });
 
     // Schedule hardware push notification via OneSignal cloud server
     // Fires at targetIsoDate even if the phone is locked or app is killed!
@@ -720,7 +730,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background endBreak save error:', err);
+    });
 
     // Push notification to admins about break end
     fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
@@ -782,8 +794,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated = [...attendanceRecords];
     updated[idx] = updatedRecord;
+    // 0ms instant optimistic UI reflex
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background approveAttendance save error:', err);
+    });
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
 
@@ -820,8 +835,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated = [...attendanceRecords];
     updated[idx] = updatedRecord;
+    // 0ms instant optimistic UI reflex
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    StorageService.saveAttendanceRecords(updated).catch((err) => {
+      console.warn('Background rejectAttendance save error:', err);
+    });
     return { success: true, message: 'Talep reddedildi.' };
   };
 
@@ -1159,8 +1177,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return n;
     });
+
+    // 0ms instant optimistic UI reflex
     setNotes(updated);
-    await StorageService.updateNoteStatus(id, status);
+
+    // Background dual-write persistence
+    StorageService.saveNotes(updated).catch((err) => {
+      console.warn('Background saveNotes error:', err);
+    });
 
     const targetNote = notes.find((n) => n.id === id);
     if (targetNote) {
@@ -1185,6 +1209,83 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     return { success: true, message: 'İş emri durumu güncellendi.' };
+  };
+
+  const approveMultipleNotes = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return { success: true, count: 0 };
+    const now = Date.now();
+    const idSet = new Set(ids);
+    const updated = notes.map((n) => {
+      if (idSet.has(n.id)) {
+        return {
+          ...n,
+          status: 'approved' as const,
+          approvedAt: n.approvedAt || now,
+          approvedBy: n.approvedBy || user?.id,
+          approvedByName: n.approvedByName || user?.name || 'Yönetici',
+        };
+      }
+      return n;
+    });
+
+    // 0ms instant optimistic UI reflex
+    setNotes(updated);
+
+    // Background dual-write persistence
+    StorageService.saveNotes(updated).catch((err) => {
+      console.warn('Background approveMultipleNotes error:', err);
+    });
+
+    return { success: true, count: ids.length };
+  };
+
+  const completeNote = async (
+    id: string,
+    completionNote?: string,
+    completionPhotos?: string[]
+  ): Promise<{ success: boolean; message: string }> => {
+    const now = Date.now();
+    const staffName = user?.name || user?.username || 'Saha Personeli';
+    const targetNote = notes.find((n) => n.id === id);
+
+    const updated = notes.map((n) => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status: 'pending_approval' as const,
+          completedAt: now,
+          completedBy: user?.id,
+          completedByName: staffName,
+          completionNote: completionNote?.trim() || undefined,
+          completionPhotos: completionPhotos || n.completionPhotos || [],
+        };
+      }
+      return n;
+    });
+
+    // 0ms instant optimistic UI reflex
+    setNotes(updated);
+
+    // Background dual-write persistence
+    StorageService.saveNotes(updated).catch((err) => {
+      console.warn('Background completeNote error:', err);
+    });
+
+    // Instant push notification to admins
+    fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '⏳ İş Emri Tamamlandı (Yönetici Onayı Bekliyor)',
+        message: `${staffName}, "${(targetNote?.content || '').slice(0, 50)}" iş emrini tamamlayıp onayınıza gönderdi.`,
+        targetMode: 'admin',
+        excludeUserIds: [user?.id || ''],
+        companyCode: (user?.companyCode || 'POLATLAR').toUpperCase(),
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes',
+      }),
+    }).catch(() => {});
+
+    return { success: true, message: 'İş emri tamamlandı ve yönetici onayına iletildi.' };
   };
 
   const addBranch = async (params: {
@@ -1765,6 +1866,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addNote,
         deleteNote,
         updateNoteStatus,
+        approveMultipleNotes,
+        completeNote,
         addBranch,
         updateBranch,
         deleteBranch,
