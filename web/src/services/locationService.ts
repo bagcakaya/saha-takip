@@ -18,6 +18,12 @@ const geocodeCache = new Map<string, string>();
 // Son doğrulanmış konum (Işınlanma / ani sıçrama tespiti)
 let lastVerifiedPositionWeb: { latitude: number; longitude: number; timestamp: number } | null = null;
 
+// Arka plan GPS ön hazırlık ve ısıtma tamponu (0ms refleks)
+let warmCachedPosition: GeolocationResult | null = null;
+let warmCachedTimestamp = 0;
+let locationWatchId: number | null = null;
+let isPrewarmingActive = false;
+
 // Query single getCurrentPosition with custom options as a Promise
 function queryPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
@@ -441,6 +447,105 @@ export const LocationService = {
       }
     }
     return [];
+  },
+
+  /**
+   * Arka Plan Konum Ön Hazırlık Ajanı (Background GPS Pre-warmer):
+   * Uygulama açıkken uyduları ve GPS sensörünü sessizce uyanık tutar.
+   * Kullanıcı butona bastığı anda konumu 0 milisaniyede sağlar.
+   */
+  startPrewarming(): void {
+    if (typeof window === 'undefined' || !navigator.geolocation || isPrewarmingActive) return;
+    try {
+      isPrewarmingActive = true;
+      locationWatchId = navigator.geolocation.watchPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const acc = pos.coords.accuracy;
+          const now = Date.now();
+
+          // Işınlanma ve sahte konum kontrolü
+          if (lastVerifiedPositionWeb && acc !== null && acc < 100) {
+            const timeDiffSec = Math.max(1, (now - lastVerifiedPositionWeb.timestamp) / 1000);
+            if (timeDiffSec < 60) {
+              const dist = LocationService.calculateDistance(
+                lastVerifiedPositionWeb.latitude,
+                lastVerifiedPositionWeb.longitude,
+                lat,
+                lon
+              );
+              const speedKmh = (dist / timeDiffSec) * 3.6;
+              if (dist > 2000 && speedKmh > 300) {
+                console.warn('Pre-warming: Şüpheli ani konum sıçraması engellendi.');
+                return;
+              }
+            }
+          }
+
+          let address = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+          try {
+            const cachedAddr = await LocationService.reverseGeocode(lat, lon);
+            if (cachedAddr) address = cachedAddr;
+          } catch {}
+
+          warmCachedPosition = {
+            latitude: lat,
+            longitude: lon,
+            accuracy: acc,
+            address,
+          };
+          warmCachedTimestamp = now;
+          lastVerifiedPositionWeb = { latitude: lat, longitude: lon, timestamp: now };
+        },
+        (err) => {
+          // Arka plan izleme geçici uydu arama mesajları
+          console.debug('[Konum Ajanı] Arka plan GPS dinleme notu:', err?.message || err);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 20000,
+          timeout: 10000,
+        }
+      );
+    } catch (e) {
+      isPrewarmingActive = false;
+      console.warn('[Konum Ajanı] GPS ön hazırlığı başlatılamadı:', e);
+    }
+  },
+
+  stopPrewarming(): void {
+    if (locationWatchId !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      try {
+        navigator.geolocation.clearWatch(locationWatchId);
+      } catch {}
+      locationWatchId = null;
+    }
+    isPrewarmingActive = false;
+  },
+
+  isPrewarming(): boolean {
+    return isPrewarmingActive;
+  },
+
+  getCachedPosition(maxAgeMs = 45000): GeolocationResult | null {
+    if (warmCachedPosition && Date.now() - warmCachedTimestamp <= maxAgeMs) {
+      return warmCachedPosition;
+    }
+    return null;
+  },
+
+  /**
+   * Milisaniyelik Hızlı Konum Sağlayıcı (0ms Reflex):
+   * Eğer arka plan ajanı tarafından ısıtılmış taze konum varsa anında (0ms) döndürür.
+   * Yoksa standart çok katmanlı aramayı çalıştırır.
+   */
+  async getFastOrWarmPosition(options?: PositionOptions, maxAgeMs = 45000): Promise<GeolocationResult> {
+    const cached = LocationService.getCachedPosition(maxAgeMs);
+    if (cached) {
+      return cached;
+    }
+    return LocationService.getCurrentPosition(options);
   },
 };
 

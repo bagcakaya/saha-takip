@@ -12,6 +12,7 @@ import { TabType } from '../components/layout/Header';
 import { LocationService } from '../services/locationService';
 import { DeviceService } from '../services/deviceService';
 import { ServerConfigService } from '../services/serverConfigService';
+import { FastActionAgent } from '../services/fastActionAgent';
 import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
 
 interface StorageContextType {
@@ -658,6 +659,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setShifts((shiftData && shiftData.definitions) || []);
         setShiftAssignments((shiftData && shiftData.assignments) || []);
         setDataCompanyCode(compCode);
+        FastActionAgent.start(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
@@ -896,6 +898,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return () => {
       isMounted = false;
+      FastActionAgent.stop();
       supabase.removeChannel(channel);
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', handleOnline);
@@ -3734,7 +3737,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let userPos: { latitude: number; longitude: number; address?: string } | undefined;
     try {
-      userPos = await LocationService.getCurrentPosition();
+      userPos = await LocationService.getFastOrWarmPosition();
     } catch (err: any) {
       if (err?.isMockLocation) {
         return {
@@ -3795,7 +3798,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
       return {
         success: true,
@@ -3843,15 +3846,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
-          await StorageService.saveAttendanceRecords(updated);
+          FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-          OneSignalService.sendPushNotification({
+          FastActionAgent.enqueuePushNotification({
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${assignedBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(distToAssigned)})`,
             targetMode: 'admin',
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-          }).catch(() => {});
+          });
 
           return {
             success: true,
@@ -3917,15 +3920,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
-          await StorageService.saveAttendanceRecords(updated);
+          FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-          OneSignalService.sendPushNotification({
+          FastActionAgent.enqueuePushNotification({
             title: '⚠️ Farklı Şubede Mesai Başladı (Onay Bekliyor)',
             message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
             targetMode: 'admin',
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-          }).catch(() => {});
+          });
 
           return {
             success: true,
@@ -3969,16 +3972,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
-        await StorageService.saveAttendanceRecords(updated);
+        FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-        OneSignalService.sendPushNotification({
+        FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-        }).catch(() => {});
+        });
 
         return {
           success: true,
@@ -4015,16 +4018,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
-          await StorageService.saveAttendanceRecords(updated);
+          FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-          OneSignalService.sendPushNotification({
+          FastActionAgent.enqueuePushNotification({
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, ${nearBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(nearDist)})`,
             targetMode: 'admin',
             excludeUserIds: [user.id],
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-          }).catch(() => {});
+          });
 
           return {
             success: true,
@@ -4077,16 +4080,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
-        await StorageService.saveAttendanceRecords(updated);
+        FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-        OneSignalService.sendPushNotification({
+        FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-        }).catch(() => {});
+        });
 
         return {
           success: true,
@@ -4140,16 +4143,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
-      await StorageService.saveAttendanceRecords(updated);
+      FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
         message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
         excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
 
       return {
         success: true,
@@ -4179,16 +4182,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated = [newRecord, ...attendanceRecords];
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '🟢 Personel İşe Giriş Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -4286,7 +4289,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       let adminPos: { latitude?: number; longitude?: number; address?: string } = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
       try {
-        const pos = await LocationService.getCurrentPosition();
+        const pos = await LocationService.getFastOrWarmPosition();
         if (pos) {
           adminPos = { latitude: pos.latitude, longitude: pos.longitude, address: pos.address || 'Genel Yönetim' };
         }
@@ -4312,7 +4315,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updatedRecords = [...attendanceRecords];
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
-      await StorageService.saveAttendanceRecords(updatedRecords);
+      FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
 
       return {
         success: true,
@@ -4323,7 +4326,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let userPos;
     try {
-      userPos = await LocationService.getCurrentPosition();
+      userPos = await LocationService.getFastOrWarmPosition();
     } catch (err: any) {
       if (err?.isMockLocation) {
         return {
@@ -4469,17 +4472,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updatedRecords = [...attendanceRecords];
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
-      await StorageService.saveAttendanceRecords(updatedRecords);
+      FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
 
       // CRITICAL: Push notification to admins
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
         message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta (20m dışı) işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
         excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
 
       return {
         success: true,
@@ -4525,17 +4528,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updatedRecords[recordIndex] = updatedRecord;
 
     setAttendanceRecords(updatedRecords);
-    await StorageService.saveAttendanceRecords(updatedRecords);
+    FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
 
     // Push notification to admins
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '🔴 Personel İşten Çıkış Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${targetName} şubesinden çıkış yaptı. (Toplam Mesai: ${durationText})`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -4602,37 +4605,27 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    StorageService.saveAttendanceRecords(updated).catch((err) => {
-      console.warn('Background startBreak save error:', err);
-    });
+    FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
     // Schedule hardware push notification via OneSignal cloud server
     // Fires at targetIsoDate even if the phone is locked or app is killed!
-    OneSignalService.scheduleBreakOverPush({
+    FastActionAgent.enqueueScheduleBreakPush({
       userId: user.id,
       userName: user.name,
       targetIsoDate,
       breakMinutes: allowedMinutes,
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
-    }).then((scheduledId) => {
-      if (scheduledId) {
-        newBreak.scheduledNotificationId = scheduledId;
-        updatedRecord.currentBreakNotificationId = scheduledId;
-        StorageService.saveAttendanceRecords(updated).catch(() => {});
-      }
-    }).catch((err) => {
-      console.warn('Failed to schedule break over push notification:', err);
     });
 
     // Push notification to admins about break start
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '☕ Personel Molaya Çıktı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Not: ${note})` : ''}`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -4676,7 +4669,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : undefined);
 
     if (notifIdToCancel) {
-      OneSignalService.cancelNotification(notifIdToCancel).catch(() => {});
+      FastActionAgent.enqueueCancelNotification(notifIdToCancel, compCode);
     }
 
     const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
@@ -4712,19 +4705,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
-    StorageService.saveAttendanceRecords(updated).catch((err) => {
-      console.warn('Background endBreak save error:', err);
-    });
+    FastActionAgent.enqueueAttendanceSync(compCode, updated);
 
     // Push notification to admins about break end
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '🔄 Personel Moladan Döndü',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${durationMinutes} dk)`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -4760,7 +4751,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : undefined);
 
     if (notifIdToCancel) {
-      OneSignalService.cancelNotification(notifIdToCancel).catch(() => {});
+      FastActionAgent.enqueueCancelNotification(notifIdToCancel, record.companyCode || compCode);
     }
 
     const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
@@ -4795,11 +4786,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updated[recordIndex] = updatedRecord;
 
     setAttendanceRecords(updated);
-    await StorageService.saveAttendanceRecords(updated);
+    FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
 
     // Personele yöneticinin molayı sonlandırdığını anında OneSignal bildirimiyle ilet
     if (record.userId) {
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '☕ Molanız Sonlandırıldı',
         message: `Yönetici tarafından molanız sonlandırıldı (${durationMinutes} dk). Mesainize başarıyla döndürüldünüz.`,
         targetMode: 'custom',
@@ -4807,7 +4798,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         companyCode: (record.companyCode || user?.companyCode || dataCompanyCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
         collapseId: `break_end_${record.id}`,
-      }).catch((err) => console.warn('OneSignal endBreak push error:', err));
+      });
     }
 
     return {
@@ -4839,14 +4830,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkInApprovedAt: Date.now(),
       };
 
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '✅ İşe Girişiniz Onaylandı',
         message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onayladı. İyi çalışmalar!`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
     } else {
       const now = Date.now();
       const checkoutTime = record.checkOutTime || now;
@@ -4865,23 +4856,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         workDurationMinutes: durationMinutes,
       };
 
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '✅ İşten Çıkışınız Onaylandı',
         message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onayladı. (Toplam Mesai: ${durationText})`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
     }
 
     const updated = [...attendanceRecords];
     updated[idx] = updatedRecord;
     // Optimistic instant state update (0ms UI reflex)
     setAttendanceRecords(updated);
-    StorageService.saveAttendanceRecords(updated).catch((err) => {
-      console.warn('Background approveAttendance save error:', err);
-    });
+    FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
 
@@ -4903,18 +4892,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = attendanceRecords.filter((r) => r.id !== recordId);
       // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
-      StorageService.saveAttendanceRecords(updated, { deletedRecordId: recordId }).catch((err) => {
-        console.warn('Background rejectAttendance save error:', err);
-      });
+      FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
 
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '❌ İşe Giriş Talebiniz Reddedildi',
         message: `Yönetici ${user.name}, konum dışı işe giriş talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
     } else {
       const updatedRecord: AttendanceRecord = {
         ...record,
@@ -4932,18 +4919,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updated[idx] = updatedRecord;
       // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
-      StorageService.saveAttendanceRecords(updated).catch((err) => {
-        console.warn('Background rejectAttendance save error:', err);
-      });
+      FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
 
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: '❌ İşten Çıkış Talebiniz Reddedildi',
         message: `Yönetici ${user.name}, konum dışı çıkış talebinizi onaylamadı.${reason ? ' Gerekçe: ' + reason : ''}`,
         targetMode: 'custom',
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch(() => {});
+      });
     }
 
     return { success: true, message: 'Talep reddedildi.' };

@@ -367,7 +367,7 @@ export const StaffTrackingView: React.FC = () => {
     try {
       setIsCheckingDistance(true);
       setDistanceError('');
-      const pos = await LocationService.getCurrentPosition();
+      const pos = await LocationService.getFastOrWarmPosition();
       const dist = LocationService.calculateDistance(
         pos.latitude,
         pos.longitude,
@@ -407,8 +407,8 @@ export const StaffTrackingView: React.FC = () => {
     try {
       setIsCheckingDistance(true);
       setDistanceError('');
-      // Çok katmanlı hızlı algılama servisi ile anında konum tespiti
-      const pos = await LocationService.getCurrentPosition();
+      // Çok katmanlı hızlı algılama servisi ile anında konum tespiti (0ms refleks)
+      const pos = await LocationService.getFastOrWarmPosition();
       const dist = LocationService.calculateDistance(
         pos.latitude,
         pos.longitude,
