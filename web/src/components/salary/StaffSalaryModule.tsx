@@ -550,20 +550,20 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         </div>
 
         <!-- Özet Finansal Kutular -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
-          <div style="border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 12px;">
+        <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+          <div style="flex: 1; border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 12px;">
             <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM VERİLEN MAAŞ</div>
             <div style="font-size: 18px; font-weight: 900; color: #047857; margin-top: 4px;">
               ${calc.totalPaid.toLocaleString('tr-TR')} ₺
             </div>
           </div>
-          <div style="border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; padding: 12px;">
+          <div style="flex: 1; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; padding: 12px;">
             <div style="font-size: 11px; font-weight: bold; color: #1e40af;">🏦 BANKA / EFT İLE</div>
             <div style="font-size: 16px; font-weight: 900; color: #1d4ed8; margin-top: 4px;">
               ${calc.totalBank.toLocaleString('tr-TR')} ₺
             </div>
           </div>
-          <div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 12px;">
+          <div style="flex: 1; border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 12px;">
             <div style="font-size: 11px; font-weight: bold; color: #92400e;">💵 ELDEN NAKİT İLE</div>
             <div style="font-size: 16px; font-weight: 900; color: #b45309; margin-top: 4px;">
               ${calc.totalCash.toLocaleString('tr-TR')} ₺
@@ -653,33 +653,26 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
     const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${monthName}_${year}_Maas_Pusulasi.pdf`;
 
-    // Sabit A4 genişlikli (750px) ve ekran dışı container - html2canvas'ın anında işlemesini sağlar
     const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    container.style.width = '750px';
-    container.style.background = '#ffffff';
-    container.style.zIndex = '-9999';
     container.innerHTML = generateSalarySlipHtml(staff, year, month, currentMonthCalc);
     document.body.appendChild(container);
 
     try {
       const opt = {
-        margin: 6,
+        margin: 8,
         filename: cleanFileName,
-        image: { type: 'jpeg' as const, quality: 0.90 },
+        image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: {
-          scale: 1.5,
+          scale: 2,
           useCORS: true,
-          logging: false,
-          width: 750,
-          windowWidth: 750,
+          letterRendering: true,
+          scrollX: 0,
+          scrollY: 0,
         },
         jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
 
-      // Tek geçişte ultra-hızlı PDF Blob üretimi
+      // Tek geçişte PDF Blob üretimi
       const pdfBlob: Blob = await html2pdf().set(opt).from(container).outputPdf('blob');
 
       // Mobil cihazlarda Web Share API ile doğrudan WhatsApp'a dosya eki olarak ilet
@@ -942,26 +935,20 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${year}_Yillik_Odeme_Icmali.pdf`;
 
     const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    container.style.width = '750px';
-    container.style.background = '#ffffff';
-    container.style.zIndex = '-9999';
     container.innerHTML = generateYearlySalarySlipHtml(staff, year, summary);
     document.body.appendChild(container);
 
     try {
       const opt = {
-        margin: 6,
+        margin: 8,
         filename: cleanFileName,
-        image: { type: 'jpeg' as const, quality: 0.90 },
+        image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: {
-          scale: 1.5,
+          scale: 2,
           useCORS: true,
-          logging: false,
-          width: 750,
-          windowWidth: 750,
+          letterRendering: true,
+          scrollX: 0,
+          scrollY: 0,
         },
         jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
