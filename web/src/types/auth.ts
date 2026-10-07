@@ -50,6 +50,7 @@ export interface User {
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
+  isActive?: boolean; // false ise kullanıcı pasiftir, giriş yapamaz ama geçmiş tüm kayıtları görünür
 }
 
 export interface UserAccount {
@@ -67,6 +68,7 @@ export interface UserAccount {
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
+  isActive?: boolean; // false ise kullanıcı pasiftir, giriş yapamaz ama geçmiş tüm kayıtları görünür
 }
 
 export type TimeOfDay = 'day' | 'night' | 'sunset';

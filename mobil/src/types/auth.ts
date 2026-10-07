@@ -50,6 +50,7 @@ export interface User {
   branchId?: string;
   branchName?: string;
   canChangePassword?: boolean;
+  isActive?: boolean;
 }
 
 export interface UserAccount {
@@ -68,6 +69,7 @@ export interface UserAccount {
   branchId?: string;
   branchName?: string;
   canChangePassword?: boolean;
+  isActive?: boolean;
 }
 
 export type TimeOfDay = 'day' | 'night' | 'sunset';

@@ -628,6 +628,7 @@ export const UserService = {
                   address: u.address || existing.address,
                   branchId: u.branchId || existing.branchId,
                   branchName: u.branchName || existing.branchName,
+                  isActive: u.isActive !== undefined ? u.isActive : existing.isActive !== undefined ? existing.isActive : true,
                 });
               }
             });
@@ -938,6 +939,7 @@ export const UserService = {
       phone?: string;
       tcNo?: string;
       address?: string;
+      isActive?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
     let users = this.getUsers();
@@ -968,6 +970,19 @@ export const UserService = {
         return {
           success: false,
           error: 'Bu kurumda en az 1 adet Yönetici (Admin) bulunmalıdır. Yetki düşürülemez.',
+        };
+      }
+    }
+
+    // Protection: Prevent deactivating the last active admin of this company
+    if (updates.isActive === false && current.role === 'admin') {
+      const activeAdminCount = users.filter(
+        (u) => (u.companyCode || 'POLATLAR') === companyCode && u.role === 'admin' && u.isActive !== false
+      ).length;
+      if (activeAdminCount <= 1) {
+        return {
+          success: false,
+          error: 'Bu kurumda en az 1 adet aktif Yönetici (Admin) bulunmalıdır. Son yönetici pasife alınamaz.',
         };
       }
     }
@@ -1009,6 +1024,7 @@ export const UserService = {
       phone: cleanPhone,
       tcNo: cleanTcNo,
       address: cleanAddress,
+      isActive: updates.isActive !== undefined ? updates.isActive : current.isActive,
     };
 
     users[userIndex] = updatedUser;
@@ -1277,6 +1293,14 @@ export const UserService = {
 
     const { account, needsRehash } = matchResult;
 
+    // Check if account is passive / inactive
+    if (account.isActive === false) {
+      return {
+        success: false,
+        error: 'Bu kullanıcı hesabı yönetici tarafından pasife alınmıştır. Sisteme giriş yetkiniz bulunmamaktadır.',
+      };
+    }
+
     // Reset failed attempts upon successful authentication
     AuthSecurityService.resetAttempts(cleanCompany, cleanIdentifier);
 
@@ -1303,6 +1327,7 @@ export const UserService = {
         createdAt: account.createdAt,
         companyCode: account.companyCode || cleanCompany,
         email: account.email,
+        isActive: true,
       },
     };
   },

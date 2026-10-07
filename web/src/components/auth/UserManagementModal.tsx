@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ShieldCheck,
   UserPlus,
-  Trash2,
   Key,
   Shield,
   User as UserIcon,
+  UserX,
+  UserCheck,
   Crown,
   Users,
   CheckCircle2,
@@ -50,7 +51,6 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     company,
     addUser,
     updateUser,
-    deleteUser,
     suggestUsername,
     refreshUsers,
   } = useAuth();
@@ -212,19 +212,32 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   // Search query for users list
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  // User status filter: 'all' | 'active' | 'passive'
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'passive'>('all');
 
-  // Filter companyUsers by search query (name, username, branch name)
+  const activeUsersCount = useMemo(() => {
+    return companyUsers.filter((u) => u.isActive !== false).length;
+  }, [companyUsers]);
+
+  const passiveUsersCount = useMemo(() => {
+    return companyUsers.filter((u) => u.isActive === false).length;
+  }, [companyUsers]);
+
+  // Filter companyUsers by search query, branch name and active/passive status
   const filteredCompanyUsers = useMemo(() => {
-    if (!userSearchQuery.trim()) return companyUsers;
-    const q = userSearchQuery.toLowerCase().trim();
     return companyUsers.filter((u) => {
+      if (userStatusFilter === 'active' && u.isActive === false) return false;
+      if (userStatusFilter === 'passive' && u.isActive !== false) return false;
+
+      if (!userSearchQuery.trim()) return true;
+      const q = userSearchQuery.toLowerCase().trim();
       const matchName = (u.name || '').toLowerCase().includes(q);
       const matchUsername = (u.username || '').toLowerCase().includes(q);
       const branch = allBranchesList.find((b) => b.assignedUserIds?.includes(u.id));
       const matchBranch = (branch?.name || '').toLowerCase().includes(q);
       return matchName || matchUsername || matchBranch;
     });
-  }, [companyUsers, userSearchQuery, allBranchesList]);
+  }, [companyUsers, userSearchQuery, allBranchesList, userStatusFilter]);
 
   // Form states for adding user
   const [newUsername, setNewUsername] = useState('');
@@ -455,16 +468,28 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   };
 
-  const handleDelete = async (userId: string, username: string) => {
-    if (
-      window.confirm(
-        `"${username}" kullanıcısını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
-      )
-    ) {
-      const res = await deleteUser(userId);
-      if (!res.success && res.error) {
-        alert(res.error);
-      }
+  const handleToggleActive = async (account: UserAccount) => {
+    const isCurrentlyPassive = account.isActive === false;
+    const nextActive = isCurrentlyPassive; // if passive, turn active (true); if active, turn passive (false)
+
+    if (account.id === currentUser?.id) {
+      alert('Kendi hesabınızı pasife alamazsınız.');
+      return;
+    }
+
+    if (!nextActive) {
+      // Pasife alma onayı
+      const confirmMsg = `"${account.name || account.username}" kullanıcısını PASİFE almak istediğinize emin misiniz?\n\n• Bu kullanıcı kullanıcı adı ve şifresiyle sisteme giriş yapamayacaktır.\n• Geçmiş tüm kayıtları (iş emirleri, kurulumlar, servisler, maaş ve personel takibi) yöneticide eksiksiz görünmeye devam edecektir.\n• İleride dilediğiniz zaman tekrar aktif edebilirsiniz.`;
+      if (!window.confirm(confirmMsg)) return;
+    } else {
+      // Aktif etme onayı
+      const confirmMsg = `"${account.name || account.username}" kullanıcısını tekrar AKTİF etmek istediğinize emin misiniz?\n\nKullanıcı mevcut şifresiyle sisteme tekrar giriş yapabilecektir.`;
+      if (!window.confirm(confirmMsg)) return;
+    }
+
+    const res = await updateUser(account.id, { isActive: nextActive });
+    if (!res.success && res.error) {
+      alert(res.error);
     }
   };
 
@@ -593,6 +618,49 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               </div>
             )}
 
+            {/* Status Filter Pills: Tümü, Aktif, Pasif */}
+            {companyUsers.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+                <button
+                  type="button"
+                  onClick={() => setUserStatusFilter('all')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                    userStatusFilter === 'all'
+                      ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  Tümü ({companyUsers.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserStatusFilter('active')}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                    userStatusFilter === 'active'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Aktif ({activeUsersCount})</span>
+                </button>
+                {passiveUsersCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setUserStatusFilter('passive')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                      userStatusFilter === 'passive'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-850 hover:bg-amber-100'
+                    }`}
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Pasif ({passiveUsersCount})</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
               {filteredCompanyUsers.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs font-medium bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
@@ -649,6 +717,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 filteredCompanyUsers.map((account) => {
                 const isAdmin = isUserAdmin(account);
                 const isCurrent = currentUser?.id === account.id;
+                const isPassive = account.isActive === false;
                 const binding = userBindings.find(
                   (b) =>
                     b.userId === account.id ||
@@ -659,14 +728,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 return (
                   <div
                     key={account.id}
-                    className="bg-slate-50 dark:bg-slate-900/90 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-700/80 space-y-3 transition-all"
+                    className={`rounded-2xl p-4 border space-y-3 transition-all ${
+                      isPassive
+                        ? 'bg-amber-50/20 dark:bg-amber-950/15 border-amber-300/60 dark:border-amber-900/50'
+                        : 'bg-slate-50 dark:bg-slate-900/90 border-slate-200/80 dark:border-slate-700/80'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       {/* User Info */}
                       <div className="flex items-center gap-3 min-w-0">
                         <div
                           className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 ${
-                            isAdmin
+                            isPassive
+                              ? 'bg-gradient-to-br from-slate-400 to-slate-600 shadow-xs'
+                              : isAdmin
                               ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-xs'
                               : 'bg-gradient-to-br from-blue-500 to-indigo-600'
                           }`}
@@ -675,13 +750,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         </div>
 
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
                               {account.name}
                             </h4>
                             {isCurrent && (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
                                 Siz
+                              </span>
+                            )}
+                            {isPassive && (
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 inline-flex items-center gap-1">
+                                <UserX className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                Pasif
                               </span>
                             )}
                           </div>
@@ -921,14 +1002,36 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           <span>Şifre Belirle</span>
                         </button>
 
-                        <button
-                          onClick={() => handleDelete(account.id, account.username)}
-                          className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
-                          title="Kullanıcıyı Sil"
-                          aria-label="Sil"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {isPassive ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleActive(account)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                            title="Kullanıcıyı Tekrar Aktif Et (Giriş yapabilmesi için)"
+                          >
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>Aktif Et</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isCurrent}
+                            onClick={() => handleToggleActive(account)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                              isCurrent
+                                ? 'opacity-40 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
+                                : 'text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/80'
+                            }`}
+                            title={
+                              isCurrent
+                                ? 'Kendi hesabınızı pasife alamazsınız'
+                                : 'Kullanıcıyı Pasife Al (Giriş yapamaz, geçmiş tüm kayıtları yöneticide kalır)'
+                            }
+                          >
+                            <UserX className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                            <span>Pasife Al</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

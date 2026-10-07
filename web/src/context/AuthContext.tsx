@@ -66,6 +66,7 @@ interface AuthContextType {
       phone?: string;
       tcNo?: string;
       address?: string;
+      isActive?: boolean;
     }
   ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
@@ -325,6 +326,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ((u.companyCode || 'POLATLAR').toUpperCase() === (currentUser.companyCode || 'POLATLAR').toUpperCase() &&
             u.username.toLowerCase() === currentUser.username.toLowerCase())
       );
+
+      // Oturum açıkken kullanıcı pasife alındıysa oturumu derhal sonlandır
+      if (fresh && fresh.isActive === false) {
+        alert('Hesabınız yönetici tarafından pasife alınmıştır. Oturumunuz sonlandırılıyor.');
+        setTimeout(() => logout(), 100);
+        return null;
+      }
+
       const shouldBeAdmin = isUserAdmin(currentUser) || (fresh && isUserAdmin(fresh));
       const finalRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : currentUser.role);
       const finalName = fresh ? fresh.name : currentUser.name;
@@ -605,6 +614,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       phone?: string;
       tcNo?: string;
       address?: string;
+      isActive?: boolean;
     }
   ) => {
     const res = await UserService.updateUser(id, updates);
@@ -619,6 +629,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: updates.phone !== undefined ? updates.phone : user.phone,
           tcNo: updates.tcNo !== undefined ? updates.tcNo : user.tcNo,
           address: updates.address !== undefined ? updates.address : user.address,
+          isActive: updates.isActive !== undefined ? updates.isActive : user.isActive,
         };
         setUser(updatedUser);
       }

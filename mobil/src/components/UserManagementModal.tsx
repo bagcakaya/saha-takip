@@ -18,6 +18,8 @@ import {
   Shield,
   ShieldCheck,
   User,
+  UserX,
+  UserCheck,
   Trash2,
   Key,
   Smartphone,
@@ -280,31 +282,55 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     );
   };
 
-  const handleDelete = (userId: string, userName: string) => {
-    if (userId === 'admin-root' || userId === currentUser?.id) {
-      Alert.alert('İşlem Engellendi', 'Kendi hesabınızı veya ana yöneticiyi silemezsiniz.');
+  const handleToggleActive = (account: UserAccount) => {
+    if (account.id === currentUser?.id) {
+      Alert.alert('İşlem Engellendi', 'Kendi hesabınızı pasife alamazsınız.');
       return;
     }
 
-    Alert.alert(
-      'Kullanıcıyı Sil',
-      `"${userName}" kullanıcısını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
-      [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Sil',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteUser(userId);
-            if (res.success) {
-              refreshUsers();
-            } else {
-              Alert.alert('Hata', res.error || 'Silme işlemi başarısız.');
-            }
+    const isCurrentlyPassive = account.isActive === false;
+    const nextActive = isCurrentlyPassive;
+
+    if (!nextActive) {
+      Alert.alert(
+        'Kullanıcıyı Pasife Al',
+        `"${account.name || account.username}" kullanıcısını PASİFE almak istediğinize emin misiniz?\n\n• Kullanıcı sisteme giriş yapamayacaktır.\n• Geçmiş tüm kayıtları (iş emirleri, kurulumlar, servisler, maaş ve personel takibi) yöneticide eksiksiz görünmeye devam edecektir.\n• İleride dilediğiniz zaman tekrar aktif edebilirsiniz.`,
+        [
+          { text: 'Vazgeç', style: 'cancel' },
+          {
+            text: 'Pasife Al',
+            style: 'destructive',
+            onPress: async () => {
+              const res = await updateUser(account.id, { isActive: false });
+              if (res.success) {
+                refreshUsers();
+              } else {
+                Alert.alert('Hata', res.error || 'İşlem başarısız.');
+              }
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Kullanıcıyı Aktif Et',
+        `"${account.name || account.username}" kullanıcısını tekrar AKTİF etmek istediğinize emin misiniz?\n\nKullanıcı mevcut şifresiyle sisteme tekrar giriş yapabilecektir.`,
+        [
+          { text: 'Vazgeç', style: 'cancel' },
+          {
+            text: 'Aktif Et',
+            onPress: async () => {
+              const res = await updateUser(account.id, { isActive: true });
+              if (res.success) {
+                refreshUsers();
+              } else {
+                Alert.alert('Hata', res.error || 'İşlem başarısız.');
+              }
+            },
+          },
+        ]
+      );
+    }
   };
 
   const handleSelectBranchForUser = async (userId: string, targetBranchId: string) => {
@@ -432,6 +458,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   const isCurrent = currentUser?.id === account.id;
                   const isEditingPass = editingPasswordUserId === account.id;
 
+                  const isPassive = account.isActive === false;
                   const binding = userBindings.find(
                     (b) =>
                       b.userId === account.id ||
@@ -440,10 +467,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   const userBranch = branches.find((b) => b.assignedUserIds?.includes(account.id));
 
                   return (
-                    <View key={account.id} style={styles.userCard}>
+                    <View key={account.id} style={[styles.userCard, isPassive && styles.userCardPassive]}>
                       <View style={styles.userCardTop}>
                         {/* Avatar */}
-                        <View style={styles.avatarBox}>
+                        <View style={[styles.avatarBox, isPassive && { backgroundColor: '#475569' }]}>
                           <User size={22} color="#ffffff" />
                         </View>
 
@@ -454,6 +481,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             {isCurrent && (
                               <View style={styles.selfBadge}>
                                 <Text style={styles.selfBadgeText}>Siz</Text>
+                              </View>
+                            )}
+                            {isPassive && (
+                              <View style={styles.passiveBadge}>
+                                <Text style={styles.passiveBadgeText}>Pasif</Text>
                               </View>
                             )}
                           </View>
@@ -622,14 +654,27 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             <Text style={styles.setPasswordText}>Şifre Belirle</Text>
                           </TouchableOpacity>
 
-                          {/* Sil */}
-                          {!isCurrent && account.id !== 'admin-root' && (
+                          {/* Pasife Al / Aktif Et */}
+                          {!isCurrent && (
                             <TouchableOpacity
-                              style={styles.deleteUserBtn}
-                              onPress={() => handleDelete(account.id, account.name)}
+                              style={[
+                                styles.toggleActiveBtn,
+                                isPassive ? styles.activateBtn : styles.deactivateBtn,
+                              ]}
+                              onPress={() => handleToggleActive(account)}
                               activeOpacity={0.7}
                             >
-                              <Trash2 size={14} color="#ef4444" />
+                              {isPassive ? (
+                                <>
+                                  <UserCheck size={13} color="#10b981" />
+                                  <Text style={styles.activateBtnText}>Aktif Et</Text>
+                                </>
+                              ) : (
+                                <>
+                                  <UserX size={13} color="#f59e0b" />
+                                  <Text style={styles.deactivateBtnText}>Pasife Al</Text>
+                                </>
+                              )}
                             </TouchableOpacity>
                           )}
                         </View>
@@ -1298,6 +1343,51 @@ const styles = StyleSheet.create({
     color: '#e2e8f0',
     fontSize: 11,
     fontWeight: '700',
+  },
+  userCardPassive: {
+    opacity: 0.85,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  passiveBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  passiveBadgeText: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  toggleActiveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  activateBtn: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+  },
+  activateBtnText: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  deactivateBtn: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+  },
+  deactivateBtnText: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: '800',
   },
   deleteUserBtn: {
     padding: 6,

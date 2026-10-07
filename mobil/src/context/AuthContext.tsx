@@ -47,7 +47,7 @@ interface AuthContextType {
   }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
     id: string,
-    updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean }
+    updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean; isActive?: boolean }
   ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
   deleteUsersForCompany: (companyCode: string) => Promise<{ success: boolean; error?: string }>;
@@ -487,6 +487,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (matched) {
+      if (matched.isActive === false) {
+        return {
+          success: false,
+          error: 'Bu kullanıcı hesabı yönetici tarafından pasife alınmıştır. Sisteme giriş yetkiniz bulunmamaktadır.',
+        };
+      }
+
       // Lazy migration: If password was plaintext, immediately hash and save in background
       if (matchedNeedsRehash) {
         (async () => {
@@ -511,6 +518,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         companyCode: cleanComp,
         createdAt: matched.createdAt || Date.now(),
         canChangePassword: matched.canChangePassword !== undefined ? matched.canChangePassword : (matched.role === 'admin'),
+        isActive: true,
       };
 
       const compObj: Company = realComp;
@@ -732,7 +740,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUser = async (
     id: string,
-    updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean }
+    updates: { name?: string; role?: UserRole; password?: string; canChangePassword?: boolean; isActive?: boolean }
   ) => {
     try {
       let hashedPassword: string | undefined = undefined;
@@ -748,6 +756,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...(updates.role ? { role: updates.role } : {}),
             ...(hashedPassword ? { password: hashedPassword } : {}),
             ...(updates.canChangePassword !== undefined ? { canChangePassword: updates.canChangePassword } : {}),
+            ...(updates.isActive !== undefined ? { isActive: updates.isActive } : {}),
           };
         }
         return u;
@@ -764,6 +773,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...(updates.name ? { name: updates.name.trim() } : {}),
           ...(updates.role ? { role: updates.role } : {}),
           ...(updates.canChangePassword !== undefined ? { canChangePassword: updates.canChangePassword } : {}),
+          ...(updates.isActive !== undefined ? { isActive: updates.isActive } : {}),
         };
         setUser(updatedCurrentUser);
         await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedCurrentUser));
