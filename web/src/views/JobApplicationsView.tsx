@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   UserPlus,
   Plus,
@@ -28,6 +28,18 @@ import { useStorage } from '../context/StorageContext';
 import { JobApplication, JobApplicationStatus } from '../types/storage';
 import { UserRole } from '../types/auth';
 import { UserService } from '../services/userService';
+
+const STORAGE_KEY_JOB_STATUS_FILTER = 'job_applications_status_filter';
+
+const VALID_STATUS_FILTERS: Array<'all' | JobApplicationStatus> = [
+  'all',
+  'new',
+  'call_scheduled',
+  'interview_scheduled',
+  'offer_made',
+  'hired',
+  'rejected',
+];
 
 const STATUS_CONFIG: Record<
   JobApplicationStatus,
@@ -112,7 +124,30 @@ export const JobApplicationsView: React.FC = () => {
   } = useStorage();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | JobApplicationStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | JobApplicationStatus>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_JOB_STATUS_FILTER) as ('all' | JobApplicationStatus) | null;
+        if (saved && VALID_STATUS_FILTERS.includes(saved)) {
+          return saved;
+        }
+      } catch {
+        // ignore localStorage access error
+      }
+    }
+    return 'all';
+  });
+
+  // Kullanıcı hangi kartı seçtiyse sayfayı tekrar açınca o kart gelsin
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY_JOB_STATUS_FILTER, statusFilter);
+      } catch {
+        // ignore localStorage access error
+      }
+    }
+  }, [statusFilter]);
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [editingApplication, setEditingApplication] = useState<JobApplication | null>(null);
 
@@ -226,23 +261,8 @@ export const JobApplicationsView: React.FC = () => {
         </button>
       </div>
 
-      {/* 2. Pipeline KPI Cards (Görsel-3) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
-        <button
-          onClick={() => setStatusFilter('all')}
-          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'all'
-              ? 'bg-slate-900 text-white border-slate-700 shadow-md ring-2 ring-slate-400'
-              : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Toplam Aday</span>
-            <Users className="w-4 h-4 opacity-50" />
-          </div>
-          <p className="text-xl sm:text-2xl font-black mt-2">{stats.total}</p>
-        </button>
-
+      {/* 2. Pipeline KPI Cards (Görsel-3) - 6 Aşama Kartı */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
         <button
           onClick={() => setStatusFilter('new')}
           className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -367,8 +387,22 @@ export const JobApplicationsView: React.FC = () => {
           )}
         </div>
 
-        <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 px-2 shrink-0">
-          Gösterilen: <span className="font-bold text-slate-800 dark:text-slate-200">{filteredList.length}</span> aday
+        <div className="flex items-center gap-2 shrink-0">
+          {statusFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors cursor-pointer"
+              title="Filtreyi kaldır ve tüm adayları göster"
+            >
+              <span>Tümünü Göster</span>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 px-2 shrink-0">
+            Gösterilen: <span className="font-bold text-slate-800 dark:text-slate-200">{filteredList.length}</span> aday
+          </div>
         </div>
       </div>
 
@@ -829,6 +863,65 @@ export const JobApplicationsView: React.FC = () => {
           </div>
         </>
       )}
+
+      {/* 4. Toplam Aday Kartı (Sayfanın En Altında) */}
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={`w-full p-4 sm:p-5 rounded-2xl border text-left transition-all cursor-pointer ${
+            statusFilter === 'all'
+              ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white border-slate-700 shadow-xl ring-2 ring-teal-400'
+              : 'bg-white dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 hover:border-teal-500/50 hover:shadow-md shadow-sm'
+          }`}
+          title="Tüm başvuru kayıtlarını görüntülemek için tıklayın"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div
+                className={`p-3 rounded-2xl transition-all ${
+                  statusFilter === 'all'
+                    ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/30'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm sm:text-base font-black tracking-tight">
+                    Toplam Aday
+                  </span>
+                  {statusFilter === 'all' ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                      Seçili (Tüm Adaylar Gösteriliyor)
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold hidden sm:inline">
+                      (Tüm adayları listelemek için tıklayın)
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Tüm aşamalardaki iş başvurusu yapan adayların genel toplamı
+                </p>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <p
+                className={`text-2xl sm:text-3xl font-black ${
+                  statusFilter === 'all' ? 'text-white' : 'text-slate-900 dark:text-white'
+                }`}
+              >
+                {stats.total}
+              </p>
+              <span className="text-[11px] font-bold text-teal-600 dark:text-teal-400">
+                {statusFilter === 'all' ? 'Tümü Listeleniyor' : 'Tümünü Göster →'}
+              </span>
+            </div>
+          </div>
+        </button>
+      </div>
 
       {/* 5. Modals */}
 
