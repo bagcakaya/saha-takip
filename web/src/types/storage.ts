@@ -102,6 +102,8 @@ export interface PersonalNote {
   isPinned?: boolean;
   reminderDate?: string; // YYYY-MM-DD
   reminderTime?: string; // HH:mm
+  reminderRepeat?: string; // 'none' | '15m' | '30m' | '1h' | '2h' | '3h' | '4h' | '6h' | '8h' | '12h' | '24h' | 'custom'
+  reminderRepeatMinutes?: number; // Dakika cinsinden tekrar aralığı (örn: 15, 60, 1440)
   onesignalNotificationId?: string; // OneSignal cloud scheduled notification id for cancellation
   notified?: boolean;
   createdAt: number;

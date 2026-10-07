@@ -6081,18 +6081,49 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!note.reminderDate || note.notified) continue;
         const timeStr = note.reminderTime || '09:00';
         const target = new Date(`${note.reminderDate}T${timeStr}:00`).getTime();
-        if (!isNaN(target) && target <= now && now - target < 2 * 60 * 60 * 1000) {
-          NotificationService.playAlarmSound();
-          const title = '⏰ Kişisel Not Hatırlatıcısı';
-          const body = note.title
-            ? `${note.title}: ${note.content || 'Hatırlatma vakti geldi.'}`
-            : (note.content || 'Kişisel notunuz için hatırlatma vakti geldi.');
-          NotificationService.sendNotification(
-            title,
-            body,
-            'https://saha-takip-beige.vercel.app/?tab=personal_notes'
+        if (!isNaN(target) && target <= now) {
+          const isRepeating = Boolean(
+            note.reminderRepeat &&
+            note.reminderRepeat !== 'none' &&
+            note.reminderRepeatMinutes &&
+            note.reminderRepeatMinutes > 0
           );
-          updatePersonalNote(note.id, { notified: true });
+
+          if (now - target < 2 * 60 * 60 * 1000 || isRepeating) {
+            NotificationService.playAlarmSound();
+            const repeatTag = isRepeating ? ' (Tekrarlayan)' : '';
+            const title = `⏰ Kişisel Not Hatırlatıcısı${repeatTag}`;
+            const body = note.title
+              ? `${note.title}: ${note.content || 'Hatırlatma vakti geldi.'}`
+              : (note.content || 'Kişisel notunuz için hatırlatma vakti geldi.');
+            NotificationService.sendNotification(
+              title,
+              body,
+              'https://saha-takip-beige.vercel.app/?tab=personal_notes'
+            );
+
+            if (isRepeating && note.reminderRepeatMinutes) {
+              const intervalMs = note.reminderRepeatMinutes * 60 * 1000;
+              let nextTargetTime = target + intervalMs;
+              while (nextTargetTime <= now) {
+                nextTargetTime += intervalMs;
+              }
+              const nextDateObj = new Date(nextTargetTime);
+              const yyyy = nextDateObj.getFullYear();
+              const mm = String(nextDateObj.getMonth() + 1).padStart(2, '0');
+              const dd = String(nextDateObj.getDate()).padStart(2, '0');
+              const hh = String(nextDateObj.getHours()).padStart(2, '0');
+              const min = String(nextDateObj.getMinutes()).padStart(2, '0');
+
+              updatePersonalNote(note.id, {
+                reminderDate: `${yyyy}-${mm}-${dd}`,
+                reminderTime: `${hh}:${min}`,
+                notified: false,
+              });
+            } else {
+              updatePersonalNote(note.id, { notified: true });
+            }
+          }
         }
       }
     };

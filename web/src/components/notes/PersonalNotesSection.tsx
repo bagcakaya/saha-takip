@@ -14,12 +14,34 @@ import {
   Sparkles,
   Bell,
   Loader2,
+  Repeat,
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
 import { PersonalNote, PersonalNoteColor } from '../../types/storage';
 import { NotificationService } from '../../services/notificationService';
 import { OneSignalService } from '../../services/oneSignalService';
+
+// Tekrarlı hatırlatıcı etiket metni üretici
+export const getRepeatLabel = (repeat?: string, repeatMinutes?: number): string | null => {
+  if (!repeat || repeat === 'none' || !repeatMinutes) return null;
+  if (repeat === '15m' || repeatMinutes === 15) return '15 Dk';
+  if (repeat === '30m' || repeatMinutes === 30) return '30 Dk';
+  if (repeat === '1h' || repeatMinutes === 60) return 'Her Saat';
+  if (repeat === '2h' || repeatMinutes === 120) return '2 Saat';
+  if (repeat === '3h' || repeatMinutes === 180) return '3 Saat';
+  if (repeat === '4h' || repeatMinutes === 240) return '4 Saat';
+  if (repeat === '6h' || repeatMinutes === 360) return '6 Saat';
+  if (repeat === '8h' || repeatMinutes === 480) return '8 Saat';
+  if (repeat === '12h' || repeatMinutes === 720) return '12 Saat';
+  if (repeat === '24h' || repeatMinutes === 1440) return 'Her Gün';
+
+  if (repeatMinutes % 60 === 0) {
+    const hours = repeatMinutes / 60;
+    return hours === 24 ? 'Her Gün' : `${hours} Saat`;
+  }
+  return `${repeatMinutes} Dk`;
+};
 
 const COLOR_STYLES: Record<
   PersonalNoteColor,
@@ -97,6 +119,25 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [remDate, setRemDate] = useState(note.reminderDate || '');
   const [remTime, setRemTime] = useState(note.reminderTime || '');
+  const [remRepeat, setRemRepeat] = useState<string>(note.reminderRepeat || 'none');
+  const [customRepeatValue, setCustomRepeatValue] = useState<number>(() => {
+    if (note.reminderRepeat === 'custom' && note.reminderRepeatMinutes) {
+      if (note.reminderRepeatMinutes % 60 === 0 && note.reminderRepeatMinutes <= 1440) {
+        return note.reminderRepeatMinutes / 60;
+      }
+      return note.reminderRepeatMinutes;
+    }
+    return 1;
+  });
+  const [customRepeatUnit, setCustomRepeatUnit] = useState<'minutes' | 'hours'>(() => {
+    if (note.reminderRepeat === 'custom' && note.reminderRepeatMinutes) {
+      if (note.reminderRepeatMinutes % 60 === 0 && note.reminderRepeatMinutes <= 1440) {
+        return 'hours';
+      }
+      return 'minutes';
+    }
+    return 'hours';
+  });
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -152,8 +193,18 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
       lastSavedContentRef.current = note.content || '';
       setRemDate(note.reminderDate || '');
       setRemTime(note.reminderTime || '');
+      setRemRepeat(note.reminderRepeat || 'none');
+      if (note.reminderRepeat === 'custom' && note.reminderRepeatMinutes) {
+        if (note.reminderRepeatMinutes % 60 === 0 && note.reminderRepeatMinutes <= 1440) {
+          setCustomRepeatValue(note.reminderRepeatMinutes / 60);
+          setCustomRepeatUnit('hours');
+        } else {
+          setCustomRepeatValue(note.reminderRepeatMinutes);
+          setCustomRepeatUnit('minutes');
+        }
+      }
     }
-  }, [note.title, note.content, note.reminderDate, note.reminderTime, isFocused, hasChanges]);
+  }, [note.title, note.content, note.reminderDate, note.reminderTime, note.reminderRepeat, note.reminderRepeatMinutes, isFocused, hasChanges]);
 
   useEffect(() => {
     autoResizeTextarea();
@@ -257,9 +308,42 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
     } catch (e) {
       console.warn('Permission request error:', e);
     }
+
+    let finalRepeat = remRepeat;
+    let finalMinutes: number | undefined = undefined;
+
+    if (remRepeat === '15m') finalMinutes = 15;
+    else if (remRepeat === '30m') finalMinutes = 30;
+    else if (remRepeat === '1h') finalMinutes = 60;
+    else if (remRepeat === '2h') finalMinutes = 120;
+    else if (remRepeat === '3h') finalMinutes = 180;
+    else if (remRepeat === '4h') finalMinutes = 240;
+    else if (remRepeat === '6h') finalMinutes = 360;
+    else if (remRepeat === '8h') finalMinutes = 480;
+    else if (remRepeat === '12h') finalMinutes = 720;
+    else if (remRepeat === '24h') finalMinutes = 1440;
+    else if (remRepeat === 'custom') {
+      const val = Math.max(1, Number(customRepeatValue) || 1);
+      if (customRepeatUnit === 'hours') {
+        const clampedHours = Math.min(24, val);
+        finalMinutes = clampedHours * 60;
+      } else {
+        const clampedMins = Math.min(1440, val);
+        finalMinutes = clampedMins;
+      }
+      if (finalMinutes === 1440) {
+        finalRepeat = '24h';
+      }
+    } else {
+      finalRepeat = 'none';
+      finalMinutes = undefined;
+    }
+
     await onUpdate(note.id, {
       reminderDate: remDate || undefined,
       reminderTime: remTime || undefined,
+      reminderRepeat: finalRepeat !== 'none' ? finalRepeat : undefined,
+      reminderRepeatMinutes: finalMinutes,
       notified: false,
     });
     setShowReminderPicker(false);
@@ -268,9 +352,12 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
   const handleRemoveReminder = () => {
     setRemDate('');
     setRemTime('');
+    setRemRepeat('none');
     onUpdate(note.id, {
       reminderDate: undefined,
       reminderTime: undefined,
+      reminderRepeat: undefined,
+      reminderRepeatMinutes: undefined,
       notified: false,
     });
     setShowReminderPicker(false);
@@ -322,6 +409,12 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
           >
             <Clock className="w-3.5 h-3.5 shrink-0" />
             <span>{formattedReminderDate}</span>
+            {getRepeatLabel(note.reminderRepeat, note.reminderRepeatMinutes) && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/15 text-[10px] font-black tracking-tight">
+                <Repeat className="w-2.5 h-2.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                <span>{getRepeatLabel(note.reminderRepeat, note.reminderRepeatMinutes)}</span>
+              </span>
+            )}
             {isReminderDue && <span className="ml-1 text-[10px] font-black uppercase tracking-wide">(Vakti Geldi!)</span>}
             <button
               type="button"
@@ -415,9 +508,9 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
             </button>
 
             {showReminderPicker && (
-              <div className="absolute right-0 top-8 z-30 w-64 p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-2xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 space-y-2.5 animate-in fade-in zoom-in-95">
+              <div className="absolute right-0 top-8 z-30 w-72 sm:w-80 p-3.5 rounded-2xl bg-white dark:bg-slate-800 shadow-2xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 space-y-3 animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 pb-1 border-b border-slate-100 dark:border-slate-700">
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 font-black">
                     <Clock className="w-3.5 h-3.5 text-amber-500" />
                     Hatırlatıcı Ayarla
                   </span>
@@ -454,11 +547,97 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
                   />
                 </div>
 
+                {/* Hatırlatma Tekrarı */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Repeat className="w-3 h-3 text-amber-500" />
+                      Hatırlatma Tekrarı
+                    </span>
+                  </label>
+                  <select
+                    value={remRepeat}
+                    onChange={(e) => setRemRepeat(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800 dark:text-white font-medium cursor-pointer"
+                  >
+                    <option value="none">Tek Seferlik (Tekrar Yok)</option>
+                    <option value="15m">15 Dakikada Bir</option>
+                    <option value="30m">30 Dakikada Bir</option>
+                    <option value="1h">Her Saat (1 Saatte Bir)</option>
+                    <option value="2h">2 Saatte Bir</option>
+                    <option value="3h">3 Saatte Bir</option>
+                    <option value="4h">4 Saatte Bir</option>
+                    <option value="6h">6 Saatte Bir</option>
+                    <option value="8h">8 Saatte Bir</option>
+                    <option value="12h">12 Saatte Bir</option>
+                    <option value="24h">Her Gün Aynı Saatte (24 Saat)</option>
+                    <option value="custom">Özel Süre Belirle (Dk / Saat)...</option>
+                  </select>
+                </div>
+
+                {remRepeat === 'custom' && (
+                  <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 space-y-2 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={customRepeatUnit === 'hours' ? 24 : 1440}
+                        value={customRepeatValue}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value) || 1);
+                          const maxAllowed = customRepeatUnit === 'hours' ? 24 : 1440;
+                          setCustomRepeatValue(Math.min(maxAllowed, val));
+                        }}
+                        className="w-20 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <div className="flex-1 flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-bold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomRepeatUnit('minutes');
+                            if (customRepeatUnit === 'hours') {
+                              setCustomRepeatValue(Math.min(1440, customRepeatValue * 60));
+                            }
+                          }}
+                          className={`flex-1 py-1.5 transition text-center cursor-pointer ${
+                            customRepeatUnit === 'minutes'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          Dakika
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomRepeatUnit('hours');
+                            if (customRepeatUnit === 'minutes') {
+                              setCustomRepeatValue(Math.min(24, Math.max(1, Math.round(customRepeatValue / 60))));
+                            }
+                          }}
+                          className={`flex-1 py-1.5 transition text-center cursor-pointer ${
+                            customRepeatUnit === 'hours'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          Saat
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-300/80 font-medium">
+                      {customRepeatUnit === 'hours'
+                        ? `Maksimum 24 saat seçebilirsiniz. (Her ${customRepeatValue} saatte bir tekrarlanır)`
+                        : `Maksimum 1440 dakika (24 saat). (Her ${customRepeatValue} dakikada bir tekrarlanır)`}
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handleSaveReminder}
-                    className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition cursor-pointer text-center"
+                    className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition cursor-pointer text-center shadow-sm"
                   >
                     Kaydet
                   </button>
@@ -592,6 +771,7 @@ export const PersonalNotesSection: React.FC = () => {
   const [quickColor, setQuickColor] = useState<PersonalNoteColor>('amber');
   const [quickReminderDate, setQuickReminderDate] = useState('');
   const [quickReminderTime, setQuickReminderTime] = useState('');
+  const [quickReminderRepeat, setQuickReminderRepeat] = useState<string>('none');
   const [hasPermission, setHasPermission] = useState<boolean>(() => {
     return typeof Notification !== 'undefined' && Notification.permission === 'granted';
   });
@@ -671,18 +851,40 @@ export const PersonalNotesSection: React.FC = () => {
         }
       }
 
+      let finalRepeat = quickReminderRepeat;
+      let finalMinutes: number | undefined = undefined;
+
+      if (quickReminderDate && quickReminderRepeat !== 'none') {
+        if (quickReminderRepeat === '15m') finalMinutes = 15;
+        else if (quickReminderRepeat === '30m') finalMinutes = 30;
+        else if (quickReminderRepeat === '1h') finalMinutes = 60;
+        else if (quickReminderRepeat === '2h') finalMinutes = 120;
+        else if (quickReminderRepeat === '3h') finalMinutes = 180;
+        else if (quickReminderRepeat === '4h') finalMinutes = 240;
+        else if (quickReminderRepeat === '6h') finalMinutes = 360;
+        else if (quickReminderRepeat === '8h') finalMinutes = 480;
+        else if (quickReminderRepeat === '12h') finalMinutes = 720;
+        else if (quickReminderRepeat === '24h') finalMinutes = 1440;
+      } else {
+        finalRepeat = 'none';
+        finalMinutes = undefined;
+      }
+
       await addPersonalNote({
         title: quickTitle.trim(),
         content: quickContent.trim(),
         color: quickColor,
         reminderDate: quickReminderDate || undefined,
         reminderTime: quickReminderTime || undefined,
+        reminderRepeat: finalRepeat !== 'none' ? finalRepeat : undefined,
+        reminderRepeatMinutes: finalMinutes,
       });
 
       setQuickTitle('');
       setQuickContent('');
       setQuickReminderDate('');
       setQuickReminderTime('');
+      setQuickReminderRepeat('none');
       setQuickColor('amber');
     } catch (err) {
       console.error('Hızlı not eklenirken hata oluştu:', err);
@@ -697,6 +899,7 @@ export const PersonalNotesSection: React.FC = () => {
     setQuickContent('');
     setQuickReminderDate('');
     setQuickReminderTime('');
+    setQuickReminderRepeat('none');
     setQuickColor('amber');
   };
 
@@ -864,6 +1067,29 @@ export const PersonalNotesSection: React.FC = () => {
                   onChange={(e) => setQuickReminderTime(e.target.value)}
                   className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
                 />
+                {quickReminderDate && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <Repeat className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <select
+                      value={quickReminderRepeat}
+                      onChange={(e) => setQuickReminderRepeat(e.target.value)}
+                      className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                      title="Hatırlatma Tekrarı"
+                    >
+                      <option value="none">Tek Sefer</option>
+                      <option value="15m">15 Dk</option>
+                      <option value="30m">30 Dk</option>
+                      <option value="1h">Her Saat</option>
+                      <option value="2h">2 Saat</option>
+                      <option value="3h">3 Saat</option>
+                      <option value="4h">4 Saat</option>
+                      <option value="6h">6 Saat</option>
+                      <option value="8h">8 Saat</option>
+                      <option value="12h">12 Saat</option>
+                      <option value="24h">Her Gün (24s)</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
