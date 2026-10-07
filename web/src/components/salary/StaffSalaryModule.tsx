@@ -123,6 +123,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // Bildirim toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Masaüstü için WhatsApp PDF gönderim rehberi modalı
+  const [whatsappDesktopGuide, setWhatsappDesktopGuide] = useState<{
+    fileName: string;
+    staffName: string;
+    whatsappUrl: string;
+    pdfBlob: Blob;
+  } | null>(null);
+
   // Şirket kodu ve adı
   const activeCompanyCode = (company?.code || user?.companyCode || 'POLATLAR')
     .trim()
@@ -715,27 +723,10 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
-            `*${monthName} ${year}* dönemi maaş pusulanız PDF olarak hazırlanmıştır.`,
-            `━━━━━━━━━━━━━━━━━`,
-            `• *Toplam Verilen:* ${currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺`,
+            `*${monthName} ${year}* dönemi resmi maaş pusulanız ekte bilgilerinize sunulmuştur.`,
+            ``,
+            `*${activeCompanyName}*`,
           ];
-
-          if (currentMonthCalc.totalBank > 0) {
-            messageLines.push(`  - 🏦 Banka: ${currentMonthCalc.totalBank.toLocaleString('tr-TR')} ₺`);
-          }
-          if (currentMonthCalc.totalCash > 0) {
-            messageLines.push(`  - 💵 Elden Nakit: ${currentMonthCalc.totalCash.toLocaleString('tr-TR')} ₺`);
-          }
-
-          if (currentMonthCalc.agreed !== undefined && currentMonthCalc.remaining !== null) {
-            messageLines.push(`• *Anlaşılan Hak Ediş:* ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`);
-            messageLines.push(`• *Kalan Bakiye:* ${currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺`);
-          }
-
-          messageLines.push(`━━━━━━━━━━━━━━━━━`);
-          messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
-          messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
-          messageLines.push(`*${activeCompanyName}*`);
 
           const whatsappUrl = WhatsappService.getUrl(messageLines.join('\n'), phone);
 
@@ -743,6 +734,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             popupWindow.location.href = whatsappUrl;
           } else {
             window.open(whatsappUrl, '_blank');
+          }
+
+          if (!isMobile) {
+            setWhatsappDesktopGuide({
+              fileName: cleanFileName,
+              staffName: staff.name || staff.username,
+              whatsappUrl,
+              pdfBlob,
+            });
           }
         }
       }
@@ -1003,30 +1003,10 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
-            `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz hazırlanmıştır.`,
-            `━━━━━━━━━━━━━━━━━`,
-            `• *Yıllık Toplam Ödenen:* ${summary.totalPaid.toLocaleString('tr-TR')} ₺`,
+            `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz ekte bilgilerinize sunulmuştur.`,
+            ``,
+            `*${activeCompanyName}*`,
           ];
-
-          if (summary.totalBank > 0) {
-            messageLines.push(`  - 🏦 Banka (Havale/EFT): ${summary.totalBank.toLocaleString('tr-TR')} ₺`);
-          }
-          if (summary.totalCash > 0) {
-            messageLines.push(`  - 💵 Elden Nakit: ${summary.totalCash.toLocaleString('tr-TR')} ₺`);
-          }
-          if (summary.totalAdvance > 0) {
-            messageLines.push(`  - ⚡ Avanslar: ${summary.totalAdvance.toLocaleString('tr-TR')} ₺`);
-          }
-          if (summary.totalBonus > 0) {
-            messageLines.push(`  - 🎁 Primler: ${summary.totalBonus.toLocaleString('tr-TR')} ₺`);
-          }
-
-          messageLines.push(`• *İşlem Sayısı:* ${summary.paymentsCount} adet (${summary.activeMonthsCount}/12 ay aktif)`);
-          messageLines.push(`• *Aylık Ortalama:* ${summary.averageMonthly.toLocaleString('tr-TR')} ₺`);
-          messageLines.push(`━━━━━━━━━━━━━━━━━`);
-          messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
-          messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
-          messageLines.push(`*${activeCompanyName}*`);
 
           const whatsappUrl = WhatsappService.getUrl(messageLines.join('\n'), phone);
 
@@ -1034,6 +1014,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             popupWindow.location.href = whatsappUrl;
           } else {
             window.open(whatsappUrl, '_blank');
+          }
+
+          if (!isMobile) {
+            setWhatsappDesktopGuide({
+              fileName: cleanFileName,
+              staffName: staff.name || staff.username,
+              whatsappUrl,
+              pdfBlob,
+            });
           }
         }
       }
@@ -2157,6 +2146,130 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     <Send className="w-3.5 h-3.5" />
                   )}
                   <span>WhatsApp (PDF)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📱 WhatsApp Masaüstü PDF Gönderim Rehberi Modalı */}
+      {whatsappDesktopGuide && (
+        <div
+          onClick={() => setWhatsappDesktopGuide(null)}
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm cursor-pointer animate-in fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-emerald-500/30 shadow-2xl flex flex-col cursor-default"
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/20">
+                  <Send className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base">
+                    PDF İndirildi & WhatsApp Hazır
+                  </h3>
+                  <p className="text-[11px] text-emerald-100 font-medium">
+                    {whatsappDesktopGuide.staffName} için maaş belgesi
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsappDesktopGuide(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Kapat"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4 text-slate-700 dark:text-slate-200">
+              {/* İndirilen Dosya Bilgi Kartı */}
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60">
+                <div className="p-2.5 rounded-xl bg-emerald-500 text-white shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="overflow-hidden flex-1">
+                  <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                    Bilgisayarınıza İndirilen Dosya
+                  </div>
+                  <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                    {whatsappDesktopGuide.fileName}
+                  </div>
+                </div>
+                <span className="px-2 py-1 rounded-lg bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold shrink-0">
+                  ✓ İndirildi
+                </span>
+              </div>
+
+              {/* 2 Adımda Gönderim Rehberi */}
+              <div className="space-y-2.5">
+                <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>PDF Belgesini WhatsApp'tan Göndermek İçin:</span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs shrink-0 mt-0.5">
+                      1
+                    </span>
+                    <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      Tarayıcınızın indirme çubuğunda veya <strong>İndirilenler</strong> klasöründe bulunan <strong>{whatsappDesktopGuide.fileName}</strong> dosyasını, açılan WhatsApp sekmesine <strong>sürükleyip bırakın</strong>.
+                    </p>
+                  </div>
+
+                  <div className="h-px bg-slate-200 dark:bg-slate-700/80" />
+
+                  <div className="flex items-start gap-3">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-600 text-white font-black text-xs shrink-0 mt-0.5">
+                      2
+                    </span>
+                    <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      Veya WhatsApp Web sohbet ekranında sol alttaki <strong>Ataş (📎) &gt; Belge</strong> butonuna tıklayarak bu PDF dosyasını seçip gönderin.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bilgilendirme Notu */}
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-[11px] text-amber-800 dark:text-amber-300 leading-normal">
+                ℹ️ <strong>Tarayıcı Güvenliği:</strong> Tarayıcı güvenlik ilkeleri nedeniyle web siteleri bilgisayarınızdaki bir dosyayı WhatsApp Web'e doğrudan yükleyemez. Bu nedenle PDF dosyanız anında bilgisayarınıza indirildi ve personelin WhatsApp sohbeti hazırlandı.
+              </div>
+            </div>
+
+            {/* Modal Footer / Aksiyonlar */}
+            <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={() => downloadBlob(whatsappDesktopGuide.pdfBlob, whatsappDesktopGuide.fileName)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                title="Dosyayı yeniden indir"
+              >
+                <FileDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Tekrar İndir</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(whatsappDesktopGuide.whatsappUrl, '_blank')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>WhatsApp'ı Aç</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWhatsappDesktopGuide(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Tamam
                 </button>
               </div>
             </div>
