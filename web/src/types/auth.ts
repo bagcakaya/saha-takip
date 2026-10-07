@@ -260,14 +260,29 @@ export function canUserManageInstitutionsAndBranches(
 export interface ModulePermissionConfig {
   staff: boolean;
   admin: boolean;
+  subModules?: {
+    [subModuleId: string]: {
+      staff: boolean;
+      admin: boolean;
+    };
+  };
 }
 
 /**
- * Company-wide module permissions mapping: [moduleId] -> { staff: boolean, admin: boolean }
+ * Company-wide module permissions mapping: [moduleId] -> { staff: boolean, admin: boolean, subModules?: ... }
  */
 export type CompanyModulePermissions = {
   [moduleId: string]: ModulePermissionConfig;
 };
+
+export interface AppSubModule {
+  id: string;
+  name: string;
+  shortTitle?: string;
+  description?: string;
+  defaultStaff: boolean;
+  defaultAdmin: boolean;
+}
 
 export interface AppFeatureModule {
   id: string;
@@ -277,6 +292,7 @@ export interface AppFeatureModule {
   defaultStaff: boolean;
   defaultAdmin: boolean;
   category: 'core' | 'operations' | 'technical' | 'management';
+  subModules?: AppSubModule[];
 }
 
 /**
@@ -291,6 +307,72 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     defaultStaff: true,
     defaultAdmin: true,
     category: 'core',
+    subModules: [
+      {
+        id: 'checkin_checkout',
+        name: 'İşe Giriş / Çıkış',
+        shortTitle: 'Giriş / Çıkış',
+        description: 'GPS konum doğrulamalı anlık işe geliş ve çıkış kayıtları',
+        defaultStaff: true,
+        defaultAdmin: true,
+      },
+      {
+        id: 'breaks',
+        name: 'Mola Yönetimi',
+        shortTitle: 'Mola',
+        description: 'Canlı mola sayacı, mola bildirimleri ve günlük mola takibi',
+        defaultStaff: true,
+        defaultAdmin: true,
+      },
+      {
+        id: 'summary',
+        name: 'Mesai Özeti & Tablo',
+        shortTitle: 'Mesai Özeti',
+        description: 'Çalışma geçmişi, tarih filtreleri, Excel/PDF mesai raporları',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
+        id: 'leaves',
+        name: 'İzin Takibi',
+        shortTitle: 'İzinler',
+        description: 'Saatlik ve günlük izin talepleri ve yönetici onayları',
+        defaultStaff: true,
+        defaultAdmin: true,
+      },
+      {
+        id: 'shifts',
+        name: 'Vardiya',
+        shortTitle: 'Vardiya',
+        description: 'Personel vardiya atamaları ve haftalık çalışma programı',
+        defaultStaff: true,
+        defaultAdmin: true,
+      },
+      {
+        id: 'salary',
+        name: 'Maaş & Ödeme Takibi',
+        shortTitle: 'Maaş & Bordro',
+        description: 'Personel maaş ve avans ödemeleri, nakit/banka dökümü ve ay bazında arşiv',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
+        id: 'workplace',
+        name: 'Merkez İş Yeri & Şubeler',
+        shortTitle: 'Lokasyonlar',
+        description: '20 metre toleranslı merkez GPS ve şube konum koordinatları',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
+        id: 'definitions',
+        name: 'Tanımlamalar',
+        shortTitle: 'Tanımlar & Ayarlar',
+        description: 'Vardiya şablonları ve şube mola süreleri yapılandırması',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+    ],
   },
   {
     id: 'notes',
@@ -438,6 +520,51 @@ export function isModulePermitted(
   return true;
 }
 
+/**
+ * Checks whether a specific sub-module / section is permitted for the given user in their company.
+ * - Parent module must be permitted first.
+ * - In POLATLAR company, admins have full access; staff follow default or configured permissions.
+ * - Respects company custom module subModules permissions if configured.
+ * - Falls back to default permission if not configured.
+ */
+export function isSubModulePermitted(
+  moduleId: string,
+  subModuleId: string,
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined,
+  company?: Company | null
+): boolean {
+  if (!user) return false;
 
+  // 1. Parent module check - if parent is disabled, sub-modules are disabled
+  if (!isModulePermitted(moduleId, user, company)) {
+    return false;
+  }
 
+  const targetCompCode = (company?.code || user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const isAdmin = isUserAdmin(user);
+  const role: 'admin' | 'staff' = isAdmin ? 'admin' : 'staff';
 
+  const modDef = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
+  const subDef = modDef?.subModules?.find((s) => s.id === subModuleId);
+
+  // In POLATLAR company:
+  if (targetCompCode === 'POLATLAR') {
+    if (isAdmin) return true;
+    if (subDef) return subDef.defaultStaff;
+    return true;
+  }
+
+  // Check company custom permissions
+  const companyPerm = company?.modulePermissions?.[moduleId];
+  if (companyPerm?.subModules && companyPerm.subModules[subModuleId]) {
+    const subConfig = companyPerm.subModules[subModuleId];
+    return role === 'admin' ? Boolean(subConfig.admin) : Boolean(subConfig.staff);
+  }
+
+  // Fallback to module definition defaults
+  if (subDef) {
+    return role === 'admin' ? subDef.defaultAdmin : subDef.defaultStaff;
+  }
+
+  return true;
+}

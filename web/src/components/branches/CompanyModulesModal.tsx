@@ -16,6 +16,13 @@ import {
   ShieldAlert,
   ListTodo,
   Search,
+  ChevronDown,
+  ChevronUp,
+  Coffee,
+  CalendarRange,
+  Users,
+  Banknote,
+  Store,
 } from 'lucide-react';
 import {
   Company,
@@ -44,6 +51,17 @@ const MODULE_ICONS: Record<string, any> = {
   template: ListTodo,
 };
 
+const SUB_MODULE_ICONS: Record<string, any> = {
+  checkin_checkout: UserCheck,
+  breaks: Coffee,
+  summary: Clock,
+  leaves: CalendarRange,
+  shifts: Users,
+  salary: Banknote,
+  workplace: Store,
+  definitions: Sliders,
+};
+
 export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   isOpen,
   onClose,
@@ -51,6 +69,7 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   onSuccess,
 }) => {
   const [permissions, setPermissions] = useState<CompanyModulePermissions>({});
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({ staff_tracking: true });
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -60,11 +79,39 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
       const initial: CompanyModulePermissions = {};
       APP_FEATURE_MODULES.forEach((mod) => {
         if (company.modulePermissions && company.modulePermissions[mod.id]) {
-          initial[mod.id] = { ...company.modulePermissions[mod.id] };
+          const compMod = company.modulePermissions[mod.id];
+          const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+          if (mod.subModules && mod.subModules.length > 0) {
+            mod.subModules.forEach((sub) => {
+              if (compMod.subModules && compMod.subModules[sub.id]) {
+                subMods[sub.id] = { ...compMod.subModules[sub.id] };
+              } else {
+                subMods[sub.id] = {
+                  staff: sub.defaultStaff,
+                  admin: sub.defaultAdmin,
+                };
+              }
+            });
+          }
+          initial[mod.id] = {
+            staff: compMod.staff,
+            admin: compMod.admin,
+            subModules: mod.subModules && mod.subModules.length > 0 ? subMods : compMod.subModules,
+          };
         } else {
+          const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+          if (mod.subModules && mod.subModules.length > 0) {
+            mod.subModules.forEach((sub) => {
+              subMods[sub.id] = {
+                staff: sub.defaultStaff,
+                admin: sub.defaultAdmin,
+              };
+            });
+          }
           initial[mod.id] = {
             staff: mod.defaultStaff,
             admin: mod.defaultAdmin,
+            subModules: mod.subModules && mod.subModules.length > 0 ? subMods : undefined,
           };
         }
       });
@@ -75,14 +122,34 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
 
   if (!isOpen || !company) return null;
 
+  const toggleExpand = (moduleId: string) => {
+    setExpandedModules((prev) => ({
+      ...prev,
+      [moduleId]: !prev[moduleId],
+    }));
+  };
+
   const handleToggleStaff = (moduleId: string) => {
     setPermissions((prev) => {
       const current = prev[moduleId] || { staff: true, admin: true };
+      const nextStaff = !current.staff;
+      const updatedSubModules = current.subModules ? { ...current.subModules } : undefined;
+      if (updatedSubModules) {
+        const modDef = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
+        Object.keys(updatedSubModules).forEach((subKey) => {
+          const subDef = modDef?.subModules?.find((s) => s.id === subKey);
+          updatedSubModules[subKey] = {
+            ...updatedSubModules[subKey],
+            staff: nextStaff ? (subDef ? subDef.defaultStaff : true) : false,
+          };
+        });
+      }
       return {
         ...prev,
         [moduleId]: {
           ...current,
-          staff: !current.staff,
+          staff: nextStaff,
+          subModules: updatedSubModules,
         },
       };
     });
@@ -91,11 +158,80 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   const handleToggleAdmin = (moduleId: string) => {
     setPermissions((prev) => {
       const current = prev[moduleId] || { staff: true, admin: true };
+      const nextAdmin = !current.admin;
+      const updatedSubModules = current.subModules ? { ...current.subModules } : undefined;
+      if (updatedSubModules) {
+        const modDef = APP_FEATURE_MODULES.find((m) => m.id === moduleId);
+        Object.keys(updatedSubModules).forEach((subKey) => {
+          const subDef = modDef?.subModules?.find((s) => s.id === subKey);
+          updatedSubModules[subKey] = {
+            ...updatedSubModules[subKey],
+            admin: nextAdmin ? (subDef ? subDef.defaultAdmin : true) : false,
+          };
+        });
+      }
       return {
         ...prev,
         [moduleId]: {
           ...current,
-          admin: !current.admin,
+          admin: nextAdmin,
+          subModules: updatedSubModules,
+        },
+      };
+    });
+  };
+
+  const handleToggleSubStaff = (moduleId: string, subId: string) => {
+    setPermissions((prev) => {
+      const currentMod = prev[moduleId] || { staff: true, admin: true };
+      const currentSub = currentMod.subModules?.[subId] || { staff: true, admin: true };
+      const nextStaff = !currentSub.staff;
+
+      const updatedSubModules = {
+        ...(currentMod.subModules || {}),
+        [subId]: {
+          ...currentSub,
+          staff: nextStaff,
+        },
+      };
+
+      // If enabling sub-module for staff, automatically ensure parent module is enabled for staff
+      const nextParentStaff = nextStaff ? true : currentMod.staff;
+
+      return {
+        ...prev,
+        [moduleId]: {
+          ...currentMod,
+          staff: nextParentStaff,
+          subModules: updatedSubModules,
+        },
+      };
+    });
+  };
+
+  const handleToggleSubAdmin = (moduleId: string, subId: string) => {
+    setPermissions((prev) => {
+      const currentMod = prev[moduleId] || { staff: true, admin: true };
+      const currentSub = currentMod.subModules?.[subId] || { staff: true, admin: true };
+      const nextAdmin = !currentSub.admin;
+
+      const updatedSubModules = {
+        ...(currentMod.subModules || {}),
+        [subId]: {
+          ...currentSub,
+          admin: nextAdmin,
+        },
+      };
+
+      // If enabling sub-module for admin, automatically ensure parent module is enabled for admin
+      const nextParentAdmin = nextAdmin ? true : currentMod.admin;
+
+      return {
+        ...prev,
+        [moduleId]: {
+          ...currentMod,
+          admin: nextParentAdmin,
+          subModules: updatedSubModules,
         },
       };
     });
@@ -105,7 +241,17 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   const applyPresetAll = () => {
     const next: CompanyModulePermissions = {};
     APP_FEATURE_MODULES.forEach((m) => {
-      next[m.id] = { staff: true, admin: true };
+      const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+      if (m.subModules && m.subModules.length > 0) {
+        m.subModules.forEach((s) => {
+          subMods[s.id] = { staff: true, admin: true };
+        });
+      }
+      next[m.id] = {
+        staff: true,
+        admin: true,
+        subModules: m.subModules && m.subModules.length > 0 ? subMods : undefined,
+      };
     });
     setPermissions(next);
   };
@@ -113,11 +259,18 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   const applyPresetStaffTrackingOnly = () => {
     const next: CompanyModulePermissions = {};
     APP_FEATURE_MODULES.forEach((m) => {
-      if (m.id === 'staff_tracking') {
-        next[m.id] = { staff: true, admin: true };
-      } else {
-        next[m.id] = { staff: false, admin: false };
+      const isTracking = m.id === 'staff_tracking';
+      const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+      if (m.subModules && m.subModules.length > 0) {
+        m.subModules.forEach((s) => {
+          subMods[s.id] = { staff: isTracking, admin: isTracking };
+        });
       }
+      next[m.id] = {
+        staff: isTracking,
+        admin: isTracking,
+        subModules: m.subModules && m.subModules.length > 0 ? subMods : undefined,
+      };
     });
     setPermissions(next);
   };
@@ -125,11 +278,18 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   const applyPresetStaffAndNotes = () => {
     const next: CompanyModulePermissions = {};
     APP_FEATURE_MODULES.forEach((m) => {
-      if (m.id === 'staff_tracking' || m.id === 'notes') {
-        next[m.id] = { staff: true, admin: true };
-      } else {
-        next[m.id] = { staff: false, admin: false };
+      const isEnabled = m.id === 'staff_tracking' || m.id === 'notes';
+      const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+      if (m.subModules && m.subModules.length > 0) {
+        m.subModules.forEach((s) => {
+          subMods[s.id] = { staff: isEnabled, admin: isEnabled };
+        });
       }
+      next[m.id] = {
+        staff: isEnabled,
+        admin: isEnabled,
+        subModules: m.subModules && m.subModules.length > 0 ? subMods : undefined,
+      };
     });
     setPermissions(next);
   };
@@ -137,7 +297,17 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
   const applyPresetDefault = () => {
     const next: CompanyModulePermissions = {};
     APP_FEATURE_MODULES.forEach((m) => {
-      next[m.id] = { staff: m.defaultStaff, admin: m.defaultAdmin };
+      const subMods: Record<string, { staff: boolean; admin: boolean }> = {};
+      if (m.subModules && m.subModules.length > 0) {
+        m.subModules.forEach((s) => {
+          subMods[s.id] = { staff: s.defaultStaff, admin: s.defaultAdmin };
+        });
+      }
+      next[m.id] = {
+        staff: m.defaultStaff,
+        admin: m.defaultAdmin,
+        subModules: m.subModules && m.subModules.length > 0 ? subMods : undefined,
+      };
     });
     setPermissions(next);
   };
@@ -258,70 +428,193 @@ export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
           {filteredModules.map((mod) => {
             const IconComponent = MODULE_ICONS[mod.id] || Building2;
             const perm = permissions[mod.id] || { staff: false, admin: false };
+            const hasSubModules = Boolean(mod.subModules && mod.subModules.length > 0);
+            const isExpanded = Boolean(expandedModules[mod.id]);
 
             return (
-              <div
-                key={mod.id}
-                className="py-3.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
-              >
-                {/* Module Info */}
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-purple-100 group-hover:text-purple-700 dark:group-hover:bg-purple-950 dark:group-hover:text-purple-300 transition-colors">
-                    <IconComponent className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
-                        {mod.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400">({mod.shortTitle})</span>
+              <div key={mod.id} className="py-3.5 first:pt-0 last:pb-0">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
+                  {/* Module Info */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-purple-100 group-hover:text-purple-700 dark:group-hover:bg-purple-950 dark:group-hover:text-purple-300 transition-colors">
+                      <IconComponent className="w-4 h-4" />
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
-                      {mod.description}
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
+                          {mod.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">({mod.shortTitle})</span>
+                        {hasSubModules && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(mod.id)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/70 dark:hover:bg-purple-900/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors cursor-pointer"
+                            title="Alt bölümleri aç/kapat"
+                          >
+                            <span>{mod.subModules!.length} Alt Bölüm</span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3 h-3 stroke-[2.5]" />
+                            ) : (
+                              <ChevronDown className="w-3 h-3 stroke-[2.5]" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+                        {mod.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Role Toggles & Expand Arrow on Right */}
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                    {/* Personel Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStaff(mod.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        perm.staff
+                          ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      }`}
+                      title="Personelin bu modülü görmesini aç/kapat"
+                    >
+                      {perm.staff ? (
+                        <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <X className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                      <span>Personel</span>
+                    </button>
+
+                    {/* Yönetici Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAdmin(mod.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        perm.admin
+                          ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      }`}
+                      title="Yöneticinin bu modülü görmesini aç/kapat"
+                    >
+                      {perm.admin ? (
+                        <Check className="w-3.5 h-3.5 stroke-[3] text-purple-600 dark:text-purple-400" />
+                      ) : (
+                        <X className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                      <span>Yönetici</span>
+                    </button>
+
+                    {/* Arrow / Chevron Button on Right for expandable modules */}
+                    {hasSubModules && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(mod.id)}
+                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                          isExpanded
+                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-700 shadow-2xs'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-purple-300 hover:text-purple-600'
+                        }`}
+                        title={isExpanded ? 'Alt bölümleri gizle' : 'Alt bölümleri göster ve özelleştir'}
+                      >
+                        <span className="text-[11px] sm:inline hidden">Alt Modüller</span>
+                        {isExpanded ? (
+                          <ChevronUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Role Toggles */}
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                  {/* Personel Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => handleToggleStaff(mod.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      perm.staff
-                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                    title="Personelin bu modülü görmesini aç/kapat"
-                  >
-                    {perm.staff ? (
-                      <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <X className="w-3.5 h-3.5 text-slate-400" />
-                    )}
-                    <span>Personel</span>
-                  </button>
+                {/* Sub-Modules Accordion List */}
+                {hasSubModules && isExpanded && (
+                  <div className="mt-3 ml-2 sm:ml-6 pl-3 sm:pl-4 border-l-2 border-purple-300 dark:border-purple-700/80 space-y-2 py-2 bg-gradient-to-r from-purple-50/40 via-purple-50/10 to-transparent dark:from-purple-950/20 dark:via-purple-950/5 dark:to-transparent rounded-r-2xl pr-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] font-bold text-purple-800 dark:text-purple-300 pb-1.5 border-b border-purple-100 dark:border-purple-900/40">
+                      <span className="flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span>{mod.name} Alt Bölümleri ve Yetkileri ({mod.subModules!.length})</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        İstenilen bölümleri personele veya yöneticiye ayrı ayrı açıp kapatabilirsiniz
+                      </span>
+                    </div>
 
-                  {/* Yönetici Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => handleToggleAdmin(mod.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      perm.admin
-                        ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-2xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                    title="Yöneticinin bu modülü görmesini aç/kapat"
-                  >
-                    {perm.admin ? (
-                      <Check className="w-3.5 h-3.5 stroke-[3] text-purple-600 dark:text-purple-400" />
-                    ) : (
-                      <X className="w-3.5 h-3.5 text-slate-400" />
-                    )}
-                    <span>Yönetici</span>
-                  </button>
-                </div>
+                    <div className="space-y-1.5 pt-1">
+                      {mod.subModules!.map((sub) => {
+                        const SubIcon = SUB_MODULE_ICONS[sub.id] || Check;
+                        const subPerm = perm.subModules?.[sub.id] || { staff: sub.defaultStaff, admin: sub.defaultAdmin };
+
+                        return (
+                          <div
+                            key={sub.id}
+                            className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-purple-100/80 dark:bg-purple-950 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+                                <SubIcon className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{sub.name}</span>
+                                  {sub.shortTitle && (
+                                    <span className="text-[10px] text-slate-400 font-medium">({sub.shortTitle})</span>
+                                  )}
+                                </div>
+                                {sub.description && (
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">{sub.description}</p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                              {/* Sub Staff Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSubStaff(mod.id, sub.id)}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                  subPerm.staff
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                }`}
+                                title="Personelin bu alt bölümü görmesini aç/kapat"
+                              >
+                                {subPerm.staff ? (
+                                  <Check className="w-3 h-3 stroke-[3] text-emerald-600 dark:text-emerald-400" />
+                                ) : (
+                                  <X className="w-3 h-3 text-slate-400" />
+                                )}
+                                <span>Personel</span>
+                              </button>
+
+                              {/* Sub Admin Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSubAdmin(mod.id, sub.id)}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                  subPerm.admin
+                                    ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 shadow-2xs'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                }`}
+                                title="Yöneticinin bu alt bölümü görmesini aç/kapat"
+                              >
+                                {subPerm.admin ? (
+                                  <Check className="w-3 h-3 stroke-[3] text-purple-600 dark:text-purple-400" />
+                                ) : (
+                                  <X className="w-3 h-3 text-slate-400" />
+                                )}
+                                <span>Yönetici</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

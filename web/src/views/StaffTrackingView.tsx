@@ -42,7 +42,7 @@ import {
   Banknote,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { isUserAdmin } from '../types/auth';
+import { isUserAdmin, isSubModulePermitted } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { AttendanceRecord, LeaveRequest, Branch, ShiftDefinition } from '../types/storage';
 import { LocationService } from '../services/locationService';
@@ -1619,6 +1619,11 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
 
   const navigateToSection = (section: ActiveSection) => {
+    if (section !== 'menu' && !isSubModulePermitted('staff_tracking', section, user, viewingCompany || company)) {
+      alert('Bu bölüme erişim yetkiniz bulunmamaktadır.');
+      setActiveSection('menu');
+      return;
+    }
     if (section === 'checkin_checkout') {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       if (!online) {
@@ -1626,7 +1631,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         return;
       }
     }
-    if (!isAdmin && (section === 'summary' || section === 'workplace' || section === 'definitions')) {
+    if (!isAdmin && (section === 'summary' || section === 'workplace' || section === 'definitions' || section === 'salary')) {
       setActiveSection('checkin_checkout');
       return;
     }
@@ -1643,10 +1648,14 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   };
 
   useEffect(() => {
-    if (!isAdmin && (activeSection === 'summary' || activeSection === 'workplace' || activeSection === 'definitions')) {
+    if (activeSection !== 'menu' && !isSubModulePermitted('staff_tracking', activeSection, user, viewingCompany || company)) {
+      setActiveSection('menu');
+      return;
+    }
+    if (!isAdmin && (activeSection === 'summary' || activeSection === 'workplace' || activeSection === 'definitions' || activeSection === 'salary')) {
       setActiveSection('checkin_checkout');
     }
-  }, [isAdmin, activeSection]);
+  }, [isAdmin, activeSection, viewingCompany, company, user]);
 
   const handleBackToSectionMenu = () => {
     if (typeof window !== 'undefined' && window.history.state?.staffSection) {
@@ -2185,8 +2194,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'menu' && (
         <div className="pt-4 pb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-y-8 gap-x-4 sm:gap-6 py-6">
-            {[
+          {(() => {
+            const availableSubModules = [
               {
                 id: 'checkin_checkout' as const,
                 title: 'İşe Giriş / Çıkış',
@@ -2271,45 +2280,63 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     },
                   ]
                 : []),
-            ].map((mod) => {
-              const Icon = mod.icon;
+            ].filter((mod) => isSubModulePermitted('staff_tracking', mod.id, user, viewingCompany || company));
+
+            if (availableSubModules.length === 0) {
               return (
-                <button
-                  key={mod.id}
-                  type="button"
-                  onClick={() => navigateToSection(mod.id)}
-                  className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95 p-4 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                >
-                  {/* Dairesel Neon Çerçeveli İkon */}
-                  <div className="relative w-20 h-20 sm:w-22 sm:h-22 rounded-full transition-all duration-200 flex items-center justify-center shadow-xl shadow-black/20 bg-slate-900 border-2 border-slate-700/60 group-hover:scale-105 group-hover:border-emerald-500">
-                    <div className="w-14 h-14 rounded-full flex items-center justify-center bg-white/5 group-hover:bg-emerald-500/15 transition-colors">
-                      <Icon className={`w-8 h-8 ${mod.glowColor}`} />
-                    </div>
-
-                    {/* Rozet */}
-                    {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
-                      <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[11px] font-black border-2 border-slate-950 shadow-md">
-                        {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
-                      </span>
-                    ) : mod.badgeText ? (
-                      <span
-                        className={`absolute -top-1 -right-1 px-2 py-0.5 rounded-full text-[10px] font-black border border-slate-950 text-white ${
-                          mod.id === 'breaks' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
-                        }`}
-                      >
-                        {mod.badgeText}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {/* İkon Altındaki Başlık */}
-                  <span className="mt-3 text-sm font-extrabold text-center leading-tight text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                    {mod.title}
-                  </span>
-                </button>
+                <div className="p-8 text-center rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 max-w-md mx-auto my-6 space-y-2">
+                  <UserX className="w-10 h-10 text-slate-400 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Yetkili Bölüm Bulunamadı</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Kurumunuz için bu modül altında aktif edilmiş bir alt bölüm bulunmamaktadır.
+                  </p>
+                </div>
               );
-            })}
-          </div>
+            }
+
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-y-8 gap-x-4 sm:gap-6 py-6">
+                {availableSubModules.map((mod) => {
+                  const Icon = mod.icon;
+                  return (
+                    <button
+                      key={mod.id}
+                      type="button"
+                      onClick={() => navigateToSection(mod.id)}
+                      className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95 p-4 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                    >
+                      {/* Dairesel Neon Çerçeveli İkon */}
+                      <div className="relative w-20 h-20 sm:w-22 sm:h-22 rounded-full transition-all duration-200 flex items-center justify-center shadow-xl shadow-black/20 bg-slate-900 border-2 border-slate-700/60 group-hover:scale-105 group-hover:border-emerald-500">
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center bg-white/5 group-hover:bg-emerald-500/15 transition-colors">
+                          <Icon className={`w-8 h-8 ${mod.glowColor}`} />
+                        </div>
+
+                        {/* Rozet */}
+                        {mod.badgeCount !== undefined && mod.badgeCount > 0 ? (
+                          <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[11px] font-black border-2 border-slate-950 shadow-md">
+                            {mod.badgeCount > 99 ? '99+' : mod.badgeCount}
+                          </span>
+                        ) : mod.badgeText ? (
+                          <span
+                            className={`absolute -top-1 -right-1 px-2 py-0.5 rounded-full text-[10px] font-black border border-slate-950 text-white ${
+                              mod.id === 'breaks' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                            }`}
+                          >
+                            {mod.badgeText}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* İkon Altındaki Başlık */}
+                      <span className="mt-3 text-sm font-extrabold text-center leading-tight text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                        {mod.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2582,7 +2609,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- SECTION 1: YÖNETİCİ LOKASYON & ŞUBE YÖNETİMİ (Görsel-3) --- */}
-      {activeSection === 'workplace' && isAdmin && (
+      {activeSection === 'workplace' && isAdmin && isSubModulePermitted('staff_tracking', 'workplace', user, viewingCompany || company) && (
         <div className="space-y-6">
           {/* 1. Kurum Şubeleri & Yerinde 20m GPS Konum İşaretleme Kartı */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
@@ -2841,7 +2868,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- SECTION 2: CANLI MESAFE KARTI & İŞE GİRİŞ / ÇIKIŞ BUTONLARI --- */}
-      {activeSection === 'checkin_checkout' && (
+      {activeSection === 'checkin_checkout' && isSubModulePermitted('staff_tracking', 'checkin_checkout', user, viewingCompany || company) && (
         !isOnline ? (
           <div className="p-8 text-center rounded-3xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 max-w-md mx-auto space-y-4 my-8 shadow-lg">
             <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto">
@@ -3511,7 +3538,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* MODÜL 2: MOLA YÖNETİMİ VE TAKİP PANELİ */}
       {/* ============================================================ */}
-      {activeSection === 'breaks' && (
+      {activeSection === 'breaks' && isSubModulePermitted('staff_tracking', 'breaks', user, viewingCompany || company) && (
         <div className="space-y-5">
           {/* Personel Mola Kartı */}
           {isCheckedIn ? (
@@ -4176,7 +4203,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* MODÜL 3: MESAİ ÖZETİ KISMI (YALNIZCA YÖNETİCİ) */}
       {/* ============================================================ */}
-      {activeSection === 'summary' && isAdmin && (
+      {activeSection === 'summary' && isAdmin && isSubModulePermitted('staff_tracking', 'summary', user, viewingCompany || company) && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -5102,7 +5129,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* MODÜL 4: İZİN TAKİBİ */}
       {/* ============================================================ */}
-      {activeSection === 'leaves' && (
+      {activeSection === 'leaves' && isSubModulePermitted('staff_tracking', 'leaves', user, viewingCompany || company) && (
         <div className="space-y-5">
           {/* Üst Bar: Başlık ve Yeni İzin Butonu */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -5491,7 +5518,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* MODÜL: TANIMLAMALAR (Sadece Yöneticiler için) */}
       {/* ============================================================ */}
-      {activeSection === 'definitions' && isAdmin && (
+      {activeSection === 'definitions' && isAdmin && isSubModulePermitted('staff_tracking', 'definitions', user, viewingCompany || company) && (
         <div className="space-y-6">
           {/* Üst Sekmeler: Vardiya Saatleri | Şube Mola Süreleri */}
           <div className="flex items-center gap-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 max-w-md">
@@ -5867,7 +5894,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* MODÜL: VARDİYA (Personel & Yönetici Görünümü) */}
       {/* ============================================================ */}
-      {activeSection === 'shifts' && (
+      {activeSection === 'shifts' && isSubModulePermitted('staff_tracking', 'shifts', user, viewingCompany || company) && (
         <div className="space-y-6">
           {/* YÖNETİCİ GÖRÜNÜMÜ: PERSONEL VARDİYA ATAMA */}
           {isAdmin ? (
@@ -6406,7 +6433,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       )}
 
       {/* --- SECTION: MAAŞ & ÖDEME TAKİBİ MODÜLÜ --- */}
-      {activeSection === 'salary' && isAdmin && (
+      {activeSection === 'salary' && isAdmin && isSubModulePermitted('staff_tracking', 'salary', user, viewingCompany || company) && (
         <StaffSalaryModule onBack={handleBackToSectionMenu} />
       )}
 
