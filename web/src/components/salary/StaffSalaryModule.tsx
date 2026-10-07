@@ -1574,21 +1574,25 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     {/* ========================================================= */}
                     {/* 📊 YIL SONU PERSONEL ÖZET İCMALİ (Yıllık Kümülatif Rapor) */}
                     {/* ========================================================= */}
-                    <div className="mt-4 p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/30 shadow-md space-y-3.5">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            <TrendingUp className="w-4 h-4" />
+                    <div className="mt-4 p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-500/[0.08] via-teal-500/[0.04] to-emerald-500/[0.09] dark:from-emerald-950/40 dark:via-slate-900/90 dark:to-emerald-950/30 border-2 border-emerald-500/30 dark:border-emerald-500/40 shadow-lg shadow-emerald-900/5 relative overflow-hidden space-y-3.5">
+                      {/* Üst Zarif Dekoratif Vurgu Çizgisi */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600" />
+
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-500/20 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
+                            {(staff.name || staff.username).slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                              <span>{selectedYear} Yılı Personel Özet İcmali</span>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                                Yıl Sonu Raporu
+                            <h4 className="text-sm font-black text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
+                              <span>{selectedYear} Yılı {staff.name || staff.username} Özet İcmali</span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25">
+                                <TrendingUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                <span>Personel Yıl Sonu Raporu</span>
                               </span>
                             </h4>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                              Personelin {selectedYear} takvim yılı boyunca aldığı tüm ödemelerin kümülatif dökümü
+                            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                              <strong className="text-emerald-800 dark:text-emerald-300 font-bold">{staff.name || staff.username}</strong> için {selectedYear} takvim yılı boyunca yapılan tüm ödemelerin kümülatif dökümü
                             </p>
                           </div>
                         </div>
@@ -1602,7 +1606,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                               e.stopPropagation();
                               handleExportStaffYearlyPdf(staff, selectedYear, false);
                             }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-200 dark:border-slate-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-200/90 dark:border-slate-700 shadow-xs disabled:opacity-50"
                             title="12 Aylık Resmi İcmal Bordrosunu PDF İndir"
                           >
                             {isGeneratingYearlyPdf ? (
@@ -1632,7 +1636,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       {/* 4'lü Finansal Özet Metrik Kutuları */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                         {/* 1. Kutu: Yıllık Belirlenen Tutar (Kullanıcının belirlediği tutar x 12) */}
-                        <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 flex flex-col justify-between">
+                        <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-emerald-300/80 dark:border-emerald-800/60 shadow-xs flex flex-col justify-between">
                           <div>
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
@@ -1666,7 +1670,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         </div>
 
                         {/* 2. Kutu: Banka Toplamı */}
-                        <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/50">
+                        <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-blue-200/90 dark:border-blue-800/60 shadow-xs">
                           <span className="text-[10px] font-bold uppercase text-blue-800 dark:text-blue-300">
                             🏦 Banka (Havale/EFT)
                           </span>
@@ -1679,7 +1683,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         </div>
 
                         {/* 3. Kutu: Nakit Toplamı */}
-                        <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50">
+                        <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-amber-200/90 dark:border-amber-800/60 shadow-xs">
                           <span className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-300">
                             💵 Elden Nakit
                           </span>
@@ -1692,14 +1696,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         </div>
 
                         {/* 4. Kutu: Ödenen Toplam Tutar (Eski Aylık Ortalama yerine) */}
-                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-                          <span className="text-[10px] font-bold uppercase text-slate-600 dark:text-slate-300">
+                        <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-700/60 shadow-xs">
+                          <span className="text-[10px] font-bold uppercase text-slate-700 dark:text-slate-300">
                             💰 Ödenen Toplam Tutar
                           </span>
                           <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
                             {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
                           </p>
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
                             {yearSummary.paymentsCount} işlem • {yearSummary.activeMonthsCount}/12 ay ödendi
                           </span>
                         </div>
@@ -1707,22 +1711,22 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
                       {/* Alt Kırılım Rozetleri: Maaş, Avans, Prim */}
                       <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                        <span className="text-slate-400 text-[11px] font-semibold">Ödeme Türü Dağılımı:</span>
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px] font-bold">Ödeme Türü Dağılımı:</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-bold border border-slate-200/80 dark:border-slate-700 text-[11px] shadow-2xs">
                           🏷️ Maaş: <strong className="text-emerald-600 dark:text-emerald-400">{yearSummary.totalSalary.toLocaleString('tr-TR')} ₺</strong>
                         </span>
                         {yearSummary.totalAdvance > 0 && (
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                          <span className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-bold border border-slate-200/80 dark:border-slate-700 text-[11px] shadow-2xs">
                             ⚡ Avans: <strong className="text-amber-600 dark:text-amber-400">{yearSummary.totalAdvance.toLocaleString('tr-TR')} ₺</strong>
                           </span>
                         )}
                         {yearSummary.totalBonus > 0 && (
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                          <span className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-bold border border-slate-200/80 dark:border-slate-700 text-[11px] shadow-2xs">
                             🎁 Prim: <strong className="text-purple-600 dark:text-purple-400">{yearSummary.totalBonus.toLocaleString('tr-TR')} ₺</strong>
                           </span>
                         )}
                         {yearSummary.totalOther > 0 && (
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                          <span className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-bold border border-slate-200/80 dark:border-slate-700 text-[11px] shadow-2xs">
                             📎 Diğer: <strong>{yearSummary.totalOther.toLocaleString('tr-TR')} ₺</strong>
                           </span>
                         )}
