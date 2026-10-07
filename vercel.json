@@ -1,8 +1,14 @@
 {
+  "buildCommand": "cd web && npm install && npm run build",
+  "outputDirectory": "web/dist",
   "crons": [
     {
       "path": "/api/tenant-watchdog",
       "schedule": "0 4 * * *"
     }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
