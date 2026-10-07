@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Branch } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
-import { Company } from '../../types/auth';
+import { Company, isSuperAdmin } from '../../types/auth';
 import { CompanyService } from '../../services/companyService';
 import { LocationService } from '../../services/locationService';
 import { MapPickerModal } from '../common/MapPickerModal';
@@ -82,6 +82,8 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   onSave,
 }) => {
   const { users, user: currentUser } = useAuth();
+  const isSuper = isSuperAdmin(currentUser);
+  const userCompanyCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -93,7 +95,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [phone, setPhone] = useState('');
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
   const [targetCompanyCode, setTargetCompanyCode] = useState<string>(
-    () => branchToEdit?.companyCode || currentUser?.companyCode || 'POLATLAR'
+    () => (isSuper ? (branchToEdit?.companyCode || userCompanyCode) : userCompanyCode)
   );
   const [companies, setCompanies] = useState<Company[]>([]);
 
@@ -112,8 +114,10 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const reverseGeocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    CompanyService.fetchCompanies().then(setCompanies).catch(() => {});
-  }, []);
+    if (isSuper) {
+      CompanyService.fetchCompanies().then(setCompanies).catch(() => {});
+    }
+  }, [isSuper]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -124,15 +128,15 @@ export const BranchModal: React.FC<BranchModalProps> = ({
 
   // Filter users for the target company
   const companyUsers = React.useMemo(() => {
-    const code = (targetCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+    const code = (isSuper ? (targetCompanyCode || userCompanyCode) : userCompanyCode).toUpperCase();
     return users.filter(
       (u) => (u.companyCode || 'POLATLAR').toUpperCase() === code
     );
-  }, [users, targetCompanyCode, currentUser]);
+  }, [users, isSuper, targetCompanyCode, userCompanyCode]);
 
   useEffect(() => {
     if (branchToEdit) {
-      setTargetCompanyCode(branchToEdit.companyCode || currentUser?.companyCode || 'POLATLAR');
+      setTargetCompanyCode(isSuper ? (branchToEdit.companyCode || userCompanyCode) : userCompanyCode);
       setName(branchToEdit.name || '');
       setAddress(branchToEdit.address || '');
       setLatitude(branchToEdit.latitude ?? '');
@@ -144,7 +148,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setAssignedUserIds(branchToEdit.assignedUserIds || []);
       setAutoAddressResolved(false);
     } else {
-      setTargetCompanyCode(defaultCompanyCode || currentUser?.companyCode || 'POLATLAR');
+      setTargetCompanyCode(isSuper ? (defaultCompanyCode || userCompanyCode) : userCompanyCode);
       setName('');
       setAddress('');
       setLatitude('');
@@ -157,7 +161,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setAutoAddressResolved(false);
     }
     setErrorMsg('');
-  }, [branchToEdit, isOpen, currentUser?.companyCode, defaultCompanyCode]);
+  }, [branchToEdit, isOpen, isSuper, userCompanyCode, defaultCompanyCode]);
 
   // Otomatik adres çözümleyici (Debounced reverse geocode)
   const triggerReverseGeocode = useCallback((lat: number, lon: number) => {
@@ -470,8 +474,8 @@ export const BranchModal: React.FC<BranchModalProps> = ({
             </div>
           )}
 
-          {/* 0. Firma / Kurum Seçimi (POLATLAR Yöneticileri için) */}
-          {companies.length > 1 && (
+          {/* 0. Firma / Kurum Seçimi (POLATLAR Süper Adminleri için) */}
+          {isSuper && companies.length > 1 && (
             <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 space-y-1.5">
               <label className="text-xs font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />

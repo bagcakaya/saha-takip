@@ -17,7 +17,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
-import { isUserAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, canUserManageCompanyModules, isModulePermitted } from '../types/auth';
+import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
 import { OneSignalService } from '../services/oneSignalService';
@@ -72,11 +72,10 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
-  const canManageModules = canUserManageCompanyModules(user);
 
   const activeCompanyCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
   const activeCompanyName = company?.name || (activeCompanyCode === 'POLATLAR' ? 'Polatlar' : activeCompanyCode);
-  const isViewingOtherCompany = activeCompanyCode !== 'POLATLAR';
+  const isViewingOtherCompany = isSuperAdmin(user) && activeCompanyCode !== 'POLATLAR';
 
   const [permission, setPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -391,8 +390,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 pb-10 animate-in fade-in duration-300">
-      {/* 0. Görsel-1: Süper Yönetici Kurum Filtresi (admin ve murat) */}
-      {canManageModules && (
+      {/* 0. Görsel-2: Süper Yönetici Kurum Filtresi (Sadece murat ve POLATLAR admin) */}
+      {isSuperAdmin(user) && (
         <div className="rounded-2xl sm:rounded-3xl bg-slate-900/95 text-white p-3.5 sm:p-4 shadow-xl border border-blue-900/50 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Building2 className="w-5 h-5 text-sky-400 shrink-0" />
@@ -544,8 +543,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         />
       )}
 
-      {/* Super Admin Kurum Seçim Modalı (Görsel-2) */}
-      {canManageModules && (
+      {/* Super Admin Kurum Seçim Modalı */}
+      {isSuperAdmin(user) && (
         <CompanySelectModal
           isOpen={isCompanySelectOpen}
           onClose={() => setIsCompanySelectOpen(false)}

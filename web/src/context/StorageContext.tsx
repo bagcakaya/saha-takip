@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem } from '../types/storage';
-import { isUserAdmin, canUserAddBranch, UserRole } from '../types/auth';
+import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -301,14 +301,14 @@ const saveStoredSet = (key: string, setObj: Set<string>) => {
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, users, company, viewingCompany } = useAuth();
+  const isSuper = isSuperAdmin(user);
   const activeCompCode = (
-    viewingCompany?.code ||
-    company?.code ||
+    (isSuper ? viewingCompany?.code : null) ||
     user?.companyCode ||
-    (typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_code') : null) ||
+    company?.code ||
     'POLATLAR'
   ).trim().toUpperCase();
-  const activeCompId = viewingCompany?.id || company?.id || (activeCompCode === 'POLATLAR' ? 1 : undefined);
+  const activeCompId = (isSuper ? viewingCompany?.id : null) || company?.id || (activeCompCode === 'POLATLAR' ? 1 : undefined);
   const compCode = activeCompCode;
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);

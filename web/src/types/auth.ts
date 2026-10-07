@@ -102,6 +102,21 @@ export function isUserAdmin(
 }
 
 /**
+ * Checks whether a user is a SUPER ADMIN.
+ * Strictly restricted to POLATLAR company administrators with username 'admin' or 'murat'.
+ * All other administrators (e.g. NESACOCUK admin, MAYAPASTANE admin) are company managers.
+ */
+export function isSuperAdmin(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = user.role === 'admin' || isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}
+
+/**
  * Checks if a user is permitted to create/add/delete branches.
  * Strictly restricted to POLATLAR company managers with username 'admin' or 'murat'.
  * Managers of other companies can only view their branches.
@@ -109,11 +124,7 @@ export function isUserAdmin(
 export function canUserAddBranch(
   user: { role?: string; companyCode?: string; username?: string } | null | undefined
 ): boolean {
-  if (!user) return false;
-  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-  const uname = (user.username || '').trim().toLowerCase();
-  const isAdmin = isUserAdmin(user);
-  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+  return isSuperAdmin(user);
 }
 
 /**
@@ -123,11 +134,7 @@ export function canUserAddBranch(
 export function canUserManageServerConfig(
   user: { role?: string; companyCode?: string; username?: string } | null | undefined
 ): boolean {
-  if (!user) return false;
-  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-  const uname = (user.username || '').trim().toLowerCase();
-  const isAdmin = isUserAdmin(user);
-  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+  return isSuperAdmin(user);
 }
 
 /**
@@ -232,11 +239,7 @@ export function getCompanyLicenseInfo(company?: Company | null): LicenseInfo {
 export function canUserManageLicenses(
   user: { role?: string; companyCode?: string; username?: string } | null | undefined
 ): boolean {
-  if (!user) return false;
-  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-  const uname = (user.username || '').trim().toLowerCase();
-  const isAdmin = isUserAdmin(user);
-  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+  return isSuperAdmin(user);
 }
 
 /**
@@ -247,11 +250,7 @@ export function canUserManageLicenses(
 export function canUserManageInstitutionsAndBranches(
   user: { role?: string; companyCode?: string; username?: string } | null | undefined
 ): boolean {
-  if (!user) return false;
-  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-  const uname = (user.username || '').trim().toLowerCase();
-  const isAdmin = isUserAdmin(user);
-  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+  return isSuperAdmin(user);
 }
 
 /**
@@ -473,11 +472,7 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
 export function canUserManageCompanyModules(
   user: { role?: string; companyCode?: string; username?: string } | null | undefined
 ): boolean {
-  if (!user) return false;
-  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-  const uname = (user.username || '').trim().toLowerCase();
-  const isAdmin = isUserAdmin(user);
-  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+  return isSuperAdmin(user);
 }
 
 /**

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import { User, UserAccount, UserRole, Company, isUserAdmin, LicenseInfo, getCompanyLicenseInfo, canUserManageCompanyModules } from '../types/auth';
+import { User, UserAccount, UserRole, Company, isUserAdmin, isSuperAdmin, LicenseInfo, getCompanyLicenseInfo } from '../types/auth';
 import { UserService } from '../services/userService';
 import { CompanyService } from '../services/companyService';
 import { StorageService } from '../services/storageService';
@@ -123,7 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchViewingCompany = async (targetCode: string) => {
     const cleanCode = (targetCode || 'POLATLAR').trim().toUpperCase();
-    if (!canUserManageCompanyModules(user)) {
+    if (!isSuperAdmin(user)) {
       return;
     }
 
@@ -163,8 +163,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       CompanyService.getCompanyByCode(user.companyCode).then((comp) => {
         if (comp) {
           setHomeCompany(comp);
-          // If no viewing company, set StorageService to home company
-          if (!viewingCompany) {
+          // If not super admin or no viewing company, set StorageService to home company
+          if (!isSuperAdmin(user) || !viewingCompany) {
             StorageService.setCompany(comp.code, comp.id);
           }
         } else if (user.companyCode.trim().toUpperCase() !== 'POLATLAR') {
@@ -172,8 +172,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-      // Restore viewing company for POLATLAR super admins if previously chosen
-      if (canUserManageCompanyModules(user)) {
+      // Restore viewing company ONLY for POLATLAR super admins if previously chosen
+      if (isSuperAdmin(user)) {
         try {
           const savedViewing = localStorage.getItem(VIEWING_COMPANY_STORAGE_KEY);
           if (savedViewing && savedViewing.trim().toUpperCase() !== 'POLATLAR') {
@@ -611,11 +611,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return UserService.generateSuggestedUsername(name, currentCompCode);
   };
 
+  // Strictly isolate personnel: Non-super-admins receive ONLY users from their own company!
+  // POLATLAR super admins receive all users across all institutions.
+  const scopedUsers = useMemo(() => {
+    if (!user) return [];
+    if (isSuperAdmin(user)) {
+      return users;
+    }
+    const myComp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+    return users.filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === myComp);
+  }, [users, user]);
+
   return (
     <AuthContext.Provider
       value={{
         user,
-        users,
+        users: scopedUsers,
         company: activeCompany,
         homeCompany,
         viewingCompany,

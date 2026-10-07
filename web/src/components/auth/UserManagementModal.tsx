@@ -21,7 +21,7 @@ import {
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { UserRole, isUserAdmin, Company } from '../../types/auth';
+import { UserRole, isUserAdmin, isSuperAdmin, Company } from '../../types/auth';
 import { DeviceService } from '../../services/deviceService';
 import { UserDeviceBinding, Branch } from '../../types/storage';
 import { CompanyService } from '../../services/companyService';
@@ -49,9 +49,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   } = useAuth();
   const { branches, assignStaffToBranch } = useStorage();
 
-  const isPolatlarAdmin =
-    isUserAdmin(currentUser) &&
-    (currentUser?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR';
+  const isSuper = isSuperAdmin(currentUser);
+  const userCompanyCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
 
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'add'>('list');
@@ -59,14 +58,26 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   // Multi-company & all-branches states
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyCode, setSelectedCompanyCode] = useState<string>(
-    () => (currentUser?.companyCode || 'POLATLAR').toUpperCase()
+    () => (isSuper ? (currentUser?.companyCode || 'POLATLAR') : userCompanyCode).toUpperCase()
   );
   const [targetAddCompanyCode, setTargetAddCompanyCode] = useState<string>(
-    () => (currentUser?.companyCode || 'POLATLAR').toUpperCase()
+    () => (isSuper ? (currentUser?.companyCode || 'POLATLAR') : userCompanyCode).toUpperCase()
   );
   const [allBranchesMap, setAllBranchesMap] = useState<Record<string, Branch[]>>({});
   const [loadingAllBranches, setLoadingAllBranches] = useState<boolean>(false);
   const [isRefreshingUsers, setIsRefreshingUsers] = useState<boolean>(false);
+
+  // Keep selectedCompanyCode locked to userCompanyCode if non-super-admin
+  useEffect(() => {
+    if (!isSuper && userCompanyCode) {
+      if (selectedCompanyCode !== userCompanyCode) {
+        setSelectedCompanyCode(userCompanyCode);
+      }
+      if (targetAddCompanyCode !== userCompanyCode) {
+        setTargetAddCompanyCode(userCompanyCode);
+      }
+    }
+  }, [isSuper, userCompanyCode, selectedCompanyCode, targetAddCompanyCode]);
 
   // Flattened list of all branches with company codes
   const allBranchesList = useMemo(() => {
@@ -82,20 +93,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     return list;
   }, [allBranchesMap]);
 
-  const userCompanyCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
-
   // Filtered companies strictly visible to this user
-  // Non-POLATLAR company managers can ONLY see their own company, NEVER POLATLAR
+  // Non-super-admins can ONLY see their own company
   const visibleCompanies = useMemo(() => {
-    if (!isPolatlarAdmin) {
-      return companies.filter(
-        (c) => c.code.toUpperCase() === userCompanyCode && c.code.toUpperCase() !== 'POLATLAR'
+    if (!isSuper) {
+      const match = companies.filter(
+        (c) => c.code.toUpperCase() === userCompanyCode
       );
+      if (match.length > 0) return match;
+      return [{ code: userCompanyCode, name: company?.name || userCompanyCode }];
     }
     return companies;
-  }, [companies, isPolatlarAdmin, userCompanyCode]);
+  }, [companies, isSuper, userCompanyCode, company?.name]);
 
-  // Load all companies and their branches
+  // Load companies and branches: scoped strictly to user company for non-super-admins
   const loadCompaniesAndBranches = useCallback(async () => {
     try {
       setLoadingAllBranches(true);
@@ -103,21 +114,26 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setCompanies(compList);
 
       const map: Record<string, Branch[]> = {};
-      if (isPolatlarAdmin) {
+      if (isSuper) {
         map['POLATLAR'] = branches;
-      }
-
-      for (const comp of compList) {
-        const code = comp.code.toUpperCase();
-        if (code !== 'POLATLAR') {
-          // If not polatlar admin, only fetch branches for user's own company
-          if (!isPolatlarAdmin && code !== userCompanyCode) continue;
-          try {
-            const bList = await StorageService.getBranchesForCompany(code);
-            map[code] = bList;
-          } catch {
-            map[code] = [];
+        for (const comp of compList) {
+          const code = comp.code.toUpperCase();
+          if (code !== 'POLATLAR') {
+            try {
+              const bList = await StorageService.getBranchesForCompany(code);
+              map[code] = bList;
+            } catch {
+              map[code] = [];
+            }
           }
+        }
+      } else {
+        // Non-super-admins: fetch ONLY branches for user's own company
+        try {
+          const bList = await StorageService.getBranchesForCompany(userCompanyCode);
+          map[userCompanyCode] = (bList && bList.length > 0) ? bList : (branches || []);
+        } catch {
+          map[userCompanyCode] = branches || [];
         }
       }
       setAllBranchesMap(map);
@@ -126,7 +142,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     } finally {
       setLoadingAllBranches(false);
     }
-  }, [branches, isPolatlarAdmin, userCompanyCode]);
+  }, [branches, isSuper, userCompanyCode]);
 
   // Device bindings state
   const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
@@ -181,11 +197,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   // Filter users belonging to selected company
   const companyUsers = React.useMemo(() => {
-    const currentCode = selectedCompanyCode.toUpperCase();
+    const currentCode = (isSuper ? selectedCompanyCode : userCompanyCode).toUpperCase();
     return users.filter(
       (u) => (u.companyCode || 'POLATLAR').toUpperCase() === currentCode
     );
-  }, [users, selectedCompanyCode]);
+  }, [users, isSuper, selectedCompanyCode, userCompanyCode]);
 
   // Search query for users list
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -243,7 +259,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
     try {
       setResettingUserId(userId);
-      const activeComp = (companyCode || selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+      const activeComp = (companyCode || (isSuper ? selectedCompanyCode : userCompanyCode) || 'POLATLAR').toUpperCase();
       await DeviceService.unbindUserDevice(userId, activeComp);
       await loadBindings();
       alert(`"${userName}" kullanıcısının cihaz kilidi başarıyla sıfırlandı.`);
@@ -266,7 +282,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     e.preventDefault();
     setFormMsg(null);
 
-    const compCodeToUse = (targetAddCompanyCode || selectedCompanyCode || currentUser?.companyCode || 'POLATLAR').toUpperCase();
+    const compCodeToUse = (isSuper ? (targetAddCompanyCode || selectedCompanyCode) : userCompanyCode).toUpperCase();
 
     const res = await addUser({
       username: newUsername,
@@ -355,7 +371,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             <span className="font-extrabold text-blue-900 dark:text-blue-200 shrink-0 text-xs">
               Kurum:
             </span>
-            {isPolatlarAdmin && visibleCompanies.length > 0 ? (
+            {isSuper && visibleCompanies.length > 1 ? (
               <div className="flex items-center gap-1.5 min-w-0">
                 <select
                   value={selectedCompanyCode}
@@ -385,12 +401,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               </div>
             ) : (
               <span className="font-black text-blue-900 dark:text-blue-100 text-sm truncate">
-                {company?.name || currentUser?.companyCode || 'KURUM'}
+                {company?.name || userCompanyCode}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            {isPolatlarAdmin && (
+            {isSuper && (
               <button
                 type="button"
                 onClick={() => setIsCreateCompanyOpen(true)}
@@ -402,7 +418,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               </button>
             )}
             <span className="px-2.5 py-1 rounded-xl font-black bg-blue-700 text-white text-[11px] tracking-wider shadow-xs shrink-0">
-              KURUM KODU: {selectedCompanyCode}
+              KURUM KODU: {isSuper ? selectedCompanyCode : userCompanyCode}
             </span>
           </div>
         </div>
@@ -585,47 +601,44 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           {/* Branch Selector */}
                           <div className="flex items-center gap-1.5 text-[11px] mt-1.5">
                             <Store className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                            <select
-                              value={userBranch?.id || ''}
-                              onChange={async (e) => {
-                                const targetBId = e.target.value;
-                                if (!targetBId) {
-                                  if (userBranch) {
-                                    const filtered = (userBranch.assignedUserIds || []).filter(
-                                      (uid) => uid !== account.id
-                                    );
-                                    await assignStaffToBranch(userBranch.id, filtered, userBranch.companyCode || account.companyCode);
-                                    await loadCompaniesAndBranches();
-                                  }
-                                } else {
-                                  const targetB = allBranchesList.find((b) => b.id === targetBId);
-                                  const branchCompCode = targetB?.companyCode || account.companyCode;
-                                  const existingIds = targetB?.assignedUserIds || [];
-                                  if (!existingIds.includes(account.id)) {
-                                    await assignStaffToBranch(targetBId, [...existingIds, account.id], branchCompCode);
-                                    await loadCompaniesAndBranches();
-                                  }
-                                }
-                              }}
-                              className="text-[11px] font-semibold py-0.5 px-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer max-w-[200px] truncate"
-                              title="Personelin bağlı olduğu şubeyi seçin"
-                            >
-                              <option value="">Şube: Atanmamış (Merkez)</option>
-                              {visibleCompanies.map((comp) => {
-                                const compCode = comp.code.toUpperCase();
-                                const compBranches = allBranchesMap[compCode] || [];
-                                if (compBranches.length === 0) return null;
-                                return (
-                                  <optgroup key={comp.code} label={`🏢 ${comp.name}`}>
-                                    {compBranches.map((b) => (
-                                      <option key={b.id} value={b.id}>
-                                        {b.name}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                );
-                              })}
-                            </select>
+                            {(() => {
+                              const accountComp = (account.companyCode || (isSuper ? selectedCompanyCode : userCompanyCode)).trim().toUpperCase();
+                              const compBranches = allBranchesMap[accountComp] || (accountComp === userCompanyCode ? branches : []);
+                              return (
+                                <select
+                                  value={userBranch?.id || ''}
+                                  onChange={async (e) => {
+                                    const targetBId = e.target.value;
+                                    if (!targetBId) {
+                                      if (userBranch) {
+                                        const filtered = (userBranch.assignedUserIds || []).filter(
+                                          (uid) => uid !== account.id
+                                        );
+                                        await assignStaffToBranch(userBranch.id, filtered, userBranch.companyCode || accountComp);
+                                        await loadCompaniesAndBranches();
+                                      }
+                                    } else {
+                                      const targetB = compBranches.find((b) => b.id === targetBId) || allBranchesList.find((b) => b.id === targetBId);
+                                      const branchCompCode = targetB?.companyCode || accountComp;
+                                      const existingIds = targetB?.assignedUserIds || [];
+                                      if (!existingIds.includes(account.id)) {
+                                        await assignStaffToBranch(targetBId, [...existingIds, account.id], branchCompCode);
+                                        await loadCompaniesAndBranches();
+                                      }
+                                    }
+                                  }}
+                                  className="text-[11px] font-semibold py-0.5 px-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer max-w-[200px] truncate"
+                                  title="Personelin bağlı olduğu şubeyi seçin"
+                                >
+                                  <option value="">Şube: Atanmamış (Merkez)</option>
+                                  {compBranches.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -754,8 +767,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* 0. Kurum / Firma Seçimi (Tüm Kurumlar) */}
-              {isPolatlarAdmin && companies.length > 0 && (
+              {/* 0. Kurum / Firma Seçimi (Tüm Kurumlar - Sadece Süper Admin) */}
+              {isSuper && companies.length > 0 && (
                 <div className="sm:col-span-2 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-blue-50/80 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-blue-950/40 border border-blue-200/90 dark:border-blue-800/60 space-y-1.5 shadow-xs">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
@@ -864,7 +877,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 </select>
               </div>
 
-              {/* Branch Selection (Filtered by Accessible Institutions & Branches) */}
+              {/* Branch Selection (Filtered by Target Company) */}
               <div className="sm:col-span-2">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
@@ -872,53 +885,43 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     <span>Bağlı Olacağı Şube (Mesai Takibi İçin)</span>
                   </label>
                   <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
-                    {isPolatlarAdmin ? '🌐 Tüm Kurum & Şubeler' : '🏢 Kurum Şubeleri'}
+                    🏢 {isSuper ? `Kurum: ${targetAddCompanyCode}` : 'Kurum Şubeleri'}
                   </span>
                 </div>
-                <select
-                  value={newBranchId}
-                  onChange={(e) => {
-                    const bId = e.target.value;
-                    setNewBranchId(bId);
-                    if (bId) {
-                      const foundBranch = allBranchesList.find((b) => b.id === bId);
-                      if (foundBranch?.companyCode) {
-                        setTargetAddCompanyCode(foundBranch.companyCode.toUpperCase());
-                        setSelectedCompanyCode(foundBranch.companyCode.toUpperCase());
-                      }
-                    }
-                  }}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="">🏢 Şube Seçilmedi (Genel / Merkez)</option>
-                  {visibleCompanies.length > 0 ? (
-                    visibleCompanies.map((comp) => {
-                      const compCode = comp.code.toUpperCase();
-                      const compBranches = allBranchesMap[compCode] || [];
-                      return (
-                        <optgroup key={comp.code} label={`🏢 ${comp.name} (${comp.code})`}>
-                          {compBranches.length === 0 ? (
-                            <option disabled value={`empty-${comp.code}`}>
-                              &nbsp;&nbsp;— Bu kuruma ait henüz şube yok —
-                            </option>
-                          ) : (
-                            compBranches.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                📍 {b.name} {b.address ? `• ${b.address}` : ''}
-                              </option>
-                            ))
-                          )}
-                        </optgroup>
-                      );
-                    })
-                  ) : (
-                    branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        🏢 {b.name} {b.address ? `(${b.address})` : ''}
-                      </option>
-                    ))
-                  )}
-                </select>
+                {(() => {
+                  const targetComp = (isSuper ? targetAddCompanyCode : userCompanyCode).trim().toUpperCase();
+                  const compBranches = allBranchesMap[targetComp] || (targetComp === userCompanyCode ? branches : []);
+                  return (
+                    <select
+                      value={newBranchId}
+                      onChange={(e) => {
+                        const bId = e.target.value;
+                        setNewBranchId(bId);
+                        if (isSuper && bId) {
+                          const foundBranch = compBranches.find((b) => b.id === bId) || allBranchesList.find((b) => b.id === bId);
+                          if (foundBranch?.companyCode) {
+                            setTargetAddCompanyCode(foundBranch.companyCode.toUpperCase());
+                            setSelectedCompanyCode(foundBranch.companyCode.toUpperCase());
+                          }
+                        }
+                      }}
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value="">🏢 Şube Seçilmedi (Genel / Merkez)</option>
+                      {compBranches.length === 0 ? (
+                        <option disabled value="no-branch">
+                          &nbsp;&nbsp;— Bu kuruma ait henüz şube yok —
+                        </option>
+                      ) : (
+                        compBranches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            📍 {b.name} {b.address ? `• ${b.address}` : ''}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  );
+                })()}
                 <p className="text-[11px] text-slate-500 mt-1">
                   Personel sadece atandığı şubenin 20 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
                 </p>
@@ -943,8 +946,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         )}
       </div>
 
-      {/* Create Company Modal (For Polatlar / Master Admins) */}
-      {isPolatlarAdmin && (
+      {/* Create Company Modal (For Polatlar Super Admins) */}
+      {isSuper && (
         <CreateCompanyModal
           isOpen={isCreateCompanyOpen}
           onClose={() => {

@@ -42,7 +42,7 @@ import {
   Banknote,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { isUserAdmin, isSubModulePermitted } from '../types/auth';
+import { isUserAdmin, isSuperAdmin, isSubModulePermitted } from '../types/auth';
 import { useStorage } from '../context/StorageContext';
 import { AttendanceRecord, LeaveRequest, Branch, ShiftDefinition } from '../types/storage';
 import { LocationService } from '../services/locationService';
@@ -718,9 +718,15 @@ export const StaffTrackingView: React.FC = () => {
   const isOnBreak = !!currentUserTodayRecord?.isOnBreak;
 
   // Current active company code (e.g. 'POLATLAR', 'NESACOCUK')
+  const isSuper = isSuperAdmin(user);
   const currentCompanyCode = useMemo(() => {
-    return (viewingCompany?.code || company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
-  }, [viewingCompany?.code, company?.code, user?.companyCode]);
+    return (
+      (isSuper ? viewingCompany?.code : null) ||
+      user?.companyCode ||
+      company?.code ||
+      'POLATLAR'
+    ).trim().toUpperCase();
+  }, [isSuper, viewingCompany?.code, company?.code, user?.companyCode]);
 
   // Users strictly belonging to the current company only
   const companyUsers = useMemo(() => {
