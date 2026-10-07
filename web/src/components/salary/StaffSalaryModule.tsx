@@ -310,6 +310,26 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const averageMonthly =
       activeMonthsCount > 0 ? Math.round(totalPaid / activeMonthsCount) : 0;
 
+    // Kullanıcının belirlediği aylık tutar:
+    // 1. Herhangi bir ayda girilmiş olan 'agreedAmount' (en günceli)
+    const monthWithAgreed = [...monthlyBreakdown]
+      .reverse()
+      .find((m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0);
+
+    // 2. Eğer açıkça girilmemişse, ödenen son 'salary' (maaş) tutarı veya ortalaması
+    const latestSalaryPayment = monthlyBreakdown
+      .flatMap((m) => m.payments)
+      .filter((p) => p.paymentType === 'salary' && (p.amount || 0) > 0)
+      .pop();
+
+    const monthlyAgreedAmount =
+      monthWithAgreed?.agreedAmount ||
+      latestSalaryPayment?.amount ||
+      (activeMonthsCount > 0 ? Math.round(totalSalary / activeMonthsCount) : 0);
+
+    // Kullanıcının belirlediği tutarın 12 ile çarpımı
+    const yearlyAgreedAmount = monthlyAgreedAmount * 12;
+
     return {
       totalPaid,
       totalCash,
@@ -321,6 +341,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       paymentsCount,
       activeMonthsCount,
       averageMonthly,
+      monthlyAgreedAmount,
+      yearlyAgreedAmount,
       monthlyBreakdown,
     };
   };
@@ -449,6 +471,37 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     );
 
     setIsEditingAgreed(false);
+  };
+
+  // Yıllık kart üzerinden hızlıca aylık belirlenen tutarı güncelleme
+  const handleQuickSetAgreedAmount = async (
+    staff: any,
+    year: number,
+    currentMonthly?: number
+  ) => {
+    const input = window.prompt(
+      `"${staff.name || staff.username}" için aylık belirlenen net maaş tutarını giriniz (₺):`,
+      currentMonthly && currentMonthly > 0 ? String(currentMonthly) : ''
+    );
+    if (input === null) return;
+    const cleanVal = input.trim().replace(/\./g, '').replace(',', '.');
+    const parsed = cleanVal ? parseFloat(cleanVal) : undefined;
+    if (parsed !== undefined && (isNaN(parsed) || parsed < 0)) {
+      alert('Lütfen geçerli bir tutar giriniz.');
+      return;
+    }
+    const targetMonth = year === currentYear ? currentMonth : 1;
+    await updateMonthSalarySettings(
+      staff.id,
+      staff.name || staff.username,
+      year,
+      targetMonth,
+      parsed
+    );
+    setToastMessage(
+      `Aylık belirlenen tutar ${parsed ? parsed.toLocaleString('tr-TR') + ' ₺' : 'sıfırlandı'} olarak güncellendi.`
+    );
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   // Dekont / Fiş / Belge dosya yükleme (PDF veya Görsel)
@@ -902,11 +955,13 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <!-- Yıllık Kümülatif Özet Kutuları -->
         <div style="display: flex; gap: 8px; margin-bottom: 16px;">
           <div style="flex: 1; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-            <div style="font-size: 9px; font-weight: bold; color: #065f46; text-transform: uppercase;">Yıllık Toplam Ödenen</div>
+            <div style="font-size: 9px; font-weight: bold; color: #065f46; text-transform: uppercase;">Yıllık Belirlenen Tutar</div>
             <div style="font-size: 15px; font-weight: 900; color: #047857; margin-top: 2px;">
-              ${yearlySummary.totalPaid.toLocaleString('tr-TR')} ₺
+              ${yearlySummary.yearlyAgreedAmount > 0 ? yearlySummary.yearlyAgreedAmount.toLocaleString('tr-TR') + ' ₺' : '-'}
             </div>
-            <div style="font-size: 9px; color: #059669; margin-top: 2px;">${yearlySummary.activeMonthsCount}/12 Ay • ${yearlySummary.paymentsCount} İşlem</div>
+            <div style="font-size: 9px; color: #059669; margin-top: 2px;">
+              ${yearlySummary.monthlyAgreedAmount > 0 ? 'Aylık ' + yearlySummary.monthlyAgreedAmount.toLocaleString('tr-TR') + ' ₺ × 12 ay' : 'Belirlenmedi'}
+            </div>
           </div>
 
           <div style="flex: 1; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px 10px; text-align: center;">
@@ -930,11 +985,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           </div>
 
           <div style="flex: 1; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-            <div style="font-size: 9px; font-weight: bold; color: #475569; text-transform: uppercase;">Aylık Ortalama</div>
+            <div style="font-size: 9px; font-weight: bold; color: #475569; text-transform: uppercase;">Ödenen Toplam Tutar</div>
             <div style="font-size: 15px; font-weight: 900; color: #0f172a; margin-top: 2px;">
-              ${yearlySummary.averageMonthly.toLocaleString('tr-TR')} ₺
+              ${yearlySummary.totalPaid.toLocaleString('tr-TR')} ₺
             </div>
-            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Aktif aylar ortalaması</div>
+            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">${yearlySummary.activeMonthsCount}/12 Ay • ${yearlySummary.paymentsCount} İşlem</div>
           </div>
         </div>
 
@@ -1576,20 +1631,41 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
                       {/* 4'lü Finansal Özet Metrik Kutuları */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                        {/* Yıllık Toplam */}
-                        <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50">
-                          <span className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
-                            Yıllık Net Alınan
-                          </span>
-                          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                            {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
-                          </p>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                            {yearSummary.paymentsCount} işlem • {yearSummary.activeMonthsCount}/12 ay aktif
+                        {/* 1. Kutu: Yıllık Belirlenen Tutar (Kullanıcının belirlediği tutar x 12) */}
+                        <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
+                                Yıllık Belirlenen Tutar
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickSetAgreedAmount(
+                                    staff,
+                                    selectedYear,
+                                    yearSummary.monthlyAgreedAmount
+                                  );
+                                }}
+                                className="text-[10px] text-emerald-700 dark:text-emerald-300 hover:underline font-bold cursor-pointer"
+                                title="Aylık belirlenen maaş tutarını düzenle"
+                              >
+                                ✏️ {yearSummary.monthlyAgreedAmount > 0 ? 'Düzenle' : 'Belirle'}
+                              </button>
+                            </div>
+                            <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                              {yearSummary.yearlyAgreedAmount.toLocaleString('tr-TR')} ₺
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                            {yearSummary.monthlyAgreedAmount > 0
+                              ? `Aylık: ${yearSummary.monthlyAgreedAmount.toLocaleString('tr-TR')} ₺ × 12 ay`
+                              : 'Aylık tutar belirlenmedi'}
                           </span>
                         </div>
 
-                        {/* Banka Toplamı */}
+                        {/* 2. Kutu: Banka Toplamı */}
                         <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/50">
                           <span className="text-[10px] font-bold uppercase text-blue-800 dark:text-blue-300">
                             🏦 Banka (Havale/EFT)
@@ -1602,7 +1678,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </span>
                         </div>
 
-                        {/* Nakit Toplamı */}
+                        {/* 3. Kutu: Nakit Toplamı */}
                         <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50">
                           <span className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-300">
                             💵 Elden Nakit
@@ -1615,16 +1691,16 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </span>
                         </div>
 
-                        {/* Aylık Ortalama */}
+                        {/* 4. Kutu: Ödenen Toplam Tutar (Eski Aylık Ortalama yerine) */}
                         <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
                           <span className="text-[10px] font-bold uppercase text-slate-600 dark:text-slate-300">
-                            📊 Aylık Ortalama
+                            💰 Ödenen Toplam Tutar
                           </span>
                           <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-                            {yearSummary.averageMonthly.toLocaleString('tr-TR')} ₺
+                            {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
                           </p>
                           <span className="text-[10px] text-slate-400">
-                            Ödenen aylar ortalaması
+                            {yearSummary.paymentsCount} işlem • {yearSummary.activeMonthsCount}/12 ay ödendi
                           </span>
                         </div>
                       </div>
