@@ -51,10 +51,22 @@ interface AuthContextType {
     name: string;
     role: UserRole;
     companyCode?: string;
+    email?: string;
+    phone?: string;
+    tcNo?: string;
+    address?: string;
   }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
     id: string,
-    updates: { name?: string; role?: UserRole; password?: string }
+    updates: {
+      name?: string;
+      role?: UserRole;
+      password?: string;
+      email?: string;
+      phone?: string;
+      tcNo?: string;
+      address?: string;
+    }
   ) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
   suggestUsername: (name: string) => string;
@@ -567,6 +579,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: string;
     role: UserRole;
     companyCode?: string;
+    email?: string;
+    phone?: string;
+    tcNo?: string;
+    address?: string;
   }) => {
     const currentCompCode = (params.companyCode || activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const res = await UserService.addUser({
@@ -581,7 +597,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUser = async (
     id: string,
-    updates: { name?: string; role?: UserRole; password?: string }
+    updates: {
+      name?: string;
+      role?: UserRole;
+      password?: string;
+      email?: string;
+      phone?: string;
+      tcNo?: string;
+      address?: string;
+    }
   ) => {
     const res = await UserService.updateUser(id, updates);
     if (res.success) {
@@ -589,8 +613,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user && user.id === id) {
         const updatedUser: User = {
           ...user,
-          name: updates.name || user.name,
-          role: updates.role || user.role,
+          name: updates.name !== undefined ? updates.name : user.name,
+          role: updates.role !== undefined ? updates.role : user.role,
+          email: updates.email !== undefined ? updates.email : user.email,
+          phone: updates.phone !== undefined ? updates.phone : user.phone,
+          tcNo: updates.tcNo !== undefined ? updates.tcNo : user.tcNo,
+          address: updates.address !== undefined ? updates.address : user.address,
         };
         setUser(updatedUser);
       }

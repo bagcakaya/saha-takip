@@ -618,6 +618,17 @@ export const UserService = {
               const key = `${comp}:${(u.username || '').toLowerCase()}`;
               if (!userMap.has(key)) {
                 userMap.set(key, { ...u, companyCode: comp });
+              } else {
+                const existing = userMap.get(key)!;
+                userMap.set(key, {
+                  ...u,
+                  ...existing,
+                  tcNo: u.tcNo || existing.tcNo,
+                  phone: u.phone || existing.phone,
+                  address: u.address || existing.address,
+                  branchId: u.branchId || existing.branchId,
+                  branchName: u.branchName || existing.branchName,
+                });
               }
             });
           }
@@ -783,6 +794,9 @@ export const UserService = {
     role: UserRole;
     companyCode?: string;
     email?: string;
+    phone?: string;
+    tcNo?: string;
+    address?: string;
   }): Promise<{ success: boolean; error?: string; user?: User }> {
     const users = this.getUsers();
 
@@ -804,6 +818,9 @@ export const UserService = {
     const cleanUsername = SanitizeService.sanitizeIdentifier(params.username, 40).toLowerCase();
     const cleanName = SanitizeService.sanitizeText(params.name || params.username, 80);
     const cleanEmail = params.email ? SanitizeService.sanitizeEmail(params.email) : undefined;
+    const cleanTcNo = params.tcNo ? params.tcNo.replace(/\D/g, '').substring(0, 11) : undefined;
+    const cleanPhone = params.phone ? SanitizeService.sanitizeText(params.phone, 30) : undefined;
+    const cleanAddress = params.address ? SanitizeService.sanitizeText(params.address, 300) : undefined;
     const cleanPassword = params.password.trim();
 
     if (!cleanUsername) {
@@ -834,6 +851,9 @@ export const UserService = {
       createdAt: Date.now(),
       companyCode: cleanCompanyCode,
       email: cleanEmail,
+      phone: cleanPhone,
+      tcNo: cleanTcNo,
+      address: cleanAddress,
     };
 
     const updated = [...users, newUser];
@@ -878,6 +898,9 @@ export const UserService = {
         createdAt: newUser.createdAt,
         companyCode: newUser.companyCode,
         email: newUser.email,
+        phone: newUser.phone,
+        tcNo: newUser.tcNo,
+        address: newUser.address,
       },
     };
   },
@@ -911,6 +934,10 @@ export const UserService = {
       name?: string;
       role?: UserRole;
       password?: string;
+      email?: string;
+      phone?: string;
+      tcNo?: string;
+      address?: string;
     }
   ): Promise<{ success: boolean; error?: string }> {
     let users = this.getUsers();
@@ -957,6 +984,19 @@ export const UserService = {
       newPassword = await PasswordSecurity.hashPassword(updates.password.trim());
     }
 
+    const cleanTcNo = updates.tcNo !== undefined 
+      ? (updates.tcNo.trim() ? updates.tcNo.replace(/\D/g, '').substring(0, 11) : undefined) 
+      : current.tcNo;
+    const cleanPhone = updates.phone !== undefined 
+      ? (updates.phone.trim() ? SanitizeService.sanitizeText(updates.phone, 30) : undefined) 
+      : current.phone;
+    const cleanAddress = updates.address !== undefined 
+      ? (updates.address.trim() ? SanitizeService.sanitizeText(updates.address, 300) : undefined) 
+      : current.address;
+    const cleanEmail = updates.email !== undefined 
+      ? (updates.email.trim() ? SanitizeService.sanitizeEmail(updates.email) : undefined) 
+      : current.email;
+
     const updatedUser = {
       ...current,
       name:
@@ -965,6 +1005,10 @@ export const UserService = {
           : current.name,
       role: updates.role !== undefined ? updates.role : current.role,
       password: newPassword,
+      email: cleanEmail,
+      phone: cleanPhone,
+      tcNo: cleanTcNo,
+      address: cleanAddress,
     };
 
     users[userIndex] = updatedUser;

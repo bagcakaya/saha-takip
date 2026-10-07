@@ -7,6 +7,8 @@ export interface SalarySlipPayload {
   staffName: string;
   staffUsername: string;
   staffPhone?: string;
+  staffTcNo?: string;
+  staffAddress?: string;
   branchName?: string;
   companyName: string;
   month?: number;
@@ -192,16 +194,24 @@ export const PublicSalarySlipViewer: React.FC = () => {
                 <span className="font-extrabold text-slate-900">{data.staffName}</span>
               </div>
               <div>
+                <span className="text-[10px] text-slate-400 block font-semibold uppercase">T.C. Kimlik No</span>
+                <span className="font-mono font-bold text-slate-900">{data.staffTcNo || '-'}</span>
+              </div>
+              <div>
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase">Kullanıcı Adı</span>
                 <span className="font-semibold text-slate-700">@{data.staffUsername}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block font-semibold uppercase">Telefon</span>
+                <span className="font-semibold text-slate-700">{data.staffPhone || '-'}</span>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase">Şube / Birim</span>
                 <span className="font-semibold text-slate-700">{data.branchName || 'Merkez'}</span>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block font-semibold uppercase">Telefon</span>
-                <span className="font-semibold text-slate-700">{data.staffPhone || '-'}</span>
+              <div className="sm:col-span-3">
+                <span className="text-[10px] text-slate-400 block font-semibold uppercase">İkametgah / Açık Adres</span>
+                <span className="font-medium text-slate-700 truncate block" title={data.staffAddress || '-'}>{data.staffAddress || '-'}</span>
               </div>
             </div>
           </div>

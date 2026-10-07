@@ -544,16 +544,22 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;">
           <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
             <tr>
-              <td style="width: 25%; padding: 4px 0; color: #64748b;">Personel Adı:</td>
-              <td style="width: 35%; padding: 4px 0; font-weight: bold; color: #0f172a;">${staff.name || staff.username}</td>
-              <td style="width: 20%; padding: 4px 0; color: #64748b;">Şube / Birim:</td>
-              <td style="width: 20%; padding: 4px 0; font-weight: bold; color: #0f172a;">${staffBranch?.name || 'Merkez'}</td>
+              <td style="width: 20%; padding: 4px 0; color: #64748b;">Personel Adı:</td>
+              <td style="width: 30%; padding: 4px 0; font-weight: bold; color: #0f172a;">${staff.name || staff.username}</td>
+              <td style="width: 20%; padding: 4px 0; color: #64748b;">T.C. Kimlik No:</td>
+              <td style="width: 30%; padding: 4px 0; font-weight: bold; color: #0f172a; font-family: monospace;">${staff.tcNo || '-'}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b;">Kullanıcı Adı:</td>
               <td style="padding: 4px 0; color: #334155;">@${staff.username}</td>
               <td style="padding: 4px 0; color: #64748b;">Telefon:</td>
               <td style="padding: 4px 0; color: #334155;">${staff.phone || '-'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Şube / Birim:</td>
+              <td style="padding: 4px 0; font-weight: bold; color: #0f172a;">${staffBranch?.name || 'Merkez'}</td>
+              <td style="padding: 4px 0; color: #64748b;">İkamet / Adres:</td>
+              <td style="padding: 4px 0; color: #334155;">${staff.address || '-'}</td>
             </tr>
           </table>
         </div>
@@ -705,6 +711,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           staffName: staff.name || staff.username,
           staffUsername: staff.username,
           staffPhone: staff.phone || '',
+          staffTcNo: staff.tcNo || '',
+          staffAddress: staff.address || '',
           branchName: staffBranch?.name || 'Merkez',
           companyName: activeCompanyName,
           month: month,
@@ -864,19 +872,31 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <!-- Personel Bilgi Kartı -->
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
           <tr>
-            <td style="padding: 8px 12px; width: 45%;">
+            <td style="padding: 8px 12px; width: 35%;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Personel Adı Soyadı</span><br/>
               <strong style="color: #0f172a; font-size: 13px;">${staff.name || staff.username}</strong>
             </td>
-            <td style="padding: 8px 12px; width: 30%;">
-              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Şube / Lokasyon</span><br/>
-              <strong style="color: #0f172a;">${staffBranch?.name || 'Genel Merkez'}</strong>
-            </td>
             <td style="padding: 8px 12px; width: 25%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">T.C. Kimlik No</span><br/>
+              <strong style="color: #0f172a; font-family: monospace;">${staff.tcNo || '-'}</strong>
+            </td>
+            <td style="padding: 8px 12px; width: 20%;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Telefon</span><br/>
               <strong style="color: #0f172a;">${staff.phone || '-'}</strong>
             </td>
+            <td style="padding: 8px 12px; width: 20%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Şube / Lokasyon</span><br/>
+              <strong style="color: #0f172a;">${staffBranch?.name || 'Genel Merkez'}</strong>
+            </td>
           </tr>
+          ${staff.address ? `
+          <tr>
+            <td colspan="4" style="padding: 6px 12px 8px 12px; border-top: 1px dashed #e2e8f0;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">İkametgah / Adres:</span>
+              <span style="color: #334155; font-size: 11px; margin-left: 6px;">${staff.address}</span>
+            </td>
+          </tr>
+          ` : ''}
         </table>
 
         <!-- Yıllık Kümülatif Özet Kutuları -->
@@ -1334,10 +1354,20 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                             <strong className="text-slate-700 dark:text-slate-300">{staffBranch.name}</strong>
                           </span>
                         )}
+                        {staff.tcNo && (
+                          <span className="inline-flex items-center gap-1 font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded text-[11px] border border-blue-200/60 dark:border-blue-900/50">
+                            TC: {staff.tcNo}
+                          </span>
+                        )}
                         {staff.phone && (
                           <span className="flex items-center gap-1">
                             <Phone className="w-3 h-3 text-slate-400" />
                             {staff.phone}
+                          </span>
+                        )}
+                        {staff.address && (
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title={staff.address}>
+                            📍 {staff.address}
                           </span>
                         )}
                       </div>
@@ -1651,6 +1681,26 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   <p className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                     {MONTH_NAMES[activeModalData.month - 1]} {activeModalData.year} Maaş & Ödeme Detayı
                   </p>
+                  {(activeModalData.staff.tcNo || activeModalData.staff.phone || activeModalData.staff.address) && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      {activeModalData.staff.tcNo && (
+                        <span className="font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded border border-blue-200/60 dark:border-blue-900/50">
+                          TC: {activeModalData.staff.tcNo}
+                        </span>
+                      )}
+                      {activeModalData.staff.phone && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          {activeModalData.staff.phone}
+                        </span>
+                      )}
+                      {activeModalData.staff.address && (
+                        <span className="truncate max-w-[280px]" title={activeModalData.staff.address}>
+                          📍 {activeModalData.staff.address}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

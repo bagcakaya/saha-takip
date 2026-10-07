@@ -46,6 +46,8 @@ export interface User {
   companyName?: string;
   email?: string;
   phone?: string;
+  tcNo?: string; // T.C. Kimlik No (11 haneli, maaş ve resmi bordro işlemleri için)
+  address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
 }
@@ -61,6 +63,8 @@ export interface UserAccount {
   companyName?: string;
   email?: string;
   phone?: string;
+  tcNo?: string; // T.C. Kimlik No (11 haneli, maaş ve resmi bordro işlemleri için)
+  address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
 }

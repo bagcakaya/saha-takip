@@ -20,11 +20,15 @@ import {
   MessageSquare,
   Copy,
   Check,
+  Edit3,
+  Phone,
+  CreditCard,
+  MapPin,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { UserRole, isUserAdmin, isSuperAdmin, Company } from '../../types/auth';
+import { UserRole, isUserAdmin, isSuperAdmin, Company, UserAccount } from '../../types/auth';
 import { DeviceService } from '../../services/deviceService';
 import { UserDeviceBinding, Branch } from '../../types/storage';
 import { CompanyService } from '../../services/companyService';
@@ -228,7 +232,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('staff');
   const [newBranchId, setNewBranchId] = useState<string>('');
+  const [newTcNo, setNewTcNo] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newAddress, setNewAddress] = useState('');
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  // States for editing user profile (TC, Phone, Address, Name)
+  const [editingProfileUser, setEditingProfileUser] = useState<UserAccount | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editTcNo, setEditTcNo] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Random secure password generator (1 uppercase, 1 lowercase, 4 numbers, 1 symbol)
   const generateRandomPassword = () => {
@@ -248,6 +263,33 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   // States for password edit modal/prompt
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [changedPassword, setChangedPassword] = useState('');
+
+  const handleSaveProfile = async () => {
+    if (!editingProfileUser) return;
+    if (!editName.trim()) {
+      alert('Personel adı boş bırakılamaz.');
+      return;
+    }
+    setIsSavingProfile(true);
+    try {
+      const res = await updateUser(editingProfileUser.id, {
+        name: editName.trim(),
+        tcNo: editTcNo.trim() || undefined,
+        phone: editPhone.trim() || undefined,
+        address: editAddress.trim() || undefined,
+      });
+      if (res.success) {
+        setEditingProfileUser(null);
+        await refreshUsers();
+      } else {
+        alert(res.error || 'Profil güncellenemedi.');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Bir hata oluştu.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // WhatsApp share modal state
   interface WhatsAppShareData {
@@ -336,6 +378,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       name: newName,
       role: newRole,
       companyCode: compCodeToUse,
+      tcNo: newTcNo.trim() || undefined,
+      phone: newPhone.trim() || undefined,
+      address: newAddress.trim() || undefined,
     });
 
     if (res.success) {
@@ -353,6 +398,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewName('');
       setNewRole('staff');
       setNewBranchId('');
+      setNewTcNo('');
+      setNewPhone('');
+      setNewAddress('');
       await loadCompaniesAndBranches();
       setTimeout(() => {
         setActiveSubTab('list');
@@ -699,6 +747,30 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                               );
                             })()}
                           </div>
+
+                          {/* TC, Phone & Address Pill info */}
+                          {(account.tcNo || account.phone || account.address) && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 pt-1 border-t border-slate-200/50 dark:border-slate-800/60">
+                              {account.tcNo && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-mono font-bold">
+                                  <CreditCard className="w-3 h-3 text-blue-500" />
+                                  TC: {account.tcNo}
+                                </span>
+                              )}
+                              {account.phone && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium">
+                                  <Phone className="w-3 h-3 text-emerald-500" />
+                                  {account.phone}
+                                </span>
+                              )}
+                              {account.address && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate max-w-[240px]" title={account.address}>
+                                  <MapPin className="w-3 h-3 text-rose-500 shrink-0" />
+                                  {account.address}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -818,6 +890,22 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         >
                           <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                           <span>WhatsApp</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingProfileUser(account);
+                            setEditName(account.name || '');
+                            setEditTcNo(account.tcNo || '');
+                            setEditPhone(account.phone || '');
+                            setEditAddress(account.address || '');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700/80 font-semibold transition-colors cursor-pointer"
+                          title="Personel Bilgilerini (Ad, T.C. No, Telefon, Adres) Düzenle"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Düzenle</span>
                         </button>
 
                         <button
@@ -1029,6 +1117,55 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   Personel sadece atandığı şubenin 20 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
                 </p>
               </div>
+
+              {/* Personel Özlük / Maaş Bilgileri (Opsiyonel) */}
+              <div className="sm:col-span-2 pt-3 border-t border-slate-200/70 dark:border-slate-800">
+                <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Personel Özlük & Maaş Bilgileri (Opsiyonel)</span>
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                      T.C. Kimlik No <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={11}
+                      value={newTcNo}
+                      onChange={(e) => setNewTcNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                      placeholder="11 haneli T.C. Kimlik No"
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                      Telefon Numarası <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={newPhone}
+                      onChange={(e) => setNewPhone(e.target.value)}
+                      placeholder="Örn: 0555 123 45 67"
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                      İkametgah / Açık Adres <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={newAddress}
+                      onChange={(e) => setNewAddress(e.target.value)}
+                      placeholder="Örn: Atatürk Mah. Cumhuriyet Cad. No: 12 Kadıköy / İstanbul"
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/50 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
@@ -1119,6 +1256,114 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>WhatsApp'ta Aç</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Profile Modal (TC No, Phone, Address, Name) */}
+      {editingProfileUser && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-xs">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                    Personel Bilgilerini Düzenle
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                    @{editingProfileUser.username}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingProfileUser(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
+                  Ad Soyad / Unvan <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
+                    T.C. Kimlik No <span className="text-[10px] lowercase text-slate-400 font-normal">(opsiyonel)</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={11}
+                    value={editTcNo}
+                    onChange={(e) => setEditTcNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                    placeholder="11 haneli T.C. No"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
+                    Telefon Numarası <span className="text-[10px] lowercase text-slate-400 font-normal">(opsiyonel)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="0555 123 45 67"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">
+                  İkametgah / Açık Adres <span className="text-[10px] lowercase text-slate-400 font-normal">(opsiyonel)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  placeholder="İkametgah / açık adres..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-[11px] text-blue-700 dark:text-blue-300">
+                💡 Bu bilgiler maaş pusulasında, resmi bordro çıktılarında ve personel dosyasında otomatik olarak görünecektir.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingProfileUser(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={isSavingProfile}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSavingProfile ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
               </button>
             </div>
           </div>
