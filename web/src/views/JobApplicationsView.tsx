@@ -272,10 +272,16 @@ export const JobApplicationsView: React.FC = () => {
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Yeni Başvuru</span>
-            <Clock className="w-4 h-4 text-amber-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'new' ? 'text-white' : 'opacity-75'}`}>
+              Yeni Başvuru
+            </span>
+            <Clock className={`w-4 h-4 ${statusFilter === 'new' ? 'text-white' : 'text-amber-500'}`} />
           </div>
-          <p className="text-xl sm:text-2xl font-black mt-2 text-amber-600 dark:text-amber-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'new' ? 'text-white' : 'text-amber-600 dark:text-amber-400'
+            }`}
+          >
             {stats.newCount}
           </p>
         </button>
@@ -289,78 +295,108 @@ export const JobApplicationsView: React.FC = () => {
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Aranması Planlı</span>
-            <PhoneCall className="w-4 h-4 text-cyan-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'call_scheduled' ? 'text-white' : 'opacity-75'}`}>
+              Aranması Planlı
+            </span>
+            <PhoneCall className={`w-4 h-4 ${statusFilter === 'call_scheduled' ? 'text-white' : 'text-cyan-500'}`} />
           </div>
-          <p className="text-xl sm:text-2xl font-black mt-2 text-cyan-600 dark:text-cyan-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'call_scheduled' ? 'text-white' : 'text-cyan-600 dark:text-cyan-400'
+            }`}
+          >
             {stats.callCount}
           </p>
         </button>
 
         <button
           onClick={() => setStatusFilter('interview_scheduled')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'interview_scheduled'
               ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-blue-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">Mülakat Planlı</span>
-            <CalendarIcon className="w-4 h-4 text-blue-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'interview_scheduled' ? 'text-white' : 'opacity-75'}`}>
+              Mülakat Planlı
+            </span>
+            <CalendarIcon className={`w-4 h-4 ${statusFilter === 'interview_scheduled' ? 'text-white' : 'text-blue-500'}`} />
           </div>
-          <p className="text-2xl font-black mt-2 text-blue-600 dark:text-blue-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'interview_scheduled' ? 'text-white' : 'text-blue-600 dark:text-blue-400'
+            }`}
+          >
             {stats.interviewCount}
           </p>
         </button>
 
         <button
           onClick={() => setStatusFilter('offer_made')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'offer_made'
               ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-purple-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">Teklif Yapıldı</span>
-            <Sparkles className="w-4 h-4 text-purple-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'offer_made' ? 'text-white' : 'opacity-75'}`}>
+              Teklif Yapıldı
+            </span>
+            <Sparkles className={`w-4 h-4 ${statusFilter === 'offer_made' ? 'text-white' : 'text-purple-500'}`} />
           </div>
-          <p className="text-2xl font-black mt-2 text-purple-600 dark:text-purple-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'offer_made' ? 'text-white' : 'text-purple-600 dark:text-purple-400'
+            }`}
+          >
             {stats.offerCount}
           </p>
         </button>
 
         <button
           onClick={() => setStatusFilter('hired')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'hired'
               ? 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-emerald-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">İşe Alındı</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'hired' ? 'text-white' : 'opacity-75'}`}>
+              İşe Alındı
+            </span>
+            <CheckCircle2 className={`w-4 h-4 ${statusFilter === 'hired' ? 'text-white' : 'text-emerald-500'}`} />
           </div>
-          <p className="text-2xl font-black mt-2 text-emerald-600 dark:text-emerald-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'hired' ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'
+            }`}
+          >
             {stats.hiredCount}
           </p>
         </button>
 
         <button
           onClick={() => setStatusFilter('rejected')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'rejected'
               ? 'bg-rose-600 text-white border-rose-500 shadow-md ring-2 ring-rose-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-rose-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">Reddedildi</span>
-            <AlertCircle className="w-4 h-4 text-rose-500" />
+            <span className={`text-[11px] sm:text-xs font-bold ${statusFilter === 'rejected' ? 'text-white' : 'opacity-75'}`}>
+              Reddedildi
+            </span>
+            <AlertCircle className={`w-4 h-4 ${statusFilter === 'rejected' ? 'text-white' : 'text-rose-500'}`} />
           </div>
-          <p className="text-2xl font-black mt-2 text-rose-600 dark:text-rose-400">
+          <p
+            className={`text-xl sm:text-2xl font-black mt-2 ${
+              statusFilter === 'rejected' ? 'text-white' : 'text-rose-600 dark:text-rose-400'
+            }`}
+          >
             {stats.rejectedCount}
           </p>
         </button>
