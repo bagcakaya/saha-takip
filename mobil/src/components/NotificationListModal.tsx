@@ -459,8 +459,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                       borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0',
                       backgroundColor: isUnread
                         ? isDark
-                          ? 'rgba(249, 115, 22, 0.12)'
-                          : '#fff7ed'
+                          ? 'rgba(249, 115, 22, 0.22)'
+                          : '#ffedd5'
                         : 'transparent',
                       borderLeftWidth: 4,
                       borderLeftColor: isUnread ? '#f97316' : 'transparent',
