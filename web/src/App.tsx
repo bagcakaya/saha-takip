@@ -17,6 +17,7 @@ import { RemindersView } from './views/RemindersView';
 import { BranchesView } from './views/BranchesView';
 import { TimedFollowUpsView } from './views/TimedFollowUpsView';
 import { PersonalNotesView } from './views/PersonalNotesView';
+import { JobApplicationsView } from './views/JobApplicationsView';
 import { LoginView } from './views/LoginView';
 import { LicenseLockedView } from './components/licensing/LicenseLockedView';
 import { LocationItem } from './types/storage';
@@ -529,6 +530,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Giriş & Çıkış Takibi',
           title: 'Personel Takibi',
         };
+      case 'job_applications':
+        return {
+          subtitle: 'Aday Değerlendirme & Personel Dönüştürme',
+          title: 'İş Başvuruları',
+        };
       case 'timed_follow_ups':
         return {
           subtitle: 'Zaman Ayarlı Cari Alarmları',
@@ -638,6 +644,12 @@ const MainApp: React.FC = () => {
             {activeTab === 'staff_tracking' &&
               (isModulePermitted('staff_tracking', user, company) ? (
                 <StaffTrackingView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'job_applications' &&
+              (isModulePermitted('job_applications', user, company) ? (
+                <JobApplicationsView />
               ) : (
                 <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}

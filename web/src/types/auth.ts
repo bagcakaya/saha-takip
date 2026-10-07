@@ -371,6 +371,15 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     defaultAdmin: true,
     category: 'management',
   },
+  {
+    id: 'job_applications',
+    name: 'İş Başvuruları',
+    shortTitle: 'İş Başvurusu',
+    description: 'Aday kayıtları, CV, mülakat aşamaları ve personel dönüşümü',
+    defaultStaff: false,
+    defaultAdmin: true,
+    category: 'management',
+  },
 ];
 
 /**

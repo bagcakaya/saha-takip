@@ -19,6 +19,7 @@ import {
   Server,
   UserX,
   Settings,
+  UserPlus,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -53,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     unreadLogsCount,
     cariler,
     timedFollowUps,
+    jobApplications,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -136,6 +138,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       return remainingDays !== null && remainingDays <= 15 && remainingDays > 0;
     }).length;
   }, [timedFollowUps]);
+
+  const newJobApplicationsCount = React.useMemo(() => {
+    return (jobApplications || []).filter((a) => a?.status === 'new').length;
+  }, [jobApplications]);
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -343,6 +349,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       {activeStaffCount} Aktif
+                    </span>
+                  )}
+                </div>
+              </button>
+            )}
+
+            {/* 4.1 İş Başvuruları */}
+            {isModulePermitted('job_applications', user, company) && (
+              <button
+                onClick={() => setActiveTab('job_applications')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 ${
+                  activeTab === 'job_applications'
+                    ? 'bg-teal-600 text-white shadow-md shadow-teal-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <UserPlus className="w-4 h-4" />
+                  <span>İş Başvuruları</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {newJobApplicationsCount > 0 ? (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        activeTab === 'job_applications'
+                          ? 'bg-amber-300 text-amber-950 font-black'
+                          : 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                      }`}
+                    >
+                      {newJobApplicationsCount} Yeni
+                    </span>
+                  ) : (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        activeTab === 'job_applications'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {jobApplications.length}
                     </span>
                   )}
                 </div>

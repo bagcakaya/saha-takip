@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment } from '../types/storage';
-import { isUserAdmin, canUserAddBranch } from '../types/auth';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus } from '../types/storage';
+import { isUserAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { NotificationService } from '../services/notificationService';
@@ -224,6 +224,13 @@ interface StorageContextType {
   updateBranchBreakMinutes: (branchId: string, maxBreakMinutes: number) => Promise<void>;
   updateWorkplaceBreakMinutes: (maxBreakMinutes: number) => Promise<void>;
   refreshShifts: () => Promise<void>;
+  jobApplications: JobApplication[];
+  addJobApplication: (data: Omit<JobApplication, 'id' | 'createdAt' | 'companyCode'>) => Promise<JobApplication>;
+  updateJobApplication: (id: string, updates: Partial<JobApplication>) => Promise<void>;
+  deleteJobApplication: (id: string) => Promise<void>;
+  updateJobApplicationStatus: (id: string, status: JobApplicationStatus, statusNotes?: string) => Promise<void>;
+  convertApplicationToStaff: (applicationId: string, userParams: { username: string; password?: string; name: string; role?: UserRole; branchId?: string }) => Promise<{ success: boolean; user?: any; error?: string }>;
+  refreshJobApplications: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -300,6 +307,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
   const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
   const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
+  const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -478,7 +486,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -494,6 +502,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getTimedFollowUps(),
           StorageService.getPersonalNotes(user.id),
           StorageService.getShiftData(),
+          StorageService.getJobApplications(),
         ]);
         if (!isMounted) return;
 
@@ -659,6 +668,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setPersonalNotes(myPersonalNotes || []);
         setShifts((shiftData && shiftData.definitions) || []);
         setShiftAssignments((shiftData && shiftData.assignments) || []);
+        setJobApplications(jobApps || []);
         setDataCompanyCode(compCode);
         FastActionAgent.start(compCode);
       } catch (err) {
@@ -778,6 +788,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setCarilerUpdatedAt(cariData.updatedAt);
                 setCarilerTotal(cariData.total);
               }
+              return;
+            }
+            if (changedSlotId === StorageService.getSlotId(19)) {
+              const apps = await StorageService.getJobApplications();
+              if (isMounted) setJobApplications(apps || []);
               return;
             }
             if (changedSlotId === StorageService.getSlotId(1)) {
@@ -3594,6 +3609,117 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setShiftAssignments(data.assignments);
   };
 
+  const addJobApplication = async (
+    data: Omit<JobApplication, 'id' | 'createdAt' | 'companyCode'>
+  ): Promise<JobApplication> => {
+    const compCode = (user?.companyCode || 'POLATLAR').toUpperCase();
+    const newApp: JobApplication = {
+      ...data,
+      id: generateId(),
+      companyCode: compCode,
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+    const updated = [newApp, ...jobApplications];
+    setJobApplications(updated);
+    await StorageService.saveJobApplications(updated);
+    return newApp;
+  };
+
+  const updateJobApplication = async (id: string, updates: Partial<JobApplication>): Promise<void> => {
+    const updated = jobApplications.map((app) =>
+      app.id === id ? { ...app, ...updates, updatedAt: Date.now() } : app
+    );
+    setJobApplications(updated);
+    await StorageService.saveJobApplications(updated);
+  };
+
+  const deleteJobApplication = async (id: string): Promise<void> => {
+    const updated = jobApplications.filter((app) => app.id !== id);
+    setJobApplications(updated);
+    await StorageService.saveJobApplications(updated);
+  };
+
+  const updateJobApplicationStatus = async (
+    id: string,
+    status: JobApplicationStatus,
+    statusNotes?: string
+  ): Promise<void> => {
+    const updated = jobApplications.map((app) => {
+      if (app.id !== id) return app;
+      return {
+        ...app,
+        status,
+        statusNotes: statusNotes !== undefined ? statusNotes : app.statusNotes,
+        updatedAt: Date.now(),
+      };
+    });
+    setJobApplications(updated);
+    await StorageService.saveJobApplications(updated);
+  };
+
+  const convertApplicationToStaff = async (
+    applicationId: string,
+    userParams: { username: string; password?: string; name: string; role?: UserRole; branchId?: string }
+  ): Promise<{ success: boolean; user?: any; error?: string }> => {
+    const compCode = (user?.companyCode || 'POLATLAR').toUpperCase();
+    try {
+      const res = await UserService.addUser({
+        username: userParams.username,
+        password: userParams.password || '1234',
+        name: userParams.name,
+        role: userParams.role || 'staff',
+        companyCode: compCode,
+      });
+
+      if (!res.success || !res.user) {
+        return { success: false, error: res.error || 'Kullanıcı hesabı oluşturulamadı.' };
+      }
+
+      const createdUser = res.user;
+
+      if (userParams.branchId) {
+        const targetBranch = branches.find((b) => b.id === userParams.branchId);
+        if (targetBranch) {
+          const existingIds = targetBranch.assignedUserIds || [];
+          if (!existingIds.includes(createdUser.id)) {
+            await assignStaffToBranch(userParams.branchId, [...existingIds, createdUser.id], compCode);
+          }
+        }
+      }
+
+      // Update application
+      const updated = jobApplications.map((app) => {
+        if (app.id !== applicationId) return app;
+        return {
+          ...app,
+          status: 'hired' as JobApplicationStatus,
+          convertedToUserId: createdUser.id,
+          convertedToUsername: createdUser.username,
+          convertedAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+      });
+      setJobApplications(updated);
+      await StorageService.saveJobApplications(updated);
+
+      return { success: true, user: res.user };
+    } catch (err: any) {
+      console.error('convertApplicationToStaff error:', err);
+      return { success: false, error: err?.message || 'Personele dönüştürme sırasında hata oluştu.' };
+    }
+  };
+
+  const refreshJobApplications = async (): Promise<void> => {
+    try {
+      const apps = await StorageService.getJobApplications();
+      setJobApplications(apps);
+    } catch (err) {
+      console.warn('refreshJobApplications error:', err);
+    }
+  };
+
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
@@ -6274,6 +6400,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         assignUserShift,
         removeUserShift,
         refreshShifts,
+        jobApplications,
+        addJobApplication,
+        updateJobApplication,
+        deleteJobApplication,
+        updateJobApplicationStatus,
+        convertApplicationToStaff,
+        refreshJobApplications,
         checkInStaff,
         checkOutStaff,
         startBreak,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote, UserPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
@@ -10,7 +10,7 @@ import { useStorage } from '../../context/StorageContext';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
 
-export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template';
+export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -196,6 +196,19 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <ListTodo className="w-4 h-4" />
           <span>Şablon Yönetimi</span>
+        </button>
+      )}
+      {isModulePermitted('job_applications', user, company) && (
+        <button
+          onClick={() => setActiveTab('job_applications')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'job_applications'
+              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>İş Başvuruları</span>
         </button>
       )}
     </div>

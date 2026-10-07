@@ -413,3 +413,30 @@ export interface TimedFollowUp {
   currentMilestoneKey?: string;
 }
 
+export type JobApplicationStatus = 'new' | 'interview_scheduled' | 'offer_made' | 'hired' | 'rejected';
+
+export interface JobApplication {
+  id: string;
+  companyCode: string;
+  fullName: string;
+  phone: string;
+  address: string;
+  education: string;
+  appliedPosition: string;
+  militaryStatus: string; // 'Yapıldı' | 'Muaf' | 'Tecilli' | 'Muaf / Yok'
+  experience: string;
+  cvFileName?: string;
+  cvFileData?: string; // base64 / data url
+  photoData?: string; // base64 image data url
+  status: JobApplicationStatus;
+  statusNotes?: string;
+  interviewDate?: string;
+  salaryExpectation?: string;
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+  convertedToUserId?: string;
+  convertedToUsername?: string;
+  convertedAt?: number;
+}

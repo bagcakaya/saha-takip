@@ -13,6 +13,7 @@ export const VALID_TABS: TabType[] = [
   'returns',
   'logs',
   'template',
+  'job_applications',
 ];
 
 /**
@@ -83,6 +84,13 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
 
     template: 'template',
     sablon: 'template',
+
+    job_applications: 'job_applications',
+    jobapplications: 'job_applications',
+    is_basvurulari: 'job_applications',
+    is_basvurusu: 'job_applications',
+    basvuru: 'job_applications',
+    basvurular: 'job_applications',
   };
 
   if (aliases[clean]) {

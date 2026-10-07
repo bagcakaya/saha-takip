@@ -17,6 +17,7 @@ import {
   ShiftDefinition,
   ShiftAssignment,
   ShiftDataPayload,
+  JobApplication,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -39,6 +40,7 @@ const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 const SHIFT_DATA_KEY = '@saha_takip_shift_data';
+const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
 
 const companyIdCache = new Map<string, number>([
   ['POLATLAR', 1],
@@ -2790,6 +2792,42 @@ export const StorageService = {
   async saveShiftAssignments(assignments: ShiftAssignment[]): Promise<void> {
     const current = await this.getShiftData();
     await this.saveShiftData({ ...current, assignments });
+  },
+
+  /**
+   * Retrieves job applications for current company (cloud slot 19 + IndexedDB/localStorage cache)
+   */
+  async getJobApplications(): Promise<JobApplication[]> {
+    const localKey = this.getStorageKey(JOB_APPLICATIONS_KEY);
+    const slotId = this.getSlotId(19);
+
+    const { data: cloudData, notFound } = await loadChunkedSlot<JobApplication[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<JobApplication[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves job applications for current company to cloud slot 19 and local storage
+   */
+  async saveJobApplications(items: JobApplication[]): Promise<void> {
+    const localKey = this.getStorageKey(JOB_APPLICATIONS_KEY);
+    await saveItem(localKey, items);
+
+    try {
+      const slotId = this.getSlotId(19);
+      await saveChunkedSlot(slotId, items);
+    } catch (e) {
+      console.warn('Job applications cloud save error:', e);
+    }
   },
 
   async exportBackup(): Promise<string> {
