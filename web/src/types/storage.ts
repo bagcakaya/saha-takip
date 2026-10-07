@@ -462,6 +462,8 @@ export interface SalaryPaymentItem {
   date: string; // YYYY-MM-DD
   description?: string; // Örn: 'Avans verildi', 'Ekim maaşı'
   receiptUrl?: string; // Dekont / Makbuz görseli (base64 / data URL)
+  branchId?: string; // Ödemenin yapıldığı şube / kasa
+  branchName?: string;
   createdAt: number;
   createdBy?: string;
   createdByName?: string;
@@ -472,6 +474,8 @@ export interface StaffSalaryMonthRecord {
   companyCode: string;
   userId: string;
   staffName: string;
+  branchId?: string;
+  branchName?: string;
   year: number; // örn: 2026
   month: number; // 1 - 12 (1 = Ocak, 12 = Aralık)
   agreedAmount?: number; // İsteğe bağlı o ay için anlaşılan hak ediş tutarı (girilirse kalan hesaplanır)

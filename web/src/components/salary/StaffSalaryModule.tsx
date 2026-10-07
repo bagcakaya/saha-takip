@@ -15,6 +15,9 @@ import {
   Search,
   Building2,
   User,
+  FileDown,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -23,6 +26,7 @@ import {
   SalaryPaymentMethod,
   SalaryPaymentType,
 } from '../../types/storage';
+import { BranchSelect, BranchOption } from '../common/BranchSelect';
 
 const MONTH_NAMES = [
   'Ocak',
@@ -79,6 +83,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     new Date().toISOString().split('T')[0]
   );
   const [paymentDesc, setPaymentDesc] = useState('');
+  const [paymentBranchId, setPaymentBranchId] = useState<string>('');
   const [paymentReceipt, setPaymentReceipt] = useState<string | undefined>(undefined);
 
   // İsteğe bağlı o ay için hedef hak ediş düzenleme
@@ -88,22 +93,47 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // Dekont büyük önizleme
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
 
-  // Şirket personelleri
+  // PDF üretiliyor mu?
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Bildirim toast
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Şirket kodu ve adı
   const activeCompanyCode = (company?.code || user?.companyCode || 'POLATLAR')
     .trim()
     .toUpperCase();
+  const activeCompanyName = company?.name || activeCompanyCode;
 
+  // Şirket personelleri
   const companyStaff = useMemo(() => {
     if (!users || !Array.isArray(users)) return [];
     return users.filter((u) => {
       const uComp = (u.companyCode || 'POLATLAR').trim().toUpperCase();
-      if (uComp !== activeCompanyCode) return false;
-      // Normal personeller ve yöneticiler
-      return true;
+      return uComp === activeCompanyCode;
     });
   }, [users, activeCompanyCode]);
 
-  // Filtrelenmiş personel listesi
+  // BranchSelect seçenekleri
+  const branchOptions = useMemo<BranchOption[]>(() => {
+    if (!branches || !Array.isArray(branches)) return [];
+    return branches.map((b) => {
+      const assignedIds = new Set(b.assignedUserIds || []);
+      companyStaff.forEach((u) => {
+        if (u.branchId === b.id) {
+          assignedIds.add(u.id);
+        }
+      });
+      return {
+        id: b.id,
+        name: b.name,
+        address: b.address,
+        staffCount: assignedIds.size,
+      };
+    });
+  }, [branches, companyStaff]);
+
+  // Filtrelenmiş personel listesi (Şube & Arama)
   const filteredStaff = useMemo(() => {
     return companyStaff.filter((st) => {
       if (selectedBranchId !== 'all') {
@@ -123,20 +153,26 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       return (
         st.name?.toLowerCase().includes(q) ||
         st.username?.toLowerCase().includes(q) ||
-        st.phone?.toLowerCase().includes(q)
+        (st.phone && st.phone.toLowerCase().includes(q))
       );
     });
   }, [companyStaff, selectedBranchId, searchQuery, branches]);
 
-  // Yıllık Genel Finansal İstatistikler
+  // Yıllık Finansal İstatistikler (Seçili şubeye göre dinamik hesaplanır)
   const annualStats = useMemo(() => {
     let totalPaid = 0;
     let totalCash = 0;
     let totalBank = 0;
     let totalPaymentsCount = 0;
 
+    const targetStaffIds = new Set(filteredStaff.map((s) => s.id));
+
     (salaryRecords || []).forEach((rec) => {
-      if (rec.year === selectedYear && rec.companyCode === activeCompanyCode) {
+      if (
+        rec.year === selectedYear &&
+        rec.companyCode === activeCompanyCode &&
+        targetStaffIds.has(rec.userId)
+      ) {
         (rec.payments || []).forEach((p) => {
           totalPaid += p.amount || 0;
           if (p.paymentMethod === 'cash') totalCash += p.amount || 0;
@@ -147,7 +183,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     });
 
     return { totalPaid, totalCash, totalBank, totalPaymentsCount };
-  }, [salaryRecords, selectedYear, activeCompanyCode]);
+  }, [salaryRecords, selectedYear, activeCompanyCode, filteredStaff]);
 
   // Belirli bir personel ve ay için kayıt getirici
   const getMonthRecord = (
@@ -218,6 +254,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     return { totalPaid, totalCash, totalBank, agreed, remaining, payments };
   }, [currentModalRecord]);
 
+  // Modal açıldığında varsayılan ödeme şubesini ayarla
+  const handleOpenMonthModal = (staff: any, year: number, month: number) => {
+    setActiveModalData({ staff, year, month });
+    setIsAddingPayment(false);
+    setIsEditingAgreed(false);
+    // Personelin şubesi varsa onu, yoksa ilk şubeyi veya boş bırak
+    setPaymentBranchId(staff.branchId || (branches && branches.length > 0 ? branches[0].id : ''));
+  };
+
   // Yeni ödeme kaydetme
   const handleSavePayment = async () => {
     if (!activeModalData) return;
@@ -226,6 +271,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       alert('Lütfen geçerli bir ödeme tutarı giriniz.');
       return;
     }
+
+    const assignedBranch = branches?.find((b) => b.id === paymentBranchId);
 
     await addSalaryPayment(
       activeModalData.staff.id,
@@ -238,6 +285,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         paymentType,
         date: paymentDate || new Date().toISOString().split('T')[0],
         description: paymentDesc.trim() || undefined,
+        branchId: paymentBranchId || undefined,
+        branchName: assignedBranch?.name || undefined,
         receiptUrl: paymentReceipt,
       }
     );
@@ -260,6 +309,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         )} ₺ tutar "${method === 'cash' ? 'Nakit' : 'Banka'}" olarak kapatılsın mı?`
       )
     ) {
+      const staffBranch = branches?.find((b) => b.id === activeModalData.staff.branchId);
+
       await addSalaryPayment(
         activeModalData.staff.id,
         activeModalData.staff.name || activeModalData.staff.username,
@@ -271,6 +322,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           paymentType: 'salary',
           date: new Date().toISOString().split('T')[0],
           description: `Kalan maaş kapatıldı (${method === 'cash' ? 'Nakit' : 'Banka'})`,
+          branchId: staffBranch?.id,
+          branchName: staffBranch?.name,
         }
       );
     }
@@ -294,44 +347,6 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     setIsEditingAgreed(false);
   };
 
-  // WhatsApp Bilgilendirmesi Gönder
-  const handleSendWhatsApp = () => {
-    if (!activeModalData) return;
-    const st = activeModalData.staff;
-    const phone = (st.phone || '').replace(/\D/g, '');
-    const monthName = MONTH_NAMES[activeModalData.month - 1];
-
-    const messageLines = [
-      `Sayın *${st.name || st.username}*,`,
-      `*${monthName} ${activeModalData.year}* dönemi maaş ve avans özetiniz:`,
-      `━━━━━━━━━━━━━━━━━`,
-      `• *Toplam Verilen:* ${currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺`,
-    ];
-
-    if (currentMonthCalc.totalBank > 0) {
-      messageLines.push(`  - 🏦 Banka: ${currentMonthCalc.totalBank.toLocaleString('tr-TR')} ₺`);
-    }
-    if (currentMonthCalc.totalCash > 0) {
-      messageLines.push(`  - 💵 Elden Nakit: ${currentMonthCalc.totalCash.toLocaleString('tr-TR')} ₺`);
-    }
-
-    if (currentMonthCalc.agreed !== undefined && currentMonthCalc.remaining !== null) {
-      messageLines.push(`• *Anlaşılan Hak Ediş:* ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`);
-      messageLines.push(`• *Kalan Bakiye:* ${currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺`);
-    }
-
-    messageLines.push(`━━━━━━━━━━━━━━━━━`);
-    messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
-    messageLines.push(`*${activeCompanyCode}*`);
-
-    const encoded = encodeURIComponent(messageLines.join('\n'));
-    const url = phone
-      ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
-      : `https://wa.me/?text=${encoded}`;
-
-    window.open(url, '_blank');
-  };
-
   // Dekont dosya yükleme
   const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -347,6 +362,287 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       setPaymentReceipt(event.target?.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  // =========================================================
+  // 📄 RESMİ MAAŞ PUSULASI HTML ŞABLONU OLUŞTURUCU
+  // =========================================================
+  const generateSalarySlipHtml = (
+    staff: any,
+    year: number,
+    month: number,
+    calc: typeof currentMonthCalc
+  ) => {
+    const monthName = MONTH_NAMES[month - 1];
+    const staffBranch = branches?.find((b) => b.id === staff.branchId);
+    const dateFormatted = new Date().toLocaleDateString('tr-TR');
+
+    const paymentRows = calc.payments.map((p, idx) => `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+        <td style="padding: 8px 10px; text-align: center; color: #64748b;">${idx + 1}</td>
+        <td style="padding: 8px 10px; font-weight: bold; color: #1e293b;">${p.date}</td>
+        <td style="padding: 8px 10px; color: #334155;">
+          ${
+            p.paymentType === 'advance'
+              ? 'Avans'
+              : p.paymentType === 'salary'
+              ? 'Maaş'
+              : p.paymentType === 'bonus'
+              ? 'Prim'
+              : 'Diğer'
+          }
+        </td>
+        <td style="padding: 8px 10px;">
+          <span style="display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; ${
+            p.paymentMethod === 'bank'
+              ? 'background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;'
+              : 'background: #fffbeb; color: #b45309; border: 1px solid #fde68a;'
+          }">
+            ${p.paymentMethod === 'bank' ? '🏦 Banka / EFT' : '💵 Elden Nakit'}
+          </span>
+        </td>
+        <td style="padding: 8px 10px; color: #475569;">${p.branchName || staffBranch?.name || '-'}</td>
+        <td style="padding: 8px 10px; color: #64748b;">${p.description || '-'}</td>
+        <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: #047857; font-size: 12px;">
+          ${p.amount.toLocaleString('tr-TR')} ₺
+        </td>
+      </tr>
+    `).join('');
+
+    return `
+      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 24px; max-width: 800px; margin: 0 auto; background: #ffffff;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #059669; padding-bottom: 16px; margin-bottom: 20px;">
+          <div>
+            <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #065f46; letter-spacing: -0.5px;">
+              ${activeCompanyName}
+            </h1>
+            <p style="margin: 3px 0 0 0; font-size: 12px; color: #475569; font-weight: bold;">
+              PERSONEL MAAŞ & ÖDEME PUSULASI
+            </p>
+          </div>
+          <div style="text-align: right; font-size: 11px; color: #64748b;">
+            <div><strong>Dönem:</strong> ${monthName} ${year}</div>
+            <div><strong>Düzenleme Tarihi:</strong> ${dateFormatted}</div>
+            <div><strong>Belge No:</strong> MS-${year}${month < 10 ? '0' + month : month}-${staff.id.substring(0, 6).toUpperCase()}</div>
+          </div>
+        </div>
+
+        <!-- Personel Bilgileri Tablosu -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <tr>
+              <td style="width: 25%; padding: 4px 0; color: #64748b;">Personel Adı:</td>
+              <td style="width: 35%; padding: 4px 0; font-weight: bold; color: #0f172a;">${staff.name || staff.username}</td>
+              <td style="width: 20%; padding: 4px 0; color: #64748b;">Şube / Birim:</td>
+              <td style="width: 20%; padding: 4px 0; font-weight: bold; color: #0f172a;">${staffBranch?.name || 'Merkez'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Kullanıcı Adı:</td>
+              <td style="padding: 4px 0; color: #334155;">@${staff.username}</td>
+              <td style="padding: 4px 0; color: #64748b;">Telefon:</td>
+              <td style="padding: 4px 0; color: #334155;">${staff.phone || '-'}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Özet Finansal Kutular -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
+          <div style="border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 12px;">
+            <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM VERİLEN MAAŞ</div>
+            <div style="font-size: 18px; font-weight: 900; color: #047857; margin-top: 4px;">
+              ${calc.totalPaid.toLocaleString('tr-TR')} ₺
+            </div>
+          </div>
+          <div style="border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; padding: 12px;">
+            <div style="font-size: 11px; font-weight: bold; color: #1e40af;">🏦 BANKA / EFT İLE</div>
+            <div style="font-size: 16px; font-weight: 900; color: #1d4ed8; margin-top: 4px;">
+              ${calc.totalBank.toLocaleString('tr-TR')} ₺
+            </div>
+          </div>
+          <div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 12px;">
+            <div style="font-size: 11px; font-weight: bold; color: #92400e;">💵 ELDEN NAKİT İLE</div>
+            <div style="font-size: 16px; font-weight: 900; color: #b45309; margin-top: 4px;">
+              ${calc.totalCash.toLocaleString('tr-TR')} ₺
+            </div>
+          </div>
+        </div>
+
+        ${
+          calc.agreed !== undefined && calc.remaining !== null
+            ? `
+          <div style="background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 11px; display: flex; justify-content: space-between;">
+            <span><strong>Anlaşılan Dönem Hak Edişi:</strong> ${calc.agreed.toLocaleString('tr-TR')} ₺</span>
+            <span style="color: ${calc.remaining > 0 ? '#b91c1c' : '#047857'}; font-weight: bold;">
+              <strong>Kalan Bakiye:</strong> ${calc.remaining.toLocaleString('tr-TR')} ₺
+            </span>
+          </div>
+        `
+            : ''
+        }
+
+        <!-- Ödeme Hareketleri Detay Tablosu -->
+        <div style="margin-bottom: 25px;">
+          <h3 style="font-size: 12px; font-weight: 800; color: #334155; text-transform: uppercase; margin: 0 0 10px 0;">
+            Ödeme Hareketleri Dökümü (${calc.payments.length} İşlem)
+          </h3>
+          <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+            <thead>
+              <tr style="background: #f1f5f9; text-align: left; font-size: 10px; font-weight: bold; color: #475569; text-transform: uppercase;">
+                <th style="padding: 8px 10px; text-align: center; width: 30px;">#</th>
+                <th style="padding: 8px 10px;">Tarih</th>
+                <th style="padding: 8px 10px;">İşlem Türü</th>
+                <th style="padding: 8px 10px;">Kanal</th>
+                <th style="padding: 8px 10px;">Şube / Kasa</th>
+                <th style="padding: 8px 10px;">Açıklama</th>
+                <th style="padding: 8px 10px; text-align: right;">Tutar</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                paymentRows ||
+                `<tr><td colspan="7" style="padding: 16px; text-align: center; color: #94a3b8; font-size: 11px;">Bu döneme ait ödeme kaydı bulunmamaktadır.</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- İmza ve Onay Bölümü -->
+        <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+          <div style="text-align: center; width: 40%;">
+            <div style="font-size: 11px; font-weight: bold; color: #334155; margin-bottom: 50px;">
+              İşveren / Yetkili İmza & Kaşe
+            </div>
+            <div style="border-top: 1px dashed #94a3b8; padding-top: 5px; font-size: 10px; color: #64748b;">
+              ${activeCompanyName}
+            </div>
+          </div>
+          <div style="text-align: center; width: 40%;">
+            <div style="font-size: 11px; font-weight: bold; color: #334155; margin-bottom: 50px;">
+              Personel / Teslim Alan İmza
+            </div>
+            <div style="border-top: 1px dashed #94a3b8; padding-top: 5px; font-size: 10px; color: #64748b;">
+              ${staff.name || staff.username}
+            </div>
+          </div>
+        </div>
+
+        <!-- Dipnot -->
+        <div style="margin-top: 25px; text-align: center; font-size: 9px; color: #94a3b8; line-height: 1.4;">
+          İşbu pusula ${monthName} ${year} dönemi içerisinde personele banka veya nakit elden teslim edilen tüm ödemeleri belgeler.<br/>
+          Sistem tarafından otomatik üretilmiştir.
+        </div>
+      </div>
+    `;
+  };
+
+  // =========================================================
+  // 📱 PDF İNDİR VE WHATSAPP / SİSTEM PAYLAŞIMI
+  // =========================================================
+  const handleExportAndSharePdf = async (openWhatsApp: boolean = false) => {
+    if (!activeModalData) return;
+    const staff = activeModalData.staff;
+    const year = activeModalData.year;
+    const month = activeModalData.month;
+    const monthName = MONTH_NAMES[month - 1];
+
+    setIsGeneratingPdf(true);
+
+    try {
+      const htmlContent = generateSalarySlipHtml(staff, year, month, currentMonthCalc);
+      const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${monthName}_${year}_Maas_Pusulasi.pdf`;
+
+      // html2pdf import
+      const html2pdf =
+        (window as any).html2pdf || (await import('html2pdf.js')).default;
+
+      const container = document.createElement('div');
+      container.innerHTML = htmlContent;
+      document.body.appendChild(container);
+
+      const opt = {
+        margin: [8, 8, 8, 8],
+        filename: cleanFileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      };
+
+      // PDF Blob oluştur
+      const worker = html2pdf().set(opt).from(container);
+
+      // Mobil cihazlarda Web Share API ile dosya paylaşımı dene
+      if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+        try {
+          const pdfBlob = await worker.outputPdf('blob');
+          const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
+
+          if (navigator.canShare({ files: [pdfFile] })) {
+            document.body.removeChild(container);
+            await navigator.share({
+              files: [pdfFile],
+              title: `${staff.name || staff.username} - ${monthName} ${year} Maaş Pusulası`,
+              text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi maaş pusulanız ektedir. (${activeCompanyName})`,
+            });
+            setIsGeneratingPdf(false);
+            return;
+          }
+        } catch (shareErr) {
+          console.warn('Native share failed or dismissed, falling back to download:', shareErr);
+        }
+      }
+
+      // Standart İndirme (.save())
+      await worker.save();
+      document.body.removeChild(container);
+
+      // Eğer WhatsApp tıklandıysa ve native share desteklenmediyse WhatsApp web/uygulamasına yönlendir
+      if (openWhatsApp) {
+        const phone = (staff.phone || '').replace(/\D/g, '');
+        const messageLines = [
+          `Sayın *${staff.name || staff.username}*,`,
+          `*${monthName} ${year}* dönemi maaş pusulanız PDF olarak hazırlanmıştır.`,
+          `━━━━━━━━━━━━━━━━━`,
+          `• *Toplam Verilen:* ${currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺`,
+        ];
+
+        if (currentMonthCalc.totalBank > 0) {
+          messageLines.push(`  - 🏦 Banka: ${currentMonthCalc.totalBank.toLocaleString('tr-TR')} ₺`);
+        }
+        if (currentMonthCalc.totalCash > 0) {
+          messageLines.push(`  - 💵 Elden Nakit: ${currentMonthCalc.totalCash.toLocaleString('tr-TR')} ₺`);
+        }
+
+        if (currentMonthCalc.agreed !== undefined && currentMonthCalc.remaining !== null) {
+          messageLines.push(`• *Anlaşılan Hak Ediş:* ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`);
+          messageLines.push(`• *Kalan Bakiye:* ${currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺`);
+        }
+
+        messageLines.push(`━━━━━━━━━━━━━━━━━`);
+        messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
+        messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
+        messageLines.push(`*${activeCompanyName}*`);
+
+        const encoded = encodeURIComponent(messageLines.join('\n'));
+        const url = phone
+          ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
+          : `https://wa.me/?text=${encoded}`;
+
+        window.open(url, '_blank');
+      }
+
+      setToastMessage(
+        openWhatsApp
+          ? '📄 Maaş Pusulası PDF olarak indirildi ve WhatsApp açıldı!'
+          : '📄 Maaş Pusulası PDF olarak cihazınıza indirildi.'
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      console.error('PDF üretilirken hata oluştu:', err);
+      alert('PDF oluşturulurken bir hata meydana geldi.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   return (
@@ -372,7 +668,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               </h1>
             </div>
             <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
-              Personel maaş ve avans ödemeleri, nakit/banka dökümü ve ay bazında çekmece arşivi.
+              Personel maaş ve avans ödemeleri, nakit/banka dökümü, şube kasaları ve PDF pusula arşivi.
             </p>
           </div>
         </div>
@@ -399,7 +695,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         </div>
       </div>
 
-      {/* 2. Yıllık Özet KPI Kartları */}
+      {/* 2. Yıllık Özet KPI Kartları (Seçili Şubeye Göre Dinamik) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between">
@@ -412,7 +708,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             {annualStats.totalPaid.toLocaleString('tr-TR')} ₺
           </p>
           <span className="text-[10px] text-slate-400">
-            {annualStats.totalPaymentsCount} işlem
+            {annualStats.totalPaymentsCount} ödeme hareketi
           </span>
         </div>
 
@@ -455,21 +751,24 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              Kayıtlı Personel
+              Personel Sayısı
             </span>
             <User className="w-4 h-4 text-purple-500" />
           </div>
           <p className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
-            {companyStaff.length}
+            {filteredStaff.length}
           </p>
           <span className="text-[10px] text-slate-400">
-            {filteredStaff.length} listeleniyor
+            {selectedBranchId === 'all'
+              ? 'Tüm Şubeler Genel Toplam'
+              : `${branches?.find((b) => b.id === selectedBranchId)?.name || 'Seçili Şube'}`}
           </span>
         </div>
       </div>
 
-      {/* 3. Arama ve Şube Filtreleme Çubuğu */}
+      {/* 3. Arama ve Şube Seçimi Çubuğu (Şubeli Firmalar İçin) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        {/* Arama Kutusu */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -489,21 +788,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           )}
         </div>
 
+        {/* ŞUBELİ FİRMALAR İÇİN ŞUBE SEÇİMİ BİLEŞENİ */}
         {branches && branches.length > 0 && (
-          <div className="flex items-center gap-2 shrink-0">
-            <Building2 className="w-4 h-4 text-slate-400" />
-            <select
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-            >
-              <option value="all">Tüm Şubeler</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+          <div className="w-full sm:w-72 shrink-0">
+            <BranchSelect
+              options={branchOptions}
+              selectedBranchId={selectedBranchId}
+              onChange={(bId) => setSelectedBranchId(bId)}
+              totalCompanyStaffCount={companyStaff.length}
+            />
           </div>
         )}
       </div>
@@ -518,7 +811,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             Aranan Kriterde Personel Bulunamadı
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            Arama kutusunu temizleyerek veya şube filtresini değiştirerek tekrar deneyebilirsiniz.
+            {selectedBranchId !== 'all'
+              ? 'Seçili şubede henüz kayıtlı personel bulunmuyor veya arama kriteriyle eşleşmedi.'
+              : 'Arama kutusunu temizleyerek tekrar deneyebilirsiniz.'}
           </p>
         </div>
       ) : (
@@ -566,8 +861,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         {staffBranch && (
                           <span className="flex items-center gap-1">
-                            <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                            {staffBranch.name}
+                            <Building2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <strong className="text-slate-700 dark:text-slate-300">{staffBranch.name}</strong>
                           </span>
                         )}
                         {staff.phone && (
@@ -621,7 +916,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
                       <span>{selectedYear} Yılı Aylar Çizelgesi:</span>
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                        Detay ve ödeme için ilgili aya dokunun
+                        Detay, PDF ve ödeme girişi için aya dokunun
                       </span>
                     </div>
 
@@ -649,11 +944,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setActiveModalData({
-                                staff,
-                                year: selectedYear,
-                                month: monthNum,
-                              });
+                              handleOpenMonthModal(staff, selectedYear, monthNum);
                             }}
                             className={`p-3 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
                               hasPayments
@@ -733,6 +1024,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
                       {activeModalData.staff.name || activeModalData.staff.username}
                     </h2>
+                    {branches?.find((b) => b.id === activeModalData.staff.branchId) && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                        {branches.find((b) => b.id === activeModalData.staff.branchId)?.name}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                     {MONTH_NAMES[activeModalData.month - 1]} {activeModalData.year} Maaş & Ödeme Detayı
@@ -901,6 +1197,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                                   ? 'Prim'
                                   : 'Diğer'}
                               </span>
+                              {p.branchName && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                  🏢 {p.branchName}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
                               <span>{p.date}</span>
@@ -1019,6 +1320,27 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     </div>
                   </div>
 
+                  {/* Şubeli Firmalar İçin: Ödemenin Yapıldığı Şube / Kasa */}
+                  {branches && branches.length > 0 && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        🏢 Ödemenin Yapıldığı Şube / Kasa
+                      </label>
+                      <select
+                        value={paymentBranchId}
+                        onChange={(e) => setPaymentBranchId(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="">Merkez Kasa / Genel</option>
+                        {branches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Ödeme Türü: Maaş / Avans / Prim */}
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -1114,7 +1436,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             </div>
 
             {/* ========================================================= */}
-            {/* D. HIZLI AKSİYON BUTONLARI (KARTIN ALTI)                   */}
+            {/* D. HIZLI AKSİYON BUTONLARI (KARTIN ALTI - PDF & WHATSAPP) */}
             {/* ========================================================= */}
             <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -1123,7 +1445,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   <button
                     type="button"
                     onClick={() => setIsAddingPayment(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Plus className="w-4 h-4 stroke-[3]" />
                     <span>Ödeme Ekle</span>
@@ -1153,16 +1475,40 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                 )}
               </div>
 
-              {/* 3. WhatsApp Bilgilendirmesi Butonu */}
-              <button
-                type="button"
-                onClick={handleSendWhatsApp}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md shadow-emerald-700/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer shrink-0"
-                title="Personele WhatsApp üzerinden bordro / ödeme bilgilendirmesi gönder"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>WhatsApp İle Gönder</span>
-              </button>
+              {/* PDF İndir & WhatsApp İle Gönder Butonları */}
+              <div className="flex items-center gap-2">
+                {/* 📄 PDF Pusula İndir */}
+                <button
+                  type="button"
+                  disabled={isGeneratingPdf}
+                  onClick={() => handleExportAndSharePdf(false)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  title="Resmi Maaş Pusulasını PDF Olarak İndir"
+                >
+                  {isGeneratingPdf ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                  ) : (
+                    <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span>PDF Pusula</span>
+                </button>
+
+                {/* 📱 WhatsApp İle PDF & Bilgi Gönder */}
+                <button
+                  type="button"
+                  disabled={isGeneratingPdf}
+                  onClick={() => handleExportAndSharePdf(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md shadow-emerald-700/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                  title="Personele WhatsApp üzerinden PDF maaş pusulası ve döküm mesajı gönder"
+                >
+                  {isGeneratingPdf ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>WhatsApp (PDF)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1187,6 +1533,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               className="w-full h-full object-contain max-h-[80vh]"
             />
           </div>
+        </div>
+      )}
+
+      {/* Başarı Toast Bildirimi */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-60 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-xs font-bold shadow-xl flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>

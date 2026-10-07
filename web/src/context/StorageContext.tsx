@@ -3783,6 +3783,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updatedMonth: StaffSalaryMonthRecord = {
         ...existing,
         staffName: staffName || existing.staffName,
+        branchId: payment.branchId || existing.branchId,
+        branchName: payment.branchName || existing.branchName,
         agreedAmount: agreedAmount !== undefined ? agreedAmount : existing.agreedAmount,
         payments: [...existing.payments, newPaymentItem],
         updatedAt: Date.now(),
@@ -3795,6 +3797,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         companyCode: activeCompCode,
         userId,
         staffName,
+        branchId: payment.branchId,
+        branchName: payment.branchName,
         year,
         month,
         agreedAmount,
