@@ -10,6 +10,7 @@ import {
   Edit2,
   Trash2,
   Phone,
+  PhoneCall,
   MapPin,
   GraduationCap,
   Briefcase,
@@ -39,6 +40,14 @@ const STATUS_CONFIG: Record<
     border: 'border-amber-300 dark:border-amber-700',
     badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700',
     icon: Clock,
+  },
+  call_scheduled: {
+    label: 'Aranması Planlandı',
+    bg: 'bg-cyan-500/10 dark:bg-cyan-500/20',
+    text: 'text-cyan-700 dark:text-cyan-300',
+    border: 'border-cyan-300 dark:border-cyan-700',
+    badge: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/60 dark:text-cyan-200 border border-cyan-300 dark:border-cyan-700',
+    icon: PhoneCall,
   },
   interview_scheduled: {
     label: 'Mülakat Planlandı',
@@ -125,11 +134,12 @@ export const JobApplicationsView: React.FC = () => {
   const stats = useMemo(() => {
     const total = safeList.length;
     const newCount = safeList.filter((a) => a.status === 'new').length;
+    const callCount = safeList.filter((a) => a.status === 'call_scheduled').length;
     const interviewCount = safeList.filter((a) => a.status === 'interview_scheduled').length;
     const offerCount = safeList.filter((a) => a.status === 'offer_made').length;
     const hiredCount = safeList.filter((a) => a.status === 'hired').length;
     const rejectedCount = safeList.filter((a) => a.status === 'rejected').length;
-    return { total, newCount, interviewCount, offerCount, hiredCount, rejectedCount };
+    return { total, newCount, callCount, interviewCount, offerCount, hiredCount, rejectedCount };
   }, [safeList]);
 
   // Filtered & sorted list (newest first)
@@ -177,12 +187,16 @@ export const JobApplicationsView: React.FC = () => {
   };
 
   const handleStatusChange = async (app: JobApplication, newStatus: JobApplicationStatus) => {
-    if (newStatus === 'hired' && !app.convertedToUserId) {
-      // Offer conversion modal directly
-      setConvertingApp(app);
-      return;
-    }
     await updateJobApplicationStatus(app.id, newStatus);
+    if (newStatus === 'hired' && !app.convertedToUserId) {
+      if (
+        window.confirm(
+          `"${app.fullName}" adayı "İşe Alındı" durumuna taşındı!\n\nŞimdi bu aday için sisteme personel kullanıcı hesabı oluşturmak ister misiniz?`
+        )
+      ) {
+        setConvertingApp(app);
+      }
+    }
   };
 
   return (
@@ -212,37 +226,54 @@ export const JobApplicationsView: React.FC = () => {
         </button>
       </div>
 
-      {/* 2. Pipeline KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* 2. Pipeline KPI Cards (Görsel-3) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
         <button
           onClick={() => setStatusFilter('all')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'all'
               ? 'bg-slate-900 text-white border-slate-700 shadow-md ring-2 ring-slate-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">Toplam Aday</span>
+            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Toplam Aday</span>
             <Users className="w-4 h-4 opacity-50" />
           </div>
-          <p className="text-2xl font-black mt-2">{stats.total}</p>
+          <p className="text-xl sm:text-2xl font-black mt-2">{stats.total}</p>
         </button>
 
         <button
           onClick={() => setStatusFilter('new')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
             statusFilter === 'new'
               ? 'bg-amber-600 text-white border-amber-500 shadow-md ring-2 ring-amber-400'
               : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-amber-300'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold opacity-75">Yeni Başvuru</span>
+            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Yeni Başvuru</span>
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
-          <p className="text-2xl font-black mt-2 text-amber-600 dark:text-amber-400">
+          <p className="text-xl sm:text-2xl font-black mt-2 text-amber-600 dark:text-amber-400">
             {stats.newCount}
+          </p>
+        </button>
+
+        <button
+          onClick={() => setStatusFilter('call_scheduled')}
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+            statusFilter === 'call_scheduled'
+              ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-400'
+              : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-cyan-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] sm:text-xs font-semibold opacity-75">Aranması Planlı</span>
+            <PhoneCall className="w-4 h-4 text-cyan-500" />
+          </div>
+          <p className="text-xl sm:text-2xl font-black mt-2 text-cyan-600 dark:text-cyan-400">
+            {stats.callCount}
           </p>
         </button>
 
@@ -523,6 +554,7 @@ export const JobApplicationsView: React.FC = () => {
                               className={`appearance-none text-xs font-extrabold px-3 py-1.5 pr-7 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500 ${statusConf.badge}`}
                             >
                               <option value="new">Yeni Başvuru</option>
+                              <option value="call_scheduled">Aranması Planlandı</option>
                               <option value="interview_scheduled">Mülakat Planlandı</option>
                               <option value="offer_made">Teklif Yapıldı</option>
                               <option value="hired">İşe Alındı</option>
@@ -679,6 +711,78 @@ export const JobApplicationsView: React.FC = () => {
                       <span>Sistem Kullanıcısı Oluşturuldu: @{app.convertedToUsername}</span>
                     </div>
                   )}
+
+                  {/* Görsel-2: Durum Belirleme Butonları (Görsel-3'teki Kartlara Gönderir) */}
+                  <div className="space-y-1.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                    <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                      <span>Aşama Butonları:</span>
+                      <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold">
+                        Görseldeki karta taşır
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {/* 1. Aranması Planlandı */}
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(app, 'call_scheduled')}
+                        className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          app.status === 'call_scheduled'
+                            ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30 ring-2 ring-cyan-400'
+                            : 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60 hover:bg-cyan-100'
+                        }`}
+                        title="Adayı 'Aranması Planlandı' kartına gönder"
+                      >
+                        <PhoneCall className="w-3.5 h-3.5" />
+                        <span>Aranması Planlandı</span>
+                      </button>
+
+                      {/* 2. Mülakat Planlandı */}
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(app, 'interview_scheduled')}
+                        className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          app.status === 'interview_scheduled'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-400'
+                            : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 hover:bg-blue-100'
+                        }`}
+                        title="Adayı 'Mülakat Planlı' kartına gönder"
+                      >
+                        <CalendarIcon className="w-3.5 h-3.5" />
+                        <span>Mülakat Planlandı</span>
+                      </button>
+
+                      {/* 3. İşe Alındı */}
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(app, 'hired')}
+                        className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          app.status === 'hired'
+                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400'
+                            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100'
+                        }`}
+                        title="Adayı 'İşe Alındı' kartına gönder"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>İşe Alındı</span>
+                      </button>
+
+                      {/* 4. Reddedildi */}
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(app, 'rejected')}
+                        className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          app.status === 'rejected'
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-400'
+                            : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
+                        }`}
+                        title="Adayı 'Reddedildi' kartına gönder"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Reddedildi</span>
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Actions Bar */}
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1030,27 +1134,35 @@ const AddEditApplicationModal: React.FC<AddEditModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Başvurulan Pozisyon
+                Başvurulan Pozisyon (Yazılabilir)
               </label>
               <input
                 type="text"
-                list="positions-list"
-                placeholder="Örn: Teknik Servis, Montaj..."
+                placeholder="Örn: Teknik Servis, Montaj, Yazılımcı..."
                 value={appliedPosition}
                 onChange={(e) => setAppliedPosition(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <datalist id="positions-list">
-                <option value="Teknik Servis" />
-                <option value="Saha Montaj / Kurulum" />
-                <option value="Satış & Pazarlama" />
-                <option value="Muhasebe / Finans" />
-                <option value="Yazılım & IT" />
-                <option value="Depo & Sevkiyat" />
-                <option value="Ofis Personeli" />
-                <option value="Şube Sorumlusu" />
-                <option value="Genel Başvuru" />
-              </datalist>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {[
+                  'Teknik Servis',
+                  'Saha Montaj / Kurulum',
+                  'Satış & Pazarlama',
+                  'Muhasebe / Finans',
+                  'Yazılım & IT',
+                  'Depo & Sevkiyat',
+                  'Ofis Personeli',
+                ].map((pos) => (
+                  <button
+                    key={pos}
+                    type="button"
+                    onClick={() => setAppliedPosition(pos)}
+                    className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-teal-50 hover:text-teal-700 dark:hover:bg-teal-950/60 dark:hover:text-teal-300 border border-slate-200 dark:border-slate-700 cursor-pointer transition-colors"
+                  >
+                    {pos}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -1183,6 +1295,7 @@ const AddEditApplicationModal: React.FC<AddEditModalProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
                 <option value="new">Yeni Başvuru</option>
+                <option value="call_scheduled">Aranması Planlandı</option>
                 <option value="interview_scheduled">Mülakat Planlandı</option>
                 <option value="offer_made">Teklif Yapıldı</option>
                 <option value="hired">İşe Alındı</option>

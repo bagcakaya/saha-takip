@@ -413,7 +413,13 @@ export interface TimedFollowUp {
   currentMilestoneKey?: string;
 }
 
-export type JobApplicationStatus = 'new' | 'interview_scheduled' | 'offer_made' | 'hired' | 'rejected';
+export type JobApplicationStatus =
+  | 'new'
+  | 'call_scheduled'
+  | 'interview_scheduled'
+  | 'offer_made'
+  | 'hired'
+  | 'rejected';
 
 export interface JobApplication {
   id: string;
