@@ -19,6 +19,9 @@ import {
   X,
   Save,
   Sliders,
+  MessageSquare,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -76,6 +79,49 @@ export const BranchesView: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  // WhatsApp share modal state
+  interface WhatsAppShareData {
+    companyName: string;
+    companyCode: string;
+    userName: string;
+    username: string;
+    email?: string;
+    role?: string;
+    newPassword?: string;
+  }
+  const [whatsappShareData, setWhatsappShareData] = useState<WhatsAppShareData | null>(null);
+  const [copiedShare, setCopiedShare] = useState(false);
+
+  const getWhatsAppText = (data: WhatsAppShareData) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
+    const roleText = data.role === 'admin' ? 'Sistem Yöneticisi (Admin)' : 'Personel';
+    const lines = [
+      `🏢 *Firma / Kurum:* ${data.companyName}`,
+      `🔑 *Kurum Kodu:* ${data.companyCode}`,
+      `👤 *Yetkili / Personel:* ${data.userName} (${roleText})`,
+      `👤 *Kullanıcı Adı:* ${data.username}${data.email ? ` (veya ${data.email})` : ''}`,
+    ];
+    if (data.newPassword) {
+      lines.push(`🔒 *Giriş Şifresi:* ${data.newPassword}`);
+    }
+    lines.push(`🌐 *Giriş Linki:* ${origin}`);
+    lines.push(``);
+    lines.push(`💡 *Giriş Talimatı:* Sisteme giriş yaparken Kurum Kodu kutucuğuna "${data.companyCode}", Kullanıcı Adı kutucuğuna "${data.username}" ve şifrenizi yazınız.`);
+    return lines.join('\n');
+  };
+
+  const handleSendWhatsApp = (data: WhatsAppShareData) => {
+    const text = getWhatsAppText(data);
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleCopyWhatsAppText = (data: WhatsAppShareData) => {
+    const text = getWhatsAppText(data);
+    navigator.clipboard.writeText(text);
+    setCopiedShare(true);
+    setTimeout(() => setCopiedShare(false), 2000);
+  };
 
   // User coords for distance
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -210,16 +256,31 @@ export const BranchesView: React.FC = () => {
       alert('Şifre en az 3 karakter olmalıdır.');
       return;
     }
+    const savedPass = newPassword.trim();
     setIsUpdatingPassword(true);
     try {
-      const res = await updateUser(passwordModalUser.id, { password: newPassword.trim() });
+      const res = await updateUser(passwordModalUser.id, { password: savedPass });
       if (res.success) {
         setPasswordSuccess(`"${passwordModalUser.name}" kullanıcısının şifresi başarıyla güncellendi.`);
+        const userObj = users.find((u) => u.id === passwordModalUser.id);
+        const compCode = (userObj?.companyCode || user?.companyCode || 'POLATLAR').toUpperCase();
+        const foundComp = availableCompanies.find((c) => c.code.toUpperCase() === compCode);
+
+        setWhatsappShareData({
+          companyName: foundComp?.name || compCode,
+          companyCode: compCode,
+          userName: passwordModalUser.name,
+          username: passwordModalUser.username,
+          email: userObj?.email,
+          role: userObj?.role,
+          newPassword: savedPass,
+        });
+
         setTimeout(() => {
           setPasswordModalUser(null);
           setNewPassword('');
           setPasswordSuccess('');
-        }, 1200);
+        }, 800);
       } else {
         alert(res.error || 'Şifre güncellenemedi.');
       }
@@ -740,6 +801,24 @@ export const BranchesView: React.FC = () => {
                                               <div className="flex items-center gap-1">
                                                 <button
                                                   type="button"
+                                                  onClick={() => {
+                                                    const userObj = users.find((u) => u.id === staff.id);
+                                                    setWhatsappShareData({
+                                                      companyName: comp.name,
+                                                      companyCode: compCode,
+                                                      userName: staff.name,
+                                                      username: staff.username,
+                                                      email: userObj?.email,
+                                                      role: userObj?.role,
+                                                    });
+                                                  }}
+                                                  className="p-1 rounded-md text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                  title="Giriş Bilgilerini WhatsApp ile Paylaş"
+                                                >
+                                                  <MessageSquare className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  type="button"
                                                   onClick={() => setPasswordModalUser(staff)}
                                                   className="p-1 rounded-md text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                                   title="Şifresini Değiştir"
@@ -814,8 +893,26 @@ export const BranchesView: React.FC = () => {
                                 </div>
                               </div>
 
-                              {/* Action buttons: Key & Smartphone */}
+                              {/* Action buttons: Key & Smartphone & WhatsApp */}
                               <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const userObj = users.find((u) => u.id === staff.id);
+                                    setWhatsappShareData({
+                                      companyName: comp.name,
+                                      companyCode: compCode,
+                                      userName: staff.name,
+                                      username: staff.username,
+                                      email: userObj?.email,
+                                      role: userObj?.role,
+                                    });
+                                  }}
+                                  className="p-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"
+                                  title="Giriş Bilgilerini WhatsApp ile Paylaş"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => setPasswordModalUser(staff)}
@@ -925,9 +1022,25 @@ export const BranchesView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Yeni Şifre
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Yeni Şifre
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+                      let pass = '';
+                      for (let i = 0; i < 8; i++) {
+                        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+                      }
+                      setNewPassword(pass);
+                    }}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1 cursor-pointer"
+                  >
+                    🎲 Rastgele Şifre Üret
+                  </button>
+                </div>
                 <input
                   type="text"
                   placeholder="En az 3 karakter giriniz..."
@@ -984,6 +1097,71 @@ export const BranchesView: React.FC = () => {
             );
           }}
         />
+      )}
+
+      {/* --- MODAL: WHATSAPP GİRİŞ BİLGİSİ PAYLAŞMA MODALI --- */}
+      {whatsappShareData && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-xs">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                    Giriş Bilgilerini Paylaş
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    WhatsApp üzerinden veya metin olarak iletin
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsappShareData(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Message preview box */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 font-mono text-xs text-slate-800 dark:text-slate-200 space-y-1.5 whitespace-pre-wrap select-all leading-relaxed max-h-56 overflow-y-auto">
+              {getWhatsAppText(whatsappShareData)}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleCopyWhatsAppText(whatsappShareData)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                {copiedShare ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-500 stroke-[3]" />
+                    <span className="text-emerald-600 dark:text-emerald-400 font-black">Kopyalandı!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 text-slate-500" />
+                    <span>Metni Kopyala</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSendWhatsApp(whatsappShareData)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md shadow-emerald-600/25 transition-all cursor-pointer active:scale-95"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>WhatsApp'ta Aç</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

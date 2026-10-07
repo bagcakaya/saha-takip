@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Search,
   X,
+  MessageSquare,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -246,6 +249,49 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [changedPassword, setChangedPassword] = useState('');
 
+  // WhatsApp share modal state
+  interface WhatsAppShareData {
+    companyName: string;
+    companyCode: string;
+    userName: string;
+    username: string;
+    email?: string;
+    role: string;
+    newPassword?: string;
+  }
+  const [whatsappShareData, setWhatsappShareData] = useState<WhatsAppShareData | null>(null);
+  const [copiedShare, setCopiedShare] = useState(false);
+
+  const getWhatsAppText = (data: WhatsAppShareData) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
+    const roleText = data.role === 'admin' ? 'Sistem Yöneticisi (Admin)' : 'Personel';
+    const lines = [
+      `🏢 *Firma / Kurum:* ${data.companyName}`,
+      `🔑 *Kurum Kodu:* ${data.companyCode}`,
+      `👤 *Yetkili / Personel:* ${data.userName} (${roleText})`,
+      `👤 *Kullanıcı Adı:* ${data.username}${data.email ? ` (veya ${data.email})` : ''}`,
+    ];
+    if (data.newPassword) {
+      lines.push(`🔒 *Giriş Şifresi:* ${data.newPassword}`);
+    }
+    lines.push(`🌐 *Giriş Linki:* ${origin}`);
+    lines.push(``);
+    lines.push(`💡 *Giriş Talimatı:* Sisteme giriş yaparken Kurum Kodu kutucuğuna "${data.companyCode}", Kullanıcı Adı kutucuğuna "${data.username}" ve şifrenizi yazınız.`);
+    return lines.join('\n');
+  };
+
+  const handleSendWhatsApp = (data: WhatsAppShareData) => {
+    const text = getWhatsAppText(data);
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleCopyWhatsAppText = (data: WhatsAppShareData) => {
+    const text = getWhatsAppText(data);
+    navigator.clipboard.writeText(text);
+    setCopiedShare(true);
+    setTimeout(() => setCopiedShare(false), 2000);
+  };
+
 
 
   const handleResetDeviceLock = async (userId: string, userName: string, companyCode?: string) => {
@@ -338,9 +384,22 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       alert('Şifre en az 3 karakter olmalıdır.');
       return;
     }
-    const res = await updateUser(userId, { password: changedPassword });
+    const savedPass = changedPassword;
+    const res = await updateUser(userId, { password: savedPass });
     if (res.success) {
-      alert('Şifre başarıyla güncellendi.');
+      const targetUser = companyUsers.find((u) => u.id === userId);
+      const compName = visibleCompanies.find(c => c.code.toUpperCase() === (targetUser?.companyCode || selectedCompanyCode).toUpperCase())?.name || targetUser?.companyCode || selectedCompanyCode;
+      
+      setWhatsappShareData({
+        companyName: compName,
+        companyCode: (targetUser?.companyCode || selectedCompanyCode).toUpperCase(),
+        userName: targetUser?.name || 'Kullanıcı',
+        username: targetUser?.username || 'admin',
+        email: targetUser?.email,
+        role: targetUser?.role || 'staff',
+        newPassword: savedPass,
+      });
+
       setEditingPasswordUserId(null);
       setChangedPassword('');
     } else {
@@ -660,30 +719,54 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                     {/* Password Changer inline box */}
                     {editingPasswordUserId === account.id ? (
-                      <div className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                        <input
-                          type="password"
-                          value={changedPassword}
-                          onChange={(e) => setChangedPassword(e.target.value)}
-                          placeholder="Yeni şifre belirleyin..."
-                          autoFocus
-                          className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <button
-                          onClick={() => handleSaveNewPassword(account.id)}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow-xs"
-                        >
-                          Kaydet
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditingPasswordUserId(null);
-                            setChangedPassword('');
-                          }}
-                          className="px-2.5 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold"
-                        >
-                          İptal
-                        </button>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                        <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                          <input
+                            type="text"
+                            value={changedPassword}
+                            onChange={(e) => setChangedPassword(e.target.value)}
+                            placeholder="Yeni şifre belirleyin..."
+                            autoFocus
+                            className="flex-1 px-3 py-1.5 rounded-lg text-xs font-mono font-bold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+                              const lower = 'abcdefghjkmnpqrstuvwxyz';
+                              const numbers = '0123456789';
+                              const symbols = '?!*.-_#';
+                              const pUpper = upper[Math.floor(Math.random() * upper.length)];
+                              const pLower = lower[Math.floor(Math.random() * lower.length)];
+                              const pDigits = Array.from({ length: 4 }, () => numbers[Math.floor(Math.random() * numbers.length)]).join('');
+                              const pSymbol = symbols[Math.floor(Math.random() * symbols.length)];
+                              setChangedPassword(`${pUpper}${pLower}${pDigits}${pSymbol}`);
+                            }}
+                            className="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 cursor-pointer shrink-0"
+                            title="Rastgele güvenli şifre üret"
+                          >
+                            🎲 Rastgele
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveNewPassword(account.id)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                          >
+                            <span>Kaydet & WhatsApp</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPasswordUserId(null);
+                              setChangedPassword('');
+                            }}
+                            className="px-2.5 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                          >
+                            İptal
+                          </button>
+                        </div>
                       </div>
                     ) : null}
 
@@ -693,7 +776,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         Eklenme: {new Date(account.createdAt).toLocaleDateString('tr-TR')}
                       </span>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {!isAdmin && (
                           <button
                             type="button"
@@ -718,13 +801,33 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         )}
 
                         <button
+                          type="button"
+                          onClick={() => {
+                            const compName = visibleCompanies.find(c => c.code.toUpperCase() === (account.companyCode || selectedCompanyCode).toUpperCase())?.name || account.companyCode || selectedCompanyCode;
+                            setWhatsappShareData({
+                              companyName: compName,
+                              companyCode: (account.companyCode || selectedCompanyCode).toUpperCase(),
+                              userName: account.name,
+                              username: account.username,
+                              email: account.email,
+                              role: account.role,
+                            });
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                          title="Giriş bilgilerini WhatsApp ile gönder veya panoya kopyala"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>WhatsApp</span>
+                        </button>
+
+                        <button
                           onClick={() => {
                             setEditingPasswordUserId(
                               editingPasswordUserId === account.id ? null : account.id
                             );
                             setChangedPassword('');
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700/80 font-semibold transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700/80 font-semibold transition-colors cursor-pointer"
                         >
                           <Key className="w-3.5 h-3.5 text-amber-500" />
                           <span>Şifre Belirle</span>
@@ -732,7 +835,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                         <button
                           onClick={() => handleDelete(account.id, account.username)}
-                          className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                          className="p-1.5 rounded-lg text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
                           title="Kullanıcıyı Sil"
                           aria-label="Sil"
                         >
@@ -955,6 +1058,71 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             loadCompaniesAndBranches();
           }}
         />
+      )}
+
+      {/* WhatsApp Share Credentials Modal */}
+      {whatsappShareData && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-xs">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                    Giriş Bilgilerini Paylaş
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    WhatsApp üzerinden veya metin olarak gönderin
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsappShareData(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Message preview box */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 font-mono text-xs text-slate-800 dark:text-slate-200 space-y-1.5 whitespace-pre-wrap select-all leading-relaxed max-h-56 overflow-y-auto">
+              {getWhatsAppText(whatsappShareData)}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleCopyWhatsAppText(whatsappShareData)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                {copiedShare ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-500 stroke-[3]" />
+                    <span className="text-emerald-600 dark:text-emerald-400 font-black">Kopyalandı!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 text-slate-500" />
+                    <span>Metni Kopyala</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSendWhatsApp(whatsappShareData)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md shadow-emerald-600/25 transition-all cursor-pointer active:scale-95"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>WhatsApp'ta Aç</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </Modal>
   );
