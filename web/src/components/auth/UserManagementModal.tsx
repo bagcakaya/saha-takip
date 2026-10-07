@@ -25,6 +25,7 @@ import {
   Phone,
   CreditCard,
   MapPin,
+  Briefcase,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -54,7 +55,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     suggestUsername,
     refreshUsers,
   } = useAuth();
-  const { branches, assignStaffToBranch } = useStorage();
+  const { branches, assignStaffToBranch, departmentSalaries } = useStorage();
 
   const isSuper = isSuperAdmin(currentUser);
   const userCompanyCode = (currentUser?.companyCode || 'POLATLAR').toUpperCase();
@@ -248,15 +249,38 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newTcNo, setNewTcNo] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newAddress, setNewAddress] = useState('');
+  const [newDepartment, setNewDepartment] = useState('');
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
-  // States for editing user profile (TC, Phone, Address, Name)
+  // States for editing user profile (TC, Phone, Address, Name, Department)
   const [editingProfileUser, setEditingProfileUser] = useState<UserAccount | null>(null);
   const [editName, setEditName] = useState('');
   const [editTcNo, setEditTcNo] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
+  const [editDepartment, setEditDepartment] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Hafızadaki bilinen bölümler (Bu firmaya ait personellerin bölümleri + maaş tanımları)
+  const activeCompanyForDept = (isSuper ? (targetAddCompanyCode || selectedCompanyCode) : userCompanyCode).toUpperCase();
+  const knownDepartments = useMemo(() => {
+    const set = new Set<string>();
+    companyUsers.forEach((u) => {
+      if (u.department && u.department.trim()) {
+        set.add(u.department.trim());
+      }
+    });
+    departmentSalaries?.forEach((ds) => {
+      if (
+        (ds.companyCode || '').toUpperCase() === activeCompanyForDept &&
+        ds.department &&
+        ds.department.trim()
+      ) {
+        set.add(ds.department.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [companyUsers, departmentSalaries, activeCompanyForDept]);
 
   // Random secure password generator (1 uppercase, 1 lowercase, 4 numbers, 1 symbol)
   const generateRandomPassword = () => {
@@ -290,6 +314,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         tcNo: editTcNo.trim() || undefined,
         phone: editPhone.trim() || undefined,
         address: editAddress.trim() || undefined,
+        department: editDepartment.trim() || undefined,
       });
       if (res.success) {
         setEditingProfileUser(null);
@@ -394,6 +419,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       tcNo: newTcNo.trim() || undefined,
       phone: newPhone.trim() || undefined,
       address: newAddress.trim() || undefined,
+      department: newDepartment.trim() || undefined,
     });
 
     if (res.success) {
@@ -414,6 +440,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewTcNo('');
       setNewPhone('');
       setNewAddress('');
+      setNewDepartment('');
       await loadCompaniesAndBranches();
       setTimeout(() => {
         setActiveSubTab('list');
@@ -835,9 +862,15 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             })()}
                           </div>
 
-                          {/* TC, Phone & Address Pill info */}
-                          {(account.tcNo || account.phone || account.address) && (
+                          {/* Bölüm, TC, Phone & Address Pill info */}
+                          {(account.department || account.tcNo || account.phone || account.address) && (
                             <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 pt-1 border-t border-slate-200/50 dark:border-slate-800/60">
+                              {account.department && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/60 dark:border-indigo-900/50">
+                                  <Briefcase className="w-3 h-3 text-indigo-500" />
+                                  {account.department}
+                                </span>
+                              )}
                               {account.tcNo && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-mono font-bold">
                                   <CreditCard className="w-3 h-3 text-blue-500" />
@@ -987,6 +1020,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             setEditTcNo(account.tcNo || '');
                             setEditPhone(account.phone || '');
                             setEditAddress(account.address || '');
+                            setEditDepartment(account.department || '');
                           }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700/80 font-semibold transition-colors cursor-pointer"
                           title="Personel Bilgilerini (Ad, T.C. No, Telefon, Adres) Düzenle"
@@ -1227,6 +1261,35 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 </p>
               </div>
 
+              {/* Bölüm / Departman (Maaş ve Personel Takibi İçin) */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Bölüm / Departman</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="company-departments-list-add"
+                    value={newDepartment}
+                    onChange={(e) => setNewDepartment(e.target.value)}
+                    placeholder="Örn: Yazılım, Saha, Muhasebe..."
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <datalist id="company-departments-list-add">
+                    {knownDepartments.map((dept) => (
+                      <option key={dept} value={dept} />
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Elle girdiğiniz bölümler firma hafızasında saklanır ve Maaş Takibi modülünde otomatik maaş tutarı belirlemek için kullanılır.
+                </p>
+              </div>
+
               {/* Personel Özlük / Maaş Bilgileri (Opsiyonel) */}
               <div className="sm:col-span-2 pt-3 border-t border-slate-200/70 dark:border-slate-800">
                 <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
@@ -1437,6 +1500,31 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     placeholder="0555 123 45 67"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Bölüm / Departman</span>
+                  </span>
+                  <span className="text-[10px] lowercase text-slate-400 font-normal">(opsiyonel)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="company-departments-list-edit"
+                    value={editDepartment}
+                    onChange={(e) => setEditDepartment(e.target.value)}
+                    placeholder="Örn: Yazılım, Saha, Muhasebe..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <datalist id="company-departments-list-edit">
+                    {knownDepartments.map((dept) => (
+                      <option key={dept} value={dept} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 

@@ -55,6 +55,7 @@ interface AuthContextType {
     phone?: string;
     tcNo?: string;
     address?: string;
+    department?: string;
   }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
     id: string,
@@ -66,6 +67,7 @@ interface AuthContextType {
       phone?: string;
       tcNo?: string;
       address?: string;
+      department?: string;
       isActive?: boolean;
     }
   ) => Promise<{ success: boolean; error?: string }>;
@@ -592,6 +594,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     phone?: string;
     tcNo?: string;
     address?: string;
+    department?: string;
   }) => {
     const currentCompCode = (params.companyCode || activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const res = await UserService.addUser({
@@ -614,6 +617,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       phone?: string;
       tcNo?: string;
       address?: string;
+      department?: string;
       isActive?: boolean;
     }
   ) => {
@@ -629,6 +633,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: updates.phone !== undefined ? updates.phone : user.phone,
           tcNo: updates.tcNo !== undefined ? updates.tcNo : user.tcNo,
           address: updates.address !== undefined ? updates.address : user.address,
+          department: updates.department !== undefined ? updates.department : user.department,
           isActive: updates.isActive !== undefined ? updates.isActive : user.isActive,
         };
         setUser(updatedUser);

@@ -317,6 +317,8 @@ export interface BackupData {
   personalNotes?: PersonalNote[];
   shifts?: ShiftDefinition[];
   shiftAssignments?: ShiftAssignment[];
+  salaryRecords?: StaffSalaryMonthRecord[];
+  departmentSalaries?: DepartmentSalaryConfig[];
 }
 
 export interface CariData {
@@ -487,4 +489,13 @@ export interface StaffSalaryMonthRecord {
   payments: SalaryPaymentItem[]; // O aya ait ödeme hareketleri (parçalı nakit/banka)
   createdAt: number;
   updatedAt: number;
+}
+
+export interface DepartmentSalaryConfig {
+  id: string; // örn: `${companyCode}_${department}`
+  companyCode: string; // Her firma için izole (örn: POLATLAR)
+  department: string; // Bölüm adı (örn: Yazılım, Saha, Muhasebe)
+  defaultMonthlySalary: number; // Aylık standart tutar (örn: 30000)
+  updatedAt?: number;
+  updatedBy?: string;
 }

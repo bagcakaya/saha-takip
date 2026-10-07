@@ -50,6 +50,7 @@ export interface User {
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
+  department?: string; // Bölüm / Departman (örn: Yazılım, Saha, Muhasebe)
   isActive?: boolean; // false ise kullanıcı pasiftir, giriş yapamaz ama geçmiş tüm kayıtları görünür
 }
 
@@ -68,6 +69,7 @@ export interface UserAccount {
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
   branchId?: string;
   branchName?: string;
+  department?: string; // Bölüm / Departman (örn: Yazılım, Saha, Muhasebe)
   isActive?: boolean; // false ise kullanıcı pasiftir, giriş yapamaz ama geçmiş tüm kayıtları görünür
 }
 

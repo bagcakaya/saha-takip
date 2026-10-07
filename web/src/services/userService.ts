@@ -628,6 +628,7 @@ export const UserService = {
                   address: u.address || existing.address,
                   branchId: u.branchId || existing.branchId,
                   branchName: u.branchName || existing.branchName,
+                  department: u.department || existing.department,
                   isActive: u.isActive !== undefined ? u.isActive : existing.isActive !== undefined ? existing.isActive : true,
                 });
               }
@@ -798,6 +799,7 @@ export const UserService = {
     phone?: string;
     tcNo?: string;
     address?: string;
+    department?: string;
   }): Promise<{ success: boolean; error?: string; user?: User }> {
     const users = this.getUsers();
 
@@ -822,6 +824,7 @@ export const UserService = {
     const cleanTcNo = params.tcNo ? params.tcNo.replace(/\D/g, '').substring(0, 11) : undefined;
     const cleanPhone = params.phone ? SanitizeService.sanitizeText(params.phone, 30) : undefined;
     const cleanAddress = params.address ? SanitizeService.sanitizeText(params.address, 300) : undefined;
+    const cleanDepartment = params.department ? SanitizeService.sanitizeText(params.department, 80) : undefined;
     const cleanPassword = params.password.trim();
 
     if (!cleanUsername) {
@@ -855,6 +858,7 @@ export const UserService = {
       phone: cleanPhone,
       tcNo: cleanTcNo,
       address: cleanAddress,
+      department: cleanDepartment,
     };
 
     const updated = [...users, newUser];
@@ -902,6 +906,7 @@ export const UserService = {
         phone: newUser.phone,
         tcNo: newUser.tcNo,
         address: newUser.address,
+        department: newUser.department,
       },
     };
   },
@@ -939,6 +944,7 @@ export const UserService = {
       phone?: string;
       tcNo?: string;
       address?: string;
+      department?: string;
       isActive?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
@@ -1011,6 +1017,9 @@ export const UserService = {
     const cleanEmail = updates.email !== undefined 
       ? (updates.email.trim() ? SanitizeService.sanitizeEmail(updates.email) : undefined) 
       : current.email;
+    const cleanDepartment = updates.department !== undefined
+      ? (updates.department.trim() ? SanitizeService.sanitizeText(updates.department, 80) : undefined)
+      : current.department;
 
     const updatedUser = {
       ...current,
@@ -1024,6 +1033,7 @@ export const UserService = {
       phone: cleanPhone,
       tcNo: cleanTcNo,
       address: cleanAddress,
+      department: cleanDepartment,
       isActive: updates.isActive !== undefined ? updates.isActive : current.isActive,
     };
 

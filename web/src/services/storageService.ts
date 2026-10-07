@@ -19,6 +19,7 @@ import {
   ShiftDataPayload,
   JobApplication,
   StaffSalaryMonthRecord,
+  DepartmentSalaryConfig,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -43,6 +44,7 @@ const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 const SHIFT_DATA_KEY = '@saha_takip_shift_data';
 const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
 const SALARY_RECORDS_KEY = '@saha_takip_salary_records';
+const DEPARTMENT_SALARIES_KEY = '@saha_takip_department_salaries';
 
 const companyIdCache = new Map<string, number>([
   ['POLATLAR', 1],
@@ -2868,6 +2870,43 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves department salary configurations for current company (cloud slot 13 + local storage cache)
+   * Guaranteed company isolation: POLATLAR slot 13, other companies slot (companyId - 1) * 20 + 13
+   */
+  async getDepartmentSalaries(): Promise<DepartmentSalaryConfig[]> {
+    const localKey = this.getStorageKey(DEPARTMENT_SALARIES_KEY);
+    const slotId = this.getSlotId(13);
+
+    const { data: cloudData, notFound } = await loadChunkedSlot<DepartmentSalaryConfig[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<DepartmentSalaryConfig[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves department salary configurations for current company to cloud slot 13 and local storage
+   */
+  async saveDepartmentSalaries(items: DepartmentSalaryConfig[]): Promise<void> {
+    const localKey = this.getStorageKey(DEPARTMENT_SALARIES_KEY);
+    await saveItem(localKey, items);
+
+    try {
+      const slotId = this.getSlotId(13);
+      await saveChunkedSlot(slotId, items);
+    } catch (e) {
+      console.warn('Department salaries cloud save error:', e);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -2883,6 +2922,8 @@ export const StorageService = {
     const cariData = await this.getCarilerData();
     const timedFollowUps = await this.getTimedFollowUps();
     const shiftData = await this.getShiftData();
+    const salaryRecords = await this.getSalaryRecords();
+    const departmentSalaries = await this.getDepartmentSalaries();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -2899,6 +2940,8 @@ export const StorageService = {
       timedFollowUps,
       shifts: shiftData.definitions,
       shiftAssignments: shiftData.assignments,
+      salaryRecords,
+      departmentSalaries,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -2953,6 +2996,12 @@ export const StorageService = {
         definitions: backupData.shifts || [],
         assignments: backupData.shiftAssignments || [],
       });
+    }
+    if (backupData.salaryRecords && Array.isArray(backupData.salaryRecords)) {
+      await this.saveSalaryRecords(backupData.salaryRecords);
+    }
+    if (backupData.departmentSalaries && Array.isArray(backupData.departmentSalaries)) {
+      await this.saveDepartmentSalaries(backupData.departmentSalaries);
     }
   },
 };

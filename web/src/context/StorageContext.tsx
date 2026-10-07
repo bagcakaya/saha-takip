@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig } from '../types/storage';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -255,6 +255,10 @@ interface StorageContextType {
     notes?: string
   ) => Promise<void>;
   refreshSalaryRecords: () => Promise<void>;
+  departmentSalaries: DepartmentSalaryConfig[];
+  saveDepartmentSalary: (department: string, defaultMonthlySalary: number) => Promise<void>;
+  deleteDepartmentSalary: (department: string) => Promise<void>;
+  refreshDepartmentSalaries: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -333,6 +337,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
   const [salaryRecords, setSalaryRecords] = useState<StaffSalaryMonthRecord[]>([]);
+  const [departmentSalaries, setDepartmentSalaries] = useState<DepartmentSalaryConfig[]>([]);
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -511,7 +516,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries, deptSalaries] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -529,6 +534,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getShiftData(),
           StorageService.getJobApplications(),
           StorageService.getSalaryRecords(),
+          StorageService.getDepartmentSalaries(),
         ]);
         if (!isMounted) return;
 
@@ -696,6 +702,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setShiftAssignments((shiftData && shiftData.assignments) || []);
         setJobApplications(jobApps || []);
         setSalaryRecords(salaries || []);
+        setDepartmentSalaries(deptSalaries || []);
         setDataCompanyCode(compCode);
         FastActionAgent.start(compCode);
       } catch (err) {
@@ -825,6 +832,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (changedSlotId === StorageService.getSlotId(20)) {
               const records = await StorageService.getSalaryRecords();
               if (isMounted) setSalaryRecords(records || []);
+              return;
+            }
+            if (changedSlotId === StorageService.getSlotId(13)) {
+              const deptSalaries = await StorageService.getDepartmentSalaries();
+              if (isMounted) setDepartmentSalaries(deptSalaries || []);
               return;
             }
             if (changedSlotId === StorageService.getSlotId(1)) {
@@ -3897,6 +3909,68 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // --- DEPARTMENT SALARY CONFIG METHODS ---
+  const saveDepartmentSalary = async (department: string, defaultMonthlySalary: number): Promise<void> => {
+    const cleanDept = (department || '').trim();
+    if (!cleanDept) return;
+    const activeCompCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const id = `${activeCompCode}_${cleanDept.toLowerCase()}`;
+    
+    const existingIndex = departmentSalaries.findIndex(
+      (d) =>
+        (d.companyCode || '').toUpperCase() === activeCompCode &&
+        d.department.trim().toLowerCase() === cleanDept.toLowerCase()
+    );
+
+    let updated: DepartmentSalaryConfig[];
+    if (existingIndex >= 0) {
+      updated = [...departmentSalaries];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        department: cleanDept,
+        defaultMonthlySalary,
+        updatedAt: Date.now(),
+        updatedBy: user?.name,
+      };
+    } else {
+      const newItem: DepartmentSalaryConfig = {
+        id,
+        companyCode: activeCompCode,
+        department: cleanDept,
+        defaultMonthlySalary,
+        updatedAt: Date.now(),
+        updatedBy: user?.name,
+      };
+      updated = [newItem, ...departmentSalaries];
+    }
+
+    setDepartmentSalaries(updated);
+    await StorageService.saveDepartmentSalaries(updated);
+  };
+
+  const deleteDepartmentSalary = async (department: string): Promise<void> => {
+    const cleanDept = (department || '').trim().toLowerCase();
+    const activeCompCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const updated = departmentSalaries.filter(
+      (d) =>
+        !(
+          (d.companyCode || '').toUpperCase() === activeCompCode &&
+          d.department.trim().toLowerCase() === cleanDept
+        )
+    );
+    setDepartmentSalaries(updated);
+    await StorageService.saveDepartmentSalaries(updated);
+  };
+
+  const refreshDepartmentSalaries = async (): Promise<void> => {
+    try {
+      const configs = await StorageService.getDepartmentSalaries();
+      setDepartmentSalaries(configs || []);
+    } catch (err) {
+      console.warn('refreshDepartmentSalaries error:', err);
+    }
+  };
+
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
@@ -6625,6 +6699,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteSalaryPayment,
         updateMonthSalarySettings,
         refreshSalaryRecords,
+        departmentSalaries,
+        saveDepartmentSalary,
+        deleteDepartmentSalary,
+        refreshDepartmentSalaries,
         checkInStaff,
         checkOutStaff,
         startBreak,

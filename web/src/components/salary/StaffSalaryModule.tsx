@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Loader2,
   CheckCircle2,
+  Briefcase,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -72,6 +74,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     addSalaryPayment,
     deleteSalaryPayment,
     updateMonthSalarySettings,
+    departmentSalaries,
+    saveDepartmentSalary,
+    deleteDepartmentSalary,
   } = useStorage();
 
   const currentYear = new Date().getFullYear();
@@ -80,6 +85,13 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+
+  // Bölüm Maaş Tanımları Bölümü Durumları (Görsel-2 Arama Kutusu Altı)
+  const [selectedDeptForSalary, setSelectedDeptForSalary] = useState<string>('');
+  const [isCustomDeptInput, setIsCustomDeptInput] = useState<boolean>(false);
+  const [customDeptName, setCustomDeptName] = useState<string>('');
+  const [deptSalaryInput, setDeptSalaryInput] = useState<string>('');
+  const [isSavingDeptSalary, setIsSavingDeptSalary] = useState<boolean>(false);
 
   // Hangi personelin çekmecesi (drawer) açık?
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
@@ -145,6 +157,109 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       return uComp === activeCompanyCode;
     });
   }, [users, activeCompanyCode]);
+
+  // Bu firmaya ait bilinen bölümler (personellerden ve kayıtlı tanımlardan)
+  const knownCompanyDepartments = useMemo(() => {
+    const set = new Set<string>();
+    companyStaff.forEach((s) => {
+      if (s.department && s.department.trim()) {
+        set.add(s.department.trim());
+      }
+    });
+    departmentSalaries?.forEach((ds) => {
+      if (
+        (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+        ds.department &&
+        ds.department.trim()
+      ) {
+        set.add(ds.department.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [companyStaff, departmentSalaries, activeCompanyCode]);
+
+  // Bu firmaya ait kaydedilmiş bölüm maaş tutarları
+  const activeCompanyDeptSalaries = useMemo(() => {
+    return (departmentSalaries || []).filter(
+      (ds) => (ds.companyCode || '').toUpperCase() === activeCompanyCode
+    );
+  }, [departmentSalaries, activeCompanyCode]);
+
+  const handleSaveDeptSalary = async () => {
+    const deptToUse = isCustomDeptInput ? customDeptName.trim() : selectedDeptForSalary.trim();
+    if (!deptToUse) {
+      alert('Lütfen bir bölüm seçiniz veya yeni bölüm adı yazınız.');
+      return;
+    }
+    const cleanVal = deptSalaryInput.trim().replace(/\./g, '').replace(',', '.');
+    const amount = parseFloat(cleanVal);
+    if (isNaN(amount) || amount < 0) {
+      alert('Lütfen geçerli bir aylık maaş tutarı giriniz.');
+      return;
+    }
+    setIsSavingDeptSalary(true);
+    try {
+      await saveDepartmentSalary(deptToUse, amount);
+      if (isCustomDeptInput) {
+        setIsCustomDeptInput(false);
+        setSelectedDeptForSalary(deptToUse);
+        setCustomDeptName('');
+      }
+      setToastMessage(`"${deptToUse}" bölümü aylık standart tutarı ${amount.toLocaleString('tr-TR')} ₺ olarak belirlendi.`);
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err: any) {
+      alert(err?.message || 'Bölüm maaş tutarı kaydedilemedi.');
+    } finally {
+      setIsSavingDeptSalary(false);
+    }
+  };
+
+  const handleDeleteDeptSalary = async (dept: string) => {
+    if (window.confirm(`"${dept}" bölümü için belirlenen standart maaş tutarını silmek istediğinize emin misiniz?`)) {
+      await deleteDepartmentSalary(dept);
+      if (selectedDeptForSalary.toLowerCase() === dept.toLowerCase()) {
+        setDeptSalaryInput('');
+      }
+      setToastMessage(`"${dept}" bölümü maaş tanımı silindi.`);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
+
+  const handleSelectDeptForConfig = (dept: string) => {
+    if (dept === '__NEW__') {
+      setIsCustomDeptInput(true);
+      setCustomDeptName('');
+      setSelectedDeptForSalary('');
+      setDeptSalaryInput('');
+      return;
+    }
+    setIsCustomDeptInput(false);
+    setSelectedDeptForSalary(dept);
+    setCustomDeptName('');
+    const found = activeCompanyDeptSalaries.find(
+      (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
+    );
+    if (found && found.defaultMonthlySalary > 0) {
+      setDeptSalaryInput(String(found.defaultMonthlySalary));
+    } else {
+      setDeptSalaryInput('');
+    }
+  };
+
+  const handleResetAgreedToDept = async () => {
+    if (!activeModalData) return;
+    await updateMonthSalarySettings(
+      activeModalData.staff.id,
+      activeModalData.staff.name || activeModalData.staff.username,
+      activeModalData.year,
+      activeModalData.month,
+      undefined,
+      currentModalRecord?.notes
+    );
+    setIsEditingAgreed(false);
+    setToastMessage('Personelin tutarı bölüm standart maaşına sıfırlandı.');
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // BranchSelect seçenekleri
   const branchOptions = useMemo<BranchOption[]>(() => {
@@ -316,7 +431,19 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       .reverse()
       .find((m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0);
 
-    // 2. Eğer açıkça girilmemişse, ödenen son 'salary' (maaş) tutarı veya ortalaması
+    // 2. Personele atanan bölümün standart maaş tutarı (varsa)
+    const staffObj = companyStaff.find((s) => s.id === userId);
+    const staffDept = staffObj?.department?.trim();
+    const deptConfig = staffDept
+      ? (departmentSalaries || []).find(
+          (ds) =>
+            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+        )
+      : undefined;
+    const departmentDefaultSalary = deptConfig?.defaultMonthlySalary;
+
+    // 3. Eğer açıkça girilmemişse ve bölüm tutarı da yoksa, ödenen son 'salary' (maaş) tutarı veya ortalaması
     const latestSalaryPayment = monthlyBreakdown
       .flatMap((m) => m.payments)
       .filter((p) => p.paymentType === 'salary' && (p.amount || 0) > 0)
@@ -324,6 +451,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
     const monthlyAgreedAmount =
       monthWithAgreed?.agreedAmount ||
+      departmentDefaultSalary ||
       latestSalaryPayment?.amount ||
       (activeMonthsCount > 0 ? Math.round(totalSalary / activeMonthsCount) : 0);
 
@@ -370,11 +498,34 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       if (p.paymentMethod === 'bank') totalBank += p.amount || 0;
     });
 
-    const agreed = currentModalRecord?.agreedAmount;
+    const staffDept = activeModalData?.staff?.department?.trim();
+    const deptConfig = staffDept
+      ? (departmentSalaries || []).find(
+          (ds) =>
+            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+        )
+      : undefined;
+    const departmentDefaultSalary = deptConfig?.defaultMonthlySalary;
+
+    const hasManualAgreed = currentModalRecord?.agreedAmount !== undefined && currentModalRecord.agreedAmount > 0;
+    const isAutoDepartment = !hasManualAgreed && departmentDefaultSalary !== undefined && departmentDefaultSalary > 0;
+    const agreed = hasManualAgreed ? currentModalRecord.agreedAmount : (departmentDefaultSalary ?? currentModalRecord?.agreedAmount);
     const remaining = agreed !== undefined ? Math.max(0, agreed - totalPaid) : null;
 
-    return { totalPaid, totalCash, totalBank, agreed, remaining, payments };
-  }, [currentModalRecord]);
+    return {
+      totalPaid,
+      totalCash,
+      totalBank,
+      agreed,
+      remaining,
+      payments,
+      hasManualAgreed,
+      isAutoDepartment,
+      departmentDefaultSalary,
+      staffDept,
+    };
+  }, [currentModalRecord, activeModalData, departmentSalaries, activeCompanyCode]);
 
   // Modal açıldığında varsayılan ödeme şubesini ayarla
   const handleOpenMonthModal = (staff: any, year: number, month: number) => {
@@ -611,9 +762,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             <tr>
               <td style="padding: 4px 0; color: #64748b;">Şube / Birim:</td>
               <td style="padding: 4px 0; font-weight: bold; color: #0f172a;">${staffBranch?.name || 'Merkez'}</td>
-              <td style="padding: 4px 0; color: #64748b;">İkamet / Adres:</td>
-              <td style="padding: 4px 0; color: #334155;">${staff.address || '-'}</td>
+              <td style="padding: 4px 0; color: #64748b;">Bölüm:</td>
+              <td style="padding: 4px 0; font-weight: bold; color: #0f172a;">${staff.department || '-'}</td>
             </tr>
+            ${staff.address ? `
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">İkamet / Adres:</td>
+              <td colspan="3" style="padding: 4px 0; color: #334155;">${staff.address}</td>
+            </tr>
+            ` : ''}
           </table>
         </div>
 
@@ -766,6 +923,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           staffPhone: staff.phone || '',
           staffTcNo: staff.tcNo || '',
           staffAddress: staff.address || '',
+          staffDepartment: staff.department || '',
           branchName: staffBranch?.name || 'Merkez',
           companyName: activeCompanyName,
           month: month,
@@ -925,26 +1083,30 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <!-- Personel Bilgi Kartı -->
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
           <tr>
-            <td style="padding: 8px 12px; width: 35%;">
+            <td style="padding: 8px 12px; width: 30%;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Personel Adı Soyadı</span><br/>
               <strong style="color: #0f172a; font-size: 13px;">${staff.name || staff.username}</strong>
             </td>
-            <td style="padding: 8px 12px; width: 25%;">
+            <td style="padding: 8px 12px; width: 18%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Bölüm</span><br/>
+              <strong style="color: #0f172a;">${staff.department || '-'}</strong>
+            </td>
+            <td style="padding: 8px 12px; width: 20%;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">T.C. Kimlik No</span><br/>
               <strong style="color: #0f172a; font-family: monospace;">${staff.tcNo || '-'}</strong>
             </td>
-            <td style="padding: 8px 12px; width: 20%;">
+            <td style="padding: 8px 12px; width: 16%;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Telefon</span><br/>
               <strong style="color: #0f172a;">${staff.phone || '-'}</strong>
             </td>
-            <td style="padding: 8px 12px; width: 20%;">
-              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Şube / Lokasyon</span><br/>
+            <td style="padding: 8px 12px; width: 16%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Şube</span><br/>
               <strong style="color: #0f172a;">${staffBranch?.name || 'Genel Merkez'}</strong>
             </td>
           </tr>
           ${staff.address ? `
           <tr>
-            <td colspan="4" style="padding: 6px 12px 8px 12px; border-top: 1px dashed #e2e8f0;">
+            <td colspan="5" style="padding: 6px 12px 8px 12px; border-top: 1px dashed #e2e8f0;">
               <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">İkametgah / Adres:</span>
               <span style="color: #334155; font-size: 11px; margin-left: 6px;">${staff.address}</span>
             </td>
@@ -1345,6 +1507,159 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         )}
       </div>
 
+      {/* Görsel-2: Bölüm Bazlı Standart Maaş Tanımları Bölümü (Arama Kutusunun Hemen Altı) */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center border border-teal-200/60 dark:border-teal-900/40">
+              <Briefcase className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Bölüm & Standart Maaş Belirleme</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300">
+                  {activeCompanyName}
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Seçilen bölüme belirlenen tutar, o bölümdeki personellerin aylık maaş hak edişine otomatik yazılır.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bölüm Seçimi ve Altında Tutar Giriş Formu */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mt-3.5 items-end">
+          {/* Bölüm Açılır Seçimi */}
+          <div className="sm:col-span-4">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Bölüm
+            </label>
+            <select
+              value={isCustomDeptInput ? '__NEW__' : selectedDeptForSalary}
+              onChange={(e) => handleSelectDeptForConfig(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              <option value="">-- Bölüm Seçiniz --</option>
+              {knownCompanyDepartments.map((dept) => {
+                const hasSalary = activeCompanyDeptSalaries.some(
+                  (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
+                );
+                return (
+                  <option key={dept} value={dept}>
+                    {dept} {hasSalary ? '✓' : ''}
+                  </option>
+                );
+              })}
+              <option value="__NEW__">➕ Yeni Bölüm Yaz...</option>
+            </select>
+          </div>
+
+          {/* Yeni Bölüm Yazılıyorsa Giriş Alanı */}
+          {isCustomDeptInput && (
+            <div className="sm:col-span-3">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Yeni Bölüm Adı
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: Yazılım, Muhasebe..."
+                value={customDeptName}
+                onChange={(e) => setCustomDeptName(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          )}
+
+          {/* Tutar Giriş Alanı (Bölümün Yanında / Altında) */}
+          <div className={isCustomDeptInput ? 'sm:col-span-3' : 'sm:col-span-5'}>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Tutar (₺)
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="100"
+                placeholder="Örn: 30000"
+                value={deptSalaryInput}
+                onChange={(e) => setDeptSalaryInput(e.target.value)}
+                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                ₺
+              </span>
+            </div>
+          </div>
+
+          {/* Kaydet / Güncelle Butonu */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
+            <button
+              type="button"
+              onClick={handleSaveDeptSalary}
+              disabled={
+                isSavingDeptSalary ||
+                (!selectedDeptForSalary && !customDeptName.trim()) ||
+                !deptSalaryInput.trim()
+              }
+              className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>{isSavingDeptSalary ? 'Kaydediliyor...' : 'Tutarı Belirle'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Hafızadaki Kayıtlı Bölüm Rozetleri / Çipleri */}
+        {activeCompanyDeptSalaries.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mr-1">
+              Kayıtlı Bölüm Maaşları:
+            </span>
+            {activeCompanyDeptSalaries.map((ds) => {
+              const isCurrentSelected =
+                !isCustomDeptInput &&
+                selectedDeptForSalary.toLowerCase() === ds.department.toLowerCase();
+              return (
+                <div
+                  key={ds.id || ds.department}
+                  onClick={() => handleSelectDeptForConfig(ds.department)}
+                  className={`group inline-flex items-center gap-2 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    isCurrentSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-700 hover:border-teal-400'
+                  }`}
+                  title="Düzenlemek için tıklayın"
+                >
+                  <Briefcase
+                    className={`w-3 h-3 ${
+                      isCurrentSelected ? 'text-white' : 'text-teal-600 dark:text-teal-400'
+                    }`}
+                  />
+                  <span>{ds.department}:</span>
+                  <span className={isCurrentSelected ? 'text-teal-100' : 'text-teal-700 dark:text-teal-300'}>
+                    {ds.defaultMonthlySalary.toLocaleString('tr-TR')} ₺
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDeptSalary(ds.department);
+                    }}
+                    className={`ml-0.5 p-0.5 rounded-full hover:bg-rose-500 hover:text-white transition-colors ${
+                      isCurrentSelected ? 'text-teal-200' : 'text-slate-400'
+                    }`}
+                    title="Bu bölüm tutarını sil"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* 4. Personel Kartları ve Açılır Çekmece (Accordion Drawer) */}
       {filteredStaff.length === 0 ? (
         <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800">
@@ -1412,6 +1727,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           <span className="flex items-center gap-1">
                             <Building2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             <strong className="text-slate-700 dark:text-slate-300">{staffBranch.name}</strong>
+                          </span>
+                        )}
+                        {staff.department && (
+                          <span className="flex items-center gap-1 font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 px-2 py-0.5 rounded text-[11px] border border-teal-200/60 dark:border-teal-900/50">
+                            <Briefcase className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                            {staff.department}
                           </span>
                         )}
                         {staff.tcNo && (
@@ -1762,6 +2083,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         {branches.find((b) => b.id === activeModalData.staff.branchId)?.name}
                       </span>
                     )}
+                    {activeModalData.staff.department && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                        <Briefcase className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                        {activeModalData.staff.department}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                     {MONTH_NAMES[activeModalData.month - 1]} {activeModalData.year} Maaş & Ödeme Detayı
@@ -1834,58 +2161,124 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                 </div>
               </div>
 
-              {/* İsteğe Bağlı: Bu Ayki Anlaşılan Tutar & Kalan Bakiye */}
-              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-3">
+              {/* Görsel-3: Bu Ayki Belirlenen Tutar / Hak Ediş & Kalan Bakiye */}
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-2">
                 {!isEditingAgreed ? (
-                  <div className="flex items-center justify-between w-full">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                        {currentMonthCalc.agreed !== undefined
-                          ? `Anlaşılan Hak Ediş: ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`
-                          : 'Bu ay için anlaşılan tutar girilmedi (İsteğe bağlı)'}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                          {currentMonthCalc.agreed !== undefined
+                            ? `Anlaşılan Hak Ediş: ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`
+                            : 'Bu ay için anlaşılan tutar girilmedi (İsteğe bağlı)'}
+                        </span>
+
+                        {/* Otomatik Bölüm Maaşı Rozeti */}
+                        {currentMonthCalc.isAutoDepartment && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                            <Briefcase className="w-3 h-3" />
+                            {currentMonthCalc.staffDept} Bölümünden Otomatik
+                          </span>
+                        )}
+
+                        {/* Manuel Belirlendi Rozeti */}
+                        {currentMonthCalc.hasManualAgreed && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                            ✍️ Manuel Belirlendi
+                          </span>
+                        )}
+                      </div>
+
                       {currentMonthCalc.remaining !== null && (
-                        <p className="text-xs font-bold text-rose-600 dark:text-rose-400 mt-0.5">
+                        <p className="text-xs font-bold text-rose-600 dark:text-rose-400 mt-1">
                           Kalan Maaş: {currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺
                         </p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingAgreedAmount(
-                          currentMonthCalc.agreed !== undefined ? String(currentMonthCalc.agreed) : ''
-                        );
-                        setIsEditingAgreed(true);
-                      }}
-                      className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 transition-colors cursor-pointer shrink-0"
-                    >
-                      {currentMonthCalc.agreed !== undefined ? 'Düzenle' : 'Tutar Belirle'}
-                    </button>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Manuel belirlendiyse ve personelin bölüm standart tutarı varsa bölüm tutarına dön butonu */}
+                      {currentMonthCalc.hasManualAgreed &&
+                        currentMonthCalc.departmentDefaultSalary !== undefined &&
+                        currentMonthCalc.departmentDefaultSalary > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleResetAgreedToDept}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 hover:bg-teal-100 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+                            title={`Bölüm standart maaşına dön (${currentMonthCalc.departmentDefaultSalary.toLocaleString('tr-TR')} ₺)`}
+                          >
+                            Bölüm Tutarına Dön
+                          </button>
+                        )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingAgreedAmount(
+                            currentMonthCalc.agreed !== undefined ? String(currentMonthCalc.agreed) : ''
+                          );
+                          setIsEditingAgreed(true);
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors cursor-pointer"
+                      >
+                        {currentMonthCalc.hasManualAgreed
+                          ? 'Düzenle'
+                          : currentMonthCalc.isAutoDepartment
+                          ? 'Manuel Değiştir'
+                          : 'Tutar Belirle'}
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 w-full">
-                    <input
-                      type="number"
-                      placeholder="Anlaşılan Tutar (₺)"
-                      value={editingAgreedAmount}
-                      onChange={(e) => setEditingAgreedAmount(e.target.value)}
-                      className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveAgreedAmount}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors cursor-pointer"
-                    >
-                      Kaydet
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingAgreed(false)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-300 transition-colors cursor-pointer"
-                    >
-                      İptal
-                    </button>
+                  <div className="space-y-2">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="number"
+                          placeholder="Aylık Hak Ediş / Maaş Tutarı (₺)"
+                          value={editingAgreedAmount}
+                          onChange={(e) => setEditingAgreedAmount(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveAgreedAmount}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors cursor-pointer"
+                        >
+                          Kaydet
+                        </button>
+                        {currentMonthCalc.departmentDefaultSalary !== undefined &&
+                          currentMonthCalc.departmentDefaultSalary > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleResetAgreedToDept}
+                              className="px-3 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-100 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+                              title={`Bölüm tutarına sıfırla (${currentMonthCalc.departmentDefaultSalary.toLocaleString('tr-TR')} ₺)`}
+                            >
+                              Bölüm Standartına Sıfırla
+                            </button>
+                          )}
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingAgreed(false)}
+                          className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-300 transition-colors cursor-pointer"
+                        >
+                          İptal
+                        </button>
+                      </div>
+                    </div>
+                    {currentMonthCalc.departmentDefaultSalary !== undefined &&
+                      currentMonthCalc.departmentDefaultSalary > 0 && (
+                        <p className="text-[11px] text-teal-600 dark:text-teal-400 font-medium">
+                          💡 Bu personelin bölümü ({currentMonthCalc.staffDept}) için standart tutar:{' '}
+                          <strong>
+                            {currentMonthCalc.departmentDefaultSalary.toLocaleString('tr-TR')} ₺
+                          </strong>
+                          . Manuel bir tutar kaydedebilir veya istediğiniz zaman bölüm tutarına dönebilirsiniz.
+                        </p>
+                      )}
                   </div>
                 )}
               </div>
