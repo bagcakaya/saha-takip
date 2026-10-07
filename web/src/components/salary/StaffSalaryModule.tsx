@@ -16,6 +16,9 @@ import {
   Building2,
   User,
   FileDown,
+  FileText,
+  TrendingUp,
+  ExternalLink,
   Loader2,
   CheckCircle2,
 } from 'lucide-react';
@@ -85,16 +88,23 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   const [paymentDesc, setPaymentDesc] = useState('');
   const [paymentBranchId, setPaymentBranchId] = useState<string>('');
   const [paymentReceipt, setPaymentReceipt] = useState<string | undefined>(undefined);
+  const [paymentReceiptName, setPaymentReceiptName] = useState<string | undefined>(undefined);
+  const [paymentReceiptType, setPaymentReceiptType] = useState<'image' | 'pdf' | undefined>(undefined);
 
   // İsteğe bağlı o ay için hedef hak ediş düzenleme
   const [editingAgreedAmount, setEditingAgreedAmount] = useState<string>('');
   const [isEditingAgreed, setIsEditingAgreed] = useState(false);
 
-  // Dekont büyük önizleme
-  const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
+  // Dekont / Belge (PDF veya Görsel) önizleme modalı
+  const [previewReceipt, setPreviewReceipt] = useState<{
+    url: string;
+    type?: 'image' | 'pdf';
+    name?: string;
+  } | null>(null);
 
   // PDF üretiliyor mu?
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingYearlyPdf, setIsGeneratingYearlyPdf] = useState(false);
 
   // Bildirim toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -200,29 +210,97 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     );
   };
 
-  // Bir personelin seçili yıldaki toplam ödemeleri
+  // Bir personelin seçili yıldaki tüm ödeme detayları ve yıllık özeti
   const getStaffYearlySummary = (userId: string, year: number) => {
     let totalPaid = 0;
     let totalCash = 0;
     let totalBank = 0;
+    let totalSalary = 0;
+    let totalAdvance = 0;
+    let totalBonus = 0;
+    let totalOther = 0;
     let paymentsCount = 0;
 
-    (salaryRecords || []).forEach((r) => {
-      if (
-        r.companyCode === activeCompanyCode &&
-        r.userId === userId &&
-        r.year === year
-      ) {
-        (r.payments || []).forEach((p) => {
-          totalPaid += p.amount || 0;
-          if (p.paymentMethod === 'cash') totalCash += p.amount || 0;
-          if (p.paymentMethod === 'bank') totalBank += p.amount || 0;
-          paymentsCount += 1;
-        });
-      }
+    const monthlyBreakdown = Array.from({ length: 12 }, (_, i) => {
+      const monthNum = i + 1;
+      const rec = (salaryRecords || []).find(
+        (r) =>
+          r.companyCode === activeCompanyCode &&
+          r.userId === userId &&
+          r.year === year &&
+          r.month === monthNum
+      );
+
+      let mPaid = 0;
+      let mCash = 0;
+      let mBank = 0;
+      let mSalary = 0;
+      let mAdvance = 0;
+      let mBonus = 0;
+      let mOther = 0;
+
+      (rec?.payments || []).forEach((p) => {
+        const amt = p.amount || 0;
+        mPaid += amt;
+        totalPaid += amt;
+        if (p.paymentMethod === 'cash') {
+          mCash += amt;
+          totalCash += amt;
+        } else if (p.paymentMethod === 'bank') {
+          mBank += amt;
+          totalBank += amt;
+        }
+
+        if (p.paymentType === 'advance') {
+          mAdvance += amt;
+          totalAdvance += amt;
+        } else if (p.paymentType === 'bonus') {
+          mBonus += amt;
+          totalBonus += amt;
+        } else if (p.paymentType === 'other') {
+          mOther += amt;
+          totalOther += amt;
+        } else {
+          mSalary += amt;
+          totalSalary += amt;
+        }
+        paymentsCount += 1;
+      });
+
+      return {
+        month: monthNum,
+        monthName: MONTH_NAMES[i],
+        agreedAmount: rec?.agreedAmount,
+        totalPaid: mPaid,
+        totalCash: mCash,
+        totalBank: mBank,
+        totalSalary: mSalary,
+        totalAdvance: mAdvance,
+        totalBonus: mBonus,
+        totalOther: mOther,
+        paymentsCount: rec?.payments?.length || 0,
+        payments: rec?.payments || [],
+      };
     });
 
-    return { totalPaid, totalCash, totalBank, paymentsCount };
+    const activeMonths = monthlyBreakdown.filter((m) => m.totalPaid > 0);
+    const activeMonthsCount = activeMonths.length;
+    const averageMonthly =
+      activeMonthsCount > 0 ? Math.round(totalPaid / activeMonthsCount) : 0;
+
+    return {
+      totalPaid,
+      totalCash,
+      totalBank,
+      totalSalary,
+      totalAdvance,
+      totalBonus,
+      totalOther,
+      paymentsCount,
+      activeMonthsCount,
+      averageMonthly,
+      monthlyBreakdown,
+    };
   };
 
   // Seçili ayın kaydı (modal için)
@@ -288,6 +366,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         branchId: paymentBranchId || undefined,
         branchName: assignedBranch?.name || undefined,
         receiptUrl: paymentReceipt,
+        receiptFileName: paymentReceiptName,
+        receiptFileType: paymentReceiptType,
       }
     );
 
@@ -295,6 +375,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     setPaymentAmount('');
     setPaymentDesc('');
     setPaymentReceipt(undefined);
+    setPaymentReceiptName(undefined);
+    setPaymentReceiptType(undefined);
     setIsAddingPayment(false);
   };
 
@@ -347,19 +429,27 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     setIsEditingAgreed(false);
   };
 
-  // Dekont dosya yükleme
+  // Dekont / Fiş / Belge dosya yükleme (PDF veya Görsel)
   const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Görsel boyutu en fazla 5MB olabilir.');
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Dosya boyutu en fazla 10MB olabilir.');
       return;
     }
+
+    const isPdf =
+      file.type === 'application/pdf' ||
+      file.name.toLowerCase().endsWith('.pdf');
+    const fileType: 'image' | 'pdf' = isPdf ? 'pdf' : 'image';
+    const fileName = file.name;
 
     const reader = new FileReader();
     reader.onload = (event) => {
       setPaymentReceipt(event.target?.result as string);
+      setPaymentReceiptName(fileName);
+      setPaymentReceiptType(fileType);
     };
     reader.readAsDataURL(file);
   };
@@ -645,6 +735,277 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     }
   };
 
+  // =========================================================
+  // 📊 YILLIK PERSONEL MAAŞ & ÖDEME İCMALİ HTML ŞABLONU
+  // =========================================================
+  const generateYearlySalarySlipHtml = (
+    staff: any,
+    year: number,
+    yearlySummary: ReturnType<typeof getStaffYearlySummary>
+  ) => {
+    const staffBranch = branches?.find((b) => b.id === staff.branchId);
+    const dateFormatted = new Date().toLocaleDateString('tr-TR');
+
+    const monthRows = yearlySummary.monthlyBreakdown
+      .map((m) => {
+        const hasData = m.totalPaid > 0;
+        return `
+          <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px; ${hasData ? 'background-color: #fafbfc;' : ''}">
+            <td style="padding: 7px 10px; font-weight: bold; color: #1e293b;">${m.monthName}</td>
+            <td style="padding: 7px 10px; text-align: right; color: #0284c7; font-weight: 600;">
+              ${m.totalBank > 0 ? m.totalBank.toLocaleString('tr-TR') + ' ₺' : '-'}
+            </td>
+            <td style="padding: 7px 10px; text-align: right; color: #d97706; font-weight: 600;">
+              ${m.totalCash > 0 ? m.totalCash.toLocaleString('tr-TR') + ' ₺' : '-'}
+            </td>
+            <td style="padding: 7px 10px; text-align: right; color: #64748b;">
+              ${m.totalAdvance > 0 ? m.totalAdvance.toLocaleString('tr-TR') + ' ₺' : '-'}
+            </td>
+            <td style="padding: 7px 10px; text-align: right; color: #64748b;">
+              ${m.totalBonus > 0 ? m.totalBonus.toLocaleString('tr-TR') + ' ₺' : '-'}
+            </td>
+            <td style="padding: 7px 10px; text-align: right; font-weight: 800; color: ${hasData ? '#059669' : '#94a3b8'};">
+              ${hasData ? m.totalPaid.toLocaleString('tr-TR') + ' ₺' : '0 ₺'}
+            </td>
+            <td style="padding: 7px 10px; text-align: center; font-size: 10px; color: #64748b;">
+              ${hasData ? `${m.paymentsCount} işlem` : '-'}
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    return `
+      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 24px; max-width: 800px; margin: 0 auto; background: #ffffff;">
+        <!-- Üst Başlık -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #059669; padding-bottom: 14px; margin-bottom: 16px;">
+          <div>
+            <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #065f46; letter-spacing: -0.5px;">${activeCompanyName}</h1>
+            <p style="margin: 3px 0 0 0; font-size: 11px; font-weight: bold; color: #059669; text-transform: uppercase; letter-spacing: 0.8px;">
+              YILLIK PERSONEL MAAŞ & ÖDEME İCMAL BORDROSU
+            </p>
+          </div>
+          <div style="text-align: right; font-size: 10px; color: #64748b;">
+            <div style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 6px;">
+              DÖNEM: ${year} YILI KÜMÜLATİF
+            </div>
+            <div style="margin-top: 4px;">Rapor Tarihi: ${dateFormatted}</div>
+          </div>
+        </div>
+
+        <!-- Personel Bilgi Kartı -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="padding: 8px 12px; width: 45%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Personel Adı Soyadı</span><br/>
+              <strong style="color: #0f172a; font-size: 13px;">${staff.name || staff.username}</strong>
+            </td>
+            <td style="padding: 8px 12px; width: 30%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Şube / Lokasyon</span><br/>
+              <strong style="color: #0f172a;">${staffBranch?.name || 'Genel Merkez'}</strong>
+            </td>
+            <td style="padding: 8px 12px; width: 25%;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">Telefon</span><br/>
+              <strong style="color: #0f172a;">${staff.phone || '-'}</strong>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Yıllık Kümülatif Özet Kutuları -->
+        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+          <div style="flex: 1; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+            <div style="font-size: 9px; font-weight: bold; color: #065f46; text-transform: uppercase;">Yıllık Toplam Ödenen</div>
+            <div style="font-size: 15px; font-weight: 900; color: #047857; margin-top: 2px;">
+              ${yearlySummary.totalPaid.toLocaleString('tr-TR')} ₺
+            </div>
+            <div style="font-size: 9px; color: #059669; margin-top: 2px;">${yearlySummary.activeMonthsCount}/12 Ay • ${yearlySummary.paymentsCount} İşlem</div>
+          </div>
+
+          <div style="flex: 1; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px 10px; text-align: center;">
+            <div style="font-size: 9px; font-weight: bold; color: #1e40af; text-transform: uppercase;">Banka (Havale / EFT)</div>
+            <div style="font-size: 15px; font-weight: 900; color: #1d4ed8; margin-top: 2px;">
+              ${yearlySummary.totalBank.toLocaleString('tr-TR')} ₺
+            </div>
+            <div style="font-size: 9px; color: #2563eb; margin-top: 2px;">
+              %${yearlySummary.totalPaid > 0 ? Math.round((yearlySummary.totalBank / yearlySummary.totalPaid) * 100) : 0} pay
+            </div>
+          </div>
+
+          <div style="flex: 1; background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; text-align: center;">
+            <div style="font-size: 9px; font-weight: bold; color: #92400e; text-transform: uppercase;">Elden Nakit</div>
+            <div style="font-size: 15px; font-weight: 900; color: #b45309; margin-top: 2px;">
+              ${yearlySummary.totalCash.toLocaleString('tr-TR')} ₺
+            </div>
+            <div style="font-size: 9px; color: #d97706; margin-top: 2px;">
+              %${yearlySummary.totalPaid > 0 ? Math.round((yearlySummary.totalCash / yearlySummary.totalPaid) * 100) : 0} pay
+            </div>
+          </div>
+
+          <div style="flex: 1; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+            <div style="font-size: 9px; font-weight: bold; color: #475569; text-transform: uppercase;">Aylık Ortalama</div>
+            <div style="font-size: 15px; font-weight: 900; color: #0f172a; margin-top: 2px;">
+              ${yearlySummary.averageMonthly.toLocaleString('tr-TR')} ₺
+            </div>
+            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Aktif aylar ortalaması</div>
+          </div>
+        </div>
+
+        <!-- 12 Ayın Tablosu -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #cbd5e1;">
+          <thead>
+            <tr style="background-color: #0f172a; color: #ffffff; font-size: 10px; text-transform: uppercase;">
+              <th style="padding: 7px 10px; text-align: left;">Dönem (Ay)</th>
+              <th style="padding: 7px 10px; text-align: right;">Banka (₺)</th>
+              <th style="padding: 7px 10px; text-align: right;">Nakit (₺)</th>
+              <th style="padding: 7px 10px; text-align: right;">Avans</th>
+              <th style="padding: 7px 10px; text-align: right;">Prim</th>
+              <th style="padding: 7px 10px; text-align: right;">Toplam Ödenen</th>
+              <th style="padding: 7px 10px; text-align: center;">İşlem</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${monthRows}
+            <tr style="background-color: #0f172a; color: #ffffff; font-weight: bold; font-size: 11px;">
+              <td style="padding: 9px 10px;">GENEL YILLIK TOPLAM</td>
+              <td style="padding: 9px 10px; text-align: right; color: #38bdf8;">${yearlySummary.totalBank.toLocaleString('tr-TR')} ₺</td>
+              <td style="padding: 9px 10px; text-align: right; color: #fcd34d;">${yearlySummary.totalCash.toLocaleString('tr-TR')} ₺</td>
+              <td style="padding: 9px 10px; text-align: right; color: #e2e8f0;">${yearlySummary.totalAdvance.toLocaleString('tr-TR')} ₺</td>
+              <td style="padding: 9px 10px; text-align: right; color: #e2e8f0;">${yearlySummary.totalBonus.toLocaleString('tr-TR')} ₺</td>
+              <td style="padding: 9px 10px; text-align: right; color: #4ade80; font-size: 12px;">${yearlySummary.totalPaid.toLocaleString('tr-TR')} ₺</td>
+              <td style="padding: 9px 10px; text-align: center;">${yearlySummary.paymentsCount}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- İmza Alanı -->
+        <div style="display: flex; justify-content: space-between; margin-top: 25px; padding: 0 20px;">
+          <div style="text-align: center; width: 220px;">
+            <div style="font-weight: bold; font-size: 10px; color: #334155; margin-bottom: 40px;">
+              İŞVEREN / YETKİLİ KAŞE - İMZA
+            </div>
+            <div style="border-top: 1px dashed #94a3b8; font-size: 9px; color: #64748b; padding-top: 4px;">
+              ${activeCompanyName}
+            </div>
+          </div>
+
+          <div style="text-align: center; width: 220px;">
+            <div style="font-weight: bold; font-size: 10px; color: #334155; margin-bottom: 40px;">
+              PERSONEL İMZA
+            </div>
+            <div style="border-top: 1px dashed #94a3b8; font-size: 9px; color: #64748b; padding-top: 4px;">
+              ${staff.name || staff.username}
+            </div>
+          </div>
+        </div>
+
+        <!-- Dipnot -->
+        <div style="margin-top: 20px; text-align: center; font-size: 8px; color: #94a3b8; line-height: 1.4;">
+          İşbu bordro icmali, ${year} takvim yılı içerisinde personele banka veya elden teslim edilen tüm ödeme hareketlerini belgeler.<br/>
+          Saha Takip Otomasyon Sistemi tarafından otomatik üretilmiştir.
+        </div>
+      </div>
+    `;
+  };
+
+  // =========================================================
+  // 📱 YILLIK İCMAL PDF İNDİR VE WHATSAPP PAYLAŞIMI
+  // =========================================================
+  const handleExportStaffYearlyPdf = async (staff: any, year: number, openWhatsApp: boolean = false) => {
+    setIsGeneratingYearlyPdf(true);
+    try {
+      const summary = getStaffYearlySummary(staff.id, year);
+      const htmlContent = generateYearlySalarySlipHtml(staff, year, summary);
+      const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${year}_Yillik_Odeme_Icmali.pdf`;
+
+      const html2pdf = (window as any).html2pdf || (await import('html2pdf.js')).default;
+      const container = document.createElement('div');
+      container.innerHTML = htmlContent;
+      document.body.appendChild(container);
+
+      const opt = {
+        margin: [8, 8, 8, 8],
+        filename: cleanFileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      };
+
+      const worker = html2pdf().set(opt).from(container);
+
+      if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+        try {
+          const pdfBlob = await worker.outputPdf('blob');
+          const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
+
+          if (navigator.canShare({ files: [pdfFile] })) {
+            document.body.removeChild(container);
+            await navigator.share({
+              files: [pdfFile],
+              title: `${staff.name || staff.username} - ${year} Yıllık Ödeme İcmali`,
+              text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir. (${activeCompanyName})`,
+            });
+            setIsGeneratingYearlyPdf(false);
+            return;
+          }
+        } catch (shareErr) {
+          console.warn('Native share failed or dismissed, falling back to download:', shareErr);
+        }
+      }
+
+      await worker.save();
+      document.body.removeChild(container);
+
+      if (openWhatsApp) {
+        const phone = (staff.phone || '').replace(/\D/g, '');
+        const messageLines = [
+          `Sayın *${staff.name || staff.username}*,`,
+          `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz hazırlanmıştır.`,
+          `━━━━━━━━━━━━━━━━━`,
+          `• *Yıllık Toplam Ödenen:* ${summary.totalPaid.toLocaleString('tr-TR')} ₺`,
+        ];
+
+        if (summary.totalBank > 0) {
+          messageLines.push(`  - 🏦 Banka (Havale/EFT): ${summary.totalBank.toLocaleString('tr-TR')} ₺`);
+        }
+        if (summary.totalCash > 0) {
+          messageLines.push(`  - 💵 Elden Nakit: ${summary.totalCash.toLocaleString('tr-TR')} ₺`);
+        }
+        if (summary.totalAdvance > 0) {
+          messageLines.push(`  - ⚡ Avanslar: ${summary.totalAdvance.toLocaleString('tr-TR')} ₺`);
+        }
+        if (summary.totalBonus > 0) {
+          messageLines.push(`  - 🎁 Primler: ${summary.totalBonus.toLocaleString('tr-TR')} ₺`);
+        }
+
+        messageLines.push(`• *İşlem Sayısı:* ${summary.paymentsCount} adet (${summary.activeMonthsCount}/12 ay aktif)`);
+        messageLines.push(`• *Aylık Ortalama:* ${summary.averageMonthly.toLocaleString('tr-TR')} ₺`);
+        messageLines.push(`━━━━━━━━━━━━━━━━━`);
+        messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
+        messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
+        messageLines.push(`*${activeCompanyName}*`);
+
+        const encoded = encodeURIComponent(messageLines.join('\n'));
+        const url = phone
+          ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
+          : `https://wa.me/?text=${encoded}`;
+
+        window.open(url, '_blank');
+      }
+
+      setToastMessage(
+        openWhatsApp
+          ? '📄 Yıllık İcmal PDF indirildi ve WhatsApp açıldı!'
+          : '📄 Yıllık İcmal Belgesi PDF olarak indirildi.'
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      console.error('Yıllık PDF üretilirken hata:', err);
+      alert('Yıllık PDF oluşturulurken hata meydana geldi.');
+    } finally {
+      setIsGeneratingYearlyPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-in fade-in duration-200">
       {/* 1. Header Banner & Geri Butonu */}
@@ -884,6 +1245,18 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400">
                         {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
                       </div>
+                      <div className="flex items-center gap-1.5 justify-start sm:justify-end text-[10px] font-bold mt-0.5">
+                        {yearSummary.totalBank > 0 && (
+                          <span className="text-blue-600 dark:text-blue-400">
+                            🏦 {yearSummary.totalBank.toLocaleString('tr-TR')} ₺
+                          </span>
+                        )}
+                        {yearSummary.totalCash > 0 && (
+                          <span className="text-amber-600 dark:text-amber-400">
+                            💵 {yearSummary.totalCash.toLocaleString('tr-TR')} ₺
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] font-medium text-slate-400">
                         Bu Ay: {thisMonthPaid.toLocaleString('tr-TR')} ₺
                       </div>
@@ -912,7 +1285,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                 {/* 📂 ÇEKMECE İÇERİĞİ: 12 AY GRİD'İ (Accordion Expansion) */}
                 {/* ========================================================= */}
                 {isExpanded && (
-                  <div className="p-4 sm:p-5 bg-slate-50/80 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                  <div className="p-4 sm:p-5 bg-slate-50/80 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800 space-y-4 animate-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
                       <span>{selectedYear} Yılı Aylar Çizelgesi:</span>
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
@@ -998,6 +1371,143 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/* ========================================================= */}
+                    {/* 📊 YIL SONU PERSONEL ÖZET İCMALİ (Yıllık Kümülatif Rapor) */}
+                    {/* ========================================================= */}
+                    <div className="mt-4 p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/30 shadow-md space-y-3.5">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <TrendingUp className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                              <span>{selectedYear} Yılı Personel Özet İcmali</span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                                Yıl Sonu Raporu
+                              </span>
+                            </h4>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Personelin {selectedYear} takvim yılı boyunca aldığı tüm ödemelerin kümülatif dökümü
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Aksiyon Butonları: Yıllık İcmal PDF & WhatsApp */}
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            disabled={isGeneratingYearlyPdf}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExportStaffYearlyPdf(staff, selectedYear, false);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-200 dark:border-slate-700 disabled:opacity-50"
+                            title="12 Aylık Resmi İcmal Bordrosunu PDF İndir"
+                          >
+                            {isGeneratingYearlyPdf ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5 text-rose-500" />
+                            )}
+                            <span>📄 Yıllık İcmal PDF</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isGeneratingYearlyPdf}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExportStaffYearlyPdf(staff, selectedYear, true);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md shadow-emerald-600/30 transition-all cursor-pointer disabled:opacity-50"
+                            title="Yıllık Özeti PDF Olarak WhatsApp'tan Gönder"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>📱 WhatsApp (PDF)</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 4'lü Finansal Özet Metrik Kutuları */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {/* Yıllık Toplam */}
+                        <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50">
+                          <span className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
+                            Yıllık Net Alınan
+                          </span>
+                          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                            {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
+                          </p>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {yearSummary.paymentsCount} işlem • {yearSummary.activeMonthsCount}/12 ay aktif
+                          </span>
+                        </div>
+
+                        {/* Banka Toplamı */}
+                        <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/50">
+                          <span className="text-[10px] font-bold uppercase text-blue-800 dark:text-blue-300">
+                            🏦 Banka (Havale/EFT)
+                          </span>
+                          <p className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-1">
+                            {yearSummary.totalBank.toLocaleString('tr-TR')} ₺
+                          </p>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Toplamın %{yearSummary.totalPaid > 0 ? Math.round((yearSummary.totalBank / yearSummary.totalPaid) * 100) : 0}'i
+                          </span>
+                        </div>
+
+                        {/* Nakit Toplamı */}
+                        <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50">
+                          <span className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-300">
+                            💵 Elden Nakit
+                          </span>
+                          <p className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
+                            {yearSummary.totalCash.toLocaleString('tr-TR')} ₺
+                          </p>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Toplamın %{yearSummary.totalPaid > 0 ? Math.round((yearSummary.totalCash / yearSummary.totalPaid) * 100) : 0}'i
+                          </span>
+                        </div>
+
+                        {/* Aylık Ortalama */}
+                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
+                          <span className="text-[10px] font-bold uppercase text-slate-600 dark:text-slate-300">
+                            📊 Aylık Ortalama
+                          </span>
+                          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
+                            {yearSummary.averageMonthly.toLocaleString('tr-TR')} ₺
+                          </p>
+                          <span className="text-[10px] text-slate-400">
+                            Ödenen aylar ortalaması
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Alt Kırılım Rozetleri: Maaş, Avans, Prim */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                        <span className="text-slate-400 text-[11px] font-semibold">Ödeme Türü Dağılımı:</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                          🏷️ Maaş: <strong className="text-emerald-600 dark:text-emerald-400">{yearSummary.totalSalary.toLocaleString('tr-TR')} ₺</strong>
+                        </span>
+                        {yearSummary.totalAdvance > 0 && (
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                            ⚡ Avans: <strong className="text-amber-600 dark:text-amber-400">{yearSummary.totalAdvance.toLocaleString('tr-TR')} ₺</strong>
+                          </span>
+                        )}
+                        {yearSummary.totalBonus > 0 && (
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                            🎁 Prim: <strong className="text-purple-600 dark:text-purple-400">{yearSummary.totalBonus.toLocaleString('tr-TR')} ₺</strong>
+                          </span>
+                        )}
+                        {yearSummary.totalOther > 0 && (
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 text-[11px]">
+                            📎 Diğer: <strong>{yearSummary.totalOther.toLocaleString('tr-TR')} ₺</strong>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1211,16 +1721,45 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          {p.receiptUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewReceiptUrl(p.receiptUrl!)}
-                              className="p-1.5 rounded-xl bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 hover:bg-teal-100 cursor-pointer"
-                              title="Dekont / Fiş Görselini Görüntüle"
-                            >
-                              <ImageIcon className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          {p.receiptUrl && (() => {
+                            const isPdf =
+                              p.receiptFileType === 'pdf' ||
+                              p.receiptUrl.startsWith('data:application/pdf') ||
+                              p.receiptUrl.endsWith('.pdf');
+                            return (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewReceipt({
+                                    url: p.receiptUrl!,
+                                    type: isPdf ? 'pdf' : 'image',
+                                    name:
+                                      p.receiptFileName ||
+                                      (isPdf ? 'Dekont_Belgesi.pdf' : 'Dekont_Görseli.jpg'),
+                                  })
+                                }
+                                className={`p-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                                  isPdf
+                                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
+                                    : 'bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 hover:bg-teal-100'
+                                }`}
+                                title={
+                                  isPdf
+                                    ? 'Banka Dekontunu Görüntüle (PDF)'
+                                    : 'Dekont / Fiş Görselini Görüntüle'
+                                }
+                              >
+                                {isPdf ? (
+                                  <>
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span className="text-[10px]">PDF</span>
+                                  </>
+                                ) : (
+                                  <ImageIcon className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={async () => {
@@ -1385,33 +1924,92 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     />
                   </div>
 
-                  {/* Dekont Görseli Yükleme */}
+                  {/* Dekont Görseli veya PDF Yükleme */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      Dekont / Fiş Görseli (İsteğe Bağlı)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <label className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 bg-white dark:bg-slate-900 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer transition-colors">
-                        <ImageIcon className="w-4 h-4 text-emerald-500" />
-                        <span>{paymentReceipt ? 'Dekont Seçildi (Değiştir)' : 'Görsel / Fotoğraf Yükle'}</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Dekont / Fiş / Belge (İsteğe Bağlı)
+                      </label>
+                      <span className="text-[10px] text-slate-400">PDF veya Fotoğraf</span>
+                    </div>
+
+                    {!paymentReceipt ? (
+                      <label className="flex flex-col sm:flex-row items-center justify-center gap-2 px-4 py-3 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 bg-white dark:bg-slate-900 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer transition-all hover:bg-emerald-50/30 dark:hover:bg-emerald-950/20 group">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-rose-500 group-hover:scale-110 transition-transform" />
+                          <ImageIcon className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
+                          <span>Görsel, Fotoğraf veya PDF Belgesi Yükle</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          (Banka dekontu, fiş, makbuz - Max 10MB)
+                        </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/*,application/pdf"
                           onChange={handleReceiptFileChange}
                           className="hidden"
                         />
                       </label>
-                      {paymentReceipt && (
-                        <button
-                          type="button"
-                          onClick={() => setPaymentReceipt(undefined)}
-                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                          title="Görseli Kaldır"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
+                    ) : (
+                      <div className="flex items-center justify-between p-3 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/50 shadow-sm">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          {paymentReceiptType === 'pdf' ? (
+                            <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-900/50 font-black text-xs">
+                              PDF
+                            </div>
+                          ) : (
+                            <div className="w-9 h-9 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700">
+                              <img
+                                src={paymentReceipt}
+                                alt="Önizleme"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                              {paymentReceiptName ||
+                                (paymentReceiptType === 'pdf'
+                                  ? 'Dekont_Belgesi.pdf'
+                                  : 'Dekont_Görseli.jpg')}
+                            </p>
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                              {paymentReceiptType === 'pdf'
+                                ? '📄 PDF Banka Dekontu Eklendi'
+                                : '🖼️ Makbuz Fotoğrafı Eklendi'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewReceipt({
+                                url: paymentReceipt,
+                                type: paymentReceiptType,
+                                name: paymentReceiptName,
+                              })
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                          >
+                            Önizle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentReceipt(undefined);
+                              setPaymentReceiptName(undefined);
+                              setPaymentReceiptType(undefined);
+                            }}
+                            className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                            title="Belgeyi Kaldır"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Kaydet Butonu */}
@@ -1514,24 +2112,80 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         </div>
       )}
 
-      {/* Dekont Tam Ekran Önizleme Modalı */}
-      {previewReceiptUrl && (
+      {/* Dekont / Belge Tam Ekran Önizleme Modalı (PDF ve Görsel Uyumlu) */}
+      {previewReceipt && (
         <div
-          onClick={() => setPreviewReceiptUrl(null)}
-          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md cursor-pointer animate-in fade-in"
+          onClick={() => setPreviewReceipt(null)}
+          className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-6 bg-slate-950/90 backdrop-blur-md cursor-pointer animate-in fade-in"
         >
-          <div className="relative max-w-xl max-h-[85vh] bg-slate-900 rounded-3xl overflow-hidden border border-slate-700 shadow-2xl">
-            <button
-              onClick={() => setPreviewReceiptUrl(null)}
-              className="absolute top-3 right-3 p-2 rounded-full bg-slate-950/80 text-white hover:bg-rose-600 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={previewReceiptUrl}
-              alt="Dekont / Fiş"
-              className="w-full h-full object-contain max-h-[80vh]"
-            />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl bg-slate-900 rounded-3xl overflow-hidden border border-slate-700 shadow-2xl flex flex-col max-h-[90vh]"
+          >
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2 overflow-hidden">
+                {previewReceipt.type === 'pdf' ? (
+                  <span className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 font-bold text-xs shrink-0">
+                    📄 PDF Belgesi
+                  </span>
+                ) : (
+                  <span className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 font-bold text-xs shrink-0">
+                    🖼️ Makbuz Görseli
+                  </span>
+                )}
+                <span className="text-xs sm:text-sm font-bold text-white truncate">
+                  {previewReceipt.name || 'Dekont / Belge Önizleme'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {previewReceipt.url && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const w = window.open();
+                      if (w) {
+                        w.document.write(
+                          previewReceipt.type === 'pdf'
+                            ? `<iframe src="${previewReceipt.url}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`
+                            : `<img src="${previewReceipt.url}" style="max-width:100%; display:block; margin:auto;" />`
+                        );
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Yeni Sekmede Aç</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPreviewReceipt(null)}
+                  className="p-1.5 rounded-xl bg-slate-700/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
+                  title="Kapat"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-2 sm:p-4 overflow-auto flex-1 flex items-center justify-center bg-slate-950 min-h-[300px]">
+              {previewReceipt.type === 'pdf' ? (
+                <iframe
+                  src={previewReceipt.url}
+                  className="w-full h-[70vh] rounded-2xl border border-slate-800 bg-white"
+                  title="PDF Belgesi"
+                />
+              ) : (
+                <img
+                  src={previewReceipt.url}
+                  alt="Dekont / Fiş"
+                  className="max-h-[75vh] w-auto max-w-full object-contain rounded-xl"
+                />
+              )}
+            </div>
           </div>
         </div>
       )}

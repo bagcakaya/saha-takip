@@ -461,7 +461,9 @@ export interface SalaryPaymentItem {
   paymentType: SalaryPaymentType; // 'salary' | 'advance' | 'bonus' | 'other'
   date: string; // YYYY-MM-DD
   description?: string; // Örn: 'Avans verildi', 'Ekim maaşı'
-  receiptUrl?: string; // Dekont / Makbuz görseli (base64 / data URL)
+  receiptUrl?: string; // Dekont / Makbuz görseli veya PDF (base64 / data URL)
+  receiptFileName?: string; // Yüklenen dosyanın adı (örn: dekont.pdf)
+  receiptFileType?: 'image' | 'pdf'; // Yüklenen dosya türü
   branchId?: string; // Ödemenin yapıldığı şube / kasa
   branchName?: string;
   createdAt: number;
