@@ -30,6 +30,19 @@ import {
   SalaryPaymentType,
 } from '../../types/storage';
 import { BranchSelect, BranchOption } from '../common/BranchSelect';
+import html2pdf from 'html2pdf.js';
+
+// Tarayıcı belleğindeki PDF Blob'unu anında (0ms) indiren yardımcı
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
 
 const MONTH_NAMES = [
   'Ocak',
@@ -638,99 +651,111 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
     setIsGeneratingPdf(true);
 
+    const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${monthName}_${year}_Maas_Pusulasi.pdf`;
+
+    // Sabit A4 genişlikli (750px) ve ekran dışı container - html2canvas'ın anında işlemesini sağlar
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.width = '750px';
+    container.style.background = '#ffffff';
+    container.style.zIndex = '-9999';
+    container.innerHTML = generateSalarySlipHtml(staff, year, month, currentMonthCalc);
+    document.body.appendChild(container);
+
     try {
-      const htmlContent = generateSalarySlipHtml(staff, year, month, currentMonthCalc);
-      const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${monthName}_${year}_Maas_Pusulasi.pdf`;
-
-      // html2pdf import
-      const html2pdf =
-        (window as any).html2pdf || (await import('html2pdf.js')).default;
-
-      const container = document.createElement('div');
-      container.innerHTML = htmlContent;
-      document.body.appendChild(container);
-
       const opt = {
-        margin: [8, 8, 8, 8],
+        margin: 6,
         filename: cleanFileName,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        image: { type: 'jpeg' as const, quality: 0.90 },
+        html2canvas: {
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          width: 750,
+          windowWidth: 750,
+        },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
 
-      // PDF Blob oluştur
-      const worker = html2pdf().set(opt).from(container);
+      // Tek geçişte ultra-hızlı PDF Blob üretimi
+      const pdfBlob: Blob = await html2pdf().set(opt).from(container).outputPdf('blob');
 
-      // Mobil cihazlarda Web Share API ile dosya paylaşımı dene
+      // Mobil cihazlarda Web Share API ile doğrudan WhatsApp'a dosya eki olarak ilet
+      let sharedSuccessfully = false;
       if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
         try {
-          const pdfBlob = await worker.outputPdf('blob');
           const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
-
           if (navigator.canShare({ files: [pdfFile] })) {
-            document.body.removeChild(container);
             await navigator.share({
               files: [pdfFile],
               title: `${staff.name || staff.username} - ${monthName} ${year} Maaş Pusulası`,
               text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi maaş pusulanız ektedir. (${activeCompanyName})`,
             });
-            setIsGeneratingPdf(false);
-            return;
+            sharedSuccessfully = true;
           }
-        } catch (shareErr) {
-          console.warn('Native share failed or dismissed, falling back to download:', shareErr);
+        } catch (shareErr: any) {
+          if (shareErr.name !== 'AbortError') {
+            console.warn('Native share failed, falling back:', shareErr);
+          } else {
+            sharedSuccessfully = true;
+          }
         }
       }
 
-      // Standart İndirme (.save())
-      await worker.save();
-      document.body.removeChild(container);
+      // Standart indirme ve masaüstü WhatsApp yönlendirmesi
+      if (!sharedSuccessfully) {
+        downloadBlob(pdfBlob, cleanFileName);
 
-      // Eğer WhatsApp tıklandıysa ve native share desteklenmediyse WhatsApp web/uygulamasına yönlendir
-      if (openWhatsApp) {
-        const phone = (staff.phone || '').replace(/\D/g, '');
-        const messageLines = [
-          `Sayın *${staff.name || staff.username}*,`,
-          `*${monthName} ${year}* dönemi maaş pusulanız PDF olarak hazırlanmıştır.`,
-          `━━━━━━━━━━━━━━━━━`,
-          `• *Toplam Verilen:* ${currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺`,
-        ];
+        if (openWhatsApp) {
+          const phone = (staff.phone || '').replace(/\D/g, '');
+          const messageLines = [
+            `Sayın *${staff.name || staff.username}*,`,
+            `*${monthName} ${year}* dönemi maaş pusulanız PDF olarak hazırlanmıştır.`,
+            `━━━━━━━━━━━━━━━━━`,
+            `• *Toplam Verilen:* ${currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺`,
+          ];
 
-        if (currentMonthCalc.totalBank > 0) {
-          messageLines.push(`  - 🏦 Banka: ${currentMonthCalc.totalBank.toLocaleString('tr-TR')} ₺`);
+          if (currentMonthCalc.totalBank > 0) {
+            messageLines.push(`  - 🏦 Banka: ${currentMonthCalc.totalBank.toLocaleString('tr-TR')} ₺`);
+          }
+          if (currentMonthCalc.totalCash > 0) {
+            messageLines.push(`  - 💵 Elden Nakit: ${currentMonthCalc.totalCash.toLocaleString('tr-TR')} ₺`);
+          }
+
+          if (currentMonthCalc.agreed !== undefined && currentMonthCalc.remaining !== null) {
+            messageLines.push(`• *Anlaşılan Hak Ediş:* ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`);
+            messageLines.push(`• *Kalan Bakiye:* ${currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺`);
+          }
+
+          messageLines.push(`━━━━━━━━━━━━━━━━━`);
+          messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
+          messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
+          messageLines.push(`*${activeCompanyName}*`);
+
+          const encoded = encodeURIComponent(messageLines.join('\n'));
+          const url = phone
+            ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
+            : `https://wa.me/?text=${encoded}`;
+
+          window.open(url, '_blank');
         }
-        if (currentMonthCalc.totalCash > 0) {
-          messageLines.push(`  - 💵 Elden Nakit: ${currentMonthCalc.totalCash.toLocaleString('tr-TR')} ₺`);
-        }
-
-        if (currentMonthCalc.agreed !== undefined && currentMonthCalc.remaining !== null) {
-          messageLines.push(`• *Anlaşılan Hak Ediş:* ${currentMonthCalc.agreed.toLocaleString('tr-TR')} ₺`);
-          messageLines.push(`• *Kalan Bakiye:* ${currentMonthCalc.remaining.toLocaleString('tr-TR')} ₺`);
-        }
-
-        messageLines.push(`━━━━━━━━━━━━━━━━━`);
-        messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
-        messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
-        messageLines.push(`*${activeCompanyName}*`);
-
-        const encoded = encodeURIComponent(messageLines.join('\n'));
-        const url = phone
-          ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
-          : `https://wa.me/?text=${encoded}`;
-
-        window.open(url, '_blank');
       }
 
       setToastMessage(
         openWhatsApp
-          ? '📄 Maaş Pusulası PDF olarak indirildi ve WhatsApp açıldı!'
-          : '📄 Maaş Pusulası PDF olarak cihazınıza indirildi.'
+          ? '⚡ Maaş Pusulası hazırlandı ve WhatsApp açıldı!'
+          : '⚡ Maaş Pusulası anında indirildi.'
       );
-      setTimeout(() => setToastMessage(null), 4000);
+      setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       console.error('PDF üretilirken hata oluştu:', err);
       alert('PDF oluşturulurken bir hata meydana geldi.');
     } finally {
+      if (container.parentNode) {
+        container.parentNode.removeChild(container);
+      }
       setIsGeneratingPdf(false);
     }
   };
@@ -912,96 +937,112 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // =========================================================
   const handleExportStaffYearlyPdf = async (staff: any, year: number, openWhatsApp: boolean = false) => {
     setIsGeneratingYearlyPdf(true);
+
+    const summary = getStaffYearlySummary(staff.id, year);
+    const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${year}_Yillik_Odeme_Icmali.pdf`;
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.width = '750px';
+    container.style.background = '#ffffff';
+    container.style.zIndex = '-9999';
+    container.innerHTML = generateYearlySalarySlipHtml(staff, year, summary);
+    document.body.appendChild(container);
+
     try {
-      const summary = getStaffYearlySummary(staff.id, year);
-      const htmlContent = generateYearlySalarySlipHtml(staff, year, summary);
-      const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${year}_Yillik_Odeme_Icmali.pdf`;
-
-      const html2pdf = (window as any).html2pdf || (await import('html2pdf.js')).default;
-      const container = document.createElement('div');
-      container.innerHTML = htmlContent;
-      document.body.appendChild(container);
-
       const opt = {
-        margin: [8, 8, 8, 8],
+        margin: 6,
         filename: cleanFileName,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        image: { type: 'jpeg' as const, quality: 0.90 },
+        html2canvas: {
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          width: 750,
+          windowWidth: 750,
+        },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
 
-      const worker = html2pdf().set(opt).from(container);
+      const pdfBlob: Blob = await html2pdf().set(opt).from(container).outputPdf('blob');
 
+      let sharedSuccessfully = false;
       if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
         try {
-          const pdfBlob = await worker.outputPdf('blob');
           const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
-
           if (navigator.canShare({ files: [pdfFile] })) {
-            document.body.removeChild(container);
             await navigator.share({
               files: [pdfFile],
               title: `${staff.name || staff.username} - ${year} Yıllık Ödeme İcmali`,
               text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir. (${activeCompanyName})`,
             });
-            setIsGeneratingYearlyPdf(false);
-            return;
+            sharedSuccessfully = true;
           }
-        } catch (shareErr) {
-          console.warn('Native share failed or dismissed, falling back to download:', shareErr);
+        } catch (shareErr: any) {
+          if (shareErr.name !== 'AbortError') {
+            console.warn('Native share failed, falling back:', shareErr);
+          } else {
+            sharedSuccessfully = true;
+          }
         }
       }
 
-      await worker.save();
-      document.body.removeChild(container);
+      if (!sharedSuccessfully) {
+        downloadBlob(pdfBlob, cleanFileName);
 
-      if (openWhatsApp) {
-        const phone = (staff.phone || '').replace(/\D/g, '');
-        const messageLines = [
-          `Sayın *${staff.name || staff.username}*,`,
-          `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz hazırlanmıştır.`,
-          `━━━━━━━━━━━━━━━━━`,
-          `• *Yıllık Toplam Ödenen:* ${summary.totalPaid.toLocaleString('tr-TR')} ₺`,
-        ];
+        if (openWhatsApp) {
+          const phone = (staff.phone || '').replace(/\D/g, '');
+          const messageLines = [
+            `Sayın *${staff.name || staff.username}*,`,
+            `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz hazırlanmıştır.`,
+            `━━━━━━━━━━━━━━━━━`,
+            `• *Yıllık Toplam Ödenen:* ${summary.totalPaid.toLocaleString('tr-TR')} ₺`,
+          ];
 
-        if (summary.totalBank > 0) {
-          messageLines.push(`  - 🏦 Banka (Havale/EFT): ${summary.totalBank.toLocaleString('tr-TR')} ₺`);
+          if (summary.totalBank > 0) {
+            messageLines.push(`  - 🏦 Banka (Havale/EFT): ${summary.totalBank.toLocaleString('tr-TR')} ₺`);
+          }
+          if (summary.totalCash > 0) {
+            messageLines.push(`  - 💵 Elden Nakit: ${summary.totalCash.toLocaleString('tr-TR')} ₺`);
+          }
+          if (summary.totalAdvance > 0) {
+            messageLines.push(`  - ⚡ Avanslar: ${summary.totalAdvance.toLocaleString('tr-TR')} ₺`);
+          }
+          if (summary.totalBonus > 0) {
+            messageLines.push(`  - 🎁 Primler: ${summary.totalBonus.toLocaleString('tr-TR')} ₺`);
+          }
+
+          messageLines.push(`• *İşlem Sayısı:* ${summary.paymentsCount} adet (${summary.activeMonthsCount}/12 ay aktif)`);
+          messageLines.push(`• *Aylık Ortalama:* ${summary.averageMonthly.toLocaleString('tr-TR')} ₺`);
+          messageLines.push(`━━━━━━━━━━━━━━━━━`);
+          messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
+          messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
+          messageLines.push(`*${activeCompanyName}*`);
+
+          const encoded = encodeURIComponent(messageLines.join('\n'));
+          const url = phone
+            ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
+            : `https://wa.me/?text=${encoded}`;
+
+          window.open(url, '_blank');
         }
-        if (summary.totalCash > 0) {
-          messageLines.push(`  - 💵 Elden Nakit: ${summary.totalCash.toLocaleString('tr-TR')} ₺`);
-        }
-        if (summary.totalAdvance > 0) {
-          messageLines.push(`  - ⚡ Avanslar: ${summary.totalAdvance.toLocaleString('tr-TR')} ₺`);
-        }
-        if (summary.totalBonus > 0) {
-          messageLines.push(`  - 🎁 Primler: ${summary.totalBonus.toLocaleString('tr-TR')} ₺`);
-        }
-
-        messageLines.push(`• *İşlem Sayısı:* ${summary.paymentsCount} adet (${summary.activeMonthsCount}/12 ay aktif)`);
-        messageLines.push(`• *Aylık Ortalama:* ${summary.averageMonthly.toLocaleString('tr-TR')} ₺`);
-        messageLines.push(`━━━━━━━━━━━━━━━━━`);
-        messageLines.push(`📄 *${cleanFileName}* belgesi cihazınıza indirilmiştir.`);
-        messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
-        messageLines.push(`*${activeCompanyName}*`);
-
-        const encoded = encodeURIComponent(messageLines.join('\n'));
-        const url = phone
-          ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
-          : `https://wa.me/?text=${encoded}`;
-
-        window.open(url, '_blank');
       }
 
       setToastMessage(
         openWhatsApp
-          ? '📄 Yıllık İcmal PDF indirildi ve WhatsApp açıldı!'
-          : '📄 Yıllık İcmal Belgesi PDF olarak indirildi.'
+          ? '⚡ Yıllık İcmal hazırlandı ve WhatsApp açıldı!'
+          : '⚡ Yıllık İcmal anında indirildi.'
       );
-      setTimeout(() => setToastMessage(null), 4000);
+      setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       console.error('Yıllık PDF üretilirken hata:', err);
       alert('Yıllık PDF oluşturulurken hata meydana geldi.');
     } finally {
+      if (container.parentNode) {
+        container.parentNode.removeChild(container);
+      }
       setIsGeneratingYearlyPdf(false);
     }
   };
