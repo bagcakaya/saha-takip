@@ -129,7 +129,7 @@ const generateSlipHtml = (data: SalarySlipPayload): string => {
         : '';
 
     return `
-      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 24px; max-width: 800px; width: 800px; margin: 0 auto; background: #ffffff; box-sizing: border-box;">
+      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 20px; width: 720px; margin: 0 auto; background: #ffffff; box-sizing: border-box;">
         <!-- Üst Başlık -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #059669; padding-bottom: 14px; margin-bottom: 16px;">
           <div>
@@ -266,7 +266,7 @@ const generateSlipHtml = (data: SalarySlipPayload): string => {
     .join('');
 
   return `
-    <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 24px; max-width: 800px; width: 800px; margin: 0 auto; background: #ffffff; box-sizing: border-box;">
+    <div style="font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 20px; width: 720px; margin: 0 auto; background: #ffffff; box-sizing: border-box;">
       <!-- Header -->
       <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #059669; padding-bottom: 16px; margin-bottom: 20px;">
         <div>
@@ -438,14 +438,8 @@ export const PublicSalarySlipViewer: React.FC = () => {
       ? `${data.staffName.replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${data.year}_Yillik_Odeme_Icmali.pdf`
       : `${data.staffName.replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${data.monthName || (data.month ? `Ay_${data.month}` : 'Donem')}_${data.year}_Maas_Pusulasi.pdf`;
 
-    // 100% resilient off-screen container with pure HTML & inline styles
+    // Safely append isolated printable container in DOM flow for accurate html2canvas capture
     const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    container.style.width = '800px';
-    container.style.backgroundColor = '#ffffff';
-    container.style.zIndex = '-9999';
     container.innerHTML = generateSlipHtml(data);
     document.body.appendChild(container);
 
@@ -462,10 +456,6 @@ export const PublicSalarySlipViewer: React.FC = () => {
         html2canvas: {
           scale: 2,
           useCORS: true,
-          letterRendering: true,
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: 800,
         },
         jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
