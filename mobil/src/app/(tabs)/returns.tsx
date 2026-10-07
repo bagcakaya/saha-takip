@@ -64,7 +64,7 @@ export default function ReturnsScreen() {
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'warranty' | 'return' | 'in_progress'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'warranty' | 'return' | 'completed' | 'in_progress'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -85,8 +85,9 @@ export default function ReturnsScreen() {
     const all = (returnWarrantyItems || []).length;
     const warranty = (returnWarrantyItems || []).filter((i) => i.type === 'warranty').length;
     const returnCount = (returnWarrantyItems || []).filter((i) => i.type === 'return').length;
+    const completed = (returnWarrantyItems || []).filter((i) => i.status === 'completed').length;
     const inProgress = (returnWarrantyItems || []).filter((i) => i.status === 'pending').length;
-    return { all, warranty, returnCount, inProgress };
+    return { all, warranty, returnCount, completed, inProgress };
   }, [returnWarrantyItems]);
 
   // Filtered items
@@ -96,6 +97,7 @@ export default function ReturnsScreen() {
       // Tab filter
       if (activeFilter === 'warranty' && item.type !== 'warranty') return false;
       if (activeFilter === 'return' && item.type !== 'return') return false;
+      if (activeFilter === 'completed' && item.status !== 'completed') return false;
       if (activeFilter === 'in_progress' && item.status !== 'pending') return false;
 
       // Text search
@@ -305,7 +307,34 @@ export default function ReturnsScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* 4. Süreçte */}
+            {/* 4. Tamamlananlar */}
+            <TouchableOpacity
+              style={[
+                styles.filterPill,
+                activeFilter === 'completed'
+                  ? styles.filterPillActive
+                  : [
+                      styles.filterPillInactive,
+                      { backgroundColor: isDark ? '#0f172a' : '#ffffff' },
+                    ],
+              ]}
+              onPress={() => setActiveFilter('completed')}
+              activeOpacity={0.8}
+            >
+              <CheckCircle2 size={14} color={activeFilter === 'completed' ? '#ffffff' : '#94a3b8'} />
+              <Text
+                style={[
+                  styles.filterPillText,
+                  activeFilter === 'completed'
+                    ? styles.filterPillTextActive
+                    : { color: isDark ? '#cbd5e1' : '#64748b' },
+                ]}
+              >
+                Tamamlananlar ({counts.completed})
+              </Text>
+            </TouchableOpacity>
+
+            {/* 5. Süreçte */}
             <TouchableOpacity
               style={[
                 styles.filterPill,

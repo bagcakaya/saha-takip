@@ -8,6 +8,7 @@ import {
   Clock,
   Hourglass,
   Boxes,
+  CheckCircle2,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -26,7 +27,7 @@ export const ReturnWarrantyView: React.FC = () => {
   } = useStorage();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'warranty' | 'return' | 'pending' | 'due'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'warranty' | 'return' | 'completed' | 'pending' | 'due'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ReturnWarrantyItem | null>(null);
 
@@ -45,6 +46,10 @@ export const ReturnWarrantyView: React.FC = () => {
 
   const returnCount = useMemo(() => {
     return returnWarrantyItems.filter((i) => i.type === 'return').length;
+  }, [returnWarrantyItems]);
+
+  const completedCount = useMemo(() => {
+    return returnWarrantyItems.filter((i) => i.status === 'completed').length;
   }, [returnWarrantyItems]);
 
   const pendingCount = useMemo(() => {
@@ -77,6 +82,7 @@ export const ReturnWarrantyView: React.FC = () => {
 
       if (activeFilter === 'warranty') return item.type === 'warranty';
       if (activeFilter === 'return') return item.type === 'return';
+      if (activeFilter === 'completed') return item.status === 'completed';
       if (activeFilter === 'pending') return item.status === 'pending';
       if (activeFilter === 'due') {
         const now = Date.now();
@@ -184,6 +190,18 @@ export const ReturnWarrantyView: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveFilter('completed')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeFilter === 'completed'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Tamamlananlar ({completedCount})</span>
+          </button>
+
+          <button
             onClick={() => setActiveFilter('pending')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeFilter === 'pending'
@@ -224,6 +242,8 @@ export const ReturnWarrantyView: React.FC = () => {
               ? 'Aramayla eşleşen iade / garanti kaydı bulunamadı'
               : activeFilter === 'due'
               ? 'Takip süresi dolan bir kayıt bulunmuyor'
+              : activeFilter === 'completed'
+              ? 'Henüz tamamlanan bir kayıt bulunmuyor'
               : 'Henüz iade veya garanti kaydı eklenmedi'}
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed mb-5">
@@ -262,7 +282,12 @@ export const ReturnWarrantyView: React.FC = () => {
               }}
               onToggleStatus={() => {
                 const newStatus = item.status === 'completed' ? 'pending' : 'completed';
-                updateReturnWarrantyItem(item.id, { status: newStatus });
+                updateReturnWarrantyItem(item.id, {
+                  status: newStatus,
+                  completedAt: newStatus === 'completed' ? Date.now() : undefined,
+                  completedBy: newStatus === 'completed' ? user?.id : undefined,
+                  completedByName: newStatus === 'completed' ? (user?.name || user?.username || 'Yetkili') : undefined,
+                });
               }}
               onUpdateFollowUp={async (note: string) => {
                 await updateReturnWarrantyItem(item.id, {
