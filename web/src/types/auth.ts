@@ -45,6 +45,7 @@ export interface User {
   companyCode: string; // e.g. 'POLATLAR'
   companyName?: string;
   email?: string;
+  phone?: string;
   branchId?: string;
   branchName?: string;
 }
@@ -59,6 +60,7 @@ export interface UserAccount {
   companyCode: string; // e.g. 'POLATLAR'
   companyName?: string;
   email?: string;
+  phone?: string;
   branchId?: string;
   branchName?: string;
 }

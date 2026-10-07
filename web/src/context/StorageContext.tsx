@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem } from '../types/storage';
 import { isUserAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -231,6 +231,30 @@ interface StorageContextType {
   updateJobApplicationStatus: (id: string, status: JobApplicationStatus, statusNotes?: string) => Promise<void>;
   convertApplicationToStaff: (applicationId: string, userParams: { username: string; password?: string; name: string; role?: UserRole; branchId?: string }) => Promise<{ success: boolean; user?: any; error?: string }>;
   refreshJobApplications: () => Promise<void>;
+  salaryRecords: StaffSalaryMonthRecord[];
+  addSalaryPayment: (
+    userId: string,
+    staffName: string,
+    year: number,
+    month: number,
+    payment: Omit<SalaryPaymentItem, 'id' | 'createdAt'>,
+    agreedAmount?: number
+  ) => Promise<void>;
+  updateSalaryPayment: (
+    monthRecordId: string,
+    paymentId: string,
+    updatedPayment: Partial<SalaryPaymentItem>
+  ) => Promise<void>;
+  deleteSalaryPayment: (monthRecordId: string, paymentId: string) => Promise<void>;
+  updateMonthSalarySettings: (
+    userId: string,
+    staffName: string,
+    year: number,
+    month: number,
+    agreedAmount?: number,
+    notes?: string
+  ) => Promise<void>;
+  refreshSalaryRecords: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -308,6 +332,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
   const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
+  const [salaryRecords, setSalaryRecords] = useState<StaffSalaryMonthRecord[]>([]);
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -486,7 +511,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -503,6 +528,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getPersonalNotes(user.id),
           StorageService.getShiftData(),
           StorageService.getJobApplications(),
+          StorageService.getSalaryRecords(),
         ]);
         if (!isMounted) return;
 
@@ -669,6 +695,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setShifts((shiftData && shiftData.definitions) || []);
         setShiftAssignments((shiftData && shiftData.assignments) || []);
         setJobApplications(jobApps || []);
+        setSalaryRecords(salaries || []);
         setDataCompanyCode(compCode);
         FastActionAgent.start(compCode);
       } catch (err) {
@@ -793,6 +820,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (changedSlotId === StorageService.getSlotId(19)) {
               const apps = await StorageService.getJobApplications();
               if (isMounted) setJobApplications(apps || []);
+              return;
+            }
+            if (changedSlotId === StorageService.getSlotId(20)) {
+              const records = await StorageService.getSalaryRecords();
+              if (isMounted) setSalaryRecords(records || []);
               return;
             }
             if (changedSlotId === StorageService.getSlotId(1)) {
@@ -3720,6 +3752,151 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // --- SALARY & PAYROLL METHODS ---
+  const addSalaryPayment = async (
+    userId: string,
+    staffName: string,
+    year: number,
+    month: number,
+    payment: Omit<SalaryPaymentItem, 'id' | 'createdAt'>,
+    agreedAmount?: number
+  ): Promise<void> => {
+    const activeCompCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const recordId = `${activeCompCode}_${userId}_${year}_${month}`;
+
+    const newPaymentItem: SalaryPaymentItem = {
+      ...payment,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+
+    const existingIndex = salaryRecords.findIndex(
+      (r) => r.companyCode === activeCompCode && r.userId === userId && r.year === year && r.month === month
+    );
+
+    let updatedRecords: StaffSalaryMonthRecord[];
+
+    if (existingIndex >= 0) {
+      const existing = salaryRecords[existingIndex];
+      const updatedMonth: StaffSalaryMonthRecord = {
+        ...existing,
+        staffName: staffName || existing.staffName,
+        agreedAmount: agreedAmount !== undefined ? agreedAmount : existing.agreedAmount,
+        payments: [...existing.payments, newPaymentItem],
+        updatedAt: Date.now(),
+      };
+      updatedRecords = [...salaryRecords];
+      updatedRecords[existingIndex] = updatedMonth;
+    } else {
+      const newMonth: StaffSalaryMonthRecord = {
+        id: recordId,
+        companyCode: activeCompCode,
+        userId,
+        staffName,
+        year,
+        month,
+        agreedAmount,
+        payments: [newPaymentItem],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      updatedRecords = [newMonth, ...salaryRecords];
+    }
+
+    setSalaryRecords(updatedRecords);
+    await StorageService.saveSalaryRecords(updatedRecords);
+  };
+
+  const updateSalaryPayment = async (
+    monthRecordId: string,
+    paymentId: string,
+    updatedPayment: Partial<SalaryPaymentItem>
+  ): Promise<void> => {
+    const updatedRecords = salaryRecords.map((month) => {
+      if (month.id !== monthRecordId) return month;
+      return {
+        ...month,
+        payments: month.payments.map((p) => (p.id === paymentId ? { ...p, ...updatedPayment } : p)),
+        updatedAt: Date.now(),
+      };
+    });
+    setSalaryRecords(updatedRecords);
+    await StorageService.saveSalaryRecords(updatedRecords);
+  };
+
+  const deleteSalaryPayment = async (monthRecordId: string, paymentId: string): Promise<void> => {
+    const updatedRecords = salaryRecords.map((month) => {
+      if (month.id !== monthRecordId) return month;
+      return {
+        ...month,
+        payments: month.payments.filter((p) => p.id !== paymentId),
+        updatedAt: Date.now(),
+      };
+    });
+    setSalaryRecords(updatedRecords);
+    await StorageService.saveSalaryRecords(updatedRecords);
+  };
+
+  const updateMonthSalarySettings = async (
+    userId: string,
+    staffName: string,
+    year: number,
+    month: number,
+    agreedAmount?: number,
+    notes?: string
+  ): Promise<void> => {
+    const activeCompCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const recordId = `${activeCompCode}_${userId}_${year}_${month}`;
+
+    const existingIndex = salaryRecords.findIndex(
+      (r) => r.companyCode === activeCompCode && r.userId === userId && r.year === year && r.month === month
+    );
+
+    let updatedRecords: StaffSalaryMonthRecord[];
+
+    if (existingIndex >= 0) {
+      const existing = salaryRecords[existingIndex];
+      const updatedMonth: StaffSalaryMonthRecord = {
+        ...existing,
+        staffName: staffName || existing.staffName,
+        agreedAmount,
+        notes: notes !== undefined ? notes : existing.notes,
+        updatedAt: Date.now(),
+      };
+      updatedRecords = [...salaryRecords];
+      updatedRecords[existingIndex] = updatedMonth;
+    } else {
+      const newMonth: StaffSalaryMonthRecord = {
+        id: recordId,
+        companyCode: activeCompCode,
+        userId,
+        staffName,
+        year,
+        month,
+        agreedAmount,
+        notes,
+        payments: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      updatedRecords = [newMonth, ...salaryRecords];
+    }
+
+    setSalaryRecords(updatedRecords);
+    await StorageService.saveSalaryRecords(updatedRecords);
+  };
+
+  const refreshSalaryRecords = async (): Promise<void> => {
+    try {
+      const records = await StorageService.getSalaryRecords();
+      setSalaryRecords(records || []);
+    } catch (err) {
+      console.warn('refreshSalaryRecords error:', err);
+    }
+  };
+
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
@@ -6407,6 +6584,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateJobApplicationStatus,
         convertApplicationToStaff,
         refreshJobApplications,
+        salaryRecords,
+        addSalaryPayment,
+        updateSalaryPayment,
+        deleteSalaryPayment,
+        updateMonthSalarySettings,
+        refreshSalaryRecords,
         checkInStaff,
         checkOutStaff,
         startBreak,

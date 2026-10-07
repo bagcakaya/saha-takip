@@ -446,3 +446,37 @@ export interface JobApplication {
   convertedToUsername?: string;
   convertedAt?: number;
 }
+
+// ==========================================
+// MAAŞ & BORDRO TAKİBİ VERİ MODELLERİ
+// ==========================================
+
+export type SalaryPaymentMethod = 'cash' | 'bank'; // 💵 Elden Nakit | 🏦 Banka (Havale / EFT)
+export type SalaryPaymentType = 'salary' | 'advance' | 'bonus' | 'other'; // Maaş | Avans | Prim/İkramiye | Diğer
+
+export interface SalaryPaymentItem {
+  id: string;
+  amount: number; // Ödenen Tutar (₺)
+  paymentMethod: SalaryPaymentMethod; // 'cash' | 'bank'
+  paymentType: SalaryPaymentType; // 'salary' | 'advance' | 'bonus' | 'other'
+  date: string; // YYYY-MM-DD
+  description?: string; // Örn: 'Avans verildi', 'Ekim maaşı'
+  receiptUrl?: string; // Dekont / Makbuz görseli (base64 / data URL)
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
+export interface StaffSalaryMonthRecord {
+  id: string; // örn: `${companyCode}_${userId}_${year}_${month}`
+  companyCode: string;
+  userId: string;
+  staffName: string;
+  year: number; // örn: 2026
+  month: number; // 1 - 12 (1 = Ocak, 12 = Aralık)
+  agreedAmount?: number; // İsteğe bağlı o ay için anlaşılan hak ediş tutarı (girilirse kalan hesaplanır)
+  notes?: string; // Yönetici notu
+  payments: SalaryPaymentItem[]; // O aya ait ödeme hareketleri (parçalı nakit/banka)
+  createdAt: number;
+  updatedAt: number;
+}

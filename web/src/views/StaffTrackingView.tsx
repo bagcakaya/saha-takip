@@ -39,6 +39,7 @@ import {
   Building2,
   Volume2,
   VolumeX,
+  Banknote,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin } from '../types/auth';
@@ -57,6 +58,7 @@ import {
 } from '../services/attendanceExportService';
 import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 import { StaffSelect } from '../components/common/StaffSelect';
+import { StaffSalaryModule } from '../components/salary/StaffSalaryModule';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company, viewingCompany } = useAuth();
@@ -1481,7 +1483,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
 
   // Ana Menü stili alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
-  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace' | 'shifts' | 'definitions';
+  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace' | 'shifts' | 'definitions' | 'salary';
   const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -1490,7 +1492,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         if (sec === 'checkin_checkout' && typeof navigator !== 'undefined' && !navigator.onLine) {
           return 'menu';
         }
-        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions'].includes(sec)) {
+        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions', 'salary'].includes(sec)) {
           return sec as ActiveSection;
         }
       } catch {}
@@ -1564,6 +1566,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       icon: Sliders,
       color: 'text-cyan-500',
       bg: 'bg-cyan-500/15',
+    },
+    salary: {
+      title: 'Maaş & Ödeme Takibi',
+      subtitle: 'Personel maaş ve avans ödemeleri, nakit/banka dökümü ve ay bazında çekmece arşivi',
+      icon: Banknote,
+      color: 'text-emerald-400',
+      bg: 'bg-emerald-500/15',
     },
   };
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
@@ -2165,7 +2174,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'menu' && (
         <div className="pt-4 pb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-y-8 gap-x-4 sm:gap-6 py-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-y-8 gap-x-4 sm:gap-6 py-6">
             {[
               {
                 id: 'checkin_checkout' as const,
@@ -2222,6 +2231,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               },
               ...(isAdmin
                 ? [
+                    {
+                      id: 'salary' as const,
+                      title: 'Maaş Takibi',
+                      icon: Banknote,
+                      glowColor: 'text-emerald-400',
+                      borderColor: 'border-emerald-500',
+                      bgGlow: 'bg-emerald-500/15',
+                      badgeText: 'Maaş & Bordro',
+                    },
                     {
                       id: 'definitions' as const,
                       title: 'Tanımlamalar',
@@ -2287,7 +2305,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {/* SEÇİLEN MODÜL İÇİNDE ÜST KART (activeSection !== 'menu') */}
       {/* ============================================================ */}
-      {activeSection !== 'menu' && (
+      {activeSection !== 'menu' && activeSection !== 'salary' && (
         <div className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mb-2">
           <div className="flex items-center gap-3">
             <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${SECTION_INFO_WEB[activeSection]?.bg || 'bg-emerald-500/15'}`}>
@@ -6365,6 +6383,11 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- SECTION: MAAŞ & ÖDEME TAKİBİ MODÜLÜ --- */}
+      {activeSection === 'salary' && isAdmin && (
+        <StaffSalaryModule onBack={handleBackToSectionMenu} />
       )}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}

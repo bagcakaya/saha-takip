@@ -18,6 +18,7 @@ import {
   ShiftAssignment,
   ShiftDataPayload,
   JobApplication,
+  StaffSalaryMonthRecord,
 } from '../types/storage';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
@@ -41,6 +42,7 @@ const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 const SHIFT_DATA_KEY = '@saha_takip_shift_data';
 const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
+const SALARY_RECORDS_KEY = '@saha_takip_salary_records';
 
 const companyIdCache = new Map<string, number>([
   ['POLATLAR', 1],
@@ -2827,6 +2829,42 @@ export const StorageService = {
       await saveChunkedSlot(slotId, items);
     } catch (e) {
       console.warn('Job applications cloud save error:', e);
+    }
+  },
+
+  /**
+   * Retrieves salary / payroll records for current company (cloud slot 20 + local storage cache)
+   */
+  async getSalaryRecords(): Promise<StaffSalaryMonthRecord[]> {
+    const localKey = this.getStorageKey(SALARY_RECORDS_KEY);
+    const slotId = this.getSlotId(20);
+
+    const { data: cloudData, notFound } = await loadChunkedSlot<StaffSalaryMonthRecord[]>(slotId);
+    if (cloudData && Array.isArray(cloudData)) {
+      await saveItem(localKey, cloudData);
+      return cloudData;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      await saveItem(localKey, []);
+      return [];
+    }
+
+    return (await loadItem<StaffSalaryMonthRecord[]>(localKey)) || [];
+  },
+
+  /**
+   * Saves salary / payroll records for current company to cloud slot 20 and local storage
+   */
+  async saveSalaryRecords(items: StaffSalaryMonthRecord[]): Promise<void> {
+    const localKey = this.getStorageKey(SALARY_RECORDS_KEY);
+    await saveItem(localKey, items);
+
+    try {
+      const slotId = this.getSlotId(20);
+      await saveChunkedSlot(slotId, items);
+    } catch (e) {
+      console.warn('Salary records cloud save error:', e);
     }
   },
 
