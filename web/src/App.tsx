@@ -22,6 +22,7 @@ import { LoginView } from './views/LoginView';
 import { LicenseLockedView } from './components/licensing/LicenseLockedView';
 import { LocationItem } from './types/storage';
 import { LocationDetailModal } from './components/installations/LocationDetailModal';
+import { PublicSalarySlipViewer } from './components/salary/PublicSalarySlipViewer';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
@@ -789,6 +790,11 @@ const MainApp: React.FC = () => {
 };
 
 export function App() {
+  const isPusula = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pusula');
+  if (isPusula) {
+    return <PublicSalarySlipViewer />;
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>

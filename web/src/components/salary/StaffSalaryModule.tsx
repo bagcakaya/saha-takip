@@ -700,6 +700,39 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
       // 2. WhatsApp Gönderimi
       if (openWhatsApp) {
+        const staffBranch = branches?.find((b) => b.id === staff.branchId);
+        const slipPayload = {
+          staffName: staff.name || staff.username,
+          staffUsername: staff.username,
+          staffPhone: staff.phone || '',
+          branchName: staffBranch?.name || 'Merkez',
+          companyName: activeCompanyName,
+          month: month,
+          monthName: monthName,
+          year: year,
+          totalPaid: currentMonthCalc.totalPaid,
+          totalBank: currentMonthCalc.totalBank,
+          totalCash: currentMonthCalc.totalCash,
+          agreed: currentMonthCalc.agreed,
+          remaining: currentMonthCalc.remaining,
+          payments: currentMonthCalc.payments.map((p) => ({
+            date: p.date,
+            amount: p.amount,
+            method: p.paymentMethod,
+            type: p.paymentType,
+            desc: p.description,
+            branch: p.branchName,
+          })),
+        };
+
+        const token = btoa(
+          encodeURIComponent(JSON.stringify(slipPayload)).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+            String.fromCharCode(parseInt(p1, 16))
+          )
+        );
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
+        const publicSlipUrl = `${baseUrl}/?pusula=${encodeURIComponent(token)}`;
+
         let mobileShared = false;
         // Yalnızca gerçek mobil cihazlarda Web Share API ile doğrudan WhatsApp'a dosya eki dene
         if (isMobile && navigator.share && navigator.canShare) {
@@ -709,7 +742,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               await navigator.share({
                 files: [pdfFile],
                 title: `${staff.name || staff.username} - ${monthName} ${year} Maaş Pusulası`,
-                text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi maaş pusulanız ektedir. (${activeCompanyName})`,
+                text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi resmi maaş pusulanız ektedir.\n\nBağlantı: ${publicSlipUrl}\n(${activeCompanyName})`,
               });
               mobileShared = true;
             }
@@ -723,7 +756,10 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
-            `*${monthName} ${year}* dönemi resmi maaş pusulanız ekte bilgilerinize sunulmuştur.`,
+            `*${monthName} ${year}* dönemi resmi maaş pusulanız ekte ve aşağıdaki bağlantıda bilgilerinize sunulmuştur:`,
+            ``,
+            `📄 *Resmi PDF Pusulayı Görüntüle ve İndir:*`,
+            publicSlipUrl,
             ``,
             `*${activeCompanyName}*`,
           ];
@@ -982,6 +1018,34 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       downloadBlob(pdfBlob, cleanFileName);
 
       if (openWhatsApp) {
+        const staffBranch = branches?.find((b) => b.id === staff.branchId);
+        const yearlyPayload = {
+          isYearly: true,
+          staffName: staff.name || staff.username,
+          staffUsername: staff.username,
+          staffPhone: staff.phone || '',
+          branchName: staffBranch?.name || 'Merkez',
+          companyName: activeCompanyName,
+          year: year,
+          totalPaid: summary.totalPaid,
+          totalBank: summary.totalBank,
+          totalCash: summary.totalCash,
+          totalAdvance: summary.totalAdvance,
+          totalBonus: summary.totalBonus,
+          paymentsCount: summary.paymentsCount,
+          activeMonthsCount: summary.activeMonthsCount,
+          averageMonthly: summary.averageMonthly,
+          monthlyBreakdown: summary.monthlyBreakdown,
+        };
+
+        const token = btoa(
+          encodeURIComponent(JSON.stringify(yearlyPayload)).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+            String.fromCharCode(parseInt(p1, 16))
+          )
+        );
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
+        const publicSlipUrl = `${baseUrl}/?pusula=${encodeURIComponent(token)}`;
+
         let mobileShared = false;
         if (isMobile && navigator.share && navigator.canShare) {
           try {
@@ -990,7 +1054,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               await navigator.share({
                 files: [pdfFile],
                 title: `${staff.name || staff.username} - ${year} Yıllık Ödeme İcmali`,
-                text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir. (${activeCompanyName})`,
+                text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir.\n\nBağlantı: ${publicSlipUrl}\n(${activeCompanyName})`,
               });
               mobileShared = true;
             }
@@ -1003,7 +1067,10 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
-            `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz ekte bilgilerinize sunulmuştur.`,
+            `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz ekte ve aşağıdaki bağlantıda bilgilerinize sunulmuştur:`,
+            ``,
+            `📄 *Resmi Yıllık İcmali Görüntüle ve PDF İndir:*`,
+            publicSlipUrl,
             ``,
             `*${activeCompanyName}*`,
           ];
@@ -2232,6 +2299,17 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     </span>
                     <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                       Veya WhatsApp Web sohbet ekranında sol alttaki <strong>Ataş (📎) &gt; Belge</strong> butonuna tıklayarak bu PDF dosyasını seçip gönderin.
+                    </p>
+                  </div>
+
+                  <div className="h-px bg-slate-200 dark:bg-slate-700/80" />
+
+                  <div className="flex items-start gap-3">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-600 text-white font-black text-xs shrink-0 mt-0.5">
+                      3
+                    </span>
+                    <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      <strong>Otomatik PDF Bağlantısı:</strong> Personele giden WhatsApp mesajının içerisine <strong>doğrudan resmi PDF pusula bağlantısı</strong> eklenmiştir. Personeliniz mesaja gelen linke tıklayarak da PDF'i telefonuna anında indirebilir.
                     </p>
                   </div>
                 </div>
