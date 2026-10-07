@@ -59,6 +59,7 @@ import {
 import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 import { StaffSelect } from '../components/common/StaffSelect';
 import { StaffSalaryModule } from '../components/salary/StaffSalaryModule';
+import { ApprovalShield } from '../services/approvalShield';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company, viewingCompany } = useAuth();
@@ -648,6 +649,14 @@ export const StaffTrackingView: React.FC = () => {
   const handleApprove = async (recordId: string, type: 'checkin' | 'checkout') => {
     try {
       setProcessingApprovalId(recordId);
+      const target = attendanceRecords.find((r) => r.id === recordId);
+      if (target) {
+        ApprovalShield.recordAttendance({
+          ...target,
+          status: type === 'checkout' ? 'completed' : 'checked_in',
+          ...(type === 'checkout' ? { checkOutApprovalStatus: 'approved' } : { checkInApprovalStatus: 'approved' }),
+        });
+      }
       const res = await approveAttendance(recordId, type);
       if (res.success) {
         setActionFeedback({ type: 'success', text: res.message || 'Talep başarıyla onaylandı.' });
@@ -744,6 +753,7 @@ export const StaffTrackingView: React.FC = () => {
   const pendingRequests = useMemo(() => {
     return attendanceRecords.filter((r) => {
       if (r.userRole === 'admin') return false;
+      if (ApprovalShield.isAttendanceResolved(r.id)) return false;
       const isPending =
         r.status === 'pending_checkin_approval' ||
         r.status === 'pending_checkout_approval' ||
@@ -1706,7 +1716,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       refreshAttendance().catch(() => {});
     }, 8000);
     return () => clearInterval(interval);
-  }, [refreshAttendance]);
+  }, []);
 
   // iOS ve Mobil Cihazlar için Kenardan Sağa Kaydırma (Edge Swipe Right) Desteği
   useEffect(() => {
@@ -1884,6 +1894,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const handleApproveLeave = async (requestId: string) => {
     try {
       setProcessingLeaveId(requestId);
+      const target = leaveRequests.find((r) => r.id === requestId);
+      if (target) {
+        ApprovalShield.recordLeave({
+          ...target,
+          status: 'approved',
+          reviewedBy: user?.name,
+          reviewedAt: Date.now(),
+        });
+      }
       const res = await approveLeaveRequest(requestId);
       if (res.success) {
         setActionFeedback({ type: 'success', text: res.message || 'İzin talebi onaylandı.' });
@@ -2009,9 +2028,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
   const pendingLeaveCount = useMemo(() => {
     if (isAdmin) {
-      return leaveRequests.filter((r) => r.status === 'pending').length;
+      return leaveRequests.filter((r) => !ApprovalShield.isLeaveResolved(r.id) && r.status === 'pending').length;
     }
-    return leaveRequests.filter((r) => r.userId === user?.id && r.status === 'pending').length;
+    return leaveRequests.filter((r) => r.userId === user?.id && !ApprovalShield.isLeaveResolved(r.id) && r.status === 'pending').length;
   }, [leaveRequests, isAdmin, user]);
 
   // Canlı moladaki personeller (Yönetici için)

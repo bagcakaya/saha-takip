@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig } from '../types/storage';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
@@ -15,6 +15,7 @@ import { ServerConfigService } from '../services/serverConfigService';
 import { FastActionAgent } from '../services/fastActionAgent';
 import { ShiftReminderService } from '../services/shiftReminderService';
 import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
+import { ApprovalShield } from '../services/approvalShield';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -898,7 +899,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!isMounted) return;
         const latest = await StorageService.getAttendanceRecords();
         if (isMounted && latest) {
-          setAttendanceRecords(latest);
+          const shielded = ApprovalShield.applyToAttendance(latest);
+          setAttendanceRecords(shielded);
         }
       } catch {}
     };
@@ -5309,11 +5311,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
+    // Zırha kaydet (Geri döndürülemez, pending'e düşemez)
+    ApprovalShield.recordAttendance(updatedRecord);
+
     const updated = [...attendanceRecords];
     updated[idx] = updatedRecord;
     // Optimistic instant state update (0ms UI reflex)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
+    // Doğrudan yerel hafıza ve buluta hemen yaz ve bekle
+    await StorageService.saveAttendanceRecords(updated);
+
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
 
@@ -5332,10 +5340,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const record = attendanceRecords[idx];
 
     if (actionType === 'checkin') {
+      ApprovalShield.recordAttendanceDeleted(recordId);
       const updated = attendanceRecords.filter((r) => r.id !== recordId);
       // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
       FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
+      await StorageService.saveAttendanceRecords(updated, { deletedRecordId: recordId });
 
       FastActionAgent.enqueuePushNotification({
         title: '❌ İşe Giriş Talebiniz Reddedildi',
@@ -5358,11 +5368,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkOutApprovalStatus: 'rejected',
         workDurationMinutes: undefined,
       };
+      ApprovalShield.recordAttendance(updatedRecord);
       const updated = [...attendanceRecords];
       updated[idx] = updatedRecord;
       // Optimistic instant state update (0ms UI reflex)
       setAttendanceRecords(updated);
       FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
+      await StorageService.saveAttendanceRecords(updated);
 
       FastActionAgent.enqueuePushNotification({
         title: '❌ İşten Çıkış Talebiniz Reddedildi',
@@ -5426,18 +5438,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveAttendanceRecords(updated);
   };
 
-  const refreshAttendance = async () => {
+  const refreshAttendance = useCallback(async () => {
     const [loc, recs, branchList] = await Promise.all([
       StorageService.getWorkplaceLocation(),
       StorageService.getAttendanceRecords(),
       StorageService.getBranches(),
     ]);
     if (loc) setWorkplaceLocation(loc);
-    setAttendanceRecords(recs);
+    const shielded = ApprovalShield.applyToAttendance(recs);
+    setAttendanceRecords(shielded);
     if (branchList && Array.isArray(branchList)) {
       setBranches(branchList);
     }
-  };
+  }, []);
 
   const importCarilerFromExcelFile = async (file: File): Promise<number> => {
     const res = await StorageService.importCarilerFromExcel(file);
@@ -5539,15 +5552,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const req = leaveRequests.find((r) => r.id === requestId);
     if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
 
+    const updatedReq: LeaveRequest = {
+      ...req,
+      status: 'approved' as const,
+      reviewedBy: user.name,
+      reviewedAt: Date.now(),
+    };
+
+    ApprovalShield.recordLeave(updatedReq);
+
     const updated = leaveRequests.map((r) =>
-      r.id === requestId
-        ? {
-            ...r,
-            status: 'approved' as const,
-            reviewedBy: user.name,
-            reviewedAt: Date.now(),
-          }
-        : r
+      r.id === requestId ? updatedReq : r
     );
 
     setLeaveRequests(updated);
@@ -5581,16 +5596,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const req = leaveRequests.find((r) => r.id === requestId);
     if (!req) return { success: false, message: 'İzin talebi bulunamadı.' };
 
+    const updatedReq: LeaveRequest = {
+      ...req,
+      status: 'rejected' as const,
+      reviewedBy: user.name,
+      reviewedAt: Date.now(),
+      reviewNote: reason,
+    };
+
+    ApprovalShield.recordLeave(updatedReq);
+
     const updated = leaveRequests.map((r) =>
-      r.id === requestId
-        ? {
-            ...r,
-            status: 'rejected' as const,
-            reviewedBy: user.name,
-            reviewedAt: Date.now(),
-            reviewNote: reason,
-          }
-        : r
+      r.id === requestId ? updatedReq : r
     );
 
     setLeaveRequests(updated);

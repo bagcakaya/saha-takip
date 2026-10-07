@@ -848,9 +848,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updated[idx] = updatedRecord;
     // 0ms instant optimistic UI reflex
     setAttendanceRecords(updated);
-    StorageService.saveAttendanceRecords(updated).catch((err) => {
-      console.warn('Background approveAttendance save error:', err);
-    });
+    try {
+      await StorageService.saveAttendanceRecords(updated);
+    } catch (err) {
+      console.warn('approveAttendance save error:', err);
+    }
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
 
@@ -889,9 +891,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updated[idx] = updatedRecord;
     // 0ms instant optimistic UI reflex
     setAttendanceRecords(updated);
-    StorageService.saveAttendanceRecords(updated).catch((err) => {
-      console.warn('Background rejectAttendance save error:', err);
-    });
+    try {
+      await StorageService.saveAttendanceRecords(updated);
+    } catch (err) {
+      console.warn('rejectAttendance save error:', err);
+    }
     return { success: true, message: 'Talep reddedildi.' };
   };
 

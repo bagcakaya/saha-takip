@@ -24,8 +24,9 @@ import {
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
-import defaultCarilerData from '../data/cariler.json';
 import { ServerConfigService, getResolvedApiUrl } from './serverConfigService';
+import { ApprovalShield } from './approvalShield';
+import defaultCarilerData from '../data/cariler.json';
 
 const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
@@ -463,10 +464,10 @@ export const StorageService = {
       services,
       workplaceLocation,
       branches,
-      attendanceRecords: sanitizedAttendance,
+      attendanceRecords: sanitizedAttendance ? ApprovalShield.applyToAttendance(sanitizedAttendance) : sanitizedAttendance,
       adminReminders,
       carilerData,
-      leaveRequests,
+      leaveRequests: leaveRequests ? ApprovalShield.applyToLeaveRequests(leaveRequests) : leaveRequests,
       securityLogs,
       timedFollowUps,
     };
@@ -2049,11 +2050,26 @@ export const StorageService = {
         }
 
         // 4. Onay / Ret durumu ve Bekleyen Talep Senkronizasyonu
-        // 4a. Giriş Onayı (Bekleyen veya Yönetici Tarafından Onaylanmış/Reddedilmiş)
-        if (localRec.checkInApprovalStatus && localRec.checkInApprovalStatus !== cloudRec.checkInApprovalStatus) {
-          // Eğer yerelde bekleyen onay talebi varsa veya yönetici onay vermişse buluta aktar
+        // 4a. Giriş Onayı (Onay veya Ret kararı kesinleştiğinde ASLA 'pending' durumuna geri dönemez)
+        const localInResolved = localRec.checkInApprovalStatus === 'approved' || localRec.checkInApprovalStatus === 'rejected';
+        const cloudInResolved = cloudRec.checkInApprovalStatus === 'approved' || cloudRec.checkInApprovalStatus === 'rejected';
+
+        if (localInResolved && cloudRec.checkInApprovalStatus === 'pending') {
+          // Yerelde karar verilmiş, bulut hala pending: Yereldeki kesin karar buluta aktarılır
+          updated.checkInApprovalStatus = localRec.checkInApprovalStatus;
+          updated.checkInApprovedBy = localRec.checkInApprovedBy || updated.checkInApprovedBy;
+          updated.checkInApprovedAt = localRec.checkInApprovedAt || updated.checkInApprovedAt;
+          updated.status = localRec.status || (localRec.checkInApprovalStatus === 'approved' ? 'checked_in' : updated.status);
+          localHasNewerData = true;
+        } else if (cloudInResolved && localRec.checkInApprovalStatus === 'pending') {
+          // Bulutta onaylanmış/reddedilmiş, yerel hala pending: Buluttaki kesin karar geçerli
+          updated.checkInApprovalStatus = cloudRec.checkInApprovalStatus;
+          updated.checkInApprovedBy = cloudRec.checkInApprovedBy;
+          updated.checkInApprovedAt = cloudRec.checkInApprovedAt;
+          updated.status = cloudRec.status;
+        } else if (localRec.checkInApprovalStatus && localRec.checkInApprovalStatus !== cloudRec.checkInApprovalStatus) {
           if (localRec.checkInApprovalStatus === 'pending') {
-            if (cloudRec.checkInApprovalStatus !== 'approved') {
+            if (!cloudInResolved) {
               updated.checkInApprovalStatus = 'pending';
               updated.checkInOutside = true;
               if (localRec.checkInDistance !== undefined) updated.checkInDistance = localRec.checkInDistance;
@@ -2070,17 +2086,37 @@ export const StorageService = {
             updated.status = localRec.status || (localRec.checkInApprovalStatus === 'approved' ? 'checked_in' : updated.status);
             localHasNewerData = true;
           }
-        } else if (localRec.status === 'pending_checkin_approval' && cloudRec.status !== 'pending_checkin_approval' && cloudRec.checkInApprovalStatus !== 'approved') {
+        } else if (localRec.status === 'pending_checkin_approval' && cloudRec.status !== 'pending_checkin_approval' && !cloudInResolved) {
           updated.status = 'pending_checkin_approval';
           updated.checkInApprovalStatus = 'pending';
           updated.checkInOutside = true;
           localHasNewerData = true;
         }
 
-        // 4b. Çıkış Onayı (Bekleyen veya Yönetici Tarafından Onaylanmış/Reddedilmiş)
-        if (localRec.checkOutApprovalStatus && localRec.checkOutApprovalStatus !== cloudRec.checkOutApprovalStatus) {
+        // 4b. Çıkış Onayı (Onay veya Ret kararı kesinleştiğinde ASLA 'pending' durumuna geri dönemez)
+        const localOutResolved = localRec.checkOutApprovalStatus === 'approved' || localRec.checkOutApprovalStatus === 'rejected';
+        const cloudOutResolved = cloudRec.checkOutApprovalStatus === 'approved' || cloudRec.checkOutApprovalStatus === 'rejected';
+
+        if (localOutResolved && cloudRec.checkOutApprovalStatus === 'pending') {
+          // Yerelde onaylanmış/reddedilmiş, bulut hala pending: Yereldeki kesin karar buluta aktarılır
+          updated.checkOutApprovalStatus = localRec.checkOutApprovalStatus;
+          updated.checkOutApprovedBy = localRec.checkOutApprovedBy || updated.checkOutApprovedBy;
+          updated.checkOutApprovedAt = localRec.checkOutApprovedAt || updated.checkOutApprovedAt;
+          updated.checkOutTime = localRec.checkOutTime || updated.checkOutTime;
+          updated.workDurationMinutes = localRec.workDurationMinutes ?? updated.workDurationMinutes;
+          updated.status = localRec.status || (localRec.checkOutApprovalStatus === 'approved' ? 'completed' : 'checked_in');
+          localHasNewerData = true;
+        } else if (cloudOutResolved && localRec.checkOutApprovalStatus === 'pending') {
+          // Bulutta onaylanmış/reddedilmiş, yerel hala pending: Buluttaki kesin karar geçerli
+          updated.checkOutApprovalStatus = cloudRec.checkOutApprovalStatus;
+          updated.checkOutApprovedBy = cloudRec.checkOutApprovedBy;
+          updated.checkOutApprovedAt = cloudRec.checkOutApprovedAt;
+          updated.checkOutTime = cloudRec.checkOutTime || updated.checkOutTime;
+          updated.workDurationMinutes = cloudRec.workDurationMinutes ?? updated.workDurationMinutes;
+          updated.status = cloudRec.status;
+        } else if (localRec.checkOutApprovalStatus && localRec.checkOutApprovalStatus !== cloudRec.checkOutApprovalStatus) {
           if (localRec.checkOutApprovalStatus === 'pending') {
-            if (cloudRec.checkOutApprovalStatus !== 'approved') {
+            if (!cloudOutResolved) {
               updated.checkOutApprovalStatus = 'pending';
               updated.checkOutOutside = true;
               if (localRec.checkOutDistance !== undefined) updated.checkOutDistance = localRec.checkOutDistance;
@@ -2097,11 +2133,16 @@ export const StorageService = {
             updated.status = localRec.status || (localRec.checkOutApprovalStatus === 'approved' ? 'completed' : 'checked_in');
             localHasNewerData = true;
           }
-        } else if (localRec.status === 'pending_checkout_approval' && cloudRec.status !== 'pending_checkout_approval' && cloudRec.checkOutApprovalStatus !== 'approved') {
+        } else if (localRec.status === 'pending_checkout_approval' && cloudRec.status !== 'pending_checkout_approval' && !cloudOutResolved) {
           updated.status = 'pending_checkout_approval';
           updated.checkOutApprovalStatus = 'pending';
           updated.checkOutOutside = true;
           if (localRec.checkOutTime) updated.checkOutTime = localRec.checkOutTime;
+          localHasNewerData = true;
+        }
+
+        // Zırh (ApprovalShield) güvencesi: Eğer yerel cihazda henüz çözülmüşse buluta aktar
+        if (ApprovalShield.isAttendanceResolved(localRec.id)) {
           localHasNewerData = true;
         }
 
@@ -2132,7 +2173,8 @@ export const StorageService = {
       return (b.checkInTime || 0) - (a.checkInTime || 0);
     });
 
-    return { records: merged, hasCloudUpdates, missingCount };
+    const shieldedRecords = ApprovalShield.applyToAttendance(merged);
+    return { records: shieldedRecords, hasCloudUpdates, missingCount };
   },
 
   /**
@@ -2141,22 +2183,24 @@ export const StorageService = {
   async getAttendanceRecords(): Promise<AttendanceRecord[]> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
     const slotId = this.getSlotId(6);
-    const localData = (await loadItem<AttendanceRecord[]>(localKey)) || [];
+    const rawLocal = (await loadItem<AttendanceRecord[]>(localKey)) || [];
+    const localData = ApprovalShield.applyToAttendance(rawLocal);
 
     const { data: cloudData, notFound } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       const finalCloudData = sanitizeAttendance(cloudData, activeCompanyCode);
       const mergeResult = this.mergeAttendanceRecords(finalCloudData, localData, activeCompanyCode);
-      await saveItem(localKey, mergeResult.records);
+      const shieldedFinal = ApprovalShield.applyToAttendance(mergeResult.records);
+      await saveItem(localKey, shieldedFinal);
 
       if (mergeResult.hasCloudUpdates) {
         console.log(`[Çevrimdışı Eşitleme] ${mergeResult.missingCount} adet yerel kayıt buluta otomatik aktarılıyor...`);
-        saveChunkedSlot(slotId, mergeResult.records).catch((err) => {
+        saveChunkedSlot(slotId, shieldedFinal).catch((err) => {
           console.warn('[Çevrimdışı Eşitleme] Otomatik bulut eşitleme hatası:', err);
         });
       }
 
-      return mergeResult.records;
+      return shieldedFinal;
     }
 
     if (activeCompanyCode !== 'POLATLAR') {
@@ -2170,15 +2214,16 @@ export const StorageService = {
       const localDataNonPolat = await loadItem<AttendanceRecord[]>(localKey);
       if (Array.isArray(localDataNonPolat)) {
         const sanitized = sanitizeAttendance(localDataNonPolat, activeCompanyCode);
-        if (sanitized.length !== localDataNonPolat.length) {
-          await saveItem(localKey, sanitized);
+        const shielded = ApprovalShield.applyToAttendance(sanitized);
+        if (shielded.length !== localDataNonPolat.length) {
+          await saveItem(localKey, shielded);
         }
-        return sanitized;
+        return shielded;
       }
       return [];
     }
 
-    return (await loadItem<AttendanceRecord[]>(localKey)) || [];
+    return localData;
   },
 
   /**
@@ -2190,24 +2235,26 @@ export const StorageService = {
   ): Promise<void> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
     const slotId = this.getSlotId(6);
+    const shieldedInput = ApprovalShield.applyToAttendance(records);
 
     // 1. Önce anında yerel hafızaya yaz (0ms UI tepkisi)
-    await saveItem(localKey, records);
+    await saveItem(localKey, shieldedInput);
 
     if (options?.deletedRecordId) {
       addDeletedAttendanceId(activeCompanyCode, options.deletedRecordId);
+      ApprovalShield.recordAttendanceDeleted(options.deletedRecordId);
     }
 
     // 2. Buluta güvenli aktarım (Dual-write / Merge defense)
     try {
-      let finalToSave = records;
+      let finalToSave = shieldedInput;
 
       if (!options?.forceOverwrite) {
         const { data: cloudData } = await loadChunkedSlot<AttendanceRecord[]>(slotId);
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
           const sanitizedCloud = sanitizeAttendance(cloudData, activeCompanyCode);
-          const mergeResult = this.mergeAttendanceRecords(sanitizedCloud, records, activeCompanyCode, options);
-          finalToSave = mergeResult.records;
+          const mergeResult = this.mergeAttendanceRecords(sanitizedCloud, shieldedInput, activeCompanyCode, options);
+          finalToSave = ApprovalShield.applyToAttendance(mergeResult.records);
           // Yerel önbelleği de harmanlanmış tam liste ile güncelle
           await saveItem(localKey, finalToSave);
         }
@@ -2217,7 +2264,7 @@ export const StorageService = {
       this.clearPendingAttendanceSync(activeCompanyCode);
     } catch (err) {
       console.warn(`[saveAttendanceRecords] Bulut kaydı başarısız oldu veya çevrimdışı:`, err);
-      this.markAttendancePendingSync(activeCompanyCode, records);
+      this.markAttendancePendingSync(activeCompanyCode, shieldedInput);
     }
   },
 
@@ -2319,8 +2366,9 @@ export const StorageService = {
     const slotId = this.getSlotIdForCompany(10, comp);
     const { data: cloudData, notFound } = await loadChunkedSlot<LeaveRequest[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const shielded = ApprovalShield.applyToLeaveRequests(cloudData);
+      await saveItem(localKey, shielded);
+      return shielded;
     }
 
     if (comp !== 'POLATLAR' && notFound) {
@@ -2328,7 +2376,8 @@ export const StorageService = {
       return [];
     }
 
-    return (await loadItem<LeaveRequest[]>(localKey)) || [];
+    const localList = (await loadItem<LeaveRequest[]>(localKey)) || [];
+    return ApprovalShield.applyToLeaveRequests(localList);
   },
 
   /**
@@ -2337,8 +2386,9 @@ export const StorageService = {
   async saveLeaveRequests(requests: LeaveRequest[], companyCode?: string): Promise<void> {
     const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
     const localKey = this.getStorageKeyForCompany(LEAVE_REQUESTS_KEY, comp);
-    await saveItem(localKey, requests);
-    await saveChunkedSlot(this.getSlotIdForCompany(10, comp), requests);
+    const shielded = ApprovalShield.applyToLeaveRequests(requests);
+    await saveItem(localKey, shielded);
+    await saveChunkedSlot(this.getSlotIdForCompany(10, comp), shielded);
   },
 
   /**
