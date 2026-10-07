@@ -30,6 +30,7 @@ import {
   SalaryPaymentType,
 } from '../../types/storage';
 import { BranchSelect, BranchOption } from '../common/BranchSelect';
+import { WhatsappService } from '../../services/whatsappService';
 import html2pdf from 'html2pdf.js';
 
 // Tarayıcı belleğindeki PDF Blob'unu anında (0ms) indiren yardımcı
@@ -653,6 +654,17 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
     const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${monthName}_${year}_Maas_Pusulasi.pdf`;
 
+    const isMobile =
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+    // Masaüstünde tarayıcının popup engelleyicisine (popup blocker) takılmamak için
+    // pencereyi kullanıcının doğrudan tıklama anında (senkron) açıyoruz
+    let popupWindow: Window | null = null;
+    if (openWhatsApp && !isMobile) {
+      popupWindow = window.open('about:blank', '_blank');
+    }
+
     const container = document.createElement('div');
     container.innerHTML = generateSalarySlipHtml(staff, year, month, currentMonthCalc);
     document.body.appendChild(container);
@@ -675,34 +687,32 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       // Tek geçişte PDF Blob üretimi
       const pdfBlob: Blob = await html2pdf().set(opt).from(container).outputPdf('blob');
 
-      // Mobil cihazlarda Web Share API ile doğrudan WhatsApp'a dosya eki olarak ilet
-      let sharedSuccessfully = false;
-      if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
-        try {
-          const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
-          if (navigator.canShare({ files: [pdfFile] })) {
-            await navigator.share({
-              files: [pdfFile],
-              title: `${staff.name || staff.username} - ${monthName} ${year} Maaş Pusulası`,
-              text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi maaş pusulanız ektedir. (${activeCompanyName})`,
-            });
-            sharedSuccessfully = true;
-          }
-        } catch (shareErr: any) {
-          if (shareErr.name !== 'AbortError') {
-            console.warn('Native share failed, falling back:', shareErr);
-          } else {
-            sharedSuccessfully = true;
+      // 1. PDF dosyasını kullanıcının cihazına her durumda anında indir
+      downloadBlob(pdfBlob, cleanFileName);
+
+      // 2. WhatsApp Gönderimi
+      if (openWhatsApp) {
+        let mobileShared = false;
+        // Yalnızca gerçek mobil cihazlarda Web Share API ile doğrudan WhatsApp'a dosya eki dene
+        if (isMobile && navigator.share && navigator.canShare) {
+          try {
+            const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
+            if (navigator.canShare({ files: [pdfFile] })) {
+              await navigator.share({
+                files: [pdfFile],
+                title: `${staff.name || staff.username} - ${monthName} ${year} Maaş Pusulası`,
+                text: `Sayın ${staff.name || staff.username}, ${monthName} ${year} dönemi maaş pusulanız ektedir. (${activeCompanyName})`,
+              });
+              mobileShared = true;
+            }
+          } catch (shareErr: any) {
+            console.warn('Mobile native share cancelled or failed, falling back to URL:', shareErr);
           }
         }
-      }
 
-      // Standart indirme ve masaüstü WhatsApp yönlendirmesi
-      if (!sharedSuccessfully) {
-        downloadBlob(pdfBlob, cleanFileName);
-
-        if (openWhatsApp) {
-          const phone = (staff.phone || '').replace(/\D/g, '');
+        // Masaüstü veya Web Share desteklemeyen/kullanılmayan durumlarda WhatsApp Web/App yönlendir
+        if (!mobileShared) {
+          const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
             `*${monthName} ${year}* dönemi maaş pusulanız PDF olarak hazırlanmıştır.`,
@@ -727,23 +737,27 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
           messageLines.push(`*${activeCompanyName}*`);
 
-          const encoded = encodeURIComponent(messageLines.join('\n'));
-          const url = phone
-            ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
-            : `https://wa.me/?text=${encoded}`;
+          const whatsappUrl = WhatsappService.getUrl(messageLines.join('\n'), phone);
 
-          window.open(url, '_blank');
+          if (popupWindow && !popupWindow.closed) {
+            popupWindow.location.href = whatsappUrl;
+          } else {
+            window.open(whatsappUrl, '_blank');
+          }
         }
       }
 
       setToastMessage(
         openWhatsApp
-          ? '⚡ Maaş Pusulası hazırlandı ve WhatsApp açıldı!'
+          ? '⚡ Maaş Pusulası indirildi ve WhatsApp açıldı!'
           : '⚡ Maaş Pusulası anında indirildi.'
       );
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       console.error('PDF üretilirken hata oluştu:', err);
+      if (popupWindow && !popupWindow.closed) {
+        popupWindow.close();
+      }
       alert('PDF oluşturulurken bir hata meydana geldi.');
     } finally {
       if (container.parentNode) {
@@ -934,6 +948,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const summary = getStaffYearlySummary(staff.id, year);
     const cleanFileName = `${(staff.name || staff.username).replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, '_')}_${year}_Yillik_Odeme_Icmali.pdf`;
 
+    const isMobile =
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+    let popupWindow: Window | null = null;
+    if (openWhatsApp && !isMobile) {
+      popupWindow = window.open('about:blank', '_blank');
+    }
+
     const container = document.createElement('div');
     container.innerHTML = generateYearlySalarySlipHtml(staff, year, summary);
     document.body.appendChild(container);
@@ -955,32 +978,29 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
       const pdfBlob: Blob = await html2pdf().set(opt).from(container).outputPdf('blob');
 
-      let sharedSuccessfully = false;
-      if (openWhatsApp && typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
-        try {
-          const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
-          if (navigator.canShare({ files: [pdfFile] })) {
-            await navigator.share({
-              files: [pdfFile],
-              title: `${staff.name || staff.username} - ${year} Yıllık Ödeme İcmali`,
-              text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir. (${activeCompanyName})`,
-            });
-            sharedSuccessfully = true;
-          }
-        } catch (shareErr: any) {
-          if (shareErr.name !== 'AbortError') {
-            console.warn('Native share failed, falling back:', shareErr);
-          } else {
-            sharedSuccessfully = true;
+      // Her durumda PDF dosyasını indir
+      downloadBlob(pdfBlob, cleanFileName);
+
+      if (openWhatsApp) {
+        let mobileShared = false;
+        if (isMobile && navigator.share && navigator.canShare) {
+          try {
+            const pdfFile = new File([pdfBlob], cleanFileName, { type: 'application/pdf' });
+            if (navigator.canShare({ files: [pdfFile] })) {
+              await navigator.share({
+                files: [pdfFile],
+                title: `${staff.name || staff.username} - ${year} Yıllık Ödeme İcmali`,
+                text: `Sayın ${staff.name || staff.username}, ${year} yılı kümülatif maaş ve ödeme icmaliniz ektedir. (${activeCompanyName})`,
+              });
+              mobileShared = true;
+            }
+          } catch (shareErr: any) {
+            console.warn('Mobile native share cancelled or failed, falling back to URL:', shareErr);
           }
         }
-      }
 
-      if (!sharedSuccessfully) {
-        downloadBlob(pdfBlob, cleanFileName);
-
-        if (openWhatsApp) {
-          const phone = (staff.phone || '').replace(/\D/g, '');
+        if (!mobileShared) {
+          const phone = WhatsappService.formatPhoneNumber(staff.phone);
           const messageLines = [
             `Sayın *${staff.name || staff.username}*,`,
             `*${year} Yılı* kümülatif bordro ve ödeme icmaliniz hazırlanmıştır.`,
@@ -1008,23 +1028,27 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           messageLines.push(`Bilginize sunar, hayırlı kazançlar dileriz.`);
           messageLines.push(`*${activeCompanyName}*`);
 
-          const encoded = encodeURIComponent(messageLines.join('\n'));
-          const url = phone
-            ? `https://wa.me/${phone.startsWith('90') ? phone : '90' + phone}?text=${encoded}`
-            : `https://wa.me/?text=${encoded}`;
+          const whatsappUrl = WhatsappService.getUrl(messageLines.join('\n'), phone);
 
-          window.open(url, '_blank');
+          if (popupWindow && !popupWindow.closed) {
+            popupWindow.location.href = whatsappUrl;
+          } else {
+            window.open(whatsappUrl, '_blank');
+          }
         }
       }
 
       setToastMessage(
         openWhatsApp
-          ? '⚡ Yıllık İcmal hazırlandı ve WhatsApp açıldı!'
+          ? '⚡ Yıllık İcmal indirildi ve WhatsApp açıldı!'
           : '⚡ Yıllık İcmal anında indirildi.'
       );
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       console.error('Yıllık PDF üretilirken hata:', err);
+      if (popupWindow && !popupWindow.closed) {
+        popupWindow.close();
+      }
       alert('Yıllık PDF oluşturulurken hata meydana geldi.');
     } finally {
       if (container.parentNode) {
