@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,7 +22,9 @@ import {
   Building2,
   Settings,
   Clock,
+  Trash2,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -68,6 +70,15 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   } = useStorage();
   const { isDark } = useAppTheme();
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [clearedNotificationsTime, setClearedNotificationsTime] = useState<number>(0);
+
+  useEffect(() => {
+    if (user?.id) {
+      AsyncStorage.getItem(`@saha_takip_cleared_notifications_time_${user.id}`).then((val) => {
+        if (val) setClearedNotificationsTime(Number(val));
+      });
+    }
+  }, [user?.id, visible]);
 
   const getTimeAgo = (timestamp: number) => {
     const diffMs = Date.now() - timestamp;
@@ -311,11 +322,14 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
           createdAt: now - 480 * 60000,
         },
       ];
-      return [...list, ...samples];
+      const allItems = [...list, ...samples];
+      allItems.sort((a, b) => b.createdAt - a.createdAt);
+      return allItems.filter((item) => item.createdAt > clearedNotificationsTime);
     }
 
-    return list;
-  }, [attendanceRecords, notes, leaveRequests, locations, services, returnWarrantyItems, timedFollowUps, adminReminders]);
+    list.sort((a, b) => b.createdAt - a.createdAt);
+    return list.filter((item) => item.createdAt > clearedNotificationsTime);
+  }, [attendanceRecords, notes, leaveRequests, locations, services, returnWarrantyItems, timedFollowUps, adminReminders, clearedNotificationsTime]);
 
   const handleMarkAllRead = async () => {
     try {
@@ -324,6 +338,36 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       // ignore
     }
     Alert.alert('Bildirimler', 'Tüm bildirimler okundu olarak işaretlendi.');
+  };
+
+  const handleDeleteAll = () => {
+    if (notificationList.length === 0) return;
+
+    Alert.alert(
+      'Tüm Bildirimleri Sil',
+      'Tüm bildirimleri silmek istediğinize emin misiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            const now = Date.now();
+            setClearedNotificationsTime(now);
+            if (user?.id) {
+              await AsyncStorage.setItem(
+                `@saha_takip_cleared_notifications_time_${user.id}`,
+                now.toString()
+              );
+            }
+            try {
+              await markAllNotificationsAsRead?.();
+              await markSecurityLogsAsRead?.();
+            } catch {}
+          },
+        },
+      ]
+    );
   };
 
   const handleItemPress = (item: NotificationItem) => {
@@ -544,10 +588,17 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
               },
             ]}
           >
-            <TouchableOpacity style={styles.markReadBtn} onPress={handleMarkAllRead}>
-              <Check size={16} color="#3b82f6" />
-              <Text style={styles.markReadText}>Tümünü Okundu Say</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity style={styles.markReadBtn} onPress={handleMarkAllRead}>
+                <Check size={16} color="#3b82f6" />
+                <Text style={styles.markReadText}>Tümünü Okundu Say</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.deleteAllBtn} onPress={handleDeleteAll}>
+                <Trash2 size={15} color="#ef4444" />
+                <Text style={styles.deleteAllText}>Tümünü Sil</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity style={styles.kapatBtn} onPress={onClose}>
               <Text style={styles.kapatText}>Kapat</Text>
@@ -719,6 +770,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#3b82f6',
+  },
+  deleteAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+  },
+  deleteAllText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ef4444',
   },
   kapatBtn: {
     backgroundColor: '#1e293b',

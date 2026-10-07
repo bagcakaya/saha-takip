@@ -15,6 +15,7 @@ import {
   UserCheck,
   UserX,
   RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin } from '../../types/auth';
@@ -85,14 +86,32 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     securityLogs,
     returnWarrantyItems,
     timedFollowUps,
+    markSecurityLogsAsRead,
   } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [localLastReadTime, setLocalLastReadTime] = useState<number>(lastReadTime);
   const [isMarking, setIsMarking] = useState(false);
 
+  const [clearedNotificationsTime, setClearedNotificationsTime] = useState<number>(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_cleared_notifications_time_${user.id}`);
+      if (val) return Number(val);
+    }
+    return 0;
+  });
+
   useEffect(() => {
     setLocalLastReadTime(lastReadTime);
   }, [lastReadTime, isOpen]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_cleared_notifications_time_${user.id}`);
+      if (val) {
+        setClearedNotificationsTime(Number(val));
+      }
+    }
+  }, [user?.id, isOpen]);
 
   const effectiveLastReadTime = Math.max(lastReadTime, localLastReadTime);
 
@@ -629,12 +648,17 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
   // Sort newest first
   notifications.sort((a, b) => b.createdAt - a.createdAt);
 
+  // Silinmiş / temizlenmiş bildirimleri filtrele
+  const visibleNotifications = notifications.filter(
+    (n) => n.createdAt > clearedNotificationsTime
+  );
+
   const isItemUnread = (createdAt: number) => {
     if (createdAt > Date.now() + 10000) return false;
     return createdAt > effectiveLastReadTime;
   };
 
-  const unreadCount = notifications.filter((n) => isItemUnread(n.createdAt)).length;
+  const unreadCount = visibleNotifications.filter((n) => isItemUnread(n.createdAt)).length;
 
   const handleMarkAllAsReadClick = async (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
@@ -655,6 +679,45 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       console.warn('onMarkAllAsRead error:', err);
     } finally {
       setTimeout(() => setIsMarking(false), 400);
+    }
+  };
+
+  const handleDeleteAllClick = async (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (visibleNotifications.length === 0) return;
+
+    if (!window.confirm('Tüm bildirimleri silmek istediğinize emin misiniz?')) {
+      return;
+    }
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(35);
+      }
+    } catch {}
+
+    const now = Date.now();
+    setClearedNotificationsTime(now);
+    if (user?.id) {
+      try {
+        localStorage.setItem(`@saha_takip_cleared_notifications_time_${user.id}`, String(now));
+      } catch (err) {
+        console.warn('LocalStorage save cleared notifications time error:', err);
+      }
+    }
+
+    // Unread sayaçlarını sıfırla ve güvenlik loglarını okundu işaretle
+    try {
+      if (markSecurityLogsAsRead) {
+        await markSecurityLogsAsRead();
+      }
+    } catch {}
+
+    try {
+      await onMarkAllAsRead();
+    } catch (err) {
+      console.warn('onMarkAllAsRead error:', err);
     }
   };
 
@@ -770,7 +833,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                     ? 'bg-blue-600 text-white animate-pulse'
                     : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                 }`}>
-                  {unreadCount > 0 ? `${unreadCount} Yeni` : `${notifications.length} Bildirim`}
+                  {unreadCount > 0 ? `${unreadCount} Yeni` : `${visibleNotifications.length} Bildirim`}
                 </span>
               </div>
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -809,7 +872,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
               <NotificationStatusCard isEmbedded className="shadow-none border-slate-200 dark:border-slate-700" />
             </div>
           )}
-          {notifications.length === 0 ? (
+          {visibleNotifications.length === 0 ? (
             <div className="p-10 text-center space-y-2">
               <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-500">
                 <Bell className="w-6 h-6 opacity-40" />
@@ -822,7 +885,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
               </p>
             </div>
           ) : (
-            notifications.map((item) => {
+            visibleNotifications.map((item) => {
               const isUnread = isItemUnread(item.createdAt);
 
               return (
@@ -885,20 +948,37 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 pb-safe border-t border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/50 shrink-0">
-          <button
-            type="button"
-            onClick={handleMarkAllAsReadClick}
-            disabled={unreadCount === 0 || isMarking}
-            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all touch-manipulation select-none ${
-              unreadCount === 0
-                ? 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-default'
-                : 'bg-blue-600 hover:bg-blue-700 active:scale-95 text-white shadow-xs shadow-blue-500/20 cursor-pointer'
-            }`}
-          >
-            <CheckCheck className={`w-4 h-4 stroke-[2.5] ${isMarking ? 'animate-pulse' : ''}`} />
-            <span>{unreadCount === 0 ? 'Tümü Okundu' : 'Tümünü Okundu Say'}</span>
-          </button>
+        <div className="flex items-center justify-between gap-2.5 px-4 sm:px-5 py-3 pb-safe border-t border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/50 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleMarkAllAsReadClick}
+              disabled={unreadCount === 0 || isMarking}
+              className={`flex items-center gap-1.5 px-3 sm:px-3.5 py-2.5 rounded-xl text-xs font-black transition-all touch-manipulation select-none ${
+                unreadCount === 0
+                  ? 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-default'
+                  : 'bg-blue-600 hover:bg-blue-700 active:scale-95 text-white shadow-xs shadow-blue-500/20 cursor-pointer'
+              }`}
+            >
+              <CheckCheck className={`w-4 h-4 stroke-[2.5] ${isMarking ? 'animate-pulse' : ''}`} />
+              <span>{unreadCount === 0 ? 'Tümü Okundu' : 'Tümünü Okundu Say'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDeleteAllClick}
+              disabled={visibleNotifications.length === 0}
+              className={`flex items-center gap-1.5 px-3 sm:px-3.5 py-2.5 rounded-xl text-xs font-black transition-all touch-manipulation select-none ${
+                visibleNotifications.length === 0
+                  ? 'bg-slate-200/60 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 cursor-default opacity-50'
+                  : 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 active:scale-95 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 cursor-pointer shadow-xs'
+              }`}
+              title="Tüm bildirimleri sil"
+            >
+              <Trash2 className="w-4 h-4 stroke-[2.5]" />
+              <span>Tümünü Sil</span>
+            </button>
+          </div>
 
           <button
             type="button"
