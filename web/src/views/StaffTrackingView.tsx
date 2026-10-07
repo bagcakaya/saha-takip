@@ -782,12 +782,16 @@ export const StaffTrackingView: React.FC = () => {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [breakAdminDate, setBreakAdminDate] = useState<string>(todayStr);
 
+
   // Branches strictly belonging to the current company
   const companyBranches = useMemo(() => {
     if (!branches || branches.length === 0) return [];
     return branches.filter((b) => {
       const bComp = (b.companyCode || '').trim().toUpperCase();
-      return !bComp || bComp === currentCompanyCode;
+      if (currentCompanyCode === 'POLATLAR') {
+        return !bComp || bComp === 'POLATLAR';
+      }
+      return bComp === currentCompanyCode;
     });
   }, [branches, currentCompanyCode]);
 
@@ -1499,6 +1503,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     }
     return 'menu';
   });
+
+  // Auto-refresh when entering 'workplace' (Merkez İş Yeri Lokasyonu) to guarantee latest cloud branches
+  useEffect(() => {
+    if (activeSection === 'workplace') {
+      refreshAttendance();
+    }
+  }, [activeSection]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -2594,6 +2605,15 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => refreshAttendance()}
+                  className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Şubeleri ve konumları buluttan anında yenile"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Şubeleri Yenile</span>
+                </button>
                 <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black">
                   20 Metre Sabit Sınır
                 </span>

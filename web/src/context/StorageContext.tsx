@@ -3361,7 +3361,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       throw new Error('Unauthorized');
     }
 
-    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const currentCompCode = (viewingCompany?.code || company?.code || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
     const targetCompCode = (branchData.companyCode || currentCompCode).trim().toUpperCase();
 
     const newBranch: Branch = {
@@ -3382,6 +3382,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = [newBranch, ...branches];
       setBranches(updated);
       await StorageService.saveBranches(updated);
+      await StorageService.saveBranchesForCompany(targetCompCode, updated);
     } else {
       // Save directly to the target company's cloud slot 14
       const targetExisting = await StorageService.getBranchesForCompany(targetCompCode);
@@ -3403,7 +3404,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       alert('Şube düzenleme yetkisi sadece yöneticilere aittir.');
       return;
     }
-    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const currentCompCode = (viewingCompany?.code || company?.code || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
     const targetBranch = branches.find((b) => b.id === id);
     const branchCompCode = (
       targetCompanyCode ||
@@ -3418,6 +3419,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
       setBranches(updated);
       await StorageService.saveBranches(updated);
+      await StorageService.saveBranchesForCompany(branchCompCode, updated);
     } else {
       const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
       const isExistingInTarget = targetExisting.some((b) => b.id === id);
@@ -3433,13 +3435,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ];
       }
       await StorageService.saveBranchesForCompany(branchCompCode, targetUpdated);
-
-      // Clean up from local state if it was in branches
-      if (branches.some((b) => b.id === id)) {
-        const cleaned = branches.filter((b) => b.id !== id);
-        setBranches(cleaned);
-        await StorageService.saveBranches(cleaned);
-      }
     }
   };
 
@@ -3448,7 +3443,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       alert('Şube silme yetkisi sadece POLATLAR firmasının yöneticilerine aittir.');
       return;
     }
-    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const currentCompCode = (viewingCompany?.code || company?.code || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
     const targetBranch = branches.find((b) => b.id === id);
     const branchCompCode = (targetCompanyCode || targetBranch?.companyCode || currentCompCode).trim().toUpperCase();
 
@@ -3456,6 +3451,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = branches.filter((b) => b.id !== id);
       setBranches(updated);
       await StorageService.saveBranches(updated);
+      await StorageService.saveBranchesForCompany(branchCompCode, updated);
     } else {
       const targetExisting = await StorageService.getBranchesForCompany(branchCompCode);
       const targetUpdated = targetExisting.filter((b) => b.id !== id);
@@ -3464,7 +3460,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const assignStaffToBranch = async (branchId: string, userIds: string[], targetCompanyCode?: string) => {
-    const currentCompCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const currentCompCode = (viewingCompany?.code || company?.code || user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
     let branchCompCode = targetCompanyCode ? targetCompanyCode.trim().toUpperCase() : currentCompCode;
 
     if (!targetCompanyCode) {
@@ -5357,12 +5353,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const refreshAttendance = async () => {
-    const [loc, recs] = await Promise.all([
+    const [loc, recs, branchList] = await Promise.all([
       StorageService.getWorkplaceLocation(),
       StorageService.getAttendanceRecords(),
+      StorageService.getBranches(),
     ]);
     if (loc) setWorkplaceLocation(loc);
     setAttendanceRecords(recs);
+    if (branchList && Array.isArray(branchList)) {
+      setBranches(branchList);
+    }
   };
 
   const importCarilerFromExcelFile = async (file: File): Promise<number> => {
