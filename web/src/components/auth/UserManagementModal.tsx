@@ -494,7 +494,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Kullanıcı ve Yetki Yönetimi" maxWidth="max-w-2xl">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Kullanıcı ve Yetki Yönetimi"
+      maxWidth="max-w-5xl"
+      fullScreenOnMobile={true}
+    >
       <div className="space-y-4">
         {/* Company Header Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-blue-50/90 dark:from-blue-950/50 dark:via-indigo-950/30 dark:to-blue-950/50 border border-blue-200/90 dark:border-blue-900/60 text-xs shadow-xs">

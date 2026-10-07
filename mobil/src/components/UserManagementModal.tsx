@@ -973,18 +973,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.78)',
-    justifyContent: 'flex-end',
+    backgroundColor: '#0c1527',
   },
   modalContent: {
+    flex: 1,
     backgroundColor: '#0c1527',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '94%',
-    minHeight: '80%',
+    paddingTop: Platform.OS === 'ios' ? 44 : 12,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   header: {
     flexDirection: 'row',
