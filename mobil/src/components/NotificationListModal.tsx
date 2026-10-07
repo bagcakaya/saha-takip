@@ -448,18 +448,27 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
 
           {/* 2. Notification List (Matches Görsel 2) */}
           <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
-            {notificationList.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[
-                  styles.notifRow,
-                  {
-                    borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0',
-                  },
-                ]}
-                onPress={() => handleItemPress(item)}
-                activeOpacity={0.7}
-              >
+            {notificationList.map((item) => {
+              const isUnread = item.createdAt > lastReadTime;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.notifRow,
+                    {
+                      borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0',
+                      backgroundColor: isUnread
+                        ? isDark
+                          ? 'rgba(249, 115, 22, 0.12)'
+                          : '#fff7ed'
+                        : 'transparent',
+                      borderLeftWidth: 4,
+                      borderLeftColor: isUnread ? '#f97316' : 'transparent',
+                    },
+                  ]}
+                  onPress={() => handleItemPress(item)}
+                  activeOpacity={0.7}
+                >
                 {/* Left Icon */}
                 <View
                   style={[
@@ -521,7 +530,8 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                 {/* Chevron */}
                 <ChevronRight size={18} color={isDark ? '#475569' : '#94a3b8'} />
               </TouchableOpacity>
-            ))}
+            );
+          })}
           </ScrollView>
 
           {/* 3. Footer Bar (Matches Görsel 2) */}
@@ -656,7 +666,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#f97316',
   },
   roleTag: {
     paddingHorizontal: 6,

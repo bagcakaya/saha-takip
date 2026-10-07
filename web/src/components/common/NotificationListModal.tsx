@@ -829,8 +829,10 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                 <div
                   key={item.id}
                   onClick={() => handleItemClick(item)}
-                  className={`p-4 flex items-start gap-3.5 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 cursor-pointer transition-all active:scale-[0.99] group ${
-                    isUnread ? 'bg-blue-50/80 dark:bg-blue-950/40' : 'bg-white dark:bg-slate-900'
+                  className={`p-4 flex items-start gap-3.5 cursor-pointer transition-all active:scale-[0.99] group border-l-4 ${
+                    isUnread
+                      ? 'bg-orange-50/90 dark:bg-orange-950/35 hover:bg-orange-100/80 dark:hover:bg-orange-950/55 border-l-orange-500'
+                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-l-transparent'
                   }`}
                 >
                   {/* Category Icon */}
@@ -852,7 +854,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
                           </span>
                         )}
                         {isUnread && (
-                          <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse shrink-0" />
+                          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse shrink-0" />
                         )}
                       </div>
 
