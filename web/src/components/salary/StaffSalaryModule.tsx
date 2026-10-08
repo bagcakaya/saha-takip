@@ -1985,7 +1985,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </div>
                         </div>
 
-                        {/* Aksiyon Butonları: Yıllık İcmal PDF & WhatsApp */}
+                        {/* Aksiyon Butonu: Yıllık İcmal PDF İndir */}
                         <div className="flex items-center gap-2 self-end sm:self-auto">
                           <button
                             type="button"
@@ -1994,29 +1994,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                               e.stopPropagation();
                               handleExportStaffYearlyPdf(staff, selectedYear, false);
                             }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-200/90 dark:border-slate-700 shadow-xs disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-black transition-all cursor-pointer border border-slate-300 dark:border-slate-700 shadow-xs disabled:opacity-50"
                             title="12 Aylık Resmi İcmal Bordrosunu PDF İndir"
                           >
                             {isGeneratingYearlyPdf ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                             ) : (
-                              <FileText className="w-3.5 h-3.5 text-rose-500" />
+                              <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             )}
-                            <span>📄 Yıllık İcmal PDF</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isGeneratingYearlyPdf}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleExportStaffYearlyPdf(staff, selectedYear, true);
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md shadow-emerald-600/30 transition-all cursor-pointer disabled:opacity-50"
-                            title="Yıllık Özeti PDF Olarak WhatsApp'tan Gönder"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>📱 WhatsApp (PDF)</span>
+                            <span>📄 Yıllık İcmal PDF İndir</span>
                           </button>
                         </div>
                       </div>
@@ -2776,38 +2762,21 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                 )}
               </div>
 
-              {/* PDF İndir & WhatsApp İle Gönder Butonları */}
+              {/* PDF Pusula İndir Butonu */}
               <div className="flex items-center gap-2">
-                {/* 📄 PDF Pusula İndir */}
                 <button
                   type="button"
                   disabled={isGeneratingPdf}
                   onClick={() => handleExportAndSharePdf(false)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md shadow-emerald-700/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
                   title="Resmi Maaş Pusulasını PDF Olarak İndir"
                 >
                   {isGeneratingPdf ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <FileDown className="w-4 h-4" />
                   )}
-                  <span>PDF Pusula</span>
-                </button>
-
-                {/* 📱 WhatsApp İle PDF & Bilgi Gönder */}
-                <button
-                  type="button"
-                  disabled={isGeneratingPdf}
-                  onClick={() => handleExportAndSharePdf(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md shadow-emerald-700/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer shrink-0 disabled:opacity-50"
-                  title="Personele WhatsApp üzerinden PDF maaş pusulası ve döküm mesajı gönder"
-                >
-                  {isGeneratingPdf ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Send className="w-3.5 h-3.5" />
-                  )}
-                  <span>WhatsApp (PDF)</span>
+                  <span>PDF Pusula İndir</span>
                 </button>
               </div>
             </div>
