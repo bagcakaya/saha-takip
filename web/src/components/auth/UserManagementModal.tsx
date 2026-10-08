@@ -157,6 +157,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   // Device bindings state
   const [userBindings, setUserBindings] = useState<UserDeviceBinding[]>([]);
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   const loadBindings = useCallback(async () => {
     try {
@@ -521,8 +522,6 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       alert(res.error);
     }
   };
-
-  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   const handleDeleteUser = async (account: UserAccount) => {
     if (!isSuper) {
