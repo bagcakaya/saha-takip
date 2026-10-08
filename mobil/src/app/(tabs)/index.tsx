@@ -34,6 +34,7 @@ import {
   Megaphone,
   Settings,
   Shield,
+  ShieldCheck,
 } from 'lucide-react-native';
 import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
@@ -41,7 +42,8 @@ import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
 import { NotificationStatusModal } from '../../components/NotificationStatusModal';
 import { LicenseManagementModal } from '../../components/LicenseManagementModal';
-import { canUserManageLicenses, canUserManageInstitutionsAndBranches } from '../../types/auth';
+import { CompanyLicenseDetailsModal } from '../../components/CompanyLicenseDetailsModal';
+import { canUserManageLicenses, canUserManageInstitutionsAndBranches, isUserAdmin } from '../../types/auth';
 import { getRemainingDays } from '../../utils/dateUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -63,7 +65,7 @@ interface HomeModule {
 }
 
 export default function HomeDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user, licenseInfo, logout } = useAuth();
   const {
     locations,
     services,
@@ -96,10 +98,11 @@ export default function HomeDashboardScreen() {
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || isUserAdmin(user);
   const todayStr = new Date().toISOString().split('T')[0];
   const activeReturnsCount = (returnWarrantyItems || []).filter((i) => i && i.status === 'pending').length;
   const activeInstallationsCount = (locations || []).filter((l) => l && l.status !== 'completed').length;
@@ -298,6 +301,36 @@ export default function HomeDashboardScreen() {
       badgeText: 'SaaS Masası',
       action: () => setIsLicenseModalOpen(true),
       visible: canManageLicenses,
+    },
+    {
+      id: 'my_company_license',
+      title: 'Kurumsal Lisansım',
+      shortTitle: 'Lisansım',
+      description: licenseInfo?.isLifetime
+        ? 'Sınırsız / Ömür Boyu Kurumsal Lisans'
+        : `${licenseInfo?.remainingDays ?? 0} gün kaldı • Detay ve Destek`,
+      icon: ShieldCheck,
+      color:
+        licenseInfo?.status === 'expiring_soon'
+          ? '#d97706'
+          : licenseInfo?.status === 'expired'
+          ? '#dc2626'
+          : '#059669',
+      glowColor:
+        licenseInfo?.status === 'expiring_soon'
+          ? '#fbbf24'
+          : licenseInfo?.status === 'expired'
+          ? '#f87171'
+          : '#34d399',
+      badgeText: licenseInfo?.isLifetime
+        ? 'Sınırsız'
+        : licenseInfo?.status === 'expiring_soon'
+        ? `${licenseInfo?.remainingDays ?? 0} Gün Kaldı`
+        : licenseInfo?.status === 'expired'
+        ? 'Süresi Doldu'
+        : `${licenseInfo?.remainingDays ?? 0} Gün Kaldı`,
+      action: () => setIsCompanyLicenseModalOpen(true),
+      visible: !canManageLicenses && isAdmin,
     },
   ];
 
@@ -592,6 +625,12 @@ export default function HomeDashboardScreen() {
           onClose={() => setIsLicenseModalOpen(false)}
         />
       )}
+
+      {/* Company License Details Modal (Client Managers) */}
+      <CompanyLicenseDetailsModal
+        visible={isCompanyLicenseModalOpen}
+        onClose={() => setIsCompanyLicenseModalOpen(false)}
+      />
     </View>
   );
 }

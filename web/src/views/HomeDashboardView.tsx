@@ -15,6 +15,7 @@ import {
   StickyNote,
   ChevronDown,
   UserPlus,
+  ShieldCheck,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -24,6 +25,7 @@ import { OneSignalService } from '../services/oneSignalService';
 import { NotificationService } from '../services/notificationService';
 import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
+import { CompanyLicenseDetailsModal } from '../components/licensing/CompanyLicenseDetailsModal';
 import { CompanySelectModal } from '../components/common/CompanySelectModal';
 import { getRemainingDays } from '../utils/dateUtils';
 
@@ -47,7 +49,7 @@ interface HomeModule {
 }
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
-  const { user, company, switchViewingCompany } = useAuth();
+  const { user, company, licenseInfo, switchViewingCompany } = useAuth();
   const {
     branches,
     locations,
@@ -68,6 +70,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   } = useStorage();
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
 
   const canManageLicenses = canUserManageLicenses(user);
@@ -384,6 +387,39 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       action: () => setIsLicenseModalOpen(true),
       visible: canManageLicenses && !isViewingOtherCompany,
     },
+    {
+      id: 'my_company_license',
+      title: 'Kurumsal Lisansım',
+      shortTitle: 'Lisansım',
+      description: licenseInfo.isLifetime
+        ? 'Sınırsız / Ömür Boyu Kurumsal Lisans'
+        : `${licenseInfo.remainingDays} gün kaldı • Bitiş: ${licenseInfo.expiresDateFormatted || 'Belirtilmedi'}`,
+      icon: ShieldCheck,
+      gradient: licenseInfo.status === 'expiring_soon'
+        ? 'bg-gradient-to-br from-amber-600 via-orange-700 to-slate-900'
+        : licenseInfo.status === 'expired'
+        ? 'bg-gradient-to-br from-rose-700 via-red-800 to-slate-950'
+        : 'bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900',
+      borderColor: licenseInfo.status === 'expiring_soon'
+        ? 'border-amber-400/50'
+        : licenseInfo.status === 'expired'
+        ? 'border-rose-400/50'
+        : 'border-emerald-400/40',
+      glowColor: licenseInfo.status === 'expiring_soon'
+        ? 'text-amber-400'
+        : licenseInfo.status === 'expired'
+        ? 'text-rose-400'
+        : 'text-emerald-400',
+      badgeText: licenseInfo.isLifetime
+        ? 'Sınırsız'
+        : licenseInfo.status === 'expiring_soon'
+        ? `${licenseInfo.remainingDays} Gün (Yenileme Yaklaştı)`
+        : licenseInfo.status === 'expired'
+        ? 'Süresi Doldu'
+        : `${licenseInfo.remainingDays} Gün Kaldı`,
+      action: () => setIsCompanyLicenseModalOpen(true),
+      visible: isAdmin && !canManageLicenses,
+    },
   ];
 
   const visibleModules = modules.filter((m) => m.visible);
@@ -540,6 +576,14 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <LicenseManagementModal
           isOpen={isLicenseModalOpen}
           onClose={() => setIsLicenseModalOpen(false)}
+        />
+      )}
+
+      {/* Client Company Manager License Details Modal */}
+      {isAdmin && !canManageLicenses && isCompanyLicenseModalOpen && (
+        <CompanyLicenseDetailsModal
+          isOpen={isCompanyLicenseModalOpen}
+          onClose={() => setIsCompanyLicenseModalOpen(false)}
         />
       )}
 

@@ -27,12 +27,13 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
-import { WeatherData, isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
+import { WeatherData, isUserAdmin, isSuperAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
 import { getRemainingDays } from '../../utils/dateUtils';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
 import { CariListModal } from '../common/CariListModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
+import { CompanyLicenseDetailsModal } from '../licensing/CompanyLicenseDetailsModal';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -40,7 +41,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { user, company, logout } = useAuth();
+  const { user, company, licenseInfo, logout } = useAuth();
   const {
     branches,
     locations,
@@ -59,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
 
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
@@ -609,6 +611,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                       {user.companyCode || 'POLATLAR'}
                     </span>
                   </div>
+                  {isAdmin && !isSuperAdmin(user) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCompanyLicenseModalOpen(true)}
+                      className={`mt-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border transition-colors cursor-pointer ${
+                        licenseInfo.status === 'expiring_soon'
+                          ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                          : licenseInfo.status === 'expired'
+                          ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                          : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      }`}
+                      title="Lisans Detaylarını Gör"
+                    >
+                      <span>🔑</span>
+                      <span>
+                        {licenseInfo.isLifetime
+                          ? 'Sınırsız Lisans'
+                          : `${licenseInfo.remainingDays} gün kaldı`}
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -712,6 +735,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           isOpen={isServerModalOpen}
           onClose={() => setIsServerModalOpen(false)}
           onSaved={() => setIsLocalServer(ServerConfigService.isLocalMode())}
+        />
+      )}
+
+      {/* Client Company License Details Modal */}
+      {isAdmin && !isSuperAdmin(user) && (
+        <CompanyLicenseDetailsModal
+          isOpen={isCompanyLicenseModalOpen}
+          onClose={() => setIsCompanyLicenseModalOpen(false)}
         />
       )}
     </>

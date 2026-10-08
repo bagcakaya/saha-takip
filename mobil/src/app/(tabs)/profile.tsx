@@ -12,11 +12,18 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { canUserChangePassword, canUserManageServerConfig, canUserDeleteUser } from '../../types/auth';
+import {
+  canUserChangePassword,
+  canUserManageServerConfig,
+  canUserDeleteUser,
+  canUserManageLicenses,
+  isUserAdmin,
+} from '../../types/auth';
 import {
   User,
   Building2,
   Shield,
+  ShieldCheck,
   Search,
   BookOpen,
   StickyNote,
@@ -31,17 +38,20 @@ import {
   UserX,
 } from 'lucide-react-native';
 import { ServerSettingsModal } from '../../components/ServerSettingsModal';
+import { CompanyLicenseDetailsModal } from '../../components/CompanyLicenseDetailsModal';
 import { MobileServerConfigService, ServerConfig } from '../../services/serverConfigService';
 
 export default function ProfileScreen() {
-  const { user, company, logout, updateUser, refreshUsers, deleteUser } = useAuth();
+  const { user, company, licenseInfo, logout, updateUser, refreshUsers, deleteUser } = useAuth();
   const { cariler, notes, addNote } = useStorage();
   const isDark = useColorScheme() === 'dark';
 
   const canManageServer = canUserManageServerConfig(user);
+  const isClientManager = (isUserAdmin(user) || user?.role === 'admin') && !canUserManageLicenses(user);
 
-  // Server settings modal state
+  // Modals state
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
   const [serverConfig, setServerConfig] = useState<ServerConfig>(() => MobileServerConfigService.getConfig());
 
   // Password update state
@@ -201,6 +211,114 @@ export default function ProfileScreen() {
           </View>
         </View>
       </View>
+
+      {/* 1.5. Company License Card (Client Managers Only) */}
+      {isClientManager && (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setIsCompanyLicenseModalOpen(true)}
+          style={[
+            styles.card,
+            {
+              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+              borderColor:
+                licenseInfo?.status === 'expiring_soon'
+                  ? '#f59e0b'
+                  : licenseInfo?.status === 'expired'
+                  ? '#ef4444'
+                  : '#10b981',
+              borderWidth: 1.5,
+            },
+          ]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor:
+                    licenseInfo?.status === 'expiring_soon'
+                      ? 'rgba(245, 158, 11, 0.15)'
+                      : licenseInfo?.status === 'expired'
+                      ? 'rgba(239, 68, 68, 0.15)'
+                      : 'rgba(16, 185, 129, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ShieldCheck
+                  size={22}
+                  color={
+                    licenseInfo?.status === 'expiring_soon'
+                      ? '#d97706'
+                      : licenseInfo?.status === 'expired'
+                      ? '#dc2626'
+                      : '#059669'
+                  }
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '700',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  }}
+                >
+                  Kurumsal Lisans Durumu
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    marginTop: 2,
+                  }}
+                >
+                  {licenseInfo?.isLifetime
+                    ? 'Sınırsız / Ömür Boyu Lisans'
+                    : licenseInfo?.status === 'expired'
+                    ? 'Lisans Süresi Doldu'
+                    : `${licenseInfo?.remainingDays ?? 0} Gün Kaldı • Detaylar ve Destek`}
+                </Text>
+              </View>
+            </View>
+            <View
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+                backgroundColor:
+                  licenseInfo?.status === 'expiring_soon'
+                    ? '#fef3c7'
+                    : licenseInfo?.status === 'expired'
+                    ? '#fee2e2'
+                    : '#d1fae5',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: '800',
+                  color:
+                    licenseInfo?.status === 'expiring_soon'
+                      ? '#b45309'
+                      : licenseInfo?.status === 'expired'
+                      ? '#b91c1c'
+                      : '#047857',
+                }}
+              >
+                {licenseInfo?.isLifetime
+                  ? 'Sınırsız'
+                  : licenseInfo?.status === 'expired'
+                  ? 'Doldu'
+                  : `${licenseInfo?.remainingDays ?? 0} Gün`}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* 2. Password Security Card */}
       <View
@@ -529,6 +647,12 @@ export default function ProfileScreen() {
         onSaved={() => setServerConfig(MobileServerConfigService.getConfig())}
       />
     )}
+
+    {/* Company License Details Modal (Client Managers) */}
+    <CompanyLicenseDetailsModal
+      visible={isCompanyLicenseModalOpen}
+      onClose={() => setIsCompanyLicenseModalOpen(false)}
+    />
   </>
   );
 }
