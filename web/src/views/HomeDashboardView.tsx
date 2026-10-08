@@ -418,7 +418,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         ? 'Süresi Doldu'
         : `${licenseInfo.remainingDays} Gün Kaldı`,
       action: () => setIsCompanyLicenseModalOpen(true),
-      visible: isAdmin && !canManageLicenses,
+      visible: (isAdmin && !canManageLicenses) || isViewingOtherCompany,
     },
   ];
 
@@ -580,7 +580,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       )}
 
       {/* Client Company Manager License Details Modal */}
-      {isAdmin && !canManageLicenses && isCompanyLicenseModalOpen && (
+      {isCompanyLicenseModalOpen && (
         <CompanyLicenseDetailsModal
           isOpen={isCompanyLicenseModalOpen}
           onClose={() => setIsCompanyLicenseModalOpen(false)}

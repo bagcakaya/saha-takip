@@ -608,10 +608,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                       {isAdmin ? 'Yönetici' : 'Personel'}
                     </span>
                     <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 uppercase shrink-0">
-                      {user.companyCode || 'POLATLAR'}
+                      {company?.code || user.companyCode || 'POLATLAR'}
                     </span>
                   </div>
-                  {isAdmin && !isSuperAdmin(user) && (
+                  {((isAdmin && !isSuperAdmin(user)) || (isSuperAdmin(user) && company?.code && company.code.toUpperCase() !== 'POLATLAR')) && (
                     <button
                       type="button"
                       onClick={() => setIsCompanyLicenseModalOpen(true)}
@@ -739,7 +739,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       )}
 
       {/* Client Company License Details Modal */}
-      {isAdmin && !isSuperAdmin(user) && (
+      {isCompanyLicenseModalOpen && (
         <CompanyLicenseDetailsModal
           isOpen={isCompanyLicenseModalOpen}
           onClose={() => setIsCompanyLicenseModalOpen(false)}
