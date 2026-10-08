@@ -632,7 +632,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     currentMonthly?: number
   ) => {
     const input = window.prompt(
-      `"${staff.name || staff.username}" için aylık belirlenen net maaş tutarını giriniz (₺):`,
+      `"${staff.name || staff.username}" için aylık belirlenen tutarı giriniz (₺):`,
       currentMonthly && currentMonthly > 0 ? String(currentMonthly) : ''
     );
     if (input === null) return;
@@ -1796,9 +1796,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   {/* Özet ve Çekmece Butonu */}
                   <div className="flex items-center justify-between sm:justify-end gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
                     <div className="text-left sm:text-right">
-                      {/* Başlık: 2026 Toplam Verilen yerine Belirlenen Maaş */}
+                      {/* Başlık: Belirlenen Tutar */}
                       <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-start sm:justify-end gap-1.5">
-                        <span>Belirlenen Maaş</span>
+                        <span>Belirlenen Tutar</span>
                         {isDepartmentSalary && (
                           <span
                             className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 px-1.5 py-0.5 rounded border border-teal-200/60 dark:border-teal-800/60"
@@ -1818,7 +1818,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                             );
                           }}
                           className="text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 p-0.5 transition-colors cursor-pointer"
-                          title="Aylık belirlenen maaş tutarını düzenle"
+                          title="Aylık belirlenen tutarı düzenle"
                         >
                           <Edit2 className="w-3 h-3 inline" />
                         </button>
@@ -2041,7 +2041,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                                   );
                                 }}
                                 className="text-[10px] text-emerald-700 dark:text-emerald-300 hover:underline font-bold cursor-pointer"
-                                title="Aylık belirlenen maaş tutarını düzenle"
+                                title="Aylık belirlenen tutarı düzenle"
                               >
                                 ✏️ {yearSummary.monthlyAgreedAmount > 0 ? 'Düzenle' : 'Belirle'}
                               </button>
