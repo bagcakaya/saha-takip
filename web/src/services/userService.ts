@@ -1,4 +1,4 @@
-import { UserAccount, UserRole, User, Company, isUserAdmin } from '../types/auth';
+import { UserAccount, UserRole, User, Company, isUserAdmin, isSuperAdmin } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { CompanyService } from './companyService';
 import { PasswordSecurity } from './passwordSecurity';
@@ -1085,14 +1085,36 @@ export const UserService = {
   },
 
   /**
-   * Deletes a user account
+   * Deletes a user account.
+   * Strictly and exclusively permitted to POLATLAR super admins ('admin' and 'murat').
    */
-  async deleteUser(id: string): Promise<{ success: boolean; error?: string }> {
+  async deleteUser(
+    id: string,
+    actor?: { role?: string; companyCode?: string; username?: string } | null
+  ): Promise<{ success: boolean; error?: string }> {
+    // Sadece POLATLAR Ana Firma Süper Yöneticileri (admin ve murat) silebilir!
+    if (actor && !isSuperAdmin(actor)) {
+      return {
+        success: false,
+        error: 'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (admin ve murat) aittir. Diğer yöneticilerin silme yetkisi yoktur.',
+      };
+    }
+
     const users = this.getUsers();
     const target = users.find((u) => u.id === id);
 
     if (!target) {
       return { success: false, error: 'Kullanıcı bulunamadı.' };
+    }
+
+    // Koruma: POLATLAR Süper Admin hesapları ('admin' ve 'murat') ASLA silinemez
+    const targetComp = (target.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetUname = (target.username || '').trim().toLowerCase();
+    if (targetComp === 'POLATLAR' && (targetUname === 'admin' || targetUname === 'murat')) {
+      return {
+        success: false,
+        error: 'POLATLAR Ana Firma Süper Yönetici hesapları (admin ve murat) silinemez.',
+      };
     }
 
     const companyCode = target.companyCode || 'POLATLAR';

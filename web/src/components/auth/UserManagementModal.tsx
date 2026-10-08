@@ -26,6 +26,7 @@ import {
   CreditCard,
   MapPin,
   Briefcase,
+  Trash2,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -52,6 +53,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     company,
     addUser,
     updateUser,
+    deleteUser,
     suggestUsername,
     refreshUsers,
   } = useAuth();
@@ -519,6 +521,53 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       alert(res.error);
     }
   };
+
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
+  const handleDeleteUser = async (account: UserAccount) => {
+    if (!isSuper) {
+      alert(
+        'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (murat ve admin) aittir. Diğer yöneticilerin silme yetkisi bulunmamaktadır.'
+      );
+      return;
+    }
+
+    if (account.id === currentUser?.id) {
+      alert('Kendi hesabınızı bu ekrandan silemezsiniz.');
+      return;
+    }
+
+    const targetComp = (account.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetUname = (account.username || '').trim().toLowerCase();
+    if (targetComp === 'POLATLAR' && (targetUname === 'admin' || targetUname === 'murat')) {
+      alert('POLATLAR Ana Firma Süper Yönetici hesapları (admin ve murat) silinemez.');
+      return;
+    }
+
+    const confirmMsg = `DİKKAT: "${account.name}" (@${account.username}) isimli kullanıcıyı sistemden KALICI OLARAK silmek istediğinize emin misiniz?\n\n⚠️ Bu işlem geri alınamaz!\nKullanıcı hesabı, cihaz kilitleri ve oturum kayıtları tamamen silinecektir.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeletingUserId(account.id);
+      const res = await deleteUser(account.id);
+      if (res.success) {
+        setFormMsg({
+          type: 'success',
+          text: `"${account.name}" (@${account.username}) kullanıcısı sistemden başarıyla silindi.`,
+        });
+        if (editingProfileUser?.id === account.id) {
+          setEditingProfileUser(null);
+        }
+      } else {
+        alert('Silme işlemi başarısız: ' + (res.error || 'Bilinmeyen hata'));
+      }
+    } catch (err: any) {
+      alert('Kullanıcı silinirken hata oluştu: ' + (err?.message || 'Bilinmeyen hata'));
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
 
   return (
     <Modal
@@ -1072,6 +1121,23 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             <span>Pasife Al</span>
                           </button>
                         )}
+
+                        {/* SADECE VE SADECE SÜPER ADMİNLER (POLATLAR admin ve murat) İÇİN KULLANICIYI SİL BUTONU */}
+                        {isSuper && !isCurrent && !(
+                          (account.companyCode || 'POLATLAR').trim().toUpperCase() === 'POLATLAR' &&
+                          ['admin', 'murat'].includes((account.username || '').trim().toLowerCase())
+                        ) && (
+                          <button
+                            type="button"
+                            disabled={deletingUserId === account.id}
+                            onClick={() => handleDeleteUser(account)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800/80 transition-colors cursor-pointer disabled:opacity-50"
+                            title="Kullanıcıyı Kalıcı Olarak Sil (Yalnızca Süper Admin: admin ve murat yetkilidir)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                            <span>{deletingUserId === account.id ? 'Siliniyor...' : 'Sil'}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1546,22 +1612,42 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEditingProfileUser(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                Vazgeç
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveProfile}
-                disabled={isSavingProfile}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer disabled:opacity-50"
-              >
-                {isSavingProfile ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
-              </button>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div>
+                {isSuper && editingProfileUser.id !== currentUser?.id && !(
+                  (editingProfileUser.companyCode || 'POLATLAR').trim().toUpperCase() === 'POLATLAR' &&
+                  ['admin', 'murat'].includes((editingProfileUser.username || '').trim().toLowerCase())
+                ) && (
+                  <button
+                    type="button"
+                    disabled={deletingUserId === editingProfileUser.id}
+                    onClick={() => handleDeleteUser(editingProfileUser)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Kullanıcıyı Kalıcı Olarak Sil (Yalnızca Süper Admin: admin ve murat yetkilidir)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{deletingUserId === editingProfileUser.id ? 'Siliniyor...' : 'Kullanıcıyı Sil'}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProfileUser(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={isSavingProfile}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingProfile ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

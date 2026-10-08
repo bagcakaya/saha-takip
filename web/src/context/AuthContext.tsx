@@ -643,7 +643,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteUser = async (id: string) => {
-    const res = await UserService.deleteUser(id);
+    if (!isSuperAdmin(user)) {
+      return {
+        success: false,
+        error: 'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (murat ve admin) aittir. Diğer yöneticilerin silme yetkisi bulunmamaktadır.',
+      };
+    }
+    const res = await UserService.deleteUser(id, user);
     if (res.success) {
       await refreshUsers();
     }

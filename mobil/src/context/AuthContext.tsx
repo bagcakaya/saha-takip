@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, UserAccount, Company, UserRole, LicenseInfo, getCompanyLicenseInfo } from '../types/auth';
+import { User, UserAccount, Company, UserRole, LicenseInfo, getCompanyLicenseInfo, isSuperAdmin } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { supabase } from '../api/supabaseClient';
 import { CompanyService } from '../services/companyService';
@@ -787,9 +787,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (id: string) => {
     try {
+      if (!isSuperAdmin(user)) {
+        return {
+          success: false,
+          error: 'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (admin ve murat) aittir. Diğer yöneticilerin silme yetkisi yoktur.',
+        };
+      }
       const target = users.find((u) => u.id === id);
       if (!target) {
         return { success: false, error: 'Kullanıcı bulunamadı.' };
+      }
+      const targetComp = (target.companyCode || 'POLATLAR').trim().toUpperCase();
+      const targetUname = (target.username || '').trim().toLowerCase();
+      if (targetComp === 'POLATLAR' && (targetUname === 'admin' || targetUname === 'murat')) {
+        return {
+          success: false,
+          error: 'POLATLAR Ana Firma Süper Yönetici hesapları (admin ve murat) silinemez.',
+        };
       }
       const comp = target.companyCode || 'POLATLAR';
       if (target.role === 'admin') {

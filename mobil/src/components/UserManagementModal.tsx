@@ -33,7 +33,7 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useStorage } from '../context/StorageContext';
-import { UserRole, UserAccount, isUserAdmin, canUserChangePassword } from '../types/auth';
+import { UserRole, UserAccount, isUserAdmin, canUserChangePassword, isSuperAdmin } from '../types/auth';
 import { DeviceService } from '../services/deviceService';
 import { UserDeviceBinding } from '../types/storage';
 import { CreateCompanyModal } from './CreateCompanyModal';
@@ -58,6 +58,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     suggestUsername,
   } = useAuth();
   const { branches, assignStaffToBranch } = useStorage();
+
+  const isSuper = useMemo(() => isSuperAdmin(currentUser), [currentUser]);
 
   const [activeTab, setActiveTab] = useState<'list' | 'add'>('list');
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
@@ -331,6 +333,52 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         ]
       );
     }
+  };
+
+  const handleDeleteUser = (account: UserAccount) => {
+    if (!isSuper) {
+      Alert.alert(
+        'Yetkisiz İşlem',
+        'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (murat ve admin) aittir. Diğer yöneticilerin silme yetkisi yoktur.'
+      );
+      return;
+    }
+
+    if (account.id === currentUser?.id) {
+      Alert.alert('İşlem Engellendi', 'Kendi hesabınızı bu ekrandan silemezsiniz.');
+      return;
+    }
+
+    const targetComp = (account.companyCode || 'POLATLAR').trim().toUpperCase();
+    const targetUname = (account.username || '').trim().toLowerCase();
+    if (targetComp === 'POLATLAR' && (targetUname === 'admin' || targetUname === 'murat')) {
+      Alert.alert('İşlem Engellendi', 'POLATLAR Ana Firma Süper Yönetici hesapları (admin ve murat) silinemez.');
+      return;
+    }
+
+    Alert.alert(
+      'Kullanıcıyı Kalıcı Olarak Sil',
+      `"${account.name}" (@${account.username}) isimli kullanıcıyı sistemden KALICI OLARAK silmek istediğinize emin misiniz?\n\n⚠️ Bu işlem geri alınamaz! Kullanıcı hesabı, cihaz kilitleri ve oturum kayıtları tamamen silinecektir.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Kalıcı Olarak Sil',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await deleteUser(account.id);
+            if (res.success) {
+              setFormMsg({
+                type: 'success',
+                text: `"${account.name}" kullanıcısı başarıyla silindi.`,
+              });
+              refreshUsers();
+            } else {
+              Alert.alert('Hata', res.error || 'Kullanıcı silinemedi.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleSelectBranchForUser = async (userId: string, targetBranchId: string) => {
@@ -675,6 +723,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                   <Text style={styles.deactivateBtnText}>Pasife Al</Text>
                                 </>
                               )}
+                            </TouchableOpacity>
+                          )}
+
+                          {/* Sadece POLATLAR Süper Admin (admin ve murat) için Kullanıcı Sil */}
+                          {isSuper && !isCurrent && !(
+                            (account.companyCode || 'POLATLAR').trim().toUpperCase() === 'POLATLAR' &&
+                            ['admin', 'murat'].includes((account.username || '').trim().toLowerCase())
+                          ) && (
+                            <TouchableOpacity
+                              style={styles.deleteUserBtn}
+                              onPress={() => handleDeleteUser(account)}
+                              activeOpacity={0.7}
+                            >
+                              <Trash2 size={13} color="#f87171" />
                             </TouchableOpacity>
                           )}
                         </View>

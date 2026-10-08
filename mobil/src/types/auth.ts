@@ -150,6 +150,33 @@ export function canUserManageServerConfig(
 }
 
 /**
+ * Checks whether a user is a SUPER ADMIN.
+ * Strictly restricted to POLATLAR company administrators with username 'admin' or 'murat'.
+ * All other administrators (e.g. NESACOCUK admin, MAYAPASTANE admin) are company managers.
+ */
+export function isSuperAdmin(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  const comp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  const isAdmin = user.role === 'admin' || isUserAdmin(user);
+  return comp === 'POLATLAR' && isAdmin && (uname === 'admin' || uname === 'murat');
+}
+
+/**
+ * Checks whether a user has authority to delete any user account.
+ * Strictly and exclusively restricted to POLATLAR main company administrators: 'admin' and 'murat'.
+ * No other administrators or managers have this authority.
+ */
+export function canUserDeleteUser(
+  user: { role?: string; companyCode?: string; username?: string } | null | undefined
+): boolean {
+  return isSuperAdmin(user);
+}
+
+
+/**
  * Master company (POLATLAR) is permanently exempt from license expiration or freezing.
  */
 export function isCompanyExempt(companyCode?: string): boolean {

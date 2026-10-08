@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { canUserChangePassword, canUserManageServerConfig } from '../../types/auth';
+import { canUserChangePassword, canUserManageServerConfig, canUserDeleteUser } from '../../types/auth';
 import {
   User,
   Building2,
@@ -121,6 +121,20 @@ export default function ProfileScreen() {
 
   const handleDeleteAccount = () => {
     if (!user) return;
+    if (!canUserDeleteUser(user)) {
+      Alert.alert(
+        'Yetkisiz İşlem',
+        'Kullanıcı silme yetkisi sadece POLATLAR Ana Firma Süper Yöneticilerine (murat ve admin) aittir. Diğer yöneticilerin silme yetkisi yoktur.'
+      );
+      return;
+    }
+    const comp = (user.companyCode || 'POLATLAR').toUpperCase();
+    const uname = (user.username || '').toLowerCase();
+    if (comp === 'POLATLAR' && (uname === 'admin' || uname === 'murat')) {
+      Alert.alert('İşlem Engellendi', 'POLATLAR Ana Firma Süper Yönetici hesapları (admin ve murat) silinemez.');
+      return;
+    }
+
     Alert.alert(
       'Hesabınızı Silmek İstiyor Musunuz?',
       'Bu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.\n\nDevam etmek istediğinize emin misiniz?',
@@ -491,14 +505,19 @@ export default function ProfileScreen() {
         <Text style={styles.logoutBtnText}>Oturumu Kapat</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.deleteAccountBtn}
-        onPress={handleDeleteAccount}
-        activeOpacity={0.7}
-      >
-        <UserX size={15} color="#ef4444" />
-        <Text style={styles.deleteAccountBtnText}>Hesabımı Kalıcı Olarak Sil</Text>
-      </TouchableOpacity>
+      {canUserDeleteUser(user) && !(
+        (user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' &&
+        ['admin', 'murat'].includes((user?.username || '').toLowerCase())
+      ) && (
+        <TouchableOpacity
+          style={styles.deleteAccountBtn}
+          onPress={handleDeleteAccount}
+          activeOpacity={0.7}
+        >
+          <UserX size={15} color="#ef4444" />
+          <Text style={styles.deleteAccountBtnText}>Hesabımı Kalıcı Olarak Sil</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.versionText}>İş Takip Sistemi Mobil v1.0.0 (Expo SDK 57)</Text>
     </ScrollView>

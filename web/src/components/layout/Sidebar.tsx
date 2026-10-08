@@ -17,7 +17,6 @@ import {
   Store,
   Clock,
   Server,
-  UserX,
   Settings,
   UserPlus,
 } from 'lucide-react';
@@ -41,7 +40,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { user, company, logout, deleteUser } = useAuth();
+  const { user, company, logout } = useAuth();
   const {
     branches,
     locations,
@@ -143,22 +142,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     return (jobApplications || []).filter((a) => a?.status === 'new').length;
   }, [jobApplications]);
 
-  const handleDeleteAccount = async () => {
-    if (!user) return;
-    if (
-      window.confirm(
-        'Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz. Kullanıcı hesabınız, kişisel oturum bilgileriniz ve bildirim kayıtlarınız kalıcı olarak silinecektir.'
-      )
-    ) {
-      const res = await deleteUser(user.id);
-      if (res.success) {
-        alert('Hesabınız başarıyla silindi.');
-        logout();
-      } else {
-        alert('İşlem Başarısız: ' + (res.error || 'Hesap silinemedi.'));
-      }
-    }
-  };
 
   return (
     <>
@@ -685,16 +668,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               >
                 <LogOut className="w-4 h-4" />
                 <span>Güvenli Çıkış</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDeleteAccount}
-                className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-500 hover:underline transition-colors cursor-pointer"
-                title="Hesabınızı kalıcı olarak silin"
-              >
-                <UserX className="w-3.5 h-3.5" />
-                <span>Hesabımı Sil</span>
               </button>
             </div>
           )}
