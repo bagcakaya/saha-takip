@@ -778,7 +778,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <!-- Özet Finansal Kutular -->
         <div style="display: flex; gap: 12px; margin-bottom: 20px;">
           <div style="flex: 1; border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 12px;">
-            <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM VERİLEN MAAŞ</div>
+            <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM</div>
             <div style="font-size: 18px; font-weight: 900; color: #047857; margin-top: 4px;">
               ${calc.totalPaid.toLocaleString('tr-TR')} ₺
             </div>
@@ -1407,7 +1407,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {selectedYear} Toplam Verilen
+              {selectedYear} Toplam
             </span>
             <Wallet className="w-4 h-4 text-emerald-500" />
           </div>
@@ -2204,7 +2204,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               <div className="grid grid-cols-3 gap-2.5 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/60">
                 <div>
                   <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                    Toplam Verilen
+                    Toplam
                   </span>
                   <p className="text-base sm:text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
                     {currentMonthCalc.totalPaid.toLocaleString('tr-TR')} ₺

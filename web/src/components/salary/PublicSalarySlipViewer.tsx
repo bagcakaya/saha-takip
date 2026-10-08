@@ -311,7 +311,7 @@ const generateSlipHtml = (data: SalarySlipPayload): string => {
       <!-- Özet Finansal Kutular -->
       <div style="display: flex; gap: 12px; margin-bottom: 20px;">
         <div style="flex: 1; border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 12px;">
-          <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM VERİLEN MAAŞ</div>
+          <div style="font-size: 11px; font-weight: bold; color: #065f46;">TOPLAM</div>
           <div style="font-size: 18px; font-weight: 900; color: #047857; margin-top: 4px;">
             ${data.totalPaid.toLocaleString('tr-TR')} ₺
           </div>
@@ -711,7 +711,7 @@ export const PublicSalarySlipViewer: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200">
               <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider block">
-                {data.isYearly ? 'YILLIK TOPLAM ÖDENEN' : 'TOPLAM VERİLEN MAAŞ'}
+                {data.isYearly ? 'YILLIK TOPLAM ÖDENEN' : 'TOPLAM'}
               </span>
               <span className="text-lg font-black text-emerald-700 mt-1 block">
                 {data.totalPaid.toLocaleString('tr-TR')} ₺
