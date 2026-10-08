@@ -171,12 +171,15 @@ export const CompanyService = {
     const cleanCode = (code || '').trim().toUpperCase();
     if (!cleanCode) return null;
 
+    const list = await this.fetchCompanies();
+    const found = list.find((c) => c.code.toUpperCase() === cleanCode);
+    if (found) return found;
+
     if (cleanCode === 'POLATLAR') {
       return DEFAULT_COMPANY;
     }
 
-    const list = await this.fetchCompanies();
-    return list.find((c) => c.code.toUpperCase() === cleanCode) || null;
+    return null;
   },
 
   /**
@@ -351,6 +354,43 @@ export const CompanyService = {
       isFrozen,
       freezeReason: isFrozen ? (freezeReason || 'Hizmet geçici olarak durdurulmuştur.') : undefined,
     });
+  },
+
+  /**
+   * Updates company logo (Base64 data URL or external URL)
+   */
+  async updateCompanyLogo(
+    companyCode: string,
+    logoUrl: string | undefined
+  ): Promise<{ success: boolean; error?: string; company?: Company }> {
+    const cleanCode = (companyCode || '').trim().toUpperCase();
+    if (!cleanCode) return { success: false, error: 'Geçersiz kurum kodu.' };
+
+    const list = await this.fetchCompanies();
+    let targetIndex = list.findIndex((c) => c.code.toUpperCase() === cleanCode);
+
+    if (targetIndex === -1 && cleanCode === 'POLATLAR') {
+      list.unshift({ ...DEFAULT_COMPANY });
+      targetIndex = 0;
+    }
+
+    if (targetIndex === -1) {
+      return { success: false, error: 'Kurum bulunamadı.' };
+    }
+
+    const existing = list[targetIndex];
+    const updatedCompany: Company = {
+      ...existing,
+      logoUrl,
+    };
+
+    const updatedList = [...list];
+    updatedList[targetIndex] = updatedCompany;
+
+    await this.saveCompaniesLocal(updatedList);
+    await this.syncToCloud(updatedList);
+
+    return { success: true, company: updatedCompany };
   },
 
   /**

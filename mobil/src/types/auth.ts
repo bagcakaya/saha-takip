@@ -24,6 +24,7 @@ export interface Company {
   maxBranches?: number;
   maxUsers?: number;
   notes?: string;
+  logoUrl?: string;
 }
 
 export interface LicenseInfo {

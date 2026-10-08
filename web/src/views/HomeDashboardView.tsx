@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Building2,
   ClipboardList,
@@ -16,6 +16,10 @@ import {
   ChevronDown,
   UserPlus,
   ShieldCheck,
+  ImagePlus,
+  Camera,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -49,7 +53,9 @@ interface HomeModule {
 }
 
 export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate }) => {
-  const { user, company, licenseInfo, switchViewingCompany } = useAuth();
+  const { user, company, licenseInfo, switchViewingCompany, updateCompanyLogo } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const {
     branches,
     locations,
@@ -138,6 +144,101 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const newJobApplicationsCount = safeJobApplications.filter((a) => a && a.status === 'new').length;
 
   const isAdmin = isUserAdmin(user);
+  const canManageLogo = isAdmin; // Firmaların Yöneticileri ile Süper Yöneticiler yapabilsin
+
+  const compressAndResizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX_WIDTH = 480;
+          const MAX_HEIGHT = 240;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width = Math.round((width * MAX_HEIGHT) / height);
+              height = MAX_HEIGHT;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(e.target?.result as string);
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const mimeType = file.type === 'image/png' ? 'image/png' : 'image/webp';
+          const dataUrl = canvas.toDataURL(mimeType, 0.88);
+          resolve(dataUrl);
+        };
+        img.onerror = () => reject(new Error('Resim yüklenemedi.'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Dosya okunamadı.'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Lütfen geçerli bir görsel dosyası seçin (PNG, JPG, WEBP vb.).');
+      return;
+    }
+
+    try {
+      setIsUploadingLogo(true);
+      const compressedDataUrl = await compressAndResizeImage(file);
+      const res = await updateCompanyLogo(compressedDataUrl);
+      if (!res.success) {
+        alert(res.error || 'Logo kaydedilemedi.');
+      }
+    } catch (err: any) {
+      console.error('Logo yükleme hatası:', err);
+      alert('Fotoğraf işlenirken bir hata oluştu.');
+    } finally {
+      setIsUploadingLogo(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveLogo = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Kurum logosunu / fotoğrafını kaldırmak istediğinize emin misiniz?')) {
+      return;
+    }
+
+    try {
+      setIsUploadingLogo(true);
+      const res = await updateCompanyLogo(undefined);
+      if (!res.success) {
+        alert(res.error || 'Logo kaldırılamadı.');
+      }
+    } catch (err) {
+      console.error('Logo kaldırma hatası:', err);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
   const pendingReturns = safeReturnWarrantyItems.filter((i) => i && i.status === 'pending').length;
   const todayKey = new Date().toISOString().split('T')[0];
   const activeStaffCount = safeAttendanceRecords.filter(
@@ -462,33 +563,119 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         </div>
       )}
 
-      {/* 1. Compact Greeting & Status Bar (Tek ekrana sığdırma optimizasyonu) */}
-      <div className="rounded-2xl sm:rounded-3xl bg-slate-900/90 text-white p-4 sm:p-6 shadow-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
-              {isAdmin ? 'Sistem Yöneticisi' : 'Personel'}
-            </span>
-            <span className="text-xs text-slate-400 capitalize">{todayStr}</span>
+      {/* 1. Compact Greeting & Status Bar ile Sağa Yaslı Kurumsal Logo */}
+      <div className="rounded-2xl sm:rounded-3xl bg-slate-900/90 text-white p-4 sm:p-5 md:p-6 shadow-xl border border-slate-800 flex items-center justify-between gap-4 relative overflow-hidden">
+        {/* Gizli Dosya Seçici */}
+        {canManageLogo && (
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleLogoSelect}
+            accept="image/*"
+            className="hidden"
+          />
+        )}
+
+        {/* Sol Taraf: Hoş Geldiniz Metni ve İstatistik Kutuları */}
+        <div className="space-y-3 min-w-0 flex-1">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                {isAdmin ? 'Sistem Yöneticisi' : 'Personel'}
+              </span>
+              <span className="text-xs text-slate-400 capitalize">{todayStr}</span>
+            </div>
+            <h2 className="text-lg sm:text-2xl font-black tracking-tight text-white truncate">
+              Hoş Geldiniz, {user?.name || 'Yetkili'} 👋
+            </h2>
           </div>
-          <h2 className="text-lg sm:text-2xl font-black tracking-tight text-white">
-            Hoş Geldiniz, {user?.name || 'Yetkili'} 👋
-          </h2>
+
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center min-w-[62px]">
+              <span className="text-[9px] font-bold text-slate-300 block uppercase">Kurulum</span>
+              <span className="text-sm sm:text-base font-black text-white">{safeLocations.length}</span>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center min-w-[62px]">
+              <span className="text-[9px] font-bold text-slate-300 block uppercase">Servis</span>
+              <span className="text-sm sm:text-base font-black text-orange-400">{safeServices.length}</span>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center min-w-[62px]">
+              <span className="text-[9px] font-bold text-slate-300 block uppercase">İade</span>
+              <span className="text-sm sm:text-base font-black text-amber-400">{pendingReturns}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
-            <span className="text-[9px] font-bold text-slate-300 block uppercase">Kurulum</span>
-            <span className="text-sm sm:text-base font-black text-white">{safeLocations.length}</span>
-          </div>
-          <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
-            <span className="text-[9px] font-bold text-slate-300 block uppercase">Servis</span>
-            <span className="text-sm sm:text-base font-black text-orange-400">{safeServices.length}</span>
-          </div>
-          <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center">
-            <span className="text-[9px] font-bold text-slate-300 block uppercase">İade</span>
-            <span className="text-sm sm:text-base font-black text-amber-400">{pendingReturns}</span>
-          </div>
+        {/* Sağ Taraf: Sağa Yaslı Logo / Fotoğraf Alanı */}
+        <div className="shrink-0 flex items-center justify-end">
+          {company?.logoUrl ? (
+            <div
+              className={`relative group/logo flex items-center justify-center w-28 sm:w-44 md:w-52 h-20 sm:h-24 md:h-28 rounded-2xl bg-white/5 border border-white/15 p-2 shadow-inner overflow-hidden transition-all hover:border-white/30 backdrop-blur-xs ${
+                canManageLogo ? 'cursor-pointer' : ''
+              }`}
+              onClick={() => {
+                if (canManageLogo && !isUploadingLogo) {
+                  fileInputRef.current?.click();
+                }
+              }}
+              title={canManageLogo ? 'Fotoğrafı / Logoyu Değiştirmek İçin Tıklayın' : `${activeCompanyName} Logosu`}
+            >
+              <img
+                src={company.logoUrl}
+                alt={`${activeCompanyName} Logosu`}
+                className="max-w-full max-h-full w-auto h-auto object-contain filter drop-shadow-md select-none transition-transform duration-200 group-hover/logo:scale-105"
+              />
+
+              {/* Yönetici Aksiyon Katmanı (Değiştir & Kaldır) */}
+              {canManageLogo && (
+                <div className="absolute inset-0 bg-slate-950/80 opacity-0 group-hover/logo:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    className="p-1.5 sm:px-2.5 sm:py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+                    title="Yeni Fotoğraf Yükle"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Değiştir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="p-1.5 sm:px-2 sm:py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+                    title="Logoyu Kaldır"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Kaldır</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : canManageLogo ? (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingLogo}
+              className="flex flex-col items-center justify-center w-28 sm:w-40 md:w-48 h-20 sm:h-24 md:h-28 rounded-2xl border-2 border-dashed border-slate-700 hover:border-sky-400 bg-slate-950/40 hover:bg-sky-500/10 transition-all text-slate-400 hover:text-sky-300 p-2 cursor-pointer group shadow-inner"
+              title="Firma Logosu / Fotoğrafı Ekle"
+            >
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800/90 group-hover:bg-sky-500/20 group-hover:text-sky-300 flex items-center justify-center transition-all mb-1">
+                {isUploadingLogo ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+                ) : (
+                  <ImagePlus className="w-4 h-4 text-slate-400 group-hover:text-sky-400 transition-transform group-hover:scale-110" />
+                )}
+              </div>
+              <span className="text-[11px] sm:text-xs font-bold text-slate-300 group-hover:text-white transition-colors">
+                {isUploadingLogo ? 'Yükleniyor...' : 'Fotoğraf Ekle'}
+              </span>
+              <span className="text-[9px] text-slate-400 group-hover:text-sky-300/80 hidden sm:inline">
+                Kurumsal Logo
+              </span>
+            </button>
+          ) : null}
         </div>
       </div>
 

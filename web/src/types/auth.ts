@@ -25,6 +25,7 @@ export interface Company {
   maxUsers?: number;
   notes?: string;
   modulePermissions?: CompanyModulePermissions;
+  logoUrl?: string;
 }
 
 export interface LicenseInfo {

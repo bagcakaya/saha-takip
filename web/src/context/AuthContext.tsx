@@ -74,6 +74,7 @@ interface AuthContextType {
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
   suggestUsername: (name: string) => string;
   refreshUsers: () => Promise<void>;
+  updateCompanyLogo: (logoUrl: string | undefined) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -661,6 +662,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return UserService.generateSuggestedUsername(name, currentCompCode);
   };
 
+  const updateCompanyLogo = async (logoUrl: string | undefined) => {
+    const targetCompCode = (activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    const res = await CompanyService.updateCompanyLogo(targetCompCode, logoUrl);
+    if (res.success) {
+      await refreshCompany();
+    }
+    return res;
+  };
+
   // Strictly isolate personnel: Non-super-admins receive ONLY users from their own company!
   // POLATLAR super admins receive all users across all institutions.
   const scopedUsers = useMemo(() => {
@@ -694,6 +704,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteUser,
         suggestUsername,
         refreshUsers,
+        updateCompanyLogo,
       }}
     >
       {children}
