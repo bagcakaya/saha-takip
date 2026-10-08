@@ -1799,14 +1799,6 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       {/* Başlık: 2026 Toplam Verilen yerine Belirlenen Maaş */}
                       <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-start sm:justify-end gap-1.5">
                         <span>Belirlenen Maaş</span>
-                        {isManualSalary && (
-                          <span
-                            className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60"
-                            title="Yönetici tarafından manuel belirlenmiş hak ediş tutarı"
-                          >
-                            Manuel
-                          </span>
-                        )}
                         {isDepartmentSalary && (
                           <span
                             className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 px-1.5 py-0.5 rounded border border-teal-200/60 dark:border-teal-800/60"
