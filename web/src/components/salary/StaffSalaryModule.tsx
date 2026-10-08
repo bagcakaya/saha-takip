@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Briefcase,
   Check,
+  Edit2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -1681,10 +1682,47 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             const isExpanded = expandedStaffId === staff.id;
             const yearSummary = getStaffYearlySummary(staff.id, selectedYear);
 
-            // Bu ayki özet
+            // 1. Belirlenen Maaş Tutarını Çözümle (Manuel Tutar > Bölüme Tanımlı Tutar > 0 ₺)
             const currentMonthRec = getMonthRecord(staff.id, selectedYear, currentMonth);
+            const currentAgreed = typeof currentMonthRec?.agreedAmount === 'number' && currentMonthRec.agreedAmount > 0
+              ? currentMonthRec.agreedAmount
+              : undefined;
+
+            const inYearAgreed = [...yearSummary.monthlyBreakdown]
+              .reverse()
+              .find((m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0)
+              ?.agreedAmount;
+
+            const allTimeAgreed = (salaryRecords || [])
+              .filter((r) => r.userId === staff.id && typeof r.agreedAmount === 'number' && r.agreedAmount > 0)
+              .sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month))[0]?.agreedAmount;
+
+            const manualSalary = currentAgreed || inYearAgreed || allTimeAgreed || 0;
+
+            const staffDept = staff.department?.trim();
+            const deptConfig = staffDept
+              ? (departmentSalaries || []).find(
+                  (ds) =>
+                    (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+                    ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+                )
+              : undefined;
+            const departmentSalary = deptConfig?.defaultMonthlySalary || 0;
+
+            const determinedSalary = manualSalary > 0 ? manualSalary : departmentSalary;
+            const isManualSalary = manualSalary > 0;
+            const isDepartmentSalary = !isManualSalary && departmentSalary > 0;
+
+            // 2. Bu Ay Verilen (Ödenen) Tutar ve Dağılımı
             let thisMonthPaid = 0;
-            currentMonthRec?.payments?.forEach((p) => (thisMonthPaid += p.amount || 0));
+            let thisMonthBank = 0;
+            let thisMonthCash = 0;
+            currentMonthRec?.payments?.forEach((p) => {
+              const amt = p.amount || 0;
+              thisMonthPaid += amt;
+              if (p.paymentMethod === 'bank') thisMonthBank += amt;
+              if (p.paymentMethod === 'cash') thisMonthCash += amt;
+            });
 
             const staffBranch = branches?.find((b) => b.id === staff.branchId);
 
@@ -1758,26 +1796,63 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   {/* Özet ve Çekmece Butonu */}
                   <div className="flex items-center justify-between sm:justify-end gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
                     <div className="text-left sm:text-right">
-                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {selectedYear} Toplam Verilen
+                      {/* Başlık: 2026 Toplam Verilen yerine Belirlenen Maaş */}
+                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-start sm:justify-end gap-1.5">
+                        <span>Belirlenen Maaş</span>
+                        {isManualSalary && (
+                          <span
+                            className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60"
+                            title="Yönetici tarafından manuel belirlenmiş hak ediş tutarı"
+                          >
+                            Manuel
+                          </span>
+                        )}
+                        {isDepartmentSalary && (
+                          <span
+                            className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 px-1.5 py-0.5 rounded border border-teal-200/60 dark:border-teal-800/60"
+                            title={`${staffDept} bölümüne tanımlı standart tutar`}
+                          >
+                            {staffDept}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickSetAgreedAmount(
+                              staff,
+                              selectedYear,
+                              determinedSalary
+                            );
+                          }}
+                          className="text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 p-0.5 transition-colors cursor-pointer"
+                          title="Aylık belirlenen maaş tutarını düzenle"
+                        >
+                          <Edit2 className="w-3 h-3 inline" />
+                        </button>
                       </div>
+
+                      {/* 0₺ yazan yerde: Belirlenen Tutar */}
                       <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400">
-                        {yearSummary.totalPaid.toLocaleString('tr-TR')} ₺
+                        {determinedSalary.toLocaleString('tr-TR')} ₺
                       </div>
-                      <div className="flex items-center gap-1.5 justify-start sm:justify-end text-[10px] font-bold mt-0.5">
-                        {yearSummary.totalBank > 0 && (
-                          <span className="text-blue-600 dark:text-blue-400">
-                            🏦 {yearSummary.totalBank.toLocaleString('tr-TR')} ₺
+
+                      {/* Bu Ay yazan yerde: Mevcut ayda ne kadar verildiyse */}
+                      <div className="flex flex-wrap items-center gap-1.5 justify-start sm:justify-end text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span>Bu Ay:</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          {thisMonthPaid.toLocaleString('tr-TR')} ₺
+                        </span>
+                        {thisMonthBank > 0 && (
+                          <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400" title="Banka ile ödenen">
+                            🏦 {thisMonthBank.toLocaleString('tr-TR')} ₺
                           </span>
                         )}
-                        {yearSummary.totalCash > 0 && (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            💵 {yearSummary.totalCash.toLocaleString('tr-TR')} ₺
+                        {thisMonthCash > 0 && (
+                          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400" title="Elden nakit ödenen">
+                            💵 {thisMonthCash.toLocaleString('tr-TR')} ₺
                           </span>
                         )}
-                      </div>
-                      <div className="text-[10px] font-medium text-slate-400">
-                        Bu Ay: {thisMonthPaid.toLocaleString('tr-TR')} ₺
                       </div>
                     </div>
 
