@@ -2776,7 +2776,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   ) : (
                     <FileDown className="w-4 h-4" />
                   )}
-                  <span>PDF Pusula İndir</span>
+                  <span>PDF İndir</span>
                 </button>
               </div>
             </div>
