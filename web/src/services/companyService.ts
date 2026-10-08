@@ -365,7 +365,8 @@ export const CompanyService = {
    */
   async updateCompanyLogo(
     companyCode: string,
-    logoUrl: string | undefined
+    logoUrl: string | undefined,
+    logoFit?: 'cover' | 'contain'
   ): Promise<{ success: boolean; error?: string; company?: Company }> {
     const cleanCode = (companyCode || '').trim().toUpperCase();
     if (!cleanCode) return { success: false, error: 'Geçersiz kurum kodu.' };
@@ -386,6 +387,7 @@ export const CompanyService = {
     const updatedCompany: Company = {
       ...existing,
       logoUrl,
+      logoFit: logoFit !== undefined ? logoFit : (existing.logoFit || 'cover'),
     };
 
     const updatedList = [...list];

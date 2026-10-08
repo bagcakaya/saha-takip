@@ -20,6 +20,7 @@ import {
   Camera,
   Trash2,
   Loader2,
+  Maximize2,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -238,6 +239,13 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     } finally {
       setIsUploadingLogo(false);
     }
+  };
+
+  const handleToggleLogoFit = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentFit = company?.logoFit || 'cover';
+    const nextFit = currentFit === 'cover' ? 'contain' : 'cover';
+    await updateCompanyLogo(company?.logoUrl, nextFit);
   };
   const pendingReturns = safeReturnWarrantyItems.filter((i) => i && i.status === 'pending').length;
   const todayKey = new Date().toISOString().split('T')[0];
@@ -610,7 +618,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
         <div className="shrink-0 flex items-center justify-end">
           {company?.logoUrl ? (
             <div
-              className={`relative group/logo flex items-center justify-center w-28 sm:w-44 md:w-52 h-20 sm:h-24 md:h-28 rounded-2xl bg-white/5 border border-white/15 p-2 shadow-inner overflow-hidden transition-all hover:border-white/30 backdrop-blur-xs ${
+              className={`relative group/logo flex items-center justify-center w-24 sm:w-28 md:w-32 h-24 sm:h-28 md:h-32 rounded-2xl bg-white/10 border border-white/20 shadow-xl overflow-hidden transition-all hover:border-white/40 ${
                 canManageLogo ? 'cursor-pointer' : ''
               }`}
               onClick={() => {
@@ -623,32 +631,40 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <img
                 src={company.logoUrl}
                 alt={`${activeCompanyName} Logosu`}
-                className="max-w-full max-h-full w-auto h-auto object-contain filter drop-shadow-md select-none transition-transform duration-200 group-hover/logo:scale-105"
+                className={`w-full h-full ${
+                  (company.logoFit || 'cover') === 'contain' ? 'object-contain p-1' : 'object-cover'
+                } filter drop-shadow-md select-none transition-transform duration-200 group-hover/logo:scale-105`}
               />
 
-              {/* Yönetici Aksiyon Katmanı (Değiştir & Kaldır) */}
+              {/* Yönetici Aksiyon Katmanı (Değiştir, Sığdır/Doldur & Kaldır) */}
               {canManageLogo && (
-                <div className="absolute inset-0 bg-slate-950/80 opacity-0 group-hover/logo:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1 rounded-2xl">
+                <div className="absolute inset-0 bg-slate-950/80 opacity-0 group-hover/logo:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-1 rounded-2xl z-10 backdrop-blur-xs">
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       fileInputRef.current?.click();
                     }}
-                    className="p-1.5 sm:px-2.5 sm:py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+                    className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
                     title="Yeni Fotoğraf Yükle"
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Değiştir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleToggleLogoFit}
+                    className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+                    title={company.logoFit === 'contain' ? 'Tam Doldur (Cover)' : 'Orantılı Sığdır (Contain)'}
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={handleRemoveLogo}
-                    className="p-1.5 sm:px-2 sm:py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
+                    className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
                     title="Logoyu Kaldır"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Kaldır</span>
                   </button>
                 </div>
               )}
@@ -658,7 +674,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploadingLogo}
-              className="flex flex-col items-center justify-center w-28 sm:w-40 md:w-48 h-20 sm:h-24 md:h-28 rounded-2xl border-2 border-dashed border-slate-700 hover:border-sky-400 bg-slate-950/40 hover:bg-sky-500/10 transition-all text-slate-400 hover:text-sky-300 p-2 cursor-pointer group shadow-inner"
+              className="flex flex-col items-center justify-center w-24 sm:w-28 md:w-32 h-24 sm:h-28 md:h-32 rounded-2xl border-2 border-dashed border-slate-700 hover:border-sky-400 bg-slate-950/40 hover:bg-sky-500/10 transition-all text-slate-400 hover:text-sky-300 p-2 cursor-pointer group shadow-inner"
               title="Firma Logosu / Fotoğrafı Ekle"
             >
               <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800/90 group-hover:bg-sky-500/20 group-hover:text-sky-300 flex items-center justify-center transition-all mb-1">
@@ -668,11 +684,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
                   <ImagePlus className="w-4 h-4 text-slate-400 group-hover:text-sky-400 transition-transform group-hover:scale-110" />
                 )}
               </div>
-              <span className="text-[11px] sm:text-xs font-bold text-slate-300 group-hover:text-white transition-colors">
+              <span className="text-[10px] sm:text-[11px] font-bold text-slate-300 group-hover:text-white transition-colors text-center leading-tight">
                 {isUploadingLogo ? 'Yükleniyor...' : 'Fotoğraf Ekle'}
-              </span>
-              <span className="text-[9px] text-slate-400 group-hover:text-sky-300/80 hidden sm:inline">
-                Kurumsal Logo
               </span>
             </button>
           ) : null}

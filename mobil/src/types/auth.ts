@@ -25,6 +25,7 @@ export interface Company {
   maxUsers?: number;
   notes?: string;
   logoUrl?: string;
+  logoFit?: 'cover' | 'contain';
 }
 
 export interface LicenseInfo {

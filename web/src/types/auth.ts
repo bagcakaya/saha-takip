@@ -26,6 +26,7 @@ export interface Company {
   notes?: string;
   modulePermissions?: CompanyModulePermissions;
   logoUrl?: string;
+  logoFit?: 'cover' | 'contain';
 }
 
 export interface LicenseInfo {
