@@ -31,6 +31,7 @@ import {
   StaffSalaryMonthRecord,
   SalaryPaymentMethod,
   SalaryPaymentType,
+  DepartmentSalaryConfig,
 } from '../../types/storage';
 import { BranchSelect, BranchOption } from '../common/BranchSelect';
 import { WhatsappService } from '../../services/whatsappService';
@@ -63,6 +64,48 @@ const MONTH_NAMES = [
   'Aralık',
 ];
 
+/**
+ * Bölüm için belirlenen standart maaş tutarının, hedef ay ve yılda geçerli olup olmadığını çözümler.
+ * Kural: Belirlendiği aydan itibaren geçerlidir. Geçmiş aylara geriye dönük borç veya tutar yazılmaz.
+ */
+export const getEffectiveDepartmentSalary = (
+  deptConfig: DepartmentSalaryConfig | undefined,
+  targetYear: number,
+  targetMonth: number,
+  fallbackCurrentYear: number,
+  fallbackCurrentMonth: number
+): { salary: number; isEffective: boolean; startYear: number; startMonth: number } => {
+  if (!deptConfig || typeof deptConfig.defaultMonthlySalary !== 'number' || deptConfig.defaultMonthlySalary <= 0) {
+    return { salary: 0, isEffective: false, startYear: 0, startMonth: 0 };
+  }
+
+  let startYear = deptConfig.startYear;
+  let startMonth = deptConfig.startMonth;
+
+  // Akıllı geri uyumluluk: Eğer kayıtta başlangıç yılı/ayı yoksa güncellenme tarihinden veya mevcut aydan türet
+  if (typeof startYear !== 'number' || typeof startMonth !== 'number') {
+    if (deptConfig.updatedAt || deptConfig.createdAt) {
+      const d = new Date(deptConfig.updatedAt || deptConfig.createdAt!);
+      startYear = d.getFullYear();
+      startMonth = d.getMonth() + 1;
+    } else {
+      startYear = fallbackCurrentYear;
+      startMonth = fallbackCurrentMonth;
+    }
+  }
+
+  // Belirlendiği aydan itibaren geçerli (Hedef tarih >= Başlangıç tarihi)
+  const isEffective =
+    targetYear > startYear || (targetYear === startYear && targetMonth >= startMonth);
+
+  return {
+    salary: isEffective ? deptConfig.defaultMonthlySalary : 0,
+    isEffective,
+    startYear,
+    startMonth,
+  };
+};
+
 interface StaffSalaryModuleProps {
   onBack: () => void;
 }
@@ -92,6 +135,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   const [isCustomDeptInput, setIsCustomDeptInput] = useState<boolean>(false);
   const [customDeptName, setCustomDeptName] = useState<string>('');
   const [deptSalaryInput, setDeptSalaryInput] = useState<string>('');
+  const [deptStartMonth, setDeptStartMonth] = useState<number>(currentMonth);
+  const [deptStartYear, setDeptStartYear] = useState<number>(selectedYear);
   const [isSavingDeptSalary, setIsSavingDeptSalary] = useState<boolean>(false);
 
   // Hangi personelin çekmecesi (drawer) açık?
@@ -200,13 +245,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     }
     setIsSavingDeptSalary(true);
     try {
-      await saveDepartmentSalary(deptToUse, amount);
+      await saveDepartmentSalary(deptToUse, amount, deptStartYear, deptStartMonth);
       if (isCustomDeptInput) {
         setIsCustomDeptInput(false);
         setSelectedDeptForSalary(deptToUse);
         setCustomDeptName('');
       }
-      setToastMessage(`"${deptToUse}" bölümü aylık standart tutarı ${amount.toLocaleString('tr-TR')} ₺ olarak belirlendi.`);
+      setToastMessage(
+        `"${deptToUse}" bölümü standart tutarı ${amount.toLocaleString('tr-TR')} ₺ olarak belirlendi (${MONTH_NAMES[deptStartMonth - 1]} ${deptStartYear}'den itibaren geçerli).`
+      );
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
       alert(err?.message || 'Bölüm maaş tutarı kaydedilemedi.');
@@ -232,6 +279,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       setCustomDeptName('');
       setSelectedDeptForSalary('');
       setDeptSalaryInput('');
+      setDeptStartYear(selectedYear);
+      setDeptStartMonth(currentMonth);
       return;
     }
     setIsCustomDeptInput(false);
@@ -242,8 +291,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     );
     if (found && found.defaultMonthlySalary > 0) {
       setDeptSalaryInput(String(found.defaultMonthlySalary));
+      const sYear = found.startYear ?? (found.updatedAt ? new Date(found.updatedAt).getFullYear() : selectedYear);
+      const sMonth = found.startMonth ?? (found.updatedAt ? new Date(found.updatedAt).getMonth() + 1 : currentMonth);
+      setDeptStartYear(sYear);
+      setDeptStartMonth(sMonth);
     } else {
       setDeptSalaryInput('');
+      setDeptStartYear(selectedYear);
+      setDeptStartMonth(currentMonth);
     }
   };
 
@@ -359,6 +414,16 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     let totalOther = 0;
     let paymentsCount = 0;
 
+    const staffObj = companyStaff.find((s) => s.id === userId);
+    const staffDept = staffObj?.department?.trim();
+    const deptConfig = staffDept
+      ? (departmentSalaries || []).find(
+          (ds) =>
+            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+        )
+      : undefined;
+
     const monthlyBreakdown = Array.from({ length: 12 }, (_, i) => {
       const monthNum = i + 1;
       const rec = (salaryRecords || []).find(
@@ -405,10 +470,27 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         paymentsCount += 1;
       });
 
+      // 1. Manuel seçimler etkilenmesin: Bu ay için manuel girilmiş bir tutar varsa önceliklidir
+      const hasManualAgreed = typeof rec?.agreedAmount === 'number' && rec.agreedAmount > 0;
+      // 2. Bölüm standart tutarı: Yalnızca belirlendiği aydan itibaren geçerlidir (Geçmiş aylar etkilenmesin)
+      const deptEff = getEffectiveDepartmentSalary(
+        deptConfig,
+        year,
+        monthNum,
+        currentYear,
+        currentMonth
+      );
+      const isAutoDepartment = !hasManualAgreed && deptEff.isEffective && deptEff.salary > 0;
+      const resolvedAgreedAmount = hasManualAgreed
+        ? rec!.agreedAmount
+        : (isAutoDepartment ? deptEff.salary : undefined);
+
       return {
         month: monthNum,
         monthName: MONTH_NAMES[i],
-        agreedAmount: rec?.agreedAmount,
+        agreedAmount: resolvedAgreedAmount,
+        hasManualAgreed,
+        isAutoDepartment,
         totalPaid: mPaid,
         totalCash: mCash,
         totalBank: mBank,
@@ -426,38 +508,25 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const averageMonthly =
       activeMonthsCount > 0 ? Math.round(totalPaid / activeMonthsCount) : 0;
 
-    // Kullanıcının belirlediği aylık tutar:
-    // 1. Herhangi bir ayda girilmiş olan 'agreedAmount' (en günceli)
-    const monthWithAgreed = [...monthlyBreakdown]
-      .reverse()
-      .find((m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0);
+    // Yıl içerisinde geçerli hak ediş tutarı tanımlanmış aylar
+    const monthsWithAgreed = monthlyBreakdown.filter(
+      (m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0
+    );
+    const agreedMonthsCount = monthsWithAgreed.length;
+    const latestAgreedMonth = [...monthsWithAgreed].pop();
 
-    // 2. Personele atanan bölümün standart maaş tutarı (varsa)
-    const staffObj = companyStaff.find((s) => s.id === userId);
-    const staffDept = staffObj?.department?.trim();
-    const deptConfig = staffDept
-      ? (departmentSalaries || []).find(
-          (ds) =>
-            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
-            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
-        )
-      : undefined;
-    const departmentDefaultSalary = deptConfig?.defaultMonthlySalary;
-
-    // 3. Eğer açıkça girilmemişse ve bölüm tutarı da yoksa, ödenen son 'salary' (maaş) tutarı veya ortalaması
     const latestSalaryPayment = monthlyBreakdown
       .flatMap((m) => m.payments)
       .filter((p) => p.paymentType === 'salary' && (p.amount || 0) > 0)
       .pop();
 
     const monthlyAgreedAmount =
-      monthWithAgreed?.agreedAmount ||
-      departmentDefaultSalary ||
+      latestAgreedMonth?.agreedAmount ||
       latestSalaryPayment?.amount ||
       (activeMonthsCount > 0 ? Math.round(totalSalary / activeMonthsCount) : 0);
 
-    // Kullanıcının belirlediği tutarın 12 ile çarpımı
-    const yearlyAgreedAmount = monthlyAgreedAmount * 12;
+    // Yıllık kümülatif tutar: Yalnızca belirlenen/geçerli ayların toplamı (geçmiş boş ayları borç gibi çarpmaz)
+    const yearlyAgreedAmount = monthsWithAgreed.reduce((sum, m) => sum + (m.agreedAmount || 0), 0);
 
     return {
       totalPaid,
@@ -472,6 +541,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       averageMonthly,
       monthlyAgreedAmount,
       yearlyAgreedAmount,
+      agreedMonthsCount,
       monthlyBreakdown,
     };
   };
@@ -507,11 +577,25 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             ds.department.trim().toLowerCase() === staffDept.toLowerCase()
         )
       : undefined;
-    const departmentDefaultSalary = deptConfig?.defaultMonthlySalary;
 
+    const modalYear = activeModalData?.year || selectedYear;
+    const modalMonth = activeModalData?.month || currentMonth;
+
+    const deptEff = getEffectiveDepartmentSalary(
+      deptConfig,
+      modalYear,
+      modalMonth,
+      currentYear,
+      currentMonth
+    );
+
+    // 1. Manuel seçimler korunur: O ay için manuel bir tutar girilmişse önceliklidir
     const hasManualAgreed = currentModalRecord?.agreedAmount !== undefined && currentModalRecord.agreedAmount > 0;
-    const isAutoDepartment = !hasManualAgreed && departmentDefaultSalary !== undefined && departmentDefaultSalary > 0;
-    const agreed = hasManualAgreed ? currentModalRecord.agreedAmount : (departmentDefaultSalary ?? currentModalRecord?.agreedAmount);
+    // 2. Bölüm standart tutarı: Yalnızca belirlendiği aydan itibaren geçerlidir (Geçmiş aylar etkilenmez)
+    const isAutoDepartment = !hasManualAgreed && deptEff.isEffective && deptEff.salary > 0;
+    const agreed = hasManualAgreed
+      ? currentModalRecord.agreedAmount
+      : (isAutoDepartment ? deptEff.salary : undefined);
     const remaining = agreed !== undefined ? Math.max(0, agreed - totalPaid) : null;
 
     return {
@@ -523,10 +607,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       payments,
       hasManualAgreed,
       isAutoDepartment,
-      departmentDefaultSalary,
+      departmentDefaultSalary: deptEff.salary,
+      isDeptSalaryEffective: deptEff.isEffective,
       staffDept,
     };
-  }, [currentModalRecord, activeModalData, departmentSalaries, activeCompanyCode]);
+  }, [currentModalRecord, activeModalData, departmentSalaries, activeCompanyCode, selectedYear, currentYear, currentMonth]);
 
   // Modal açıldığında varsayılan ödeme şubesini ayarla
   const handleOpenMonthModal = (staff: any, year: number, month: number) => {
@@ -1123,7 +1208,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               ${yearlySummary.yearlyAgreedAmount > 0 ? yearlySummary.yearlyAgreedAmount.toLocaleString('tr-TR') + ' ₺' : '-'}
             </div>
             <div style="font-size: 9px; color: #059669; margin-top: 2px;">
-              ${yearlySummary.monthlyAgreedAmount > 0 ? 'Aylık ' + yearlySummary.monthlyAgreedAmount.toLocaleString('tr-TR') + ' ₺ × 12 ay' : 'Belirlenmedi'}
+              ${yearlySummary.monthlyAgreedAmount > 0 ? (yearlySummary.agreedMonthsCount === 12 ? 'Aylık ' + yearlySummary.monthlyAgreedAmount.toLocaleString('tr-TR') + ' ₺ × 12 ay' : 'Aylık ' + yearlySummary.monthlyAgreedAmount.toLocaleString('tr-TR') + ' ₺ (' + yearlySummary.agreedMonthsCount + ' Ay)') : 'Belirlenmedi'}
             </div>
           </div>
 
@@ -1523,7 +1608,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                 </span>
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Seçilen bölüme belirlenen tutar, o bölümdeki personellerin aylık maaş hak edişine otomatik yazılır.
+                Seçilen bölüme belirlenen tutar, belirlendiği aydan itibaren o bölümdeki personellerin aylık maaş hak edişine otomatik yazılır. Geçmiş aylar ve manuel seçimler korunur.
               </p>
             </div>
           </div>
@@ -1532,7 +1617,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         {/* Bölüm Seçimi ve Altında Tutar Giriş Formu */}
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mt-3.5 items-end">
           {/* Bölüm Açılır Seçimi */}
-          <div className="sm:col-span-4">
+          <div className={isCustomDeptInput ? 'sm:col-span-3' : 'sm:col-span-3'}>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
               Bölüm
             </label>
@@ -1572,8 +1657,26 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             </div>
           )}
 
-          {/* Tutar Giriş Alanı (Bölümün Yanında / Altında) */}
-          <div className={isCustomDeptInput ? 'sm:col-span-3' : 'sm:col-span-5'}>
+          {/* Geçerlilik Başlangıcı (Ay) */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Geçerlilik Başlangıcı
+            </label>
+            <select
+              value={deptStartMonth}
+              onChange={(e) => setDeptStartMonth(Number(e.target.value))}
+              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              {MONTH_NAMES.map((m, idx) => (
+                <option key={idx + 1} value={idx + 1}>
+                  {m} {deptStartYear}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tutar Giriş Alanı */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
               Tutar (₺)
             </label>
@@ -1621,16 +1724,18 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               const isCurrentSelected =
                 !isCustomDeptInput &&
                 selectedDeptForSalary.toLowerCase() === ds.department.toLowerCase();
+              const sYear = ds.startYear ?? (ds.updatedAt ? new Date(ds.updatedAt).getFullYear() : selectedYear);
+              const sMonth = ds.startMonth ?? (ds.updatedAt ? new Date(ds.updatedAt).getMonth() + 1 : currentMonth);
               return (
                 <div
                   key={ds.id || ds.department}
                   onClick={() => handleSelectDeptForConfig(ds.department)}
-                  className={`group inline-flex items-center gap-2 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                  className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                     isCurrentSelected
                       ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
                       : 'bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-700 hover:border-teal-400'
                   }`}
-                  title="Düzenlemek için tıklayın"
+                  title={`${ds.department} - ${MONTH_NAMES[sMonth - 1]} ${sYear}'den itibaren geçerli`}
                 >
                   <Briefcase
                     className={`w-3 h-3 ${
@@ -1640,6 +1745,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   <span>{ds.department}:</span>
                   <span className={isCurrentSelected ? 'text-teal-100' : 'text-teal-700 dark:text-teal-300'}>
                     {ds.defaultMonthlySalary.toLocaleString('tr-TR')} ₺
+                  </span>
+                  <span className={`text-[10px] font-normal ${isCurrentSelected ? 'text-teal-200' : 'text-slate-400 dark:text-slate-500'}`}>
+                    ({MONTH_NAMES[sMonth - 1].slice(0, 3)} {sYear})
                   </span>
                   <button
                     type="button"
@@ -1682,22 +1790,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             const isExpanded = expandedStaffId === staff.id;
             const yearSummary = getStaffYearlySummary(staff.id, selectedYear);
 
-            // 1. Belirlenen Maaş Tutarını Çözümle (Manuel Tutar > Bölüme Tanımlı Tutar > 0 ₺)
+            // 1. Belirlenen Maaş Tutarını Çözümle (Manuel Tutar > Belirlendiği aydan itibaren Bölüm Standart Tutarı > 0 ₺)
             const currentMonthRec = getMonthRecord(staff.id, selectedYear, currentMonth);
             const currentAgreed = typeof currentMonthRec?.agreedAmount === 'number' && currentMonthRec.agreedAmount > 0
               ? currentMonthRec.agreedAmount
               : undefined;
-
-            const inYearAgreed = [...yearSummary.monthlyBreakdown]
-              .reverse()
-              .find((m) => typeof m.agreedAmount === 'number' && m.agreedAmount > 0)
-              ?.agreedAmount;
-
-            const allTimeAgreed = (salaryRecords || [])
-              .filter((r) => r.userId === staff.id && typeof r.agreedAmount === 'number' && r.agreedAmount > 0)
-              .sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month))[0]?.agreedAmount;
-
-            const manualSalary = currentAgreed || inYearAgreed || allTimeAgreed || 0;
 
             const staffDept = staff.department?.trim();
             const deptConfig = staffDept
@@ -1707,9 +1804,23 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     ds.department.trim().toLowerCase() === staffDept.toLowerCase()
                 )
               : undefined;
-            const departmentSalary = deptConfig?.defaultMonthlySalary || 0;
 
-            const determinedSalary = manualSalary > 0 ? manualSalary : departmentSalary;
+            const deptEff = getEffectiveDepartmentSalary(
+              deptConfig,
+              selectedYear,
+              currentMonth,
+              currentYear,
+              currentMonth
+            );
+
+            // Manuel seçimler korunur
+            const manualSalary = currentAgreed || 0;
+            // Bölüm standart tutarı yalnızca geçerli olduğu aydan itibaren devrededir (Geçmiş aylar etkilenmez)
+            const departmentSalary = deptEff.isEffective ? deptEff.salary : 0;
+
+            const determinedSalary = manualSalary > 0
+              ? manualSalary
+              : (departmentSalary > 0 ? departmentSalary : (yearSummary.monthlyAgreedAmount || 0));
             const isManualSalary = manualSalary > 0;
             const isDepartmentSalary = !isManualSalary && departmentSalary > 0;
 
@@ -2038,7 +2149,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </div>
                           <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                             {yearSummary.monthlyAgreedAmount > 0
-                              ? `Aylık: ${yearSummary.monthlyAgreedAmount.toLocaleString('tr-TR')} ₺ × 12 ay`
+                              ? yearSummary.agreedMonthsCount === 12
+                                ? `Aylık: ${yearSummary.monthlyAgreedAmount.toLocaleString('tr-TR')} ₺ × 12 ay`
+                                : `Aylık: ${yearSummary.monthlyAgreedAmount.toLocaleString('tr-TR')} ₺ (${yearSummary.agreedMonthsCount} ay geçerli)`
                               : 'Aylık tutar belirlenmedi'}
                           </span>
                         </div>

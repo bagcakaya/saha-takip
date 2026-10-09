@@ -496,6 +496,9 @@ export interface DepartmentSalaryConfig {
   companyCode: string; // Her firma için izole (örn: POLATLAR)
   department: string; // Bölüm adı (örn: Yazılım, Saha, Muhasebe)
   defaultMonthlySalary: number; // Aylık standart tutar (örn: 30000)
+  startYear?: number; // Hangi yıldan itibaren geçerli (örn: 2026)
+  startMonth?: number; // Hangi aydan itibaren geçerli (1-12, örn: 10 = Ekim)
+  createdAt?: number;
   updatedAt?: number;
   updatedBy?: string;
 }

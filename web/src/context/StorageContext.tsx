@@ -257,7 +257,12 @@ interface StorageContextType {
   ) => Promise<void>;
   refreshSalaryRecords: () => Promise<void>;
   departmentSalaries: DepartmentSalaryConfig[];
-  saveDepartmentSalary: (department: string, defaultMonthlySalary: number) => Promise<void>;
+  saveDepartmentSalary: (
+    department: string,
+    defaultMonthlySalary: number,
+    startYear?: number,
+    startMonth?: number
+  ) => Promise<void>;
   deleteDepartmentSalary: (department: string) => Promise<void>;
   refreshDepartmentSalaries: () => Promise<void>;
 }
@@ -3912,12 +3917,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // --- DEPARTMENT SALARY CONFIG METHODS ---
-  const saveDepartmentSalary = async (department: string, defaultMonthlySalary: number): Promise<void> => {
+  const saveDepartmentSalary = async (
+    department: string,
+    defaultMonthlySalary: number,
+    startYear?: number,
+    startMonth?: number
+  ): Promise<void> => {
     const cleanDept = (department || '').trim();
     if (!cleanDept) return;
     const activeCompCode = (company?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
     const id = `${activeCompCode}_${cleanDept.toLowerCase()}`;
     
+    const now = new Date();
+    const effectiveYear = typeof startYear === 'number' ? startYear : now.getFullYear();
+    const effectiveMonth = typeof startMonth === 'number' ? startMonth : (now.getMonth() + 1);
+
     const existingIndex = departmentSalaries.findIndex(
       (d) =>
         (d.companyCode || '').toUpperCase() === activeCompCode &&
@@ -3931,6 +3945,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...updated[existingIndex],
         department: cleanDept,
         defaultMonthlySalary,
+        startYear: effectiveYear,
+        startMonth: effectiveMonth,
         updatedAt: Date.now(),
         updatedBy: user?.name,
       };
@@ -3940,6 +3956,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         companyCode: activeCompCode,
         department: cleanDept,
         defaultMonthlySalary,
+        startYear: effectiveYear,
+        startMonth: effectiveMonth,
+        createdAt: Date.now(),
         updatedAt: Date.now(),
         updatedBy: user?.name,
       };
