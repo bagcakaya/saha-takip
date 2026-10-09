@@ -1360,29 +1360,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNotes(updated);
     await StorageService.saveNotes(updated);
 
-    // Push notification to creator
-    if (targetNote?.createdBy && targetNote.createdBy !== user.id) {
-      const readerName = user.name || user.username || 'Bir personel';
-      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-      const cariPrefix = targetNote.cariName ? `[${targetNote.cariName}] ` : '';
-      const snippet = targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
-      const title = `👁️ İş Emri Okundu: ${cariPrefix}${snippet}`;
-      const message = `${readerName}, iş emrini okudu ve anladı.`;
-
-      fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          message,
-          targetMode: 'custom',
-          targetUserIds: [targetNote.createdBy],
-          companyCode: compCode,
-          url: 'https://saha-takip-beige.vercel.app/?tab=notes',
-        }),
-      }).catch(() => {});
-    }
-
     return { success: true, message: 'İş emri okundu olarak işaretlendi.' };
   };
 
