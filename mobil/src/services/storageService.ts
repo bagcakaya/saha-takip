@@ -1074,6 +1074,7 @@ export const StorageService = {
                 rejectedByName: fb?.rejectedByName || lc?.rejectedByName || r.rejected_by_name || undefined,
                 rejectionReason: fb?.rejectionReason || lc?.rejectionReason || r.rejection_reason || undefined,
                 readBy: mergedReadBy,
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || r.used_materials || r.usedMaterials || undefined,
               };
             });
             const dataIds = new Set(validRows.map((r: any) => r.id));
@@ -1082,6 +1083,7 @@ export const StorageService = {
               return {
                 ...fb,
                 readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
               };
             });
             const merged = [...mapped.filter((n) => !deletedIds.has(n.id)), ...missingFallback];
@@ -1094,6 +1096,7 @@ export const StorageService = {
               return {
                 ...fb,
                 readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
               };
             });
             await setLocal(localKey, filtered);
@@ -1151,6 +1154,7 @@ export const StorageService = {
               rejectedByName: fb?.rejectedByName || lc?.rejectedByName || r.rejected_by_name || undefined,
               rejectionReason: fb?.rejectionReason || lc?.rejectionReason || r.rejection_reason || undefined,
               readBy: mergedReadBy,
+              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || r.used_materials || r.usedMaterials || undefined,
             };
           });
 
@@ -1161,6 +1165,7 @@ export const StorageService = {
             return {
               ...fb,
               readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
             };
           });
           const merged = [...mapped.filter((n) => !deletedIds.has(n.id)), ...missingFallback];
@@ -1175,6 +1180,7 @@ export const StorageService = {
             return {
               ...fb,
               readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
             };
           });
           await setLocal(localKey, filtered);
@@ -1230,6 +1236,7 @@ export const StorageService = {
           rejected_by: n.rejectedBy || null,
           rejected_by_name: n.rejectedByName || null,
           rejection_reason: n.rejectionReason || null,
+          used_materials: n.usedMaterials || null,
         }));
 
         const ops: Promise<any>[] = [];

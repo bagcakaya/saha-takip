@@ -94,6 +94,7 @@ interface StorageContextType {
   unprocessNote: (id: string) => Promise<void>;
   processMultipleNotes: (ids: string[]) => Promise<void>;
   markNoteAsRead: (id: string) => Promise<void>;
+  updateNoteMaterials: (id: string, usedMaterials: string) => Promise<void>;
   addAdminReminder: (data: {
     title: string;
     content: string;
@@ -3060,6 +3061,27 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     StorageService.saveSingleNote(updatedNote).catch((err) => {
       console.warn('saveSingleNote markNoteAsRead error:', err);
+    });
+  };
+
+  // Update used materials for a work order
+  const updateNoteMaterials = async (id: string, usedMaterials: string) => {
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
+    if (!targetNote) return;
+
+    const trimmed = usedMaterials.trim();
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      usedMaterials: trimmed.length > 0 ? trimmed : undefined,
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote updateNoteMaterials error:', err);
     });
   };
 
@@ -6730,6 +6752,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         unprocessNote,
         processMultipleNotes,
         markNoteAsRead,
+        updateNoteMaterials,
         addAdminReminder,
         updateAdminReminder,
         deleteAdminReminder,

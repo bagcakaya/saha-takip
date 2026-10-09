@@ -994,6 +994,7 @@ export const StorageService = {
               processedBy: fb?.processedBy || lc?.processedBy || (row as any).processed_by || undefined,
               processedByName: fb?.processedByName || lc?.processedByName || (row as any).processed_by_name || undefined,
               readBy: mergedReadBy,
+              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || (row as any).used_materials || (row as any).usedMaterials || undefined,
             };
           });
 
@@ -1007,6 +1008,7 @@ export const StorageService = {
               return {
                 ...fb,
                 readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
               };
             });
           const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
@@ -1026,6 +1028,7 @@ export const StorageService = {
             return {
               ...fb,
               readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
             };
           });
         await saveItem(localKey, filtered);
@@ -1101,6 +1104,7 @@ export const StorageService = {
         rejected_by: n.rejectedBy || null,
         rejected_by_name: n.rejectedByName || null,
         rejection_reason: n.rejectionReason || null,
+        used_materials: n.usedMaterials || null,
       }));
 
       // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
@@ -1259,6 +1263,7 @@ export const StorageService = {
       processed_at: n.processedAt || null,
       processed_by: n.processedBy || null,
       processed_by_name: n.processedByName || null,
+      used_materials: n.usedMaterials || null,
     };
   },
 

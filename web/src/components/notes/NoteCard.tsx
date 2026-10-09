@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Building2,
   Loader2,
+  Package,
 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -25,6 +26,7 @@ import { useStorage } from '../../context/StorageContext';
 import { WhatsappService } from '../../services/whatsappService';
 import { CompleteNoteModal } from './CompleteNoteModal';
 import { RejectNoteModal } from './RejectNoteModal';
+import { UsedMaterialsModal } from './UsedMaterialsModal';
 import { ImageLightboxModal } from '../common/ImageLightboxModal';
 
 interface NoteCardProps {
@@ -100,11 +102,16 @@ export const NoteCard: React.FC<NoteCardProps> = ({
 
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [isMaterialsModalOpen, setIsMaterialsModalOpen] = useState(false);
   const [lightboxData, setLightboxData] = useState<{
     images: string[];
     initialIndex: number;
     title: string;
   } | null>(null);
+
+  // Kullanılan malzemeler kontrolü ve yönetici / personel görünürlük kuralı
+  const hasMaterials = Boolean(note.usedMaterials && note.usedMaterials.trim().length > 0);
+  const showMaterialsBtn = !isAdmin || hasMaterials;
 
   // Only the creator or an Admin can edit or delete a note
   const canModify = isAdmin || isCreatedByMe;
@@ -468,10 +475,28 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         </div>
       </div>
 
-      {/* Note Main Content */}
-      <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
-        {note.content}
-      </p>
+      {/* Note Main Content & Kullanılan Malzemeler Button */}
+      <div className="flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
+        <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap flex-1 min-w-0">
+          {note.content}
+        </p>
+
+        {showMaterialsBtn && (
+          <button
+            type="button"
+            onClick={() => setIsMaterialsModalOpen(true)}
+            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer ${
+              hasMaterials
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
+                : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
+            }`}
+            title={hasMaterials ? 'Kullanılan Malzemeleri Görüntüle / Düzenle' : 'Kullanılan Malzemeleri Ekle'}
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>Kullanılan Malzemeler</span>
+          </button>
+        )}
+      </div>
 
       {/* Attached Job Order Photos */}
       {note.photos && note.photos.length > 0 && (
@@ -839,6 +864,14 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         onConfirm={async (reason) => {
           await rejectNote(note.id, reason);
         }}
+      />
+
+      {/* Used Materials Modal */}
+      <UsedMaterialsModal
+        isOpen={isMaterialsModalOpen}
+        note={note}
+        onClose={() => setIsMaterialsModalOpen(false)}
+        isAdmin={isAdmin}
       />
 
       {/* Lightbox Modal for Fullscreen Photo View */}
