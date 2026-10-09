@@ -114,6 +114,10 @@ export const MobileServerConfigService = {
     return null;
   },
 
+  getDualWriteApiUrl(): string {
+    return (inMemoryConfig.localUrl || DEFAULT_SERVER_CONFIG.localUrl).replace(/\/+$/, '');
+  },
+
   async testConnection(targetUrl?: string): Promise<{ success: boolean; message: string; database?: string }> {
     const rawUrl = normalizeServerUrl(targetUrl || inMemoryConfig.localUrl || '');
     if (!rawUrl) {

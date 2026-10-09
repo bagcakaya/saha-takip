@@ -129,6 +129,11 @@ export const ServerConfigService = {
     return null; // Cloud mode active
   },
 
+  getDualWriteApiUrl(): string {
+    const cfg = this.getConfig();
+    return (cfg.localUrl || DEFAULT_SERVER_CONFIG.localUrl).replace(/\/+$/, '');
+  },
+
   async testConnection(targetUrl?: string): Promise<{ success: boolean; message: string; database?: string }> {
     const rawUrl = normalizeServerUrl(targetUrl || this.getConfig().localUrl || '');
     if (!rawUrl) {

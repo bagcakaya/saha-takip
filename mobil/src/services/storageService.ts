@@ -113,27 +113,12 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
   // DUAL-WRITE: Hem Yerel Sunucuya (MSSQL) hem de Supabase Bulutuna (Pro) eşzamanlı kaydet
   const writePromises: Promise<any>[] = [];
 
-  // 1. Yerel Sunucu (Local MSSQL Server)
-  const apiUrl = MobileServerConfigService.getActiveApiUrl();
-  if (apiUrl) {
-    writePromises.push(
-      (async () => {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 6000);
-          await fetch(`${apiUrl}/api/standard_tasks/${slotId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tasks: chunks }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-        } catch (err) {
-          console.warn(`[Yerel Sunucu - Mobil Dual-Write] Slot ${slotId} hata:`, err);
-        }
-      })()
-    );
-  }
+  // 1. Yerel Sunucu (Local MSSQL Server - Dual-Write)
+  writePromises.push(
+    localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
+      console.warn(`[Dual-Write Yerel Mobil] Slot ${slotId} hata:`, err)
+    )
+  );
 
   // 2. Bulut (Supabase Cloud - Pro Plan)
   writePromises.push(
@@ -186,7 +171,7 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
 }
 
 async function localApiPost(endpoint: string, body: any): Promise<boolean> {
-  const apiUrl = MobileServerConfigService.getActiveApiUrl();
+  const apiUrl = MobileServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return false;
   try {
     const controller = new AbortController();
@@ -200,7 +185,7 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
     clearTimeout(timer);
     return res.ok;
   } catch (err) {
-    console.warn(`[Yerel Sunucu] POST ${endpoint} hatası:`, err);
+    console.warn(`[Yerel Sunucu Dual-Write] POST ${endpoint} atlandı/hata:`, err);
   }
   return false;
 }
@@ -336,9 +321,7 @@ export const StorageService = {
         }));
 
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/locations/upsert', { rows }));
-        }
+        ops.push(localApiPost('/api/tables/locations/upsert', { rows }));
         ops.push(
           (async () => {
             try {
@@ -367,9 +350,7 @@ export const StorageService = {
     try {
       if (activeCompanyCode === 'POLATLAR') {
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/locations/delete', { ids: [id] }));
-        }
+        ops.push(localApiPost('/api/tables/locations/delete', { ids: [id] }));
         ops.push(
           (async () => {
             try {
@@ -483,9 +464,7 @@ export const StorageService = {
         }));
 
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/services/upsert', { rows }));
-        }
+        ops.push(localApiPost('/api/tables/services/upsert', { rows }));
         ops.push(
           (async () => {
             try {
@@ -513,9 +492,7 @@ export const StorageService = {
     try {
       if (activeCompanyCode === 'POLATLAR') {
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/services/delete', { ids: [id] }));
-        }
+        ops.push(localApiPost('/api/tables/services/delete', { ids: [id] }));
         ops.push(
           (async () => {
             try {
@@ -965,9 +942,7 @@ export const StorageService = {
         }));
 
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/return_warranty/upsert', { rows }));
-        }
+        ops.push(localApiPost('/api/tables/return_warranty/upsert', { rows }));
         ops.push(
           (async () => {
             try {
@@ -1197,8 +1172,8 @@ export const StorageService = {
     } catch (e) {
       console.warn('getNotes error:', e);
     }
-    const localCached = (await getLocal<GeneralNote[]>(localKey)) || [];
-    return localCached.filter((n) => !deletedIds.has(n.id));
+    const fallbackLocal = (await getLocal<GeneralNote[]>(localKey)) || [];
+    return fallbackLocal.filter((n) => !deletedIds.has(n.id));
   },
 
   async saveNotes(notes: GeneralNote[]): Promise<void> {
@@ -1240,9 +1215,7 @@ export const StorageService = {
         }));
 
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/notes/upsert', { rows }));
-        }
+        ops.push(localApiPost('/api/tables/notes/upsert', { rows }));
 
         ops.push(
           (async () => {
@@ -1301,9 +1274,7 @@ export const StorageService = {
     try {
       if (activeCompanyCode === 'POLATLAR') {
         const ops: Promise<any>[] = [];
-        if (MobileServerConfigService.isLocalMode()) {
-          ops.push(localApiPost('/api/tables/notes/delete', { ids: [id] }));
-        }
+        ops.push(localApiPost('/api/tables/notes/delete', { ids: [id] }));
         ops.push(
           (async () => {
             try {
