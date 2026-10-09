@@ -851,6 +851,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               <td style="padding: 4px 0; color: #64748b;">Bölüm:</td>
               <td style="padding: 4px 0; font-weight: bold; color: #0f172a;">${staff.department || '-'}</td>
             </tr>
+            ${staff.iban ? `
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">IBAN No:</td>
+              <td colspan="3" style="padding: 4px 0; font-weight: bold; color: #0f172a; font-family: monospace;">${staff.iban}</td>
+            </tr>
+            ` : ''}
             ${staff.address ? `
             <tr>
               <td style="padding: 4px 0; color: #64748b;">İkamet / Adres:</td>
@@ -1008,6 +1014,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           staffUsername: staff.username,
           staffPhone: staff.phone || '',
           staffTcNo: staff.tcNo || '',
+          staffIban: staff.iban || '',
           staffAddress: staff.address || '',
           staffDepartment: staff.department || '',
           branchName: staffBranch?.name || 'Merkez',
@@ -1190,6 +1197,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               <strong style="color: #0f172a;">${staffBranch?.name || 'Genel Merkez'}</strong>
             </td>
           </tr>
+          ${staff.iban ? `
+          <tr>
+            <td colspan="5" style="padding: 6px 12px; border-top: 1px dashed #e2e8f0;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">IBAN No:</span>
+              <strong style="color: #0f172a; font-family: monospace; font-size: 11px; margin-left: 6px;">${staff.iban}</strong>
+            </td>
+          </tr>
+          ` : ''}
           ${staff.address ? `
           <tr>
             <td colspan="5" style="padding: 6px 12px 8px 12px; border-top: 1px dashed #e2e8f0;">
@@ -1889,6 +1904,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                             TC: {staff.tcNo}
                           </span>
                         )}
+                        {staff.iban && (
+                          <span className="inline-flex items-center gap-1 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200/60 dark:border-amber-900/50" title="Banka IBAN Numarası">
+                            IBAN: {staff.iban}
+                          </span>
+                        )}
                         {staff.phone && (
                           <span className="flex items-center gap-1">
                             <Phone className="w-3 h-3 text-slate-400" />
@@ -2259,11 +2279,16 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   <p className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                     {MONTH_NAMES[activeModalData.month - 1]} {activeModalData.year} Maaş & Ödeme Detayı
                   </p>
-                  {(activeModalData.staff.tcNo || activeModalData.staff.phone || activeModalData.staff.address) && (
+                  {(activeModalData.staff.tcNo || activeModalData.staff.iban || activeModalData.staff.phone || activeModalData.staff.address) && (
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                       {activeModalData.staff.tcNo && (
                         <span className="font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded border border-blue-200/60 dark:border-blue-900/50">
                           TC: {activeModalData.staff.tcNo}
+                        </span>
+                      )}
+                      {activeModalData.staff.iban && (
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-200/60 dark:border-amber-900/50" title="Banka IBAN Numarası">
+                          IBAN: {activeModalData.staff.iban}
                         </span>
                       )}
                       {activeModalData.staff.phone && (

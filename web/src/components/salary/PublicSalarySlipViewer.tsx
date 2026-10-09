@@ -16,6 +16,7 @@ export interface SalarySlipPayload {
   staffUsername: string;
   staffPhone?: string;
   staffTcNo?: string;
+  staffIban?: string;
   staffAddress?: string;
   branchName?: string;
   companyName: string;
@@ -168,6 +169,18 @@ const generateSlipHtml = (data: SalarySlipPayload): string => {
             </td>
           </tr>
           ${
+            data.staffIban
+              ? `
+          <tr>
+            <td colspan="4" style="padding: 6px 12px; border-top: 1px dashed #e2e8f0;">
+              <span style="color: #64748b; font-size: 10px; font-weight: bold; text-transform: uppercase;">IBAN No:</span>
+              <strong style="color: #0f172a; font-family: monospace; font-size: 11px; margin-left: 6px;">${data.staffIban}</strong>
+            </td>
+          </tr>
+          `
+              : ''
+          }
+          ${
             data.staffAddress
               ? `
           <tr>
@@ -305,6 +318,16 @@ const generateSlipHtml = (data: SalarySlipPayload): string => {
             <td style="padding: 4px 0; color: #64748b;">İkamet / Adres:</td>
             <td style="padding: 4px 0; color: #334155;">${data.staffAddress || '-'}</td>
           </tr>
+          ${
+            data.staffIban
+              ? `
+          <tr>
+            <td style="padding: 4px 0; color: #64748b;">IBAN No:</td>
+            <td colspan="3" style="padding: 4px 0; font-weight: bold; color: #0f172a; font-family: monospace;">${data.staffIban}</td>
+          </tr>
+          `
+              : ''
+          }
         </table>
       </div>
 
@@ -698,7 +721,13 @@ export const PublicSalarySlipViewer: React.FC = () => {
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase">Şube / Birim</span>
                 <span className="font-semibold text-slate-700">{data.branchName || 'Merkez'}</span>
               </div>
-              <div className="sm:col-span-3">
+              {data.staffIban && (
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">IBAN Numarası</span>
+                  <span className="font-mono font-bold text-amber-700">{data.staffIban}</span>
+                </div>
+              )}
+              <div className={data.staffIban ? "sm:col-span-2" : "sm:col-span-3"}>
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase">İkametgah / Açık Adres</span>
                 <span className="font-medium text-slate-700 truncate block" title={data.staffAddress || '-'}>
                   {data.staffAddress || '-'}

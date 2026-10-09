@@ -49,6 +49,7 @@ export interface User {
   phone?: string;
   tcNo?: string;
   address?: string;
+  iban?: string;
   branchId?: string;
   branchName?: string;
   canChangePassword?: boolean;
@@ -68,6 +69,7 @@ export interface UserAccount {
   phone?: string;
   tcNo?: string;
   address?: string;
+  iban?: string;
   branchId?: string;
   branchName?: string;
   canChangePassword?: boolean;

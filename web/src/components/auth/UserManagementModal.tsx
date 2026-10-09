@@ -43,6 +43,33 @@ interface UserManagementModalProps {
   onClose: () => void;
 }
 
+const formatIbanInput = (val: string) => {
+  const digits = val.toUpperCase().replace(/^TR/, '').replace(/\D/g, '').slice(0, 24);
+  let res = '';
+  for (let i = 0; i < digits.length; i++) {
+    if ([2, 6, 10, 14, 18, 22].includes(i)) {
+      res += ' ';
+    }
+    res += digits[i];
+  }
+  return res;
+};
+
+const formatIbanDisplay = (rawIban?: string) => {
+  if (!rawIban) return '';
+  const clean = rawIban.toUpperCase().replace(/\s+/g, '');
+  if (!clean.startsWith('TR')) return clean;
+  const digits = clean.slice(2);
+  let res = 'TR ';
+  for (let i = 0; i < digits.length; i++) {
+    if ([2, 6, 10, 14, 18, 22].includes(i)) {
+      res += ' ';
+    }
+    res += digits[i];
+  }
+  return res;
+};
+
 export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   isOpen,
   onClose,
@@ -252,17 +279,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newTcNo, setNewTcNo] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newAddress, setNewAddress] = useState('');
+  const [newIban, setNewIban] = useState('');
   const [newDepartment, setNewDepartment] = useState('');
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
-  // States for editing user profile (TC, Phone, Address, Name, Department)
+  // States for editing user profile (TC, Phone, Address, Name, Department, IBAN)
   const [editingProfileUser, setEditingProfileUser] = useState<UserAccount | null>(null);
   const [editName, setEditName] = useState('');
   const [editTcNo, setEditTcNo] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
+  const [editIban, setEditIban] = useState('');
   const [editDepartment, setEditDepartment] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [copiedIbanId, setCopiedIbanId] = useState<string | null>(null);
 
   // Hafızadaki bilinen bölümler (Bu firmaya ait personellerin bölümleri + maaş tanımları)
   const activeCompanyForDept = (isSuper ? (targetAddCompanyCode || selectedCompanyCode) : userCompanyCode).toUpperCase();
@@ -312,11 +342,14 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
     setIsSavingProfile(true);
     try {
+      const cleanDigits = editIban.replace(/\D/g, '');
+      const finalIban = cleanDigits.length > 0 ? `TR${cleanDigits}` : '';
       const res = await updateUser(editingProfileUser.id, {
         name: editName.trim(),
         tcNo: editTcNo.trim() || undefined,
         phone: editPhone.trim() || undefined,
         address: editAddress.trim() || undefined,
+        iban: finalIban,
         department: editDepartment.trim() || undefined,
       });
       if (res.success) {
@@ -413,6 +446,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
     const compCodeToUse = (isSuper ? (targetAddCompanyCode || selectedCompanyCode) : userCompanyCode).toUpperCase();
 
+    const cleanIbanDigits = newIban.replace(/\D/g, '');
+    const finalIban = cleanIbanDigits.length > 0 ? `TR${cleanIbanDigits}` : undefined;
+
     const res = await addUser({
       username: newUsername,
       password: newPassword,
@@ -422,6 +458,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       tcNo: newTcNo.trim() || undefined,
       phone: newPhone.trim() || undefined,
       address: newAddress.trim() || undefined,
+      iban: finalIban,
       department: newDepartment.trim() || undefined,
     });
 
@@ -443,6 +480,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewTcNo('');
       setNewPhone('');
       setNewAddress('');
+      setNewIban('');
       setNewDepartment('');
       await loadCompaniesAndBranches();
       setTimeout(() => {
@@ -910,8 +948,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             })()}
                           </div>
 
-                          {/* Bölüm, TC, Phone & Address Pill info */}
-                          {(account.department || account.tcNo || account.phone || account.address) && (
+                          {/* Bölüm, TC, IBAN, Phone & Address Pill info */}
+                          {(account.department || account.tcNo || account.iban || account.phone || account.address) && (
                             <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 pt-1 border-t border-slate-200/50 dark:border-slate-800/60">
                               {account.department && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/60 dark:border-indigo-900/50">
@@ -924,6 +962,32 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                   <CreditCard className="w-3 h-3 text-blue-500" />
                                   TC: {account.tcNo}
                                 </span>
+                              )}
+                              {account.iban && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(account.iban || '');
+                                    setCopiedIbanId(account.id);
+                                    setTimeout(() => setCopiedIbanId(null), 2000);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-mono font-bold border border-amber-200/60 dark:border-amber-900/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                                  title="IBAN'ı Kopyala"
+                                >
+                                  {copiedIbanId === account.id ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-500" />
+                                      <span className="text-emerald-600 dark:text-emerald-400">Kopyalandı!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CreditCard className="w-3 h-3 text-amber-500" />
+                                      <span>{formatIbanDisplay(account.iban)}</span>
+                                      <Copy className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                                    </>
+                                  )}
+                                </button>
                               )}
                               {account.phone && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium">
@@ -1068,6 +1132,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             setEditTcNo(account.tcNo || '');
                             setEditPhone(account.phone || '');
                             setEditAddress(account.address || '');
+                            setEditIban(account.iban ? formatIbanInput(account.iban) : '');
                             setEditDepartment(account.department || '');
                           }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700/80 font-semibold transition-colors cursor-pointer"
@@ -1390,6 +1455,32 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   </div>
 
                   <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-blue-500" />
+                        <span>IBAN Numarası</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
+                    </label>
+                    <div className="relative flex rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden shadow-sm">
+                      <span className="inline-flex items-center px-3.5 bg-slate-200/80 dark:bg-slate-800 border-r border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs sm:text-sm tracking-wider select-none font-mono">
+                        TR
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={32}
+                        value={newIban}
+                        onChange={(e) => setNewIban(formatIbanInput(e.target.value))}
+                        placeholder="00 0000 0000 0000 0000 0000 00"
+                        className="w-full px-3.5 py-2.5 bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs sm:text-sm font-mono font-medium focus:outline-none tracking-wider"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Maaş ödemeleri ve banka transferleri için personelin IBAN bilgisi (TR ön eki sabittir, kalan 24 haneyi giriniz)
+                    </p>
+                  </div>
+
+                  <div className="sm:col-span-2">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                       İkametgah / Açık Adres <span className="text-[10px] text-slate-400 font-normal lowercase">(opsiyonel)</span>
                     </label>
@@ -1591,6 +1682,32 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     ))}
                   </datalist>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-blue-500" />
+                    <span>IBAN Numarası</span>
+                  </span>
+                  <span className="text-[10px] lowercase text-slate-400 font-normal">(opsiyonel)</span>
+                </label>
+                <div className="relative flex rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden shadow-sm">
+                  <span className="inline-flex items-center px-3.5 bg-slate-200/80 dark:bg-slate-800 border-r border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs sm:text-sm tracking-wider select-none font-mono">
+                    TR
+                  </span>
+                  <input
+                    type="text"
+                    maxLength={32}
+                    value={editIban}
+                    onChange={(e) => setEditIban(formatIbanInput(e.target.value))}
+                    placeholder="00 0000 0000 0000 0000 0000 00"
+                    className="w-full px-3.5 py-2.5 bg-transparent text-xs sm:text-sm font-mono font-bold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none tracking-wider"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Maaş ve banka transferleri için personelin IBAN bilgisi (TR ön eki sabittir, kalan 24 haneyi giriniz)
+                </p>
               </div>
 
               <div>

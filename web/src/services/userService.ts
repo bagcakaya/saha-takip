@@ -626,6 +626,7 @@ export const UserService = {
                   tcNo: u.tcNo || existing.tcNo,
                   phone: u.phone || existing.phone,
                   address: u.address || existing.address,
+                  iban: u.iban || existing.iban,
                   branchId: u.branchId || existing.branchId,
                   branchName: u.branchName || existing.branchName,
                   department: u.department || existing.department,
@@ -799,6 +800,7 @@ export const UserService = {
     phone?: string;
     tcNo?: string;
     address?: string;
+    iban?: string;
     department?: string;
   }): Promise<{ success: boolean; error?: string; user?: User }> {
     const users = this.getUsers();
@@ -824,6 +826,7 @@ export const UserService = {
     const cleanTcNo = params.tcNo ? params.tcNo.replace(/\D/g, '').substring(0, 11) : undefined;
     const cleanPhone = params.phone ? SanitizeService.sanitizeText(params.phone, 30) : undefined;
     const cleanAddress = params.address ? SanitizeService.sanitizeText(params.address, 300) : undefined;
+    const cleanIban = params.iban ? params.iban.toUpperCase().replace(/\s+/g, '') : undefined;
     const cleanDepartment = params.department ? SanitizeService.sanitizeText(params.department, 80) : undefined;
     const cleanPassword = params.password.trim();
 
@@ -858,6 +861,7 @@ export const UserService = {
       phone: cleanPhone,
       tcNo: cleanTcNo,
       address: cleanAddress,
+      iban: cleanIban,
       department: cleanDepartment,
     };
 
@@ -906,6 +910,7 @@ export const UserService = {
         phone: newUser.phone,
         tcNo: newUser.tcNo,
         address: newUser.address,
+        iban: newUser.iban,
         department: newUser.department,
       },
     };
@@ -944,6 +949,7 @@ export const UserService = {
       phone?: string;
       tcNo?: string;
       address?: string;
+      iban?: string;
       department?: string;
       isActive?: boolean;
     }
@@ -1014,6 +1020,9 @@ export const UserService = {
     const cleanAddress = updates.address !== undefined 
       ? (updates.address.trim() ? SanitizeService.sanitizeText(updates.address, 300) : undefined) 
       : current.address;
+    const cleanIban = updates.iban !== undefined
+      ? (updates.iban.trim() ? updates.iban.toUpperCase().replace(/\s+/g, '') : undefined)
+      : current.iban;
     const cleanEmail = updates.email !== undefined 
       ? (updates.email.trim() ? SanitizeService.sanitizeEmail(updates.email) : undefined) 
       : current.email;
@@ -1033,6 +1042,7 @@ export const UserService = {
       phone: cleanPhone,
       tcNo: cleanTcNo,
       address: cleanAddress,
+      iban: cleanIban,
       department: cleanDepartment,
       isActive: updates.isActive !== undefined ? updates.isActive : current.isActive,
     };

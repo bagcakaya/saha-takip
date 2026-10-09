@@ -56,6 +56,7 @@ interface AuthContextType {
     phone?: string;
     tcNo?: string;
     address?: string;
+    iban?: string;
     department?: string;
   }) => Promise<{ success: boolean; error?: string; user?: User }>;
   updateUser: (
@@ -68,6 +69,7 @@ interface AuthContextType {
       phone?: string;
       tcNo?: string;
       address?: string;
+      iban?: string;
       department?: string;
       isActive?: boolean;
     }
@@ -608,6 +610,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     phone?: string;
     tcNo?: string;
     address?: string;
+    iban?: string;
     department?: string;
   }) => {
     const currentCompCode = (params.companyCode || activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
@@ -631,6 +634,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       phone?: string;
       tcNo?: string;
       address?: string;
+      iban?: string;
       department?: string;
       isActive?: boolean;
     }
@@ -647,6 +651,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: updates.phone !== undefined ? updates.phone : user.phone,
           tcNo: updates.tcNo !== undefined ? updates.tcNo : user.tcNo,
           address: updates.address !== undefined ? updates.address : user.address,
+          iban: updates.iban !== undefined ? updates.iban : user.iban,
           department: updates.department !== undefined ? updates.department : user.department,
           isActive: updates.isActive !== undefined ? updates.isActive : user.isActive,
         };

@@ -50,6 +50,7 @@ export interface User {
   phone?: string;
   tcNo?: string; // T.C. Kimlik No (11 haneli, maaş ve resmi bordro işlemleri için)
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
+  iban?: string; // IBAN Numarası (TR ile başlayan, maaş ve banka transferleri için)
   branchId?: string;
   branchName?: string;
   department?: string; // Bölüm / Departman (örn: Yazılım, Saha, Muhasebe)
@@ -69,6 +70,7 @@ export interface UserAccount {
   phone?: string;
   tcNo?: string; // T.C. Kimlik No (11 haneli, maaş ve resmi bordro işlemleri için)
   address?: string; // İkametgah / Açık Adres (maaş ve personel takibi için)
+  iban?: string; // IBAN Numarası (TR ile başlayan, maaş ve banka transferleri için)
   branchId?: string;
   branchName?: string;
   department?: string; // Bölüm / Departman (örn: Yazılım, Saha, Muhasebe)
