@@ -53,7 +53,7 @@ import { NotificationListModal } from '../../components/NotificationListModal';
 type FilterTab = 'all' | 'pending' | 'processed' | 'approved';
 
 export default function WorkOrdersScreen() {
-  const { notes, refreshData, deleteNote, updateNoteStatus, approveMultipleNotes, completeNote } = useStorage();
+  const { notes, refreshData, deleteNote, updateNoteStatus, approveMultipleNotes, completeNote, markNoteAsRead } = useStorage();
   const { isDark, toggleTheme } = useAppTheme();
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -262,6 +262,8 @@ export default function WorkOrdersScreen() {
 
   const renderNoteCard = ({ item }: { item: GeneralNote }) => {
     const isCompleted = item.status === 'approved' || item.status === 'completed' || item.status === 'processed';
+    const isReadByUser = Boolean(user?.id && item.readBy?.includes(user.id));
+    const readCount = item.readBy?.length || 0;
 
     return (
       <View
@@ -484,6 +486,38 @@ export default function WorkOrdersScreen() {
                 </Text>
               </>
             ) : null}
+          </View>
+
+          {/* Read Receipts Row (Okundu Bilgisi - Görsel-1) */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 6, flexWrap: 'wrap' }}>
+            {item.createdBy !== user?.id && (
+              <TouchableOpacity
+                style={[
+                  styles.readStatusPill,
+                  isReadByUser ? styles.readStatusPillRead : styles.readStatusPillUnread,
+                ]}
+                onPress={async () => {
+                  if (!isReadByUser) {
+                    await markNoteAsRead(item.id);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <CheckCircle2 size={13} color="#10b981" />
+                <Text style={styles.readStatusPillText}>
+                  {isReadByUser ? 'Okudunuz & Anladınız' : 'Okudum / Anladım'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {(isAdmin || item.createdBy === user?.id) && (
+              <View style={styles.staffCountPill}>
+                <Users size={12} color="#a855f7" />
+                <Text style={styles.staffCountText}>
+                  {readCount > 0 ? `${readCount} Personel Okudu` : 'Henüz Okunmadı'}
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.actionButtonsRow}>
@@ -1444,5 +1478,43 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '800',
+  },
+  readStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  readStatusPillRead: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
+  readStatusPillUnread: {
+    backgroundColor: 'rgba(16, 185, 129, 0.9)',
+    borderColor: '#10b981',
+  },
+  readStatusPillText: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  staffCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(168, 85, 247, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(168, 85, 247, 0.4)',
+  },
+  staffCountText: {
+    color: '#c084fc',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

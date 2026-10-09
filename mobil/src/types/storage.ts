@@ -72,6 +72,7 @@ export interface GeneralNote {
   processedAt?: number; // Sisteme işlenme tarihi
   processedBy?: string; // Sisteme işleyen yönetici ID
   processedByName?: string; // Sisteme işleyen yönetici adı
+  readBy?: string[]; // Array of user IDs who acknowledged/read this work order
 }
 
 export type AdminReminderCategory = 'general' | 'procedure' | 'rule' | 'urgent';

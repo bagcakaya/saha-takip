@@ -93,6 +93,7 @@ interface StorageContextType {
   processNote: (id: string) => Promise<void>;
   unprocessNote: (id: string) => Promise<void>;
   processMultipleNotes: (ids: string[]) => Promise<void>;
+  markNoteAsRead: (id: string) => Promise<void>;
   addAdminReminder: (data: {
     title: string;
     content: string;
@@ -3026,6 +3027,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     Promise.all(updatedNotesList.map((n) => StorageService.saveSingleNote(n))).catch((err) => {
       console.warn('processMultipleNotes error:', err);
     });
+  };
+
+  // Mark work order as acknowledged/read by staff
+  const markNoteAsRead = async (id: string) => {
+    if (!user?.id) return;
+    const currentNotes = allNotesRef.current;
+    const targetNote = currentNotes.find((n) => n.id === id);
+    if (!targetNote) return;
+
+    const currentRead = targetNote.readBy || [];
+    if (currentRead.includes(user.id)) return;
+
+    const updatedNote: GeneralNote = {
+      ...targetNote,
+      readBy: [...currentRead, user.id],
+    };
+
+    const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
+    allNotesRef.current = newNotes;
+    setAllNotes(newNotes);
+
+    StorageService.saveSingleNote(updatedNote).catch((err) => {
+      console.warn('saveSingleNote markNoteAsRead error:', err);
+    });
+
+    // Send read confirmation to the creator of the work order
+    if (targetNote.createdBy && targetNote.createdBy !== user.id) {
+      const readerName = user.name || user.username || 'Bir personel';
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const cariPrefix = targetNote.cariName ? `[${targetNote.cariName}] ` : '';
+      const snippet = targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+      const title = `👁️ İş Emri Okundu: ${cariPrefix}${snippet}`;
+      const message = `${readerName}, "${snippet}" iş emrinizi okudu ve anladı.`;
+
+      OneSignalService.sendPushNotification({
+        title,
+        message,
+        targetMode: 'custom',
+        targetUserIds: [targetNote.createdBy],
+        companyCode: compCode,
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes',
+        collapseId: `note_read_${id}_${user.id}`,
+      }).catch((err) => console.warn('OneSignal note read push error:', err));
+    }
   };
 
   // Admin Reminder / Directive Management
@@ -6694,6 +6739,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         processNote,
         unprocessNote,
         processMultipleNotes,
+        markNoteAsRead,
         addAdminReminder,
         updateAdminReminder,
         deleteAdminReminder,

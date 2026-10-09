@@ -113,6 +113,7 @@ interface StorageContextType {
   updateNoteStatus: (id: string, status: any) => Promise<{ success: boolean; message: string }>;
   approveMultipleNotes: (ids: string[]) => Promise<{ success: boolean; count: number }>;
   completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<{ success: boolean; message: string }>;
+  markNoteAsRead: (id: string) => Promise<{ success: boolean; message: string }>;
   addBranch: (params: {
     name: string;
     address: string;
@@ -1344,6 +1345,47 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: true, message: 'İş emri tamamlandı ve yönetici onayına iletildi.' };
   };
 
+  const markNoteAsRead = async (id: string) => {
+    if (!user?.id) return { success: false, message: 'Kullanıcı bulunamadı.' };
+    const targetNote = notes.find((n) => n.id === id);
+    const readList = targetNote?.readBy || [];
+    if (readList.includes(user.id)) return { success: true, message: 'Zaten okundu.' };
+
+    const updated = notes.map((n) => {
+      if (n.id === id) {
+        return { ...n, readBy: [...readList, user.id] };
+      }
+      return n;
+    });
+    setNotes(updated);
+    await StorageService.saveNotes(updated);
+
+    // Push notification to creator
+    if (targetNote?.createdBy && targetNote.createdBy !== user.id) {
+      const readerName = user.name || user.username || 'Bir personel';
+      const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
+      const cariPrefix = targetNote.cariName ? `[${targetNote.cariName}] ` : '';
+      const snippet = targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
+      const title = `👁️ İş Emri Okundu: ${cariPrefix}${snippet}`;
+      const message = `${readerName}, iş emrini okudu ve anladı.`;
+
+      fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          message,
+          targetMode: 'custom',
+          targetUserIds: [targetNote.createdBy],
+          companyCode: compCode,
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes',
+        }),
+      }).catch(() => {});
+    }
+
+    return { success: true, message: 'İş emri okundu olarak işaretlendi.' };
+  };
+
   const addBranch = async (params: {
     name: string;
     address: string;
@@ -1924,6 +1966,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateNoteStatus,
         approveMultipleNotes,
         completeNote,
+        markNoteAsRead,
         addBranch,
         updateBranch,
         deleteBranch,
