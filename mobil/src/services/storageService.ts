@@ -1016,6 +1016,8 @@ export const StorageService = {
   async getNotes(): Promise<GeneralNote[]> {
     const localKey = `@notes_${activeCompanyCode}`;
     const deletedIds = await this.getDeletedNoteIds();
+    const localCached = (await getLocal<GeneralNote[]>(localKey)) || [];
+    const localCachedMap = new Map(localCached.map((n) => [n.id, n]));
     try {
       if (activeCompanyCode === 'POLATLAR') {
         // 1. Fetch fallback sync slot (standard_tasks id: 4)
@@ -1033,10 +1035,19 @@ export const StorageService = {
             const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
             const mapped: GeneralNote[] = validRows.map((r: any) => {
               const fb = fallbackMap.get(r.id);
+              const lc = localCachedMap.get(r.id);
+              const mergedReadBy = Array.from(
+                new Set([
+                  ...(Array.isArray(r.read_by) ? r.read_by : []),
+                  ...(Array.isArray(r.readBy) ? r.readBy : []),
+                  ...(Array.isArray(fb?.readBy) ? fb.readBy : []),
+                  ...(Array.isArray(lc?.readBy) ? lc.readBy : []),
+                ])
+              );
               return {
                 id: r.id,
                 content: r.content,
-                cariName: fb?.cariName || r.cari_name || undefined,
+                cariName: fb?.cariName || lc?.cariName || r.cari_name || undefined,
                 createdAt: Number(r.created_at) || Date.now(),
                 createdBy: r.created_by || undefined,
                 createdByName: r.created_by_name || undefined,
@@ -1050,28 +1061,41 @@ export const StorageService = {
                 notified: Boolean(r.notified),
                 photos: fb?.photos && fb.photos.length > 0 ? fb.photos : (Array.isArray(r.photos) ? r.photos : []),
                 completionPhotos: fb?.completionPhotos && fb.completionPhotos.length > 0 ? fb.completionPhotos : (Array.isArray(r.completion_photos) ? r.completion_photos : []),
-                status: fb?.status || r.status || 'pending',
-                completedAt: fb?.completedAt || (r.completed_at ? Number(r.completed_at) : undefined),
-                completedBy: fb?.completedBy || r.completed_by || undefined,
-                completedByName: fb?.completedByName || r.completed_by_name || undefined,
-                completionNote: fb?.completionNote || r.completion_note || undefined,
-                approvedAt: fb?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
-                approvedBy: fb?.approvedBy || r.approved_by || undefined,
-                approvedByName: fb?.approvedByName || r.approved_by_name || undefined,
-                rejectedAt: fb?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
-                rejectedBy: fb?.rejectedBy || r.rejected_by || undefined,
-                rejectedByName: fb?.rejectedByName || r.rejected_by_name || undefined,
-                rejectionReason: fb?.rejectionReason || r.rejection_reason || undefined,
+                status: fb?.status || lc?.status || r.status || 'pending',
+                completedAt: fb?.completedAt || lc?.completedAt || (r.completed_at ? Number(r.completed_at) : undefined),
+                completedBy: fb?.completedBy || lc?.completedBy || r.completed_by || undefined,
+                completedByName: fb?.completedByName || lc?.completedByName || r.completed_by_name || undefined,
+                completionNote: fb?.completionNote || lc?.completionNote || r.completion_note || undefined,
+                approvedAt: fb?.approvedAt || lc?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
+                approvedBy: fb?.approvedBy || lc?.approvedBy || r.approved_by || undefined,
+                approvedByName: fb?.approvedByName || lc?.approvedByName || r.approved_by_name || undefined,
+                rejectedAt: fb?.rejectedAt || lc?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
+                rejectedBy: fb?.rejectedBy || lc?.rejectedBy || r.rejected_by || undefined,
+                rejectedByName: fb?.rejectedByName || lc?.rejectedByName || r.rejected_by_name || undefined,
+                rejectionReason: fb?.rejectionReason || lc?.rejectionReason || r.rejection_reason || undefined,
+                readBy: mergedReadBy,
               };
             });
             const dataIds = new Set(validRows.map((r: any) => r.id));
-            const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id));
+            const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id)).map((fb) => {
+              const lc = localCachedMap.get(fb.id);
+              return {
+                ...fb,
+                readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+              };
+            });
             const merged = [...mapped.filter((n) => !deletedIds.has(n.id)), ...missingFallback];
             await setLocal(localKey, merged);
             return merged;
           }
           if (fallbackNotes.length > 0) {
-            const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id));
+            const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id)).map((fb) => {
+              const lc = localCachedMap.get(fb.id);
+              return {
+                ...fb,
+                readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+              };
+            });
             await setLocal(localKey, filtered);
             return filtered;
           }
@@ -1088,10 +1112,19 @@ export const StorageService = {
           const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
           const mapped: GeneralNote[] = validRows.map((r: any) => {
             const fb = fallbackMap.get(r.id);
+            const lc = localCachedMap.get(r.id);
+            const mergedReadBy = Array.from(
+              new Set([
+                ...(Array.isArray(r.read_by) ? r.read_by : []),
+                ...(Array.isArray(r.readBy) ? r.readBy : []),
+                ...(Array.isArray(fb?.readBy) ? fb.readBy : []),
+                ...(Array.isArray(lc?.readBy) ? lc.readBy : []),
+              ])
+            );
             return {
               id: r.id,
               content: r.content,
-              cariName: fb?.cariName || r.cari_name || undefined,
+              cariName: fb?.cariName || lc?.cariName || r.cari_name || undefined,
               createdAt: Number(r.created_at) || Date.now(),
               createdBy: r.created_by || undefined,
               createdByName: r.created_by_name || undefined,
@@ -1105,24 +1138,31 @@ export const StorageService = {
               notified: Boolean(r.notified),
               photos: fb?.photos && fb.photos.length > 0 ? fb.photos : (Array.isArray(r.photos) ? r.photos : []),
               completionPhotos: fb?.completionPhotos && fb.completionPhotos.length > 0 ? fb.completionPhotos : (Array.isArray(r.completion_photos) ? r.completion_photos : []),
-              status: fb?.status || r.status || 'pending',
-              completedAt: fb?.completedAt || (r.completed_at ? Number(r.completed_at) : undefined),
-              completedBy: fb?.completedBy || r.completed_by || undefined,
-              completedByName: fb?.completedByName || r.completed_by_name || undefined,
-              completionNote: fb?.completionNote || r.completion_note || undefined,
-              approvedAt: fb?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
-              approvedBy: fb?.approvedBy || r.approved_by || undefined,
-              approvedByName: fb?.approvedByName || r.approved_by_name || undefined,
-              rejectedAt: fb?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
-              rejectedBy: fb?.rejectedBy || r.rejected_by || undefined,
-              rejectedByName: fb?.rejectedByName || r.rejected_by_name || undefined,
-              rejectionReason: fb?.rejectionReason || r.rejection_reason || undefined,
+              status: fb?.status || lc?.status || r.status || 'pending',
+              completedAt: fb?.completedAt || lc?.completedAt || (r.completed_at ? Number(r.completed_at) : undefined),
+              completedBy: fb?.completedBy || lc?.completedBy || r.completed_by || undefined,
+              completedByName: fb?.completedByName || lc?.completedByName || r.completed_by_name || undefined,
+              completionNote: fb?.completionNote || lc?.completionNote || r.completion_note || undefined,
+              approvedAt: fb?.approvedAt || lc?.approvedAt || (r.approved_at ? Number(r.approved_at) : undefined),
+              approvedBy: fb?.approvedBy || lc?.approvedBy || r.approved_by || undefined,
+              approvedByName: fb?.approvedByName || lc?.approvedByName || r.approved_by_name || undefined,
+              rejectedAt: fb?.rejectedAt || lc?.rejectedAt || (r.rejected_at ? Number(r.rejected_at) : undefined),
+              rejectedBy: fb?.rejectedBy || lc?.rejectedBy || r.rejected_by || undefined,
+              rejectedByName: fb?.rejectedByName || lc?.rejectedByName || r.rejected_by_name || undefined,
+              rejectionReason: fb?.rejectionReason || lc?.rejectionReason || r.rejection_reason || undefined,
+              readBy: mergedReadBy,
             };
           });
 
           // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table
           const dataIds = new Set(validRows.map((r: any) => r.id));
-          const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id));
+          const missingFallback = fallbackNotes.filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id)).map((fb) => {
+            const lc = localCachedMap.get(fb.id);
+            return {
+              ...fb,
+              readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+            };
+          });
           const merged = [...mapped.filter((n) => !deletedIds.has(n.id)), ...missingFallback];
 
           await setLocal(localKey, merged);
@@ -1130,7 +1170,13 @@ export const StorageService = {
         }
 
         if (fallbackNotes.length > 0) {
-          const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id));
+          const filtered = fallbackNotes.filter((fb) => !deletedIds.has(fb.id)).map((fb) => {
+            const lc = localCachedMap.get(fb.id);
+            return {
+              ...fb,
+              readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+            };
+          });
           await setLocal(localKey, filtered);
           return filtered;
         }

@@ -327,6 +327,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const allNotesRef = useRef<GeneralNote[]>([]);
   allNotesRef.current = allNotes;
+
+  const mergeNotesPreservingReads = (fresh: GeneralNote[], current: GeneralNote[]): GeneralNote[] => {
+    const currentMap = new Map(current.map((n) => [n.id, n]));
+    return fresh.map((n) => {
+      const prev = currentMap.get(n.id);
+      if (!prev?.readBy || prev.readBy.length === 0) return n;
+      const merged = Array.from(new Set([...prev.readBy, ...(n.readBy || [])]));
+      return { ...n, readBy: merged };
+    });
+  };
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
@@ -743,7 +753,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!isMounted) return;
           if (isPolatlar) {
             const nts = await StorageService.getNotes();
-            if (isMounted) setAllNotes(nts);
+            if (isMounted) setAllNotes((prev) => mergeNotesPreservingReads(nts, prev));
           }
         }
       )
@@ -764,7 +774,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
             if (changedSlotId === StorageService.getSlotId(4)) {
               const nts = await StorageService.getNotes();
-              if (isMounted) setAllNotes(nts);
+              if (isMounted) setAllNotes((prev) => mergeNotesPreservingReads(nts, prev));
               return;
             }
             if (changedSlotId === StorageService.getSlotId(3)) {
@@ -953,7 +963,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getAttendanceRecords(),
         ]);
         if (isMounted) {
-          if (freshNotes && freshNotes.length > 0) setAllNotes(freshNotes);
+          if (freshNotes && freshNotes.length > 0) setAllNotes((prev) => mergeNotesPreservingReads(freshNotes, prev));
           if (freshLocs && freshLocs.length > 0) setAllLocations(freshLocs);
           if (freshServices && freshServices.length > 0) setAllServices(freshServices);
           if (freshReturns && freshReturns.length > 0) setReturnWarrantyItems(freshReturns);

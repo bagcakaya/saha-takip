@@ -49,18 +49,23 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [showReadList, setShowReadList] = useState(false);
+  const [localHasRead, setLocalHasRead] = useState(false);
 
   const isAdmin = isUserAdmin(currentUser);
   const isCreatedByMe = note.createdBy === currentUser?.id;
-  const hasRead = Boolean(currentUser?.id && note.readBy?.includes(currentUser.id));
+  const hasRead = Boolean((currentUser?.id && note.readBy?.includes(currentUser.id)) || localHasRead);
 
   // Resolve user names who read this work order
-  const readUserNames = (note.readBy || [])
+  const readUserIds = Array.from(
+    new Set([...(note.readBy || []), ...(localHasRead && currentUser?.id ? [currentUser.id] : [])])
+  );
+  const readUserNames = readUserIds
     .map((uid) => users.find((u) => u.id === uid)?.name || (uid === currentUser?.id ? currentUser?.name : 'Personel'))
     .filter(Boolean);
 
   const handleMarkAsRead = async () => {
     if (isMarkingRead || !note.id) return;
+    setLocalHasRead(true);
     setIsMarkingRead(true);
     try {
       await markNoteAsRead(note.id);
