@@ -139,4 +139,44 @@ export const MobileOneSignalService = {
       return { success: false, error: err?.message };
     }
   },
+
+  /**
+   * Sends a targeted push notification via Vercel proxy / OneSignal cloud API
+   */
+  async sendPushNotification(params: {
+    title: string;
+    message: string;
+    targetMode?: 'all' | 'custom' | 'self' | 'admin';
+    targetUserIds?: string[];
+    companyCode?: string;
+    delaySeconds?: number;
+    collapseId?: string;
+    data?: any;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch('https://saha-takip-beige.vercel.app/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: params.title,
+          message: params.message,
+          targetMode: params.targetMode || 'all',
+          targetUserIds: params.targetUserIds,
+          companyCode: params.companyCode,
+          delaySeconds: params.delaySeconds || 0,
+          collapse_id: params.collapseId,
+          data: params.data,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (data && data.id) {
+        return { success: true };
+      }
+      return { success: false, error: data?.errors?.[0] || 'Bildirim gönderilemedi' };
+    } catch (err: any) {
+      console.warn('MobileOneSignalService sendPushNotification error:', err);
+      return { success: false, error: err?.message };
+    }
+  },
 };

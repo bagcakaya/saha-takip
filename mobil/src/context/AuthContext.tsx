@@ -9,6 +9,7 @@ import { PasswordSecurity } from '../services/passwordSecurity';
 import { MobileAuthSecurityService } from '../services/authSecurityService';
 import { MobileSanitizeService } from '../services/sanitizeService';
 import { MobileServerConfigService } from '../services/serverConfigService';
+import { MobileLicenseAlertService } from '../services/licenseAlertService';
 
 const AUTH_USER_KEY = '@saha_takip_auth_user';
 const AUTH_COMPANY_KEY = '@saha_takip_auth_company';
@@ -420,6 +421,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     loadSession();
   }, []);
+
+  // Periodic check and push alert for companies with <= 3 days left on license
+  useEffect(() => {
+    if (!user) return;
+    MobileLicenseAlertService.checkAndSendAlerts(user, company).catch((e) =>
+      console.warn('[MobileLicenseAlertService] check error:', e)
+    );
+    const interval = setInterval(() => {
+      MobileLicenseAlertService.checkAndSendAlerts(user, company).catch(() => {});
+    }, 60 * 60 * 1000); // Check every hour
+    return () => clearInterval(interval);
+  }, [user, company]);
 
   const login = async (companyCode: string, username: string, password: string) => {
     // Malicious payload / XSS check

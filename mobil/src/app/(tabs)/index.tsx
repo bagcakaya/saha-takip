@@ -43,6 +43,7 @@ import { NotificationListModal } from '../../components/NotificationListModal';
 import { NotificationStatusModal } from '../../components/NotificationStatusModal';
 import { LicenseManagementModal } from '../../components/LicenseManagementModal';
 import { CompanyLicenseDetailsModal } from '../../components/CompanyLicenseDetailsModal';
+import { EmergencyLicenseAlertBanner } from '../../components/EmergencyLicenseAlertBanner';
 import { canUserManageLicenses, canUserManageInstitutionsAndBranches, isUserAdmin } from '../../types/auth';
 import { getRemainingDays } from '../../utils/dateUtils';
 
@@ -65,7 +66,7 @@ interface HomeModule {
 }
 
 export default function HomeDashboardScreen() {
-  const { user, licenseInfo, logout } = useAuth();
+  const { user, company, licenseInfo, logout } = useAuth();
   const {
     locations,
     services,
@@ -409,6 +410,13 @@ export default function HomeDashboardScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Acil Lisans Bitiş Uyarısı (<= 3 gün kala) */}
+        <EmergencyLicenseAlertBanner
+          licenseInfo={licenseInfo}
+          company={company}
+          onOpenDetails={() => setIsCompanyLicenseModalOpen(true)}
+        />
+
         {/* 2. Compact Profile & Greeting Bar (Single-screen optimization) */}
         <View
           style={[

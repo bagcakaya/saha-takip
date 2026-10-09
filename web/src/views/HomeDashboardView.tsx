@@ -31,6 +31,7 @@ import { NotificationService } from '../services/notificationService';
 import { NotificationListModal } from '../components/common/NotificationListModal';
 import { LicenseManagementModal } from '../components/licensing/LicenseManagementModal';
 import { CompanyLicenseDetailsModal } from '../components/licensing/CompanyLicenseDetailsModal';
+import { EmergencyLicenseAlertBanner } from '../components/licensing/EmergencyLicenseAlertBanner';
 import { CompanySelectModal } from '../components/common/CompanySelectModal';
 import { getRemainingDays } from '../utils/dateUtils';
 
@@ -570,6 +571,13 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           )}
         </div>
       )}
+
+      {/* 0.5. Acil Lisans Bitiş Uyarısı (<= 3 gün kala) */}
+      <EmergencyLicenseAlertBanner
+        licenseInfo={licenseInfo}
+        company={company}
+        onOpenDetails={() => setIsCompanyLicenseModalOpen(true)}
+      />
 
       {/* 1. Compact Greeting & Status Bar ile Sağa Yaslı Kurumsal Logo */}
       <div className="rounded-2xl sm:rounded-3xl bg-slate-900/90 text-white p-4 sm:p-5 md:p-6 shadow-xl border border-slate-800 flex items-center justify-between gap-4 relative overflow-hidden">

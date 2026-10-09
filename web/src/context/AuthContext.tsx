@@ -7,6 +7,7 @@ import { supabase } from '../services/supabaseClient';
 import { OneSignalService } from '../services/oneSignalService';
 import { DeviceService } from '../services/deviceService';
 import { ServerConfigService } from '../services/serverConfigService';
+import { LicenseAlertService } from '../services/licenseAlertService';
 
 interface AuthContextType {
   user: User | null;
@@ -319,6 +320,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.removeEventListener('focus', handleResume);
     };
   }, [user]);
+
+  // Periodic check and push alert for companies with <= 3 days left on license
+  useEffect(() => {
+    if (!user) return;
+    LicenseAlertService.checkAndSendAlerts(user, activeCompany).catch((e) =>
+      console.warn('License alert check error:', e)
+    );
+    const interval = setInterval(() => {
+      LicenseAlertService.checkAndSendAlerts(user, activeCompany).catch(() => {});
+    }, 60 * 60 * 1000); // Check every hour
+    return () => clearInterval(interval);
+  }, [user, activeCompany]);
 
   const syncCurrentSession = useCallback((cloudUsers: UserAccount[]) => {
     setUser((currentUser) => {
