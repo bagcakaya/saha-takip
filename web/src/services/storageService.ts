@@ -228,7 +228,8 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   if (!apiUrl) return false;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timeoutMs = ServerConfigService.isLocalMode() ? 5000 : 3500;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
       method: 'POST',
@@ -310,29 +311,28 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
     chunks.push(rawJson.slice(i, i + chunkSize));
   }
 
-  // DUAL-WRITE: Hem Yerel Sunucuya (MSSQL) hem de Supabase Bulutuna (Pro) eşzamanlı kaydet
-  const writePromises: Promise<any>[] = [];
-
-  // 1. Yerel Sunucu (Local MSSQL Server - Dual-Write)
-  writePromises.push(
-    localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
-      console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err)
-    )
+  // DUAL-WRITE:
+  // 1. Yerel Sunucu (Local MSSQL Server) - Arka planda güvenle yazar
+  const localPromise = localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
+    console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err)
   );
 
-  // 2. Supabase Bulut (Pro Plan)
-  writePromises.push(
-    (async () => {
-      try {
-        const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
-        if (error) console.warn(`[Dual-Write Supabase] Slot ${slotId} hata:`, error);
-      } catch (err) {
-        console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err);
-      }
-    })()
-  );
+  // 2. Supabase Bulut (Pro Plan) - Ana bulut veritabanına anında kaydet
+  const cloudPromise = (async () => {
+    try {
+      const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+      if (error) console.warn(`[Dual-Write Supabase] Slot ${slotId} hata:`, error);
+    } catch (err) {
+      console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err);
+    }
+  })();
 
-  await Promise.allSettled(writePromises);
+  if (ServerConfigService.isLocalMode()) {
+    await Promise.allSettled([localPromise, cloudPromise]);
+  } else {
+    // Bulut modda (varsayılan) anında Supabase'e yazıp döner, yerel sunucu arka planda eşitlenir (0ms gecikme)
+    await cloudPromise;
+  }
 }
 
 export const StorageService = {
@@ -1831,19 +1831,17 @@ export const StorageService = {
         rejection_reason: item.rejectionReason || null,
       }));
 
-      // Dual-Write: Hem Yerel MSSQL Tablosuna hem de Supabase Tablosuna eşzamanlı yaz
-      const writeOps: Promise<any>[] = [];
-
+      // 1. Yerel Sunucu (Dual-Write) - Arka planda güvenle yazar (UI'ı bekletmez)
       if (fullRows.length > 0) {
-        // 1. Yerel Sunucu (Dual-Write)
-        writeOps.push(
-          localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
-            console.warn('[Dual-Write Yerel] services upsert hata:', err)
-          )
+        localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
+          console.warn('[Dual-Write Yerel] services upsert hata:', err)
         );
+      }
 
-        // 2. Supabase Bulut
-        writeOps.push(
+      // 2. Supabase Bulut & Slot 3 eşzamanlı kaydet
+      const cloudWrites: Promise<any>[] = [];
+      if (fullRows.length > 0) {
+        cloudWrites.push(
           (async () => {
             try {
               const basicRows = items.map((item) => ({
@@ -1859,27 +1857,14 @@ export const StorageService = {
                 created_by_name: item.createdByName || null,
               }));
               await supabase.from('services').upsert(basicRows);
-
-              const currentIds = items.map((i) => i.id);
-              const { data: cloudData } = await supabase.from('services').select('id');
-              if (cloudData) {
-                const idsToDelete = cloudData
-                  .map((c) => c.id)
-                  .filter((id) => !currentIds.includes(id));
-                if (idsToDelete.length > 0) {
-                  await supabase.from('services').delete().in('id', idsToDelete);
-                }
-              }
             } catch (err) {
               console.warn('[Dual-Write Supabase] save services error:', err);
             }
           })()
         );
-      } else {
-        writeOps.push(Promise.resolve(supabase.from('services').delete().neq('id', '___')));
       }
-      writeOps.push(saveChunkedSlot(3, items));
-      await Promise.allSettled(writeOps);
+      cloudWrites.push(saveChunkedSlot(3, items));
+      await Promise.allSettled(cloudWrites);
     } else {
       await saveChunkedSlot(this.getSlotId(3), items);
     }

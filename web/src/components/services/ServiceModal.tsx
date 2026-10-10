@@ -154,7 +154,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     try {
       setIsSubmitting(true);
 
-      await onSave({
+      const savePromise = onSave({
         companyName: cName,
         cariName: cariName.trim() || undefined,
         location: location.trim() || undefined,
@@ -177,7 +177,10 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
         });
       }
 
+      // Modalı anında kapatarak kullanıcıyı bekletme (Kayıt yerel ve bulutta anında tamamlanır)
       onClose();
+
+      await savePromise;
     } catch (err) {
       console.error(err);
       alert('Servis kaydı kaydedilirken bir hata oluştu.');

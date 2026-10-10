@@ -110,29 +110,19 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
     chunks.push(rawJson.slice(i, i + chunkSize));
   }
 
-  // DUAL-WRITE: Hem Yerel Sunucuya (MSSQL) hem de Supabase Bulutuna (Pro) eşzamanlı kaydet
-  const writePromises: Promise<any>[] = [];
-
-  // 1. Yerel Sunucu (Local MSSQL Server - Dual-Write)
-  writePromises.push(
-    localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
-      console.warn(`[Dual-Write Yerel Mobil] Slot ${slotId} hata:`, err)
-    )
+  // DUAL-WRITE:
+  // 1. Yerel Sunucu (Local MSSQL Server) - Arka planda güvenle yazar
+  localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
+    console.warn(`[Dual-Write Yerel Mobil] Slot ${slotId} hata:`, err)
   );
 
-  // 2. Bulut (Supabase Cloud - Pro Plan)
-  writePromises.push(
-    (async () => {
-      try {
-        const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
-        if (error) console.warn(`[Dual-Write Supabase Mobil] Slot ${slotId} hata:`, error);
-      } catch (err) {
-        console.warn(`[Dual-Write Supabase Mobil] Slot ${slotId} istisna:`, err);
-      }
-    })()
-  );
-
-  await Promise.allSettled(writePromises);
+  // 2. Bulut (Supabase Cloud - Pro Plan) - Hızlı bulut yazımı
+  try {
+    const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+    if (error) console.warn(`[Dual-Write Supabase Mobil] Slot ${slotId} hata:`, error);
+  } catch (err) {
+    console.warn(`[Dual-Write Supabase Mobil] Slot ${slotId} istisna:`, err);
+  }
 }
 
 async function getLocal<T>(key: string): Promise<T | null> {
@@ -463,8 +453,13 @@ export const StorageService = {
           status: s.status || 'pending',
         }));
 
+        // 1. Yerel API (arka planda çalışır, UI'ı bekletmez)
+        localApiPost('/api/tables/services/upsert', { rows }).catch((err) =>
+          console.warn('Yerel save services error:', err)
+        );
+
+        // 2. Supabase ve Slot 3
         const ops: Promise<any>[] = [];
-        ops.push(localApiPost('/api/tables/services/upsert', { rows }));
         ops.push(
           (async () => {
             try {
