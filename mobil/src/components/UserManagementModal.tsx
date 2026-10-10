@@ -883,7 +883,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     <ChevronDown size={16} color="#94a3b8" />
                   </TouchableOpacity>
                   <Text style={styles.branchNoticeText}>
-                    Personel sadece atandığı şubenin 20 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
+                    Personel sadece atandığı şubenin 30 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
                   </Text>
                 </View>
 

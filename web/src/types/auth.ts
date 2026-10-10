@@ -383,7 +383,7 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
         id: 'workplace',
         name: 'Merkez İş Yeri & Şubeler',
         shortTitle: 'Lokasyonlar',
-        description: '20 metre toleranslı merkez GPS ve şube konum koordinatları',
+        description: '30 metre toleranslı merkez GPS ve şube konum koordinatları',
         defaultStaff: false,
         defaultAdmin: true,
       },

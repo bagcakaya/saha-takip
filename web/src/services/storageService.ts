@@ -1926,8 +1926,8 @@ export const StorageService = {
     const slotId = this.getSlotId(5);
     const { data: cloudData, notFound } = await loadChunkedSlot<WorkplaceLocation>(slotId);
     if (cloudData && typeof cloudData.latitude === 'number' && typeof cloudData.longitude === 'number') {
-      if (!cloudData.radiusMeters || cloudData.radiusMeters === 10) {
-        cloudData.radiusMeters = 20;
+      if (!cloudData.radiusMeters || cloudData.radiusMeters === 10 || cloudData.radiusMeters === 20) {
+        cloudData.radiusMeters = 30;
       }
       await saveItem(localKey, cloudData);
       return cloudData;
@@ -1939,8 +1939,8 @@ export const StorageService = {
     }
 
     const localData = await loadItem<WorkplaceLocation>(localKey);
-    if (localData && (!localData.radiusMeters || localData.radiusMeters === 10)) {
-      localData.radiusMeters = 20;
+    if (localData && (!localData.radiusMeters || localData.radiusMeters === 10 || localData.radiusMeters === 20)) {
+      localData.radiusMeters = 30;
     }
     return localData;
   },
@@ -2509,8 +2509,11 @@ export const StorageService = {
     const slotId = this.getSlotId(14);
     const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const upgraded = cloudData.map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
+      await saveItem(localKey, upgraded);
+      return upgraded;
     }
 
     if (activeCompanyCode !== 'POLATLAR' && notFound) {
@@ -2518,7 +2521,13 @@ export const StorageService = {
       return [];
     }
 
-    return (await loadItem<Branch[]>(localKey)) || [];
+    const localBranches = await loadItem<Branch[]>(localKey);
+    if (localBranches && Array.isArray(localBranches)) {
+      return localBranches.map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
+    }
+    return [];
   },
 
   /**
@@ -2544,7 +2553,9 @@ export const StorageService = {
         ? cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === 'POLATLAR')
         : cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === cleanCode);
 
-      const toReturn = filtered.length > 0 ? filtered : cloudData;
+      const toReturn = (filtered.length > 0 ? filtered : cloudData).map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
       await saveItem(localKey, toReturn);
       return toReturn;
     }
@@ -2552,7 +2563,13 @@ export const StorageService = {
       await saveItem(localKey, []);
       return [];
     }
-    return (await loadItem<Branch[]>(localKey)) || [];
+    const localBranches = await loadItem<Branch[]>(localKey);
+    if (localBranches && Array.isArray(localBranches)) {
+      return localBranches.map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
+    }
+    return [];
   },
 
   /**

@@ -669,7 +669,10 @@ export const StorageService = {
     const localKey = `@workplace_${activeCompanyCode}`;
     try {
       const slot = await loadChunkedSlot<WorkplaceLocation>(this.getSlotId(5));
-      if (slot.data) {
+      if (slot.data && typeof slot.data.latitude === 'number' && typeof slot.data.longitude === 'number') {
+        if (!slot.data.radiusMeters || slot.data.radiusMeters === 10 || slot.data.radiusMeters === 20) {
+          slot.data.radiusMeters = 30;
+        }
         await setLocal(localKey, slot.data);
         return slot.data;
       }
@@ -677,14 +680,19 @@ export const StorageService = {
       console.warn('getWorkplaceLocation error:', e);
     }
     const local = await getLocal<WorkplaceLocation>(localKey);
-    if (local) return local;
+    if (local) {
+      if (!local.radiusMeters || local.radiusMeters === 10 || local.radiusMeters === 20) {
+        local.radiusMeters = 30;
+      }
+      return local;
+    }
 
     // Varsayılan Merkez İş Yeri (Görsel-1)
     const defaultWorkplace: WorkplaceLocation = {
       address: 'Millet Bahçe Caddesi, Lalapaşa Mahallesi, Yakutiye, Erzurum',
       latitude: 39.91070,
       longitude: 41.27138,
-      radiusMeters: 20,
+      radiusMeters: 30,
       updatedAt: Date.now(),
     };
     await setLocal(localKey, defaultWorkplace);
@@ -706,14 +714,23 @@ export const StorageService = {
     const localKey = `@branches_${activeCompanyCode}`;
     try {
       const slot = await loadChunkedSlot<Branch[]>(this.getSlotId(14));
-      if (slot.data) {
-        await setLocal(localKey, slot.data);
-        return slot.data;
+      if (slot.data && Array.isArray(slot.data)) {
+        const upgraded = slot.data.map((b) =>
+          !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        );
+        await setLocal(localKey, upgraded);
+        return upgraded;
       }
     } catch (e) {
       console.warn('getBranches error:', e);
     }
-    return (await getLocal<Branch[]>(localKey)) || [];
+    const local = await getLocal<Branch[]>(localKey);
+    if (local && Array.isArray(local)) {
+      return local.map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
+    }
+    return [];
   },
 
   async saveBranches(branches: Branch[]): Promise<void> {
@@ -729,8 +746,11 @@ export const StorageService = {
     try {
       const slot = await loadChunkedSlot<Branch[]>(slotId);
       if (slot.data && Array.isArray(slot.data)) {
-        await setLocal(localKey, slot.data);
-        return slot.data;
+        const upgraded = slot.data.map((b) =>
+          !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        );
+        await setLocal(localKey, upgraded);
+        return upgraded;
       }
       if (cleanCode !== 'POLATLAR' && slot.notFound) {
         await setLocal(localKey, []);
@@ -739,7 +759,13 @@ export const StorageService = {
     } catch (e) {
       console.warn('getBranchesForCompany error:', e);
     }
-    return (await getLocal<Branch[]>(localKey)) || [];
+    const local = await getLocal<Branch[]>(localKey);
+    if (local && Array.isArray(local)) {
+      return local.map((b) =>
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+      );
+    }
+    return [];
   },
 
   async saveBranchesForCompany(companyCode: string, branches: Branch[], companyId?: number): Promise<void> {

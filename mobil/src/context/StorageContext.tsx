@@ -233,11 +233,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const defaultHq = hqs && hqs.length > 0 ? hqs[0] : undefined;
       const normalizedBranches = brs.map((b) => {
-        if (!b.headquarterName && defaultHq) {
-          return { ...b, headquarterId: defaultHq.id, headquarterName: defaultHq.name };
+        let radiusMeters = b.radiusMeters;
+        if (!radiusMeters || radiusMeters === 10 || radiusMeters === 20) {
+          radiusMeters = 30;
         }
-        return b;
+        if (!b.headquarterName && defaultHq) {
+          return { ...b, radiusMeters, headquarterId: defaultHq.id, headquarterName: defaultHq.name };
+        }
+        return { ...b, radiusMeters };
       });
+
+      if (wpLoc && (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 20)) {
+        wpLoc.radiusMeters = 30;
+      }
 
       setLocations(locs);
       setServices(srvs);
@@ -393,7 +401,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         if (selectedBranch) {
           branchName = selectedBranch.name;
-          const radius = selectedBranch.radiusMeters || 20;
+          const radius = selectedBranch.radiusMeters || 30;
           const check = LocationService.isWithinRadius(
             pos.latitude,
             pos.longitude,
@@ -405,7 +413,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           checkInOutside = !check.isWithin;
         }
       } else if (workplaceLocation) {
-        const radius = workplaceLocation.radiusMeters || 20;
+        const radius = workplaceLocation.radiusMeters || 30;
         const check = LocationService.isWithinRadius(
           pos.latitude,
           pos.longitude,
@@ -533,7 +541,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       if (branches && branches.length > 0) {
         let matchedBranch = branches.find((b) => b.id === activeRec.branchId) || branches[0];
-        const radius = matchedBranch.radiusMeters || 20;
+        const radius = matchedBranch.radiusMeters || 30;
         const check = LocationService.isWithinRadius(
           pos.latitude,
           pos.longitude,
@@ -544,7 +552,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkOutDistance = check.distanceMeters;
         checkOutOutside = !check.isWithin;
       } else if (workplaceLocation) {
-        const radius = workplaceLocation.radiusMeters || 20;
+        const radius = workplaceLocation.radiusMeters || 30;
         const check = LocationService.isWithinRadius(
           pos.latitude,
           pos.longitude,
@@ -1387,7 +1395,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       address: params.address.trim(),
       latitude: params.latitude,
       longitude: params.longitude,
-      radiusMeters: params.radiusMeters || 20,
+      radiusMeters: params.radiusMeters || 30,
       phone: params.phone,
       assignedUserIds: [],
       createdAt: Date.now(),

@@ -91,7 +91,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
   const [longitude, setLongitude] = useState<number | ''>('');
   const [latInput, setLatInput] = useState<string>('');
   const [lonInput, setLonInput] = useState<string>('');
-  const [radiusMeters, setRadiusMeters] = useState<number>(20);
+  const [radiusMeters, setRadiusMeters] = useState<number>(30);
   const [phone, setPhone] = useState('');
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>([]);
   const [targetCompanyCode, setTargetCompanyCode] = useState<string>(
@@ -143,7 +143,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setLongitude(branchToEdit.longitude ?? '');
       setLatInput(branchToEdit.latitude != null ? String(branchToEdit.latitude) : '');
       setLonInput(branchToEdit.longitude != null ? String(branchToEdit.longitude) : '');
-      setRadiusMeters(branchToEdit.radiusMeters || 20);
+      setRadiusMeters((!branchToEdit.radiusMeters || branchToEdit.radiusMeters === 10 || branchToEdit.radiusMeters === 20) ? 30 : branchToEdit.radiusMeters);
       setPhone(branchToEdit.phone || '');
       setAssignedUserIds(branchToEdit.assignedUserIds || []);
       setAutoAddressResolved(false);
@@ -155,7 +155,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
       setLongitude('');
       setLatInput('');
       setLonInput('');
-      setRadiusMeters(20);
+      setRadiusMeters(30);
       setPhone('');
       setAssignedUserIds([]);
       setAutoAddressResolved(false);
@@ -426,7 +426,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
         address: address.trim(),
         latitude: finalLat,
         longitude: finalLon,
-        radiusMeters: Number(radiusMeters) || 20,
+        radiusMeters: Number(radiusMeters) || 30,
         phone: phone.trim() || undefined,
         assignedUserIds,
         companyCode: targetCompanyCode,
@@ -453,7 +453,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                 {branchToEdit ? 'Şubeyi Düzenle' : 'Yeni Şube Ekle'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Lokasyon pini, 20m mesai alanı ve personel ataması
+                Lokasyon pini, 30m mesai alanı ve personel ataması
               </p>
             </div>
           </div>
@@ -522,7 +522,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                 Şube Lokasyon Koordinatları
               </span>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-black bg-blue-600 text-white shadow-xs flex items-center gap-1">
-                20 Metre Mesai Alanı
+                30 Metre Mesai Alanı
               </span>
             </div>
 
@@ -599,7 +599,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
                   </span>
                 </div>
                 <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md shadow-xs">
-                  20 Metre Mesai Alanı Aktif
+                  30 Metre Mesai Alanı Aktif
                 </span>
               </div>
             )}
@@ -607,7 +607,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({
             <div className="flex items-start gap-2 pt-1 text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
               <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
               <span>
-                Personel, yalnızca bu koordinatın <strong>20 metre</strong> yarıçapına girdiğinde doğrudan mesaiye başlayabilir. Başka şubede veya dışarıda ise yönetici onayına yönlendirilir.
+                Personel, yalnızca bu koordinatın <strong>30 metre</strong> yarıçapına girdiğinde doğrudan mesaiye başlayabilir. Başka şubede veya dışarıda ise yönetici onayına yönlendirilir.
               </span>
             </div>
           </div>

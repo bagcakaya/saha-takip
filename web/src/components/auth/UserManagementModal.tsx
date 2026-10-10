@@ -1387,7 +1387,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   );
                 })()}
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Personel sadece atandığı şubenin 20 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
+                  Personel sadece atandığı şubenin 30 metre çapında doğrudan mesaiye başlayabilir. Farklı şubede mesaiye başlamak için yönetici onayı gerekecektir.
                 </p>
               </div>
 

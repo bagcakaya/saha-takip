@@ -321,7 +321,7 @@ export const LocationService = {
     userLon: number,
     targetLat: number,
     targetLon: number,
-    radiusMeters: number = 20
+    radiusMeters: number = 30
   ): { isWithin: boolean; distanceMeters: number } {
     const distanceMeters = this.calculateDistance(userLat, userLon, targetLat, targetLon);
     return {

@@ -276,7 +276,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         <button class="layer-btn" id="btn-sat" onclick="switchLayer('sat')">Google Uydu</button>
         <button class="layer-btn" id="btn-osm" onclick="switchLayer('osm')">Açık Harita</button>
       </div>
-      <div class="info-pill">📍 Haritaya dokunarak pin bırakabilirsiniz (20m Mesai Çemberi)</div>
+      <div class="info-pill">📍 Haritaya dokunarak pin bırakabilirsiniz (30m Mesai Çemberi)</div>
 
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
@@ -329,7 +329,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         }).addTo(map);
 
         var circle = L.circle([initialLat, initialLon], {
-          radius: 20,
+          radius: 30,
           color: '#3b82f6',
           fillColor: '#60a5fa',
           fillOpacity: 0.25,
@@ -478,7 +478,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
                   Haritada Konum Seç ve Pinle
                 </Text>
                 <Text style={styles.subtitle}>
-                  Haritaya dokunarak şube merkezini ve 20m mesai alanını belirleyin
+                  Haritaya dokunarak şube merkezini ve 30m mesai alanını belirleyin
                 </Text>
               </View>
             </View>
@@ -600,7 +600,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
                   />
                 </View>
                 <View style={styles.radiusPill}>
-                  <Text style={styles.radiusPillText}>20m Mesai Alanı</Text>
+                  <Text style={styles.radiusPillText}>30m Mesai Alanı</Text>
                 </View>
               </View>
 

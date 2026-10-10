@@ -174,7 +174,7 @@ export interface Branch {
   address: string;            // Açık adres
   latitude: number;           // Coğrafi Enlem
   longitude: number;          // Coğrafi Boylam
-  radiusMeters: number;       // Varsayılan: 20 metre
+  radiusMeters: number;       // Varsayılan: 30 metre
   phone?: string;             // Şube telefonu (opsiyonel)
   assignedUserIds: string[];  // Şubeye atanmış personellerin ID listesi
   maxBreakMinutes?: number;   // Günlük izin verilen maksimum mola süresi (dakika)
@@ -186,7 +186,7 @@ export interface WorkplaceLocation {
   address: string;
   latitude: number;
   longitude: number;
-  radiusMeters: number; // default: 20 meters
+  radiusMeters: number; // default: 30 meters
   maxBreakMinutes?: number; // Günlük izin verilen maksimum mola süresi (dakika)
   updatedAt: number;
   updatedBy?: string;

@@ -211,7 +211,7 @@ export default function AttendanceScreen() {
     },
     workplace: {
       title: 'Merkez İş Yeri Lokasyonu',
-      subtitle: '20 metre toleranslı merkez GPS koordinatları',
+      subtitle: '30 metre toleranslı merkez GPS koordinatları',
       icon: Building2,
       color: '#0d9488',
     },
@@ -339,7 +339,7 @@ export default function AttendanceScreen() {
     const actionText = type === 'checkin' ? 'işe giriş' : 'işten çıkış';
     Alert.alert(
       'Mesai Onayı',
-      `${record.userName} personeline ait 20 m dışı ${actionText} talebini onaylamak istiyor musunuz?`,
+      `${record.userName} personeline ait 30 m dışı ${actionText} talebini onaylamak istiyor musunuz?`,
       [
         { text: 'Vazgeç', style: 'cancel' },
         {
@@ -348,7 +348,7 @@ export default function AttendanceScreen() {
           onPress: async () => {
             const res = await approveAttendance(record.id, type);
             if (res.success) {
-              Alert.alert('Başarılı', res.message);
+               Alert.alert('Başarılı', res.message);
             } else {
               Alert.alert('Hata', res.message);
             }
@@ -362,7 +362,7 @@ export default function AttendanceScreen() {
     const actionText = type === 'checkin' ? 'işe giriş' : 'işten çıkış';
     Alert.alert(
       'Mesai Reddi',
-      `${record.userName} personeline ait 20 m dışı ${actionText} talebini reddetmek istiyor musunuz?`,
+      `${record.userName} personeline ait 30 m dışı ${actionText} talebini reddetmek istiyor musunuz?`,
       [
         { text: 'Vazgeç', style: 'cancel' },
         {
@@ -476,13 +476,13 @@ export default function AttendanceScreen() {
         address: wpAddress.trim(),
         latitude: wpLat,
         longitude: wpLon,
-        radiusMeters: 20,
+        radiusMeters: 30,
         updatedAt: Date.now(),
         updatedBy: user?.id,
         updatedByName: user?.name,
       };
       await updateWorkplaceLocation(updated);
-      Alert.alert('Başarılı', 'İş yeri konumu 20 metre sabit yarıçap ile güncellendi.');
+      Alert.alert('Başarılı', 'İş yeri konumu 30 metre sabit yarıçap ile güncellendi.');
     } finally {
       setSavingWp(false);
     }
@@ -497,7 +497,7 @@ export default function AttendanceScreen() {
     return Number((d / 1000).toFixed(2));
   }, [currentPos, workplaceLocation, wpLat, wpLon]);
 
-  const isWithinGeofence = currentDistanceKm <= 0.02; // 20m
+  const isWithinGeofence = currentDistanceKm <= 0.03; // 30m
 
   // Today's attendance state
   const todayStr = useMemo(() => getTodayIsoDate(), []);
@@ -1252,7 +1252,7 @@ export default function AttendanceScreen() {
                         title: 'Merkez İş Yeri',
                         icon: Building2,
                         glowColor: '#0d9488',
-                        badgeText: '20m',
+                        badgeText: '30m',
                       },
                     ]
                   : []),
@@ -1417,7 +1417,7 @@ export default function AttendanceScreen() {
                     </View>
                   </View>
                   <Text style={styles.wpSubtitle}>
-                    Personelin 20 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
+                    Personelin 30 metre çapında işe giriş ve çıkış yapacağı merkezi belirleyin.
                   </Text>
                 </View>
               </View>
@@ -1425,7 +1425,7 @@ export default function AttendanceScreen() {
               <View style={styles.radiusRow}>
                 <Text style={styles.radiusLabel}>Yarıçap:</Text>
                 <View style={styles.radiusFixedBadge}>
-                  <Text style={styles.radiusFixedText}>20 Metre (Sabit)</Text>
+                  <Text style={styles.radiusFixedText}>30 Metre (Sabit)</Text>
                 </View>
               </View>
 
@@ -1577,7 +1577,7 @@ export default function AttendanceScreen() {
               <View style={styles.centerAddressRow}>
                 <Text style={styles.fieldLabel}>MERKEZ ADRESİ</Text>
                 <View style={styles.limit20mBadge}>
-                  <Text style={styles.limit20mText}>20 Metre Sınırı</Text>
+                  <Text style={styles.limit20mText}>30 Metre Sınırı</Text>
                 </View>
               </View>
               <Text style={[styles.centerAddressText, { color: isDark ? '#ffffff' : '#0f172a' }]}>
@@ -1975,7 +1975,7 @@ export default function AttendanceScreen() {
                       <Text style={[styles.todayGridVal, { color: '#10b981' }]}>
                         {todayRecord.checkInDistance !== undefined
                           ? `${Math.round(todayRecord.checkInDistance)} m`
-                          : '≤ 20 m'}
+                          : '≤ 30 m'}
                       </Text>
                     </View>
 

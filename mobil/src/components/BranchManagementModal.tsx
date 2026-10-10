@@ -98,7 +98,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
   const [newBranchAddress, setNewBranchAddress] = useState('');
   const [newBranchLat, setNewBranchLat] = useState('');
   const [newBranchLon, setNewBranchLon] = useState('');
-  const [newBranchRadius, setNewBranchRadius] = useState<number>(20);
+  const [newBranchRadius, setNewBranchRadius] = useState<number>(30);
   const [newBranchPhone, setNewBranchPhone] = useState('');
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
@@ -261,7 +261,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
     setNewBranchAddress('');
     setNewBranchLat('');
     setNewBranchLon('');
-    setNewBranchRadius(20);
+    setNewBranchRadius(30);
     setNewBranchPhone('');
     setIsAddBranchOpen(true);
   };
@@ -946,7 +946,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
                                 <View style={styles.branchBadgesRow}>
                                   <View style={styles.badgePill}>
                                     <Text style={styles.badgePillText}>
-                                      {branch.radiusMeters || 20}m Çember
+                                      {branch.radiusMeters || 30}m Çember
                                     </Text>
                                   </View>
 
@@ -1485,7 +1485,7 @@ export const BranchManagementModal: React.FC<BranchManagementModalProps> = ({
                       MESAİ KONTROL ÇEMBERİ
                     </Text>
                     <View style={styles.radiusPillsRow}>
-                      {[20, 50, 100, 200].map((rad) => {
+                      {[30, 50, 100, 200].map((rad) => {
                         const isSelected = newBranchRadius === rad;
                         return (
                           <TouchableOpacity

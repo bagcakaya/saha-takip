@@ -208,12 +208,12 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         markerRef.current = marker;
       }
 
-      // 20 Meter radius perimeter visual circle
+      // 30 Meter radius perimeter visual circle
       if (circleRef.current) {
         circleRef.current.setLatLng([lat, lon]);
       } else {
         const circle = L.circle([lat, lon], {
-          radius: 20,
+          radius: 30,
           color: '#0284c7',
           fillColor: '#38bdf8',
           fillOpacity: 0.25,
@@ -330,7 +330,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
         markerRef.current = marker;
 
         const circle = L.circle([targetLat!, targetLon!], {
-          radius: 20,
+          radius: 30,
           color: '#0284c7',
           fillColor: '#38bdf8',
           fillOpacity: 0.25,
@@ -391,7 +391,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
               <h3 className="text-sm sm:text-base font-black text-white truncate flex items-center gap-2">
                 <span>Google Harita ile Şube Konumu Pinleme</span>
                 <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  Canlı 20m Geofence
+                  Canlı 30m Geofence
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400 truncate">
@@ -559,7 +559,7 @@ export const MapPickerModal: React.FC<MapPickerModalProps> = ({
                   </span>
                 )}
                 <span className="px-2 py-0.5 rounded-md font-black bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[10px]">
-                  Çap: 20 Metre
+                  Yarıçap: 30 Metre
                 </span>
               </div>
 
