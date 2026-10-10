@@ -696,8 +696,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSuperAdmin(user)) {
       return users;
     }
-    const myComp = (user.companyCode || 'POLATLAR').trim().toUpperCase();
-    return users.filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === myComp);
+    const normalize = (c?: string) => {
+      const clean = (c || 'POLATLAR').trim().toUpperCase();
+      if (clean === 'MAYAPASTANELERİ' || clean === 'MAYAPASTANELERI') return 'MAYAPASTANE';
+      return clean;
+    };
+    const myComp = normalize(user.companyCode);
+    return users.filter((u) => {
+      let uComp = (u.companyCode || '').trim().toUpperCase();
+      if (!uComp && u.username && u.username.includes(':')) {
+        uComp = u.username.split(':')[0].trim().toUpperCase();
+      }
+      return normalize(uComp) === myComp;
+    });
   }, [users, user]);
 
   return (

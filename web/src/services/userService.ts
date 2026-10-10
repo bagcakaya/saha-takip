@@ -43,7 +43,14 @@ export const UserService = {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed.map((u) => {
-            const comp = (u.companyCode || 'POLATLAR').toUpperCase();
+            let comp = (u.companyCode || u.company_code || '').trim().toUpperCase();
+            if (!comp && u.username && u.username.includes(':')) {
+              comp = u.username.split(':')[0].trim().toUpperCase();
+            }
+            if (comp === 'MAYAPASTANELERİ' || comp === 'MAYAPASTANELERI') {
+              comp = 'MAYAPASTANE';
+            }
+            if (!comp) comp = 'POLATLAR';
             const isAdmin = isUserAdmin(u);
             return {
               ...u,

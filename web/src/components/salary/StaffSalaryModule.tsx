@@ -107,6 +107,38 @@ export const getEffectiveDepartmentSalary = (
   };
 };
 
+// Firma kodu normalizasyonu (Örn: 'MAYAPASTANELERİ' veya 'MAYAPASTANE' tam uyumu)
+export const normalizeCompanyCode = (code?: string | null): string => {
+  if (!code) return 'POLATLAR';
+  const clean = code.trim().toUpperCase();
+  if (
+    clean === 'MAYAPASTANELERİ' ||
+    clean === 'MAYAPASTANELERI' ||
+    clean === 'MAYA PASTANELERİ' ||
+    clean === 'MAYA PASTANELERI' ||
+    clean === 'MAYAPASTANE'
+  ) {
+    return 'MAYAPASTANE';
+  }
+  return clean;
+};
+
+// Kullanıcının şirket kodunu hem nesne özelliğinden hem username ön ekinden (Örn: MAYAPASTANE:username) çözen fonksiyon
+export const extractUserCompanyCode = (u: any): string => {
+  if (!u) return 'POLATLAR';
+  const raw = u.companyCode || u.company_code;
+  if (raw && typeof raw === 'string' && raw.trim()) {
+    return normalizeCompanyCode(raw);
+  }
+  if (u.username && typeof u.username === 'string' && u.username.includes(':')) {
+    const prefix = u.username.split(':')[0].trim();
+    if (prefix) {
+      return normalizeCompanyCode(prefix);
+    }
+  }
+  return 'POLATLAR';
+};
+
 interface StaffSalaryModuleProps {
   onBack: () => void;
 }
@@ -199,16 +231,16 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   } | null>(null);
 
   // Şirket kodu ve adı
-  const activeCompanyCode = (company?.code || user?.companyCode || 'POLATLAR')
-    .trim()
-    .toUpperCase();
-  const activeCompanyName = company?.name || activeCompanyCode;
+  const activeCompanyCode = normalizeCompanyCode(company?.code || user?.companyCode);
+  const activeCompanyName =
+    company?.name ||
+    (activeCompanyCode === 'MAYAPASTANE' ? 'MAYA PASTANELERİ' : activeCompanyCode);
 
   // Şirket personelleri
   const companyStaff = useMemo(() => {
     if (!users || !Array.isArray(users)) return [];
     return users.filter((u) => {
-      const uComp = (u.companyCode || 'POLATLAR').trim().toUpperCase();
+      const uComp = extractUserCompanyCode(u);
       return uComp === activeCompanyCode;
     });
   }, [users, activeCompanyCode]);
@@ -223,7 +255,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     });
     departmentSalaries?.forEach((ds) => {
       if (
-        (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+        normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
         ds.department &&
         ds.department.trim()
       ) {
@@ -236,7 +268,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // Bu firmaya ait kaydedilmiş bölüm maaş tutarları
   const activeCompanyDeptSalaries = useMemo(() => {
     return (departmentSalaries || []).filter(
-      (ds) => (ds.companyCode || '').toUpperCase() === activeCompanyCode
+      (ds) => normalizeCompanyCode(ds.companyCode) === activeCompanyCode
     );
   }, [departmentSalaries, activeCompanyCode]);
 
@@ -387,7 +419,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     (salaryRecords || []).forEach((rec) => {
       if (
         rec.year === selectedYear &&
-        rec.companyCode === activeCompanyCode &&
+        normalizeCompanyCode(rec.companyCode) === activeCompanyCode &&
         targetStaffIds.has(rec.userId)
       ) {
         (rec.payments || []).forEach((p) => {
@@ -437,14 +469,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         const deptConfig = staffDept
           ? (departmentSalaries || []).find(
               (ds) =>
-                (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+                normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
                 ds.department.trim().toLowerCase() === staffDept.toLowerCase()
             )
           : undefined;
 
         const rec = (salaryRecords || []).find(
           (r) =>
-            r.companyCode === activeCompanyCode &&
+            normalizeCompanyCode(r.companyCode) === activeCompanyCode &&
             r.userId === st.id &&
             r.year === selectedYear &&
             r.month === monthNum
@@ -566,7 +598,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       grandTotalPaymentsCount,
     };
   }, [
-    filteredStaff,
+    branchStaff,
     salaryRecords,
     departmentSalaries,
     activeCompanyCode,
@@ -583,7 +615,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   ): StaffSalaryMonthRecord | undefined => {
     return (salaryRecords || []).find(
       (r) =>
-        r.companyCode === activeCompanyCode &&
+        normalizeCompanyCode(r.companyCode) === activeCompanyCode &&
         r.userId === userId &&
         r.year === year &&
         r.month === month
@@ -606,7 +638,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const deptConfig = staffDept
       ? (departmentSalaries || []).find(
           (ds) =>
-            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+            normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
             ds.department.trim().toLowerCase() === staffDept.toLowerCase()
         )
       : undefined;
@@ -615,7 +647,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       const monthNum = i + 1;
       const rec = (salaryRecords || []).find(
         (r) =>
-          r.companyCode === activeCompanyCode &&
+          normalizeCompanyCode(r.companyCode) === activeCompanyCode &&
           r.userId === userId &&
           r.year === year &&
           r.month === monthNum
@@ -760,7 +792,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     const deptConfig = staffDept
       ? (departmentSalaries || []).find(
           (ds) =>
-            (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+            normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
             ds.department.trim().toLowerCase() === staffDept.toLowerCase()
         )
       : undefined;
@@ -2539,7 +2571,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             const deptConfig = staffDept
               ? (departmentSalaries || []).find(
                   (ds) =>
-                    (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+                    normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
                     ds.department.trim().toLowerCase() === staffDept.toLowerCase()
                 )
               : undefined;
