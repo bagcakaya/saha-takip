@@ -707,7 +707,7 @@ export default function AttendanceScreen() {
       const b = branches.find((item) => item.id === todayRecord.branchId);
       if (b && b.maxBreakMinutes) return b.maxBreakMinutes;
     }
-    return workplaceLocation?.maxBreakMinutes || 15;
+    return workplaceLocation?.maxBreakMinutes || 60;
   }, [userAssignedBranch, todayRecord, branches, workplaceLocation]);
 
   const [breakAlarmTriggered, setBreakAlarmTriggered] = useState(false);

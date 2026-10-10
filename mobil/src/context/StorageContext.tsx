@@ -685,7 +685,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         branchBreakMins = b.maxBreakMinutes;
       }
     }
-    const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 15;
+    const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 60;
     const existingBreaks = Array.isArray(record.breaks) ? record.breaks : [];
     const alreadyUsedMinutes = existingBreaks.reduce((sum, b) => sum + (b.durationMinutes || 0), 0);
     const allowedMinutes = quotaMinutes > alreadyUsedMinutes ? (quotaMinutes - alreadyUsedMinutes) : quotaMinutes;

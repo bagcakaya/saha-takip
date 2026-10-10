@@ -5088,7 +5088,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         branchBreakMins = b.maxBreakMinutes;
       }
     }
-    const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 15;
+    const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 60;
     const existingBreaks = Array.isArray(record.breaks) ? record.breaks : [];
     const alreadyUsedMinutes = existingBreaks.reduce((sum, b) => sum + (b.durationMinutes || 0), 0);
     const allowedMinutes = quotaMinutes > alreadyUsedMinutes ? (quotaMinutes - alreadyUsedMinutes) : quotaMinutes;
@@ -5113,6 +5113,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
+
+    // Cancel any previous scheduled break push for this user to avoid ghost alerts
+    if (record.currentBreakNotificationId) {
+      FastActionAgent.enqueueCancelNotification(record.currentBreakNotificationId, compCode);
+    }
 
     // Schedule hardware push notification via OneSignal cloud server
     // Fires at targetIsoDate even if the phone is locked or app is killed!
