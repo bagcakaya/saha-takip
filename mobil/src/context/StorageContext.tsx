@@ -451,7 +451,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('Background checkIn save error:', err);
       });
 
-      // Pre-schedule shift checkout reminders (+10m staff, +20m admin) if assigned
+      // Pre-schedule shift checkout reminders (0m staff, +10m admin) if assigned
       if (!isUserAdminRole && shiftAssignments && shiftAssignments.length > 0 && shifts && shifts.length > 0) {
         const assignment = shiftAssignments.find((a) => a.userId === user.id);
         if (assignment) {
@@ -461,29 +461,45 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const nowD = new Date();
             const shiftEndDate = new Date();
             shiftEndDate.setHours(endH, endM, 0, 0);
-            const shiftEndMs = shiftEndDate.getTime();
-            const target10mMs = shiftEndMs + 10 * 60 * 1000;
-            const target20mMs = shiftEndMs + 20 * 60 * 1000;
 
-            if (target10mMs > nowD.getTime() || target20mMs > nowD.getTime()) {
+            // Cross-midnight / overnight shift handling
+            const [startH, startM] = (assignedShift.startTime || '08:30').split(':').map(Number);
+            const startTotalMin = (isNaN(startH) ? 8 : startH) * 60 + (isNaN(startM) ? 30 : startM);
+            const endTotalMin = endH * 60 + endM;
+            if (endTotalMin <= startTotalMin) {
+              const currentTotalMin = nowD.getHours() * 60 + nowD.getMinutes();
+              if (currentTotalMin >= startTotalMin) {
+                shiftEndDate.setDate(shiftEndDate.getDate() + 1);
+              }
+            }
+
+            const shiftEndMs = shiftEndDate.getTime();
+            const targetStaffMs = shiftEndMs; // Tam vardiya saatinde
+            const targetAdminMs = shiftEndMs + 10 * 60 * 1000; // 10 dk sonra
+
+            if (targetStaffMs > nowD.getTime() || targetAdminMs > nowD.getTime()) {
               MobilePushService.scheduleShiftCheckoutPush({
                 recordId: newRec.id,
                 userId: user.id,
                 userName: user.name,
                 shiftName: assignedShift.name || assignedShift.endTime,
-                target10mIso: new Date(target10mMs).toISOString(),
-                target20mIso: new Date(target20mMs).toISOString(),
+                targetStaffIso: targetStaffMs > nowD.getTime() ? new Date(targetStaffMs).toISOString() : undefined,
+                targetAdminIso: targetAdminMs > nowD.getTime() ? new Date(targetAdminMs).toISOString() : undefined,
                 companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
-              }).then(({ shift10mId, shift20mId }) => {
-                if (shift10mId || shift20mId) {
+              }).then(({ shiftStaffId, shiftAdminId, shift10mId, shift20mId }) => {
+                const sId = shiftStaffId || shift10mId;
+                const aId = shiftAdminId || shift20mId;
+                if (sId || aId) {
                   setAttendanceRecords((prev) => {
                     const idx = prev.findIndex((r) => r.id === newRec.id);
                     if (idx === -1) return prev;
                     const up = [...prev];
                     up[idx] = {
                       ...up[idx],
-                      shiftCheckout10mNotificationId: shift10mId,
-                      shiftCheckout20mNotificationId: shift20mId,
+                      shiftCheckoutStaffNotificationId: sId,
+                      shiftCheckoutAdminNotificationId: aId,
+                      shiftCheckout10mNotificationId: sId,
+                      shiftCheckout20mNotificationId: aId,
                     };
                     StorageService.saveAttendanceRecords(up).catch(() => {});
                     return up;
@@ -609,11 +625,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       // Cancel any pre-scheduled shift checkout reminders
-      if (activeRec.shiftCheckout10mNotificationId) {
-        MobilePushService.cancelScheduledPush(activeRec.shiftCheckout10mNotificationId).catch(() => {});
+      const staffNotifId = activeRec.shiftCheckoutStaffNotificationId || activeRec.shiftCheckout10mNotificationId;
+      if (staffNotifId) {
+        MobilePushService.cancelScheduledPush(staffNotifId).catch(() => {});
       }
-      if (activeRec.shiftCheckout20mNotificationId) {
-        MobilePushService.cancelScheduledPush(activeRec.shiftCheckout20mNotificationId).catch(() => {});
+      const adminNotifId = activeRec.shiftCheckoutAdminNotificationId || activeRec.shiftCheckout20mNotificationId;
+      if (adminNotifId) {
+        MobilePushService.cancelScheduledPush(adminNotifId).catch(() => {});
       }
 
       // Push notification to admins about check-out

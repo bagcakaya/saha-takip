@@ -228,7 +228,7 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   if (!apiUrl) return false;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
       method: 'POST',
@@ -2043,12 +2043,13 @@ export const StorageService = {
           cloudBreakEnd > 0 &&
           !cloudRec.isOnBreak &&
           localBreakStart > 0 &&
-          localBreakStart <= cloudBreakEnd
+          localBreakStart <= cloudBreakEnd &&
+          (!localLastBreak?.id || !cloudLastBreak?.id || localLastBreak.id === cloudLastBreak.id)
         );
         const isCloudBreakClosure = Boolean(
           !cloudRec.isOnBreak &&
           localRec.isOnBreak &&
-          (isSameBreakEndedByCloud || isLocalBreakStartedBeforeOrDuringCloudBreak || (!localLastBreak?.endTime && cloudBreakEnd > 0))
+          (isSameBreakEndedByCloud || isLocalBreakStartedBeforeOrDuringCloudBreak)
         );
 
         if (isCloudBreakClosure) {
@@ -2087,7 +2088,7 @@ export const StorageService = {
           const localLegitimatelyStartedNewBreak = Boolean(
             localRec.isOnBreak &&
             !cloudRec.isOnBreak &&
-            localBreakStart > cloudBreakEnd &&
+            localBreakStart >= cloudBreakEnd &&
             localBreaks.length >= cloudBreaks.length
           );
 

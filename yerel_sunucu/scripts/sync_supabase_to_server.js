@@ -59,29 +59,26 @@ async function runSync() {
   // 2. Verileri Çek ve Yerel Sunucuya Aktar
   console.log('\n>> [2/4] Canlı veriler Supabase bulutundan çekilip Yerel Sunucuya aktarılıyor...');
 
-  // A. standard_tasks slotları (1-60 arası tek tek çekilip aktarılır, timeout engellenir)
+  // A. standard_tasks slotları (Tüm slotlar Supabase'den çekilip eşitlenir)
   console.log('\n   A. standard_tasks slotları aktarılıyor...');
   let syncedSlots = 0;
-  for (let slotId = 1; slotId <= 60; slotId++) {
-    try {
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('id, tasks')
-        .eq('id', slotId)
-        .maybeSingle();
-
-      if (error) {
-        // Hata alırsak atla
-        continue;
+  try {
+    const { data: slotList, error: slotErr } = await supabase.from('standard_tasks').select('id, tasks').order('id', { ascending: true });
+    if (!slotErr && slotList && Array.isArray(slotList)) {
+      for (const slot of slotList) {
+        try {
+          if (slot.tasks) {
+            await postJson(`/api/standard_tasks/${slot.id}`, { tasks: slot.tasks });
+            syncedSlots++;
+            process.stdout.write(`\r      -> Slot ${slot.id} aktarıldı (${syncedSlots}/${slotList.length} slot tamamlandı)`);
+          }
+        } catch (err) {
+          console.warn(`\n      ⚠️ Slot ${slot.id} aktarım hatası:`, err.message);
+        }
       }
-      if (data && data.tasks) {
-        await postJson(`/api/standard_tasks/${data.id}`, { tasks: data.tasks });
-        syncedSlots++;
-        process.stdout.write(`\r      -> Slot ${data.id} aktarıldı (${syncedSlots} slot tamamlandı)`);
-      }
-    } catch (err) {
-      console.warn(`\n      ⚠️ Slot ${slotId} aktarım hatası:`, err.message);
     }
+  } catch (err) {
+    console.warn('\n   ⚠️ standard_tasks liste çekme hatası:', err.message);
   }
   console.log(`\n   ✓ ${syncedSlots} adet standard_tasks slotu başarıyla eşitlendi.`);
 

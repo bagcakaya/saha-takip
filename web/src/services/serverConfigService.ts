@@ -142,7 +142,7 @@ export const ServerConfigService = {
 
     const healthUrl = getResolvedApiUrl(rawUrl, '/api/health');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 9000); // 9s timeout
+    const timer = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
     try {
       const res = await fetch(healthUrl, {
@@ -177,7 +177,7 @@ export const ServerConfigService = {
       if (err.name === 'AbortError') {
         return {
           success: false,
-          message: 'Zaman aşımı (9sn). Sunucuya ulaşılamadı. IP adresini ve 3001 portunu kontrol edin.',
+          message: 'Zaman aşımı (15sn). Sunucuya ulaşılamadı. IP adresini ve 3001 portunu kontrol edin.',
         };
       }
       return {

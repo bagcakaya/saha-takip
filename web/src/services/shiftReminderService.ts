@@ -8,17 +8,17 @@ export interface ShiftReminderCheckParams {
   shifts: ShiftDefinition[];
   shiftAssignments: ShiftAssignment[];
   companyCode: string;
-  currentUser?: { id: string; role?: string; name?: string };
+  currentUser?: { id: string; role?: string; name?: string; companyCode?: string };
   onUpdateRecord?: (record: AttendanceRecord) => void;
 }
 
 const LOCAL_DEDUP_PREFIX = '@shift_checkout_alert_';
 
-function getLocalDedupKey(dateStr: string, userId: string, type: '10m' | '20m'): string {
+function getLocalDedupKey(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): string {
   return `${LOCAL_DEDUP_PREFIX}${dateStr}_${userId}_${type}`;
 }
 
-function hasSentLocalAlert(dateStr: string, userId: string, type: '10m' | '20m'): boolean {
+function hasSentLocalAlert(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): boolean {
   if (typeof localStorage === 'undefined') return false;
   try {
     return localStorage.getItem(getLocalDedupKey(dateStr, userId, type)) === '1';
@@ -27,7 +27,7 @@ function hasSentLocalAlert(dateStr: string, userId: string, type: '10m' | '20m')
   }
 }
 
-function markSentLocalAlert(dateStr: string, userId: string, type: '10m' | '20m'): void {
+function markSentLocalAlert(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(getLocalDedupKey(dateStr, userId, type), '1');
@@ -84,14 +84,19 @@ export const ShiftReminderService = {
 
   /**
    * Calculates exact shift end and reminder thresholds for today:
-   * - shiftEndMs
-   * - target10mMs (+10 minutes after shift end)
-   * - target20mMs (+20 minutes after shift end)
+   * - shiftEndMs / targetStaffMs: Exact shift end time
+   * - targetAdminMs: 10 minutes after shift end time (+10m)
    */
   calculateShiftTimestamps(
     shift: ShiftDefinition,
     assignment?: ShiftAssignment
-  ): { shiftEndMs: number; target10mMs: number; target20mMs: number } | null {
+  ): {
+    shiftEndMs: number;
+    targetStaffMs: number;
+    targetAdminMs: number;
+    target10mMs: number;
+    target20mMs: number;
+  } | null {
     const endTimeStr = shift.endTime || assignment?.endTime;
     if (!endTimeStr || !endTimeStr.includes(':')) return null;
 
@@ -117,74 +122,94 @@ export const ShiftReminderService = {
     }
 
     const shiftEndMs = shiftEndDate.getTime();
-    const target10mMs = shiftEndMs + 10 * 60 * 1000;
+    const targetStaffMs = shiftEndMs; // Tam vardiya saatinde personele
+    const targetAdminMs = shiftEndMs + 10 * 60 * 1000; // 10 dakika sonra yöneticiye
     const target20mMs = shiftEndMs + 20 * 60 * 1000;
 
-    return { shiftEndMs, target10mMs, target20mMs };
+    return {
+      shiftEndMs,
+      targetStaffMs,
+      targetAdminMs,
+      target10mMs: targetAdminMs,
+      target20mMs,
+    };
   },
 
   /**
    * Pre-schedules push notifications via OneSignal cloud server when staff checks in:
-   * 1. At shift end + 10 min: Delivered directly to staff member's locked phone.
-   * 2. At shift end + 20 min: Delivered directly to admin(s).
+   * 1. At EXACT shift end time: Delivered directly to staff member's locked phone.
+   *    "Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!"
+   * 2. At shift end + 10 min: Delivered directly to admin(s) if staff hasn't checked out.
+   *    "XXXX XXXXX mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır."
    * If staff clicks "İşten Çıkış Yaptım", these pre-scheduled pushes are instantly cancelled!
    */
   async scheduleShiftCheckoutReminders(params: {
     record: AttendanceRecord;
     shift: ShiftDefinition;
     companyCode: string;
-  }): Promise<{ shift10mId?: string; shift20mId?: string }> {
+  }): Promise<{
+    shiftStaffId?: string;
+    shiftAdminId?: string;
+    shift10mId?: string;
+    shift20mId?: string;
+  }> {
     const { record, shift, companyCode } = params;
     const timestamps = this.calculateShiftTimestamps(shift);
     if (!timestamps) return {};
 
     const now = Date.now();
-    let shift10mId: string | undefined;
-    let shift20mId: string | undefined;
+    let shiftStaffId: string | undefined;
+    let shiftAdminId: string | undefined;
 
-    const comp = (companyCode || record.companyCode || 'POLATLAR').toUpperCase();
+    const comp = (record.companyCode || shift.companyCode || companyCode || 'POLATLAR').trim().toUpperCase();
     const dateStr = record.date || this.getTodayDateString();
+    const staffName = record.userName || 'Personel';
 
     try {
-      // 1. Pre-schedule 10m reminder to staff if target is in the future
-      if (timestamps.target10mMs > now) {
-        const iso10m = new Date(timestamps.target10mMs).toISOString();
-        const res10m = await OneSignalService.sendPushNotification({
+      // 1. Pre-schedule reminder to staff at EXACT shift end time if target is in the future
+      if (timestamps.targetStaffMs > now) {
+        const isoStaff = new Date(timestamps.targetStaffMs).toISOString();
+        const resStaff = await OneSignalService.sendPushNotification({
           title: '🔔 Mesai Çıkış Hatırlatması',
-          message: `Sayın ${record.userName || 'Personelimiz'}, vardiya saatiniz (${shift.name || shift.endTime}) sona erdi. İşten çıkış yapmayı unuttuysanız lütfen mesai çıkışınızı yapınız.`,
+          message: 'Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!',
           targetMode: 'custom',
           targetUserIds: [record.userId],
           companyCode: comp,
-          sendAfter: iso10m,
-          collapseId: `shift_10m_${dateStr}_${record.userId}`,
+          sendAfter: isoStaff,
+          collapseId: `shift_staff_${dateStr}_${record.userId}`,
           url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
         });
-        if (res10m?.success && res10m.data?.id) {
-          shift10mId = res10m.data.id;
+        if (resStaff?.success && resStaff.data?.id) {
+          shiftStaffId = resStaff.data.id;
         }
       }
 
-      // 2. Pre-schedule 20m reminder to admin if target is in the future
-      if (timestamps.target20mMs > now) {
-        const iso20m = new Date(timestamps.target20mMs).toISOString();
-        const res20m = await OneSignalService.sendPushNotification({
-          title: `⚠️ Vardiya Çıkış Gecikmesi: ${record.userName}`,
-          message: `${record.userName} isimli personelin vardiya saati (${shift.name || shift.endTime}) bitiminden 20 dakika geçmesine rağmen işten çıkış kaydı yapılmadı.`,
+      // 2. Pre-schedule reminder to admin at shift end + 10 min if target is in the future
+      if (timestamps.targetAdminMs > now) {
+        const isoAdmin = new Date(timestamps.targetAdminMs).toISOString();
+        const resAdmin = await OneSignalService.sendPushNotification({
+          title: `⚠️ Vardiya Çıkış Gecikmesi: ${staffName}`,
+          message: `${staffName} mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır.`,
           targetMode: 'admin',
           companyCode: comp,
-          sendAfter: iso20m,
-          collapseId: `shift_20m_${dateStr}_${record.userId}`,
+          sendAfter: isoAdmin,
+          collapseId: `shift_admin_${dateStr}_${record.userId}`,
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         });
-        if (res20m?.success && res20m.data?.id) {
-          shift20mId = res20m.data.id;
+        if (resAdmin?.success && resAdmin.data?.id) {
+          shiftAdminId = resAdmin.data.id;
         }
       }
     } catch (e) {
       console.warn('[ShiftReminderService] scheduleShiftCheckoutReminders error:', e);
     }
 
-    return { shift10mId, shift20mId };
+    return {
+      shiftStaffId,
+      shiftAdminId,
+      shift10mId: shiftStaffId,
+      shift20mId: shiftAdminId,
+    };
   },
 
   /**
@@ -192,10 +217,16 @@ export const ShiftReminderService = {
    */
   cancelShiftCheckoutReminders(record: AttendanceRecord, companyCode?: string): void {
     const comp = (companyCode || record.companyCode || 'POLATLAR').toUpperCase();
-    if (record.shiftCheckout10mNotificationId) {
+    if (record.shiftCheckoutStaffNotificationId) {
+      FastActionAgent.enqueueCancelNotification(record.shiftCheckoutStaffNotificationId, comp);
+    }
+    if (record.shiftCheckoutAdminNotificationId) {
+      FastActionAgent.enqueueCancelNotification(record.shiftCheckoutAdminNotificationId, comp);
+    }
+    if (record.shiftCheckout10mNotificationId && record.shiftCheckout10mNotificationId !== record.shiftCheckoutStaffNotificationId) {
       FastActionAgent.enqueueCancelNotification(record.shiftCheckout10mNotificationId, comp);
     }
-    if (record.shiftCheckout20mNotificationId) {
+    if (record.shiftCheckout20mNotificationId && record.shiftCheckout20mNotificationId !== record.shiftCheckoutAdminNotificationId) {
       FastActionAgent.enqueueCancelNotification(record.shiftCheckout20mNotificationId, comp);
     }
   },
@@ -203,10 +234,10 @@ export const ShiftReminderService = {
   /**
    * Periodic runner / client-side agent check:
    * Evaluates all staff with assigned shifts for today.
+   * If shift end has arrived:
+   *   -> Sends instant reminder push to staff: "Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!"
    * If shift end has elapsed by 10 minutes and staff hasn't checked out:
-   *   -> Sends 10m reminder push to staff.
-   * If shift end has elapsed by 20 minutes and staff still hasn't checked out:
-   *   -> Sends 20m escalation push to Admin.
+   *   -> Sends escalation push to Admin: "XXXX XXXXX mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır."
    * STRICT: ONLY applies to staff members with an active shift assignment!
    */
   async checkShiftCheckoutReminders(params: ShiftReminderCheckParams): Promise<void> {
@@ -236,10 +267,10 @@ export const ShiftReminderService = {
       const timestamps = this.calculateShiftTimestamps(shift, assignment);
       if (!timestamps) continue;
 
-      const { shiftEndMs, target10mMs, target20mMs } = timestamps;
+      const { shiftEndMs, targetStaffMs, targetAdminMs } = timestamps;
 
-      // Has 10 minutes passed yet since shift end?
-      if (now < target10mMs) continue;
+      // Has shift end time arrived yet?
+      if (now < targetStaffMs) continue;
 
       // Ignore stale checks if shift ended more than 6 hours ago
       if (now - shiftEndMs > 6 * 60 * 60 * 1000) continue;
@@ -257,20 +288,25 @@ export const ShiftReminderService = {
 
       let recordUpdated = false;
       const updatedRecord: AttendanceRecord = { ...record };
+      const staffName = assignment.userName || record.userName || 'Personel';
+      const staffCompany = (record.companyCode || assignment.companyCode || shift.companyCode || comp).trim().toUpperCase();
 
-      // --- CHECK 1: +10 MINUTES (Reminder to Staff member) ---
-      const is10mNotified =
+      // --- CHECK 1: TAM VARDİYA SAATİNDE (Personele Hatırlatma) ---
+      const isStaffNotified =
+        updatedRecord.shiftCheckoutStaffNotified ||
         updatedRecord.shiftCheckout10mNotified ||
+        hasSentLocalAlert(todayStr, assignment.userId, 'staff') ||
         hasSentLocalAlert(todayStr, assignment.userId, '10m');
 
-      if (!is10mNotified && now >= target10mMs) {
-        markSentLocalAlert(todayStr, assignment.userId, '10m');
+      if (!isStaffNotified && now >= targetStaffMs) {
+        markSentLocalAlert(todayStr, assignment.userId, 'staff');
+        updatedRecord.shiftCheckoutStaffNotified = true;
+        updatedRecord.shiftCheckoutStaffNotifiedAt = now;
         updatedRecord.shiftCheckout10mNotified = true;
-        updatedRecord.shiftCheckout10mNotifiedAt = now;
         recordUpdated = true;
 
         const title = '🔔 Mesai Çıkış Hatırlatması';
-        const message = `Sayın ${assignment.userName || record.userName}, vardiya saatiniz (${shift.name || shift.endTime}) sona erdi. İşten çıkış yapmayı unuttuysanız lütfen mesai çıkışınızı yapınız.`;
+        const message = 'Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!';
 
         // If the current logged-in user is this staff member, sound in-app chime and show notification
         if (currentUser?.id === assignment.userId) {
@@ -288,28 +324,32 @@ export const ShiftReminderService = {
           message,
           targetMode: 'custom',
           targetUserIds: [assignment.userId],
-          companyCode: comp,
-          collapseId: `shift_10m_${todayStr}_${assignment.userId}`,
+          companyCode: staffCompany,
+          collapseId: `shift_staff_${todayStr}_${assignment.userId}`,
           url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
         });
       }
 
-      // --- CHECK 2: +20 MINUTES (Escalation to Admins) ---
-      const is20mNotified =
+      // --- CHECK 2: VARDİYA BİTİMİNDEN 10 DK SONRA (Yalnızca Kendi Şirketinin Yöneticisine Bildirim) ---
+      const isAdminNotified =
+        updatedRecord.shiftCheckoutAdminNotified ||
         updatedRecord.shiftCheckout20mNotified ||
+        hasSentLocalAlert(todayStr, assignment.userId, 'admin') ||
         hasSentLocalAlert(todayStr, assignment.userId, '20m');
 
-      if (!is20mNotified && now >= target20mMs) {
-        markSentLocalAlert(todayStr, assignment.userId, '20m');
+      if (!isAdminNotified && now >= targetAdminMs) {
+        markSentLocalAlert(todayStr, assignment.userId, 'admin');
+        updatedRecord.shiftCheckoutAdminNotified = true;
+        updatedRecord.shiftCheckoutAdminNotifiedAt = now;
         updatedRecord.shiftCheckout20mNotified = true;
-        updatedRecord.shiftCheckout20mNotifiedAt = now;
         recordUpdated = true;
 
-        const title = `⚠️ Vardiya Çıkış Gecikmesi: ${assignment.userName || record.userName}`;
-        const message = `${assignment.userName || record.userName} isimli personelin vardiya saati (${shift.name || shift.endTime}) bitiminden 20 dakika geçmesine rağmen işten çıkış kaydı yapılmadı.`;
+        const title = `⚠️ Vardiya Çıkış Gecikmesi: ${staffName}`;
+        const message = `${staffName} mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır.`;
 
-        // If current logged-in user is an admin, alert locally as well
-        if (currentUser?.role === 'admin') {
+        // If current logged-in user is an admin of THIS company, alert locally as well
+        const currentAdminComp = (currentUser?.companyCode || comp).trim().toUpperCase();
+        if (currentUser?.role === 'admin' && (!currentUser?.companyCode || currentAdminComp === staffCompany)) {
           NotificationService.playChime();
           NotificationService.sendNotification(
             title,
@@ -318,13 +358,13 @@ export const ShiftReminderService = {
           );
         }
 
-        // Send hardware push notification to all admins of this company
+        // Send hardware push notification strictly to admins of THIS staff's company
         FastActionAgent.enqueuePushNotification({
           title,
           message,
           targetMode: 'admin',
-          companyCode: comp,
-          collapseId: `shift_20m_${todayStr}_${assignment.userId}`,
+          companyCode: staffCompany,
+          collapseId: `shift_admin_${todayStr}_${assignment.userId}`,
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
         });
       }

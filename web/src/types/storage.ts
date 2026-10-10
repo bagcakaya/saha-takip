@@ -293,7 +293,14 @@ export interface AttendanceRecord {
   totalBreakMinutes?: number;
   currentBreakNotificationId?: string;
 
-  // Vardiya Çıkış Hatırlatıcı Alanları (Shift checkout reminders: +10m staff, +20m admin)
+  // Vardiya Çıkış Hatırlatıcı Alanları (Shift checkout reminders: 0m staff, +10m admin)
+  shiftCheckoutStaffNotified?: boolean;
+  shiftCheckoutStaffNotifiedAt?: number;
+  shiftCheckoutStaffNotificationId?: string;
+  shiftCheckoutAdminNotified?: boolean;
+  shiftCheckoutAdminNotifiedAt?: number;
+  shiftCheckoutAdminNotificationId?: string;
+  // Geriye dönük uyumluluk alanları
   shiftCheckout10mNotified?: boolean;
   shiftCheckout10mNotifiedAt?: number;
   shiftCheckout10mNotificationId?: string;

@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { sql, getPool } = require('./db');
+const { runCloudSync } = require('./cloudSync');
 require('dotenv').config();
 
 const app = express();
@@ -461,10 +462,34 @@ app.post('/api/send-notification', async (req, res) => {
   }
 });
 
+// =========================================================================
+// 8. CLOUD SYNC ENDPOINTS (Supabase -> Yerel MSSQL Eşitleme)
+// =========================================================================
+app.all('/api/sync-cloud', async (req, res) => {
+  try {
+    const result = await runCloudSync(PORT, false);
+    res.json({ success: true, message: 'Bulut eşitlemesi başarıyla tamamlandı.', result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Başlat
 app.listen(PORT, '0.0.0.0', () => {
   console.log('================================================================');
   console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
   console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
   console.log('================================================================');
+
+  // Sunucu her açıldığında kapalı kalınan süredeki verileri Supabase'den otomatik çek
+  setTimeout(() => {
+    runCloudSync(PORT, false).catch((err) => {
+      console.warn('>> [Açılış Eşitlemesi Uyarısı]:', err.message);
+    });
+  }, 2500);
+
+  // Periyodik Otomatik Eşitleme (Her 30 dakikada bir kontrol)
+  setInterval(() => {
+    runCloudSync(PORT, true).catch(() => {});
+  }, 30 * 60 * 1000);
 });

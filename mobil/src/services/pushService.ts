@@ -83,63 +83,79 @@ export const MobilePushService = {
   },
 
   /**
-   * Schedules shift checkout reminders for staff (+10 min) and escalation to admin (+20 min)
+   * Schedules shift checkout reminders:
+   * 1. Staff: Exact shift end time ("Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!")
+   * 2. Admin: +10 min after shift end if staff hasn't checked out ("[Personel Adı-Soyadı] mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır.")
    */
   async scheduleShiftCheckoutPush(params: {
     recordId: string;
     userId: string;
     userName: string;
     shiftName: string;
-    target10mIso: string;
-    target20mIso: string;
+    targetStaffIso?: string;
+    targetAdminIso?: string;
+    target10mIso?: string;
+    target20mIso?: string;
     companyCode: string;
-  }): Promise<{ shift10mId?: string; shift20mId?: string }> {
-    let shift10mId: string | undefined;
-    let shift20mId: string | undefined;
+  }): Promise<{ shiftStaffId?: string; shiftAdminId?: string; shift10mId?: string; shift20mId?: string }> {
+    let shiftStaffId: string | undefined;
+    let shiftAdminId: string | undefined;
+
+    const staffIso = params.targetStaffIso || params.target10mIso;
+    const adminIso = params.targetAdminIso || params.target20mIso;
 
     try {
-      // 1. +10m reminder to staff
-      const res10m = await fetch(NOTIFICATION_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: '🔔 Mesai Çıkış Hatırlatması',
-          message: `Sayın ${params.userName}, vardiya saatiniz (${params.shiftName}) sona erdi. İşten çıkış yapmayı unuttuysanız lütfen mesai çıkışınızı yapınız.`,
-          targetUserIds: [params.userId],
-          companyCode: params.companyCode || 'POLATLAR',
-          send_after: params.target10mIso,
-          collapse_id: `shift_10m_${params.recordId}`,
-          url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
-        }),
-      });
-      if (res10m.ok) {
-        const d10 = await res10m.json();
-        if (d10?.id) shift10mId = d10.id;
+      // 1. Exact shift end time reminder to staff
+      if (staffIso) {
+        const resStaff = await fetch(NOTIFICATION_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: '🔔 Mesai Çıkış Hatırlatması',
+            message: 'Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!',
+            targetUserIds: [params.userId],
+            companyCode: params.companyCode || 'POLATLAR',
+            send_after: staffIso,
+            collapse_id: `shift_staff_${params.recordId}`,
+            url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+          }),
+        });
+        if (resStaff.ok) {
+          const dStaff = await resStaff.json();
+          if (dStaff?.id) shiftStaffId = dStaff.id;
+        }
       }
 
-      // 2. +20m escalation to admins
-      const res20m = await fetch(NOTIFICATION_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: `⚠️ Vardiya Çıkış Gecikmesi: ${params.userName}`,
-          message: `${params.userName} isimli personelin vardiya saati (${params.shiftName}) bitiminden 20 dakika geçmesine rağmen işten çıkış kaydı yapılmadı.`,
-          targetMode: 'admin',
-          companyCode: params.companyCode || 'POLATLAR',
-          send_after: params.target20mIso,
-          collapse_id: `shift_20m_${params.recordId}`,
-          url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-        }),
-      });
-      if (res20m.ok) {
-        const d20 = await res20m.json();
-        if (d20?.id) shift20mId = d20.id;
+      // 2. +10m escalation to admins
+      if (adminIso) {
+        const resAdmin = await fetch(NOTIFICATION_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: `⚠️ Vardiya Çıkış Gecikmesi: ${params.userName}`,
+            message: `${params.userName} mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır.`,
+            targetMode: 'admin',
+            companyCode: params.companyCode || 'POLATLAR',
+            send_after: adminIso,
+            collapse_id: `shift_admin_${params.recordId}`,
+            url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          }),
+        });
+        if (resAdmin.ok) {
+          const dAdmin = await resAdmin.json();
+          if (dAdmin?.id) shiftAdminId = dAdmin.id;
+        }
       }
     } catch (err) {
       console.warn('Failed to schedule shift checkout push from mobile:', err);
     }
 
-    return { shift10mId, shift20mId };
+    return {
+      shiftStaffId,
+      shiftAdminId,
+      shift10mId: shiftStaffId,
+      shift20mId: shiftAdminId,
+    };
   },
 
   /**

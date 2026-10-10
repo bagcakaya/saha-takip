@@ -4248,16 +4248,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         record,
         shift: assigned.shift,
         companyCode: compCode,
-      }).then(({ shift10mId, shift20mId }) => {
-        if (shift10mId || shift20mId) {
+      }).then(({ shiftStaffId, shiftAdminId, shift10mId, shift20mId }) => {
+        const sId = shiftStaffId || shift10mId;
+        const aId = shiftAdminId || shift20mId;
+        if (sId || aId) {
           setAttendanceRecords((prev) => {
             const idx = prev.findIndex((r) => r.id === record.id);
             if (idx === -1) return prev;
             const updated = [...prev];
             updated[idx] = {
               ...updated[idx],
-              shiftCheckout10mNotificationId: shift10mId,
-              shiftCheckout20mNotificationId: shift20mId,
+              shiftCheckoutStaffNotificationId: sId,
+              shiftCheckoutAdminNotificationId: aId,
+              shiftCheckout10mNotificationId: sId,
+              shiftCheckout20mNotificationId: aId,
             };
             FastActionAgent.enqueueAttendanceSync(compCode, updated);
             return updated;
@@ -5339,16 +5343,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           record: updatedRecord,
           shift: assigned.shift,
           companyCode: record.companyCode || compCode,
-        }).then(({ shift10mId, shift20mId }) => {
-          if (shift10mId || shift20mId) {
+        }).then(({ shiftStaffId, shiftAdminId, shift10mId, shift20mId }) => {
+          const sId = shiftStaffId || shift10mId;
+          const aId = shiftAdminId || shift20mId;
+          if (sId || aId) {
             setAttendanceRecords((prev) => {
               const i = prev.findIndex((r) => r.id === updatedRecord.id);
               if (i === -1) return prev;
               const up = [...prev];
               up[i] = {
                 ...up[i],
-                shiftCheckout10mNotificationId: shift10mId,
-                shiftCheckout20mNotificationId: shift20mId,
+                shiftCheckoutStaffNotificationId: sId,
+                shiftCheckoutAdminNotificationId: aId,
+                shiftCheckout10mNotificationId: sId,
+                shiftCheckout20mNotificationId: aId,
               };
               FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, up);
               return up;
@@ -6309,7 +6317,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [personalNotes, user?.id]);
 
   // --- VARDİYA ÇIKIŞ HATIRLATICI & ESCALATION SERVİSİ (Her 20 saniyede bir kontrol) ---
-  // Vardiya bitiminden 10 dk sonra çıkış yapmamış personele, 20 dk sonra yöneticiye bildirim
+  // Tam vardiya saatinde personele, 10 dk sonra çıkış yapmadıysa yöneticiye bildirim
   // SADECE vardiya tahsis edilen personel için çalışır.
   useEffect(() => {
     if (!attendanceRecords || attendanceRecords.length === 0 || !shiftAssignments || shiftAssignments.length === 0) {
