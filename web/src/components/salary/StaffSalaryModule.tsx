@@ -24,6 +24,7 @@ import {
   Briefcase,
   Check,
   Edit2,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
@@ -180,6 +181,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
   // Bildirim toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 2026 Toplam Açılır Kart Durumu (Aylık Belirlenen vs Ödenen ve Kalan Hak Ediş Dökümü)
+  const [isMonthlyBreakdownOpen, setIsMonthlyBreakdownOpen] = useState(false);
+  const [selectedBreakdownMonth, setSelectedBreakdownMonth] = useState<number | null>(null);
+  const [breakdownStaffSearch, setBreakdownStaffSearch] = useState('');
+  const [breakdownStaffStatusFilter, setBreakdownStaffStatusFilter] = useState<
+    'all' | 'remaining' | 'completed' | 'overpaid'
+  >('all');
 
   // Masaüstü için WhatsApp PDF gönderim rehberi modalı
   const [whatsappDesktopGuide, setWhatsappDesktopGuide] = useState<{
@@ -387,6 +396,179 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
     return { totalPaid, totalCash, totalBank, totalPaymentsCount };
   }, [salaryRecords, selectedYear, activeCompanyCode, filteredStaff]);
+
+  // 51 Personelin Tamamı için Aylık ve Yıllık Belirlenen Tutar, Ödenen Maaş ve Kalan Bakiye Analizi
+  const yearlyMonthlyStats = useMemo(() => {
+    const targetStaff = filteredStaff;
+
+    const monthlyData = Array.from({ length: 12 }, (_, i) => {
+      const monthNum = i + 1;
+      let totalAgreed = 0;
+      let totalPaid = 0;
+      let totalCash = 0;
+      let totalBank = 0;
+      let paymentsCount = 0;
+      let staffWithAgreedCount = 0;
+      let staffPaidCount = 0;
+
+      const staffDetails: {
+        staffId: string;
+        rawStaff: any;
+        staffName: string;
+        username?: string;
+        department?: string;
+        agreedAmount: number;
+        paidAmount: number;
+        cashAmount: number;
+        bankAmount: number;
+        remaining: number;
+        paymentsCount: number;
+        hasManualAgreed: boolean;
+        isAutoDepartment: boolean;
+      }[] = [];
+
+      targetStaff.forEach((st) => {
+        const staffDept = st.department?.trim();
+        const deptConfig = staffDept
+          ? (departmentSalaries || []).find(
+              (ds) =>
+                (ds.companyCode || '').toUpperCase() === activeCompanyCode &&
+                ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+            )
+          : undefined;
+
+        const rec = (salaryRecords || []).find(
+          (r) =>
+            r.companyCode === activeCompanyCode &&
+            r.userId === st.id &&
+            r.year === selectedYear &&
+            r.month === monthNum
+        );
+
+        // 1. Manuel belirlenen tutar
+        const hasManualAgreed = typeof rec?.agreedAmount === 'number' && rec.agreedAmount > 0;
+        // 2. Bölüm standart tutarı (belirlendiği aydan itibaren geçerli)
+        const deptEff = getEffectiveDepartmentSalary(
+          deptConfig,
+          selectedYear,
+          monthNum,
+          currentYear,
+          currentMonth
+        );
+        const isAutoDepartment = !hasManualAgreed && deptEff.isEffective && deptEff.salary > 0;
+        const resolvedAgreedAmount = hasManualAgreed
+          ? rec!.agreedAmount!
+          : isAutoDepartment
+          ? deptEff.salary
+          : 0;
+
+        if (resolvedAgreedAmount > 0) {
+          totalAgreed += resolvedAgreedAmount;
+          staffWithAgreedCount++;
+        }
+
+        // Ödemeler
+        let staffMonthPaid = 0;
+        let staffMonthCash = 0;
+        let staffMonthBank = 0;
+        let staffPaymentsCount = 0;
+
+        (rec?.payments || []).forEach((p) => {
+          const amt = p.amount || 0;
+          staffMonthPaid += amt;
+          totalPaid += amt;
+          if (p.paymentMethod === 'cash') {
+            staffMonthCash += amt;
+            totalCash += amt;
+          }
+          if (p.paymentMethod === 'bank') {
+            staffMonthBank += amt;
+            totalBank += amt;
+          }
+          paymentsCount++;
+          staffPaymentsCount++;
+        });
+
+        if (staffMonthPaid > 0) {
+          staffPaidCount++;
+        }
+
+        const staffRemaining = resolvedAgreedAmount - staffMonthPaid;
+
+        staffDetails.push({
+          staffId: st.id,
+          rawStaff: st,
+          staffName: st.name || st.username || 'İsimsiz Personel',
+          username: st.username,
+          department: st.department,
+          agreedAmount: resolvedAgreedAmount,
+          paidAmount: staffMonthPaid,
+          cashAmount: staffMonthCash,
+          bankAmount: staffMonthBank,
+          remaining: staffRemaining,
+          paymentsCount: staffPaymentsCount,
+          hasManualAgreed,
+          isAutoDepartment,
+        });
+      });
+
+      const remaining = totalAgreed - totalPaid;
+      const isPastOrCurrent =
+        selectedYear < currentYear ||
+        (selectedYear === currentYear && monthNum <= currentMonth);
+
+      // İsme göre sırala
+      staffDetails.sort((a, b) => a.staffName.localeCompare(b.staffName, 'tr-TR'));
+
+      return {
+        month: monthNum,
+        monthName: MONTH_NAMES[i],
+        totalAgreed,
+        totalPaid,
+        totalCash,
+        totalBank,
+        remaining, // Belirlenen - Verilen
+        paymentsCount,
+        staffWithAgreedCount,
+        staffPaidCount,
+        isPastOrCurrent,
+        isCurrent: selectedYear === currentYear && monthNum === currentMonth,
+        completionPercentage:
+          totalAgreed > 0
+            ? Math.min(100, Math.round((totalPaid / totalAgreed) * 100))
+            : totalPaid > 0
+            ? 100
+            : 0,
+        staffDetails,
+      };
+    });
+
+    // Yıllık Toplamlar (Tüm Ayların Birleşimi)
+    const grandTotalAgreed = monthlyData.reduce((acc, m) => acc + m.totalAgreed, 0);
+    const grandTotalPaid = monthlyData.reduce((acc, m) => acc + m.totalPaid, 0);
+    const grandTotalCash = monthlyData.reduce((acc, m) => acc + m.totalCash, 0);
+    const grandTotalBank = monthlyData.reduce((acc, m) => acc + m.totalBank, 0);
+    const grandTotalRemaining = grandTotalAgreed - grandTotalPaid; // Belirlenen Toplam - Verilen Toplam
+    const grandTotalPaymentsCount = monthlyData.reduce((acc, m) => acc + m.paymentsCount, 0);
+
+    return {
+      monthlyData,
+      grandTotalAgreed,
+      grandTotalPaid,
+      grandTotalCash,
+      grandTotalBank,
+      grandTotalRemaining,
+      grandTotalPaymentsCount,
+    };
+  }, [
+    filteredStaff,
+    salaryRecords,
+    departmentSalaries,
+    activeCompanyCode,
+    selectedYear,
+    currentYear,
+    currentMonth,
+  ]);
 
   // Belirli bir personel ve ay için kayıt getirici
   const getMonthRecord = (
@@ -1504,19 +1686,47 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
       {/* 2. Yıllık Özet KPI Kartları (Seçili Şubeye Göre Dinamik) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        {/* 1. 2026 Toplam Kalan Hak Ediş Kartı (Açılır Kart Tıklama Özellikli) */}
+        <div
+          onClick={() => setIsMonthlyBreakdownOpen((prev) => !prev)}
+          className={`p-4 rounded-2xl bg-white dark:bg-slate-900 border transition-all cursor-pointer select-none group relative overflow-hidden shadow-sm hover:shadow-md ${
+            isMonthlyBreakdownOpen
+              ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-emerald-500/10'
+              : 'border-slate-200 dark:border-slate-800 hover:border-emerald-400/50'
+          }`}
+          title="Aylara göre Belirlenen ve Ödenen Maaş dökümünü aç/kapat"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {selectedYear} Toplam
-            </span>
-            <Wallet className="w-4 h-4 text-emerald-500" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {selectedYear} Toplam Kalan
+              </span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                {isMonthlyBreakdownOpen ? 'Açık ▴' : 'Açılır Kart ▾'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-emerald-500">
+              <Wallet className="w-4 h-4" />
+              {isMonthlyBreakdownOpen ? (
+                <ChevronUp className="w-4 h-4 text-emerald-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 transition-colors" />
+              )}
+            </div>
           </div>
-          <p className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
-            {annualStats.totalPaid.toLocaleString('tr-TR')} ₺
+          <p className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 tracking-tight">
+            {yearlyMonthlyStats.grandTotalRemaining.toLocaleString('tr-TR')} ₺
           </p>
-          <span className="text-[10px] text-slate-400">
-            {annualStats.totalPaymentsCount} ödeme hareketi
-          </span>
+          <div className="flex flex-col gap-0.5 mt-1">
+            <span className="text-[10px] text-slate-400 flex items-center justify-between">
+              <span>Belirlenen: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{yearlyMonthlyStats.grandTotalAgreed.toLocaleString('tr-TR')} ₺</strong></span>
+              <span>Ödenen: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{yearlyMonthlyStats.grandTotalPaid.toLocaleString('tr-TR')} ₺</strong></span>
+            </span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 mt-0.5">
+              <span>{isMonthlyBreakdownOpen ? 'Aylık Tabloyu Gizle' : 'Aylara Göre Dökümü Gör'}</span>
+              <span>{isMonthlyBreakdownOpen ? '▴' : '▾'}</span>
+            </span>
+          </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -1572,6 +1782,515 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           </span>
         </div>
       </div>
+
+      {/* 2.1. 2026 Toplam Açılır Kart: Aylık Maaş & Kalan Hak Ediş Dökümü */}
+      {isMonthlyBreakdownOpen && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-emerald-500/30 dark:border-emerald-500/20 shadow-xl p-4 sm:p-6 space-y-6 animate-in fade-in slide-in-from-top-4 duration-300">
+          {/* Başlık ve Kapat Butonu */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    {selectedYear} Yılı Aylık Maaş & Hak Ediş Dökümü
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                      {filteredStaff.length} Personel
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Her ay için belirlenen toplam tutardan personele verilen maaşlar çıkarılarak hesaplanmıştır.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                onClick={() => setIsMonthlyBreakdownOpen(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <X className="w-4 h-4" />
+                Paneli Kapat
+              </button>
+            </div>
+          </div>
+
+          {/* 3'lü Özet Kart Çubuğu */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  🎯 Yıllık Belirlenen Toplam
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold">
+                  12 Ay
+                </span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1.5">
+                {yearlyMonthlyStats.grandTotalAgreed.toLocaleString('tr-TR')} ₺
+              </p>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Tüm personellerin yıllık toplam hak edişi
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+                  💸 Yıllık Ödenen (Verilen) Toplam
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
+                  {yearlyMonthlyStats.grandTotalPaymentsCount} Ödeme
+                </span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 mt-1.5">
+                {yearlyMonthlyStats.grandTotalPaid.toLocaleString('tr-TR')} ₺
+              </p>
+              <div className="flex items-center gap-2 text-[11px] text-blue-700/80 dark:text-blue-300/80 mt-0.5">
+                <span>Elden: {yearlyMonthlyStats.grandTotalCash.toLocaleString('tr-TR')} ₺</span>
+                <span>•</span>
+                <span>Banka: {yearlyMonthlyStats.grandTotalBank.toLocaleString('tr-TR')} ₺</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  ⚖️ Net Kalan Tutar (Fark)
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-bold">
+                  {yearlyMonthlyStats.grandTotalRemaining >= 0 ? 'Ödenecek Bakiye' : 'Fazla Ödeme'}
+                </span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5">
+                {yearlyMonthlyStats.grandTotalRemaining.toLocaleString('tr-TR')} ₺
+              </p>
+              <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                Belirlenen Tutar Toplamı - Verilen Maaşlar Toplamı
+              </span>
+            </div>
+          </div>
+
+          {/* 12 Aylık Kartlar Grid'i */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span>🗓️ {selectedYear} Aylık Hak Ediş & Ödeme Kırılımı</span>
+                <span className="text-xs font-normal text-slate-400 hidden sm:inline">
+                  (Herhangi bir aya tıklayarak {filteredStaff.length} personelin detaylı listesini görebilirsiniz)
+                </span>
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {yearlyMonthlyStats.monthlyData.map((m) => {
+                const isSelected = selectedBreakdownMonth === m.month;
+                const isCurrent = m.isCurrent;
+                const hasAgreed = m.totalAgreed > 0;
+
+                return (
+                  <div
+                    key={m.month}
+                    onClick={() => {
+                      setSelectedBreakdownMonth(isSelected ? null : m.month);
+                    }}
+                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none text-left relative ${
+                      isSelected
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-500 ring-2 ring-emerald-500/30 shadow-md'
+                        : isCurrent
+                        ? 'bg-blue-50/30 dark:bg-blue-950/10 border-blue-300 dark:border-blue-800 hover:border-emerald-400'
+                        : 'bg-slate-50/50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    {/* Ay Adı ve Rozet */}
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                          {String(m.month).padStart(2, '0')}. {m.monthName}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                            Şu An
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        m.remaining === 0 && hasAgreed
+                          ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                          : m.remaining > 0
+                          ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                          : m.remaining < 0
+                          ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                      }`}>
+                        {m.remaining === 0 && hasAgreed
+                          ? 'Tamamlandı'
+                          : m.remaining > 0
+                          ? 'Kalan Var'
+                          : m.remaining < 0
+                          ? 'Fazla Ödendi'
+                          : 'İşlem Yok'}
+                      </span>
+                    </div>
+
+                    {/* Kalan Tutar (Belirlenen - Verilen) */}
+                    <div className="mt-2.5">
+                      <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        Kalan Tutar (Fark)
+                      </span>
+                      <p className={`text-lg font-black tracking-tight ${
+                        m.remaining > 0
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : m.remaining === 0 && hasAgreed
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : m.remaining < 0
+                          ? 'text-purple-600 dark:text-purple-400'
+                          : 'text-slate-400 dark:text-slate-500'
+                      }`}>
+                        {m.remaining.toLocaleString('tr-TR')} ₺
+                      </p>
+                    </div>
+
+                    {/* Belirlenen ve Verilen Rakamları */}
+                    <div className="space-y-1 mt-2 pt-2 border-t border-slate-200/50 dark:border-slate-700/50 text-[11px]">
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-500 dark:text-slate-400">Belirlenen Tutar:</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          {m.totalAgreed.toLocaleString('tr-TR')} ₺
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-500 dark:text-slate-400">Verilen Maaş:</span>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">
+                          {m.totalPaid.toLocaleString('tr-TR')} ₺
+                        </span>
+                      </div>
+                      {(m.totalCash > 0 || m.totalBank > 0) && (
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                          <span>Nakit: {m.totalCash.toLocaleString('tr-TR')} ₺</span>
+                          <span>Banka: {m.totalBank.toLocaleString('tr-TR')} ₺</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* İlerleme Çubuğu */}
+                    <div className="mt-2.5">
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                        <span>Ödeme İlerlemesi</span>
+                        <span className="font-bold text-slate-600 dark:text-slate-300">
+                          %{m.completionPercentage}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            m.completionPercentage >= 100
+                              ? 'bg-emerald-500'
+                              : m.completionPercentage > 0
+                              ? 'bg-blue-500'
+                              : 'bg-slate-300 dark:bg-slate-600'
+                          }`}
+                          style={{ width: `${Math.min(100, m.completionPercentage)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tıklama Butonu */}
+                    <div className="mt-3 pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      <span>{isSelected ? 'Detayları Gizle' : `${filteredStaff.length} Kişi Listesi`}</span>
+                      <span>{isSelected ? '▴' : '▾'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Seçili Ayın Personel Listesi Dökümü (Drill-Down) */}
+          {selectedBreakdownMonth !== null && (() => {
+            const activeMonthData = yearlyMonthlyStats.monthlyData.find(
+              (m) => m.month === selectedBreakdownMonth
+            );
+            if (!activeMonthData) return null;
+
+            // Filtreleme (arama + durum)
+            const staffList = activeMonthData.staffDetails.filter((item) => {
+              if (breakdownStaffSearch.trim()) {
+                const q = breakdownStaffSearch.toLowerCase().trim();
+                const matchName = (item.staffName || '').toLowerCase().includes(q);
+                const matchUser = (item.username || '').toLowerCase().includes(q);
+                const matchDept = (item.department || '').toLowerCase().includes(q);
+                if (!matchName && !matchUser && !matchDept) return false;
+              }
+              if (breakdownStaffStatusFilter === 'remaining') {
+                return item.remaining > 0;
+              }
+              if (breakdownStaffStatusFilter === 'completed') {
+                return item.remaining === 0 && item.agreedAmount > 0;
+              }
+              if (breakdownStaffStatusFilter === 'overpaid') {
+                return item.remaining < 0;
+              }
+              return true;
+            });
+
+            const remainingCount = activeMonthData.staffDetails.filter((s) => s.remaining > 0).length;
+            const completedCount = activeMonthData.staffDetails.filter(
+              (s) => s.remaining === 0 && s.agreedAmount > 0
+            ).length;
+            const overpaidCount = activeMonthData.staffDetails.filter((s) => s.remaining < 0).length;
+
+            return (
+              <div className="mt-6 pt-6 border-t-2 border-slate-200 dark:border-slate-800 space-y-4">
+                {/* Alt Başlık & Ay Özeti */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                      {String(activeMonthData.month).padStart(2, '0')}
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        {activeMonthData.monthName} {selectedYear} - Personel Maaş & Kalan Tablosu
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {activeMonthData.staffWithAgreedCount} personelin belirlenmiş hak edişi, {activeMonthData.staffPaidCount} personelin ödemesi var.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+                    <div className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <span className="text-slate-400">Belirlenen: </span>
+                      <strong className="text-slate-800 dark:text-slate-200">
+                        {activeMonthData.totalAgreed.toLocaleString('tr-TR')} ₺
+                      </strong>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <span className="text-slate-400">Ödenen: </span>
+                      <strong className="text-blue-600 dark:text-blue-400">
+                        {activeMonthData.totalPaid.toLocaleString('tr-TR')} ₺
+                      </strong>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-500/30 dark:border-emerald-500/30">
+                      <span className="text-slate-400">Kalan: </span>
+                      <strong className={activeMonthData.remaining > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                        {activeMonthData.remaining.toLocaleString('tr-TR')} ₺
+                      </strong>
+                    </div>
+                    <button
+                      onClick={() => setSelectedBreakdownMonth(null)}
+                      className="px-2.5 py-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
+                    >
+                      Kapat ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filtre ve Arama Çubuğu */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  {/* Sekmeler */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    <button
+                      onClick={() => setBreakdownStaffStatusFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                        breakdownStaffStatusFilter === 'all'
+                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      Tümü ({activeMonthData.staffDetails.length})
+                    </button>
+                    <button
+                      onClick={() => setBreakdownStaffStatusFilter('remaining')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                        breakdownStaffStatusFilter === 'remaining'
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+                      }`}
+                    >
+                      Kalanı Olanlar ({remainingCount})
+                    </button>
+                    <button
+                      onClick={() => setBreakdownStaffStatusFilter('completed')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                        breakdownStaffStatusFilter === 'completed'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                      }`}
+                    >
+                      Tamamı Ödenenler ({completedCount})
+                    </button>
+                    {overpaidCount > 0 && (
+                      <button
+                        onClick={() => setBreakdownStaffStatusFilter('overpaid')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                          breakdownStaffStatusFilter === 'overpaid'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100'
+                        }`}
+                      >
+                        Fazla Ödenenler ({overpaidCount})
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Bu ay içindeki personel arama kutusu */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Personel veya departman ara..."
+                      value={breakdownStaffSearch}
+                      onChange={(e) => setBreakdownStaffSearch(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    {breakdownStaffSearch && (
+                      <button
+                        onClick={() => setBreakdownStaffSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tablo / Liste */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">#</th>
+                        <th className="py-3 px-4">Personel</th>
+                        <th className="py-3 px-4">Bölüm</th>
+                        <th className="py-3 px-4 text-right">Belirlenen Tutar</th>
+                        <th className="py-3 px-4 text-right">Verilen Maaş</th>
+                        <th className="py-3 px-4 text-right">Kalan (Fark)</th>
+                        <th className="py-3 px-4 text-center">Durum</th>
+                        <th className="py-3 px-4 text-center">İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      {staffList.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-slate-400">
+                            Aramanıza veya seçilen filtreye uygun personel bulunamadı.
+                          </td>
+                        </tr>
+                      ) : (
+                        staffList.map((st, idx) => {
+                          const hasAgreed = st.agreedAmount > 0;
+                          const isFullyPaid = st.remaining === 0 && hasAgreed;
+                          const hasRemaining = st.remaining > 0;
+                          const isOverpaid = st.remaining < 0;
+
+                          return (
+                            <tr
+                              key={st.staffId}
+                              className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                            >
+                              <td className="py-3 px-4 text-slate-400 font-medium text-[11px]">
+                                {idx + 1}
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="font-bold text-slate-800 dark:text-slate-100">
+                                  {st.staffName}
+                                </div>
+                                {st.username && (
+                                  <div className="text-[10px] text-slate-400">@{st.username}</div>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px]">
+                                  {st.department || 'Genel'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="font-bold text-slate-700 dark:text-slate-200">
+                                  {st.agreedAmount.toLocaleString('tr-TR')} ₺
+                                </div>
+                                <div className="text-[9px] text-slate-400">
+                                  {st.hasManualAgreed
+                                    ? 'Özel Belirlenen'
+                                    : st.isAutoDepartment
+                                    ? 'Bölüm Standardı'
+                                    : 'Belirlenmedi'}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="font-bold text-blue-600 dark:text-blue-400">
+                                  {st.paidAmount.toLocaleString('tr-TR')} ₺
+                                </div>
+                                {(st.cashAmount > 0 || st.bankAmount > 0) && (
+                                  <div className="text-[9px] text-slate-400">
+                                    {st.cashAmount > 0 && `Nakit: ${st.cashAmount.toLocaleString('tr-TR')}₺ `}
+                                    {st.bankAmount > 0 && `Banka: ${st.bankAmount.toLocaleString('tr-TR')}₺`}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right font-black">
+                                <span
+                                  className={
+                                    hasRemaining
+                                      ? 'text-amber-600 dark:text-amber-400'
+                                      : isFullyPaid
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : isOverpaid
+                                      ? 'text-purple-600 dark:text-purple-400'
+                                      : 'text-slate-400'
+                                  }
+                                >
+                                  {st.remaining.toLocaleString('tr-TR')} ₺
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {isFullyPaid ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                    Ödendi
+                                  </span>
+                                ) : hasRemaining ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
+                                    Kalan Var
+                                  </span>
+                                ) : isOverpaid ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                    Fazla
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                    Tanımsız
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  onClick={() => {
+                                    handleOpenMonthModal(
+                                      st.rawStaff,
+                                      selectedYear,
+                                      activeMonthData.month
+                                    );
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] transition-colors border border-emerald-500/20"
+                                >
+                                  Ödeme / Düzenle
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {/* 3. Arama ve Şube Seçimi Çubuğu (Şubeli Firmalar İçin) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
