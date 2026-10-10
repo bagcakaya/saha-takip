@@ -345,30 +345,35 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     });
   }, [branches, companyStaff]);
 
-  // Filtrelenmiş personel listesi (Şube & Arama)
-  const filteredStaff = useMemo(() => {
+  // Şube bazlı filtrelenmiş personel listesi (Arama sorgusundan bağımsız, tüm firma veya seçili şube)
+  const branchStaff = useMemo(() => {
+    if (selectedBranchId === 'all') return companyStaff;
     return companyStaff.filter((st) => {
-      if (selectedBranchId !== 'all') {
-        const matchesBranch =
-          st.branchId === selectedBranchId ||
-          (branches &&
-            branches.some(
-              (b) =>
-                b.id === selectedBranchId &&
-                b.assignedUserIds &&
-                b.assignedUserIds.includes(st.id)
-            ));
-        if (!matchesBranch) return false;
-      }
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase().trim();
+      return (
+        st.branchId === selectedBranchId ||
+        (branches &&
+          branches.some(
+            (b) =>
+              b.id === selectedBranchId &&
+              b.assignedUserIds &&
+              b.assignedUserIds.includes(st.id)
+          ))
+      );
+    });
+  }, [companyStaff, selectedBranchId, branches]);
+
+  // Filtrelenmiş personel listesi (Şube & Arama - kart listesi için)
+  const filteredStaff = useMemo(() => {
+    if (!searchQuery.trim()) return branchStaff;
+    const q = searchQuery.toLowerCase().trim();
+    return branchStaff.filter((st) => {
       return (
         st.name?.toLowerCase().includes(q) ||
         st.username?.toLowerCase().includes(q) ||
         (st.phone && st.phone.toLowerCase().includes(q))
       );
     });
-  }, [companyStaff, selectedBranchId, searchQuery, branches]);
+  }, [branchStaff, searchQuery]);
 
   // Yıllık Finansal İstatistikler (Seçili şubeye göre dinamik hesaplanır)
   const annualStats = useMemo(() => {
@@ -377,7 +382,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     let totalBank = 0;
     let totalPaymentsCount = 0;
 
-    const targetStaffIds = new Set(filteredStaff.map((s) => s.id));
+    const targetStaffIds = new Set(branchStaff.map((s) => s.id));
 
     (salaryRecords || []).forEach((rec) => {
       if (
@@ -395,11 +400,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     });
 
     return { totalPaid, totalCash, totalBank, totalPaymentsCount };
-  }, [salaryRecords, selectedYear, activeCompanyCode, filteredStaff]);
+  }, [salaryRecords, selectedYear, activeCompanyCode, branchStaff]);
 
-  // 51 Personelin Tamamı için Aylık ve Yıllık Belirlenen Tutar, Ödenen Maaş ve Kalan Bakiye Analizi
+  // Tüm Firma / Şube Personelleri için Aylık ve Yıllık Belirlenen Tutar, Ödenen Maaş ve Kalan Bakiye Analizi
   const yearlyMonthlyStats = useMemo(() => {
-    const targetStaff = filteredStaff;
+    const targetStaff = branchStaff;
 
     const monthlyData = Array.from({ length: 12 }, (_, i) => {
       const monthNum = i + 1;
@@ -1773,7 +1778,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             <User className="w-4 h-4 text-purple-500" />
           </div>
           <p className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
-            {filteredStaff.length}
+            {branchStaff.length}
           </p>
           <span className="text-[10px] text-slate-400">
             {selectedBranchId === 'all'
@@ -1797,7 +1802,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
                     {selectedYear} Yılı Aylık Maaş & Hak Ediş Dökümü
                     <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                      {filteredStaff.length} Personel
+                      {branchStaff.length} Personel
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1880,7 +1885,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                 <span>🗓️ {selectedYear} Aylık Hak Ediş & Ödeme Kırılımı</span>
                 <span className="text-xs font-normal text-slate-400 hidden sm:inline">
-                  (Herhangi bir aya tıklayarak {filteredStaff.length} personelin detaylı listesini görebilirsiniz)
+                  (Herhangi bir aya tıklayarak {branchStaff.length} personelin detaylı listesini görebilirsiniz)
                 </span>
               </h4>
             </div>
@@ -2000,7 +2005,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
                     {/* Tıklama Butonu */}
                     <div className="mt-3 pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                      <span>{isSelected ? 'Detayları Gizle' : `${filteredStaff.length} Kişi Listesi`}</span>
+                      <span>{isSelected ? 'Detayları Gizle' : `${branchStaff.length} Kişi Listesi`}</span>
                       <span>{isSelected ? '▴' : '▾'}</span>
                     </div>
                   </div>
