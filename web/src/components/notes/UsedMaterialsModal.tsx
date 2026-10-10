@@ -24,7 +24,7 @@ export const UsedMaterialsModal: React.FC<UsedMaterialsModalProps> = ({
   useEffect(() => {
     if (isOpen && note) {
       setMaterials(note.usedMaterials || '');
-      setIsEditing(!isAdmin || !note.usedMaterials);
+      setIsEditing(!isAdmin);
       setIsSaving(false);
     }
   }, [isOpen, note, isAdmin]);
@@ -70,20 +70,36 @@ export const UsedMaterialsModal: React.FC<UsedMaterialsModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                hasExistingMaterials
+                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+              }`}
+            >
               <Package className="w-5 h-5" />
             </div>
             <div>
               <h3 id="used-materials-title" className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <span>Kullanılan Malzemeler</span>
-                {hasExistingMaterials && (
+                {hasExistingMaterials ? (
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-extrabold">
-                    Kayıtlı
+                    Kayıtlı (Yeşil)
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-extrabold">
+                    Kayıt Yok (Kırmızı)
                   </span>
                 )}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {isAdmin ? 'Yönetici İnceleme & Düzenleme Ekranı' : 'İş emrinde kullanılan malzemeleri kaydediniz'}
+                {isAdmin
+                  ? hasExistingMaterials
+                    ? 'Personel tarafından kaydedilen malzemeler'
+                    : 'Personel henüz malzeme kaydı yapmadı veya kaydetmedi'
+                  : hasExistingMaterials
+                  ? 'Kaydettiğiniz malzeme listesini güncelleyebilirsiniz'
+                  : 'İş emrinde kullanılan malzemeleri kaydediniz (Kaydedilmezse kırmızı kalır)'}
               </p>
             </div>
           </div>
@@ -121,7 +137,9 @@ export const UsedMaterialsModal: React.FC<UsedMaterialsModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Personel Tarafından Girilen Malzemeler:
+                  {hasExistingMaterials
+                    ? 'Personel Tarafından Girilen Malzemeler:'
+                    : 'Malzeme Kayıt Durumu:'}
                 </label>
                 <button
                   type="button"
@@ -129,13 +147,27 @@ export const UsedMaterialsModal: React.FC<UsedMaterialsModalProps> = ({
                   className="flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                 >
                   <Edit2 className="w-3 h-3" />
-                  <span>Düzenle</span>
+                  <span>{hasExistingMaterials ? 'Düzenle' : 'El İle Malzeme Ekle'}</span>
                 </button>
               </div>
 
-              <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[90px]">
-                {note.usedMaterials || 'Henüz bir malzeme bilgisi girilmemiş.'}
-              </div>
+              {hasExistingMaterials ? (
+                <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[90px]">
+                  {note.usedMaterials}
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-xs sm:text-sm font-medium text-rose-700 dark:text-rose-300 leading-relaxed min-h-[90px] flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center shrink-0 text-rose-600 dark:text-rose-400">
+                    <Package className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold block">Personel henüz herhangi bir malzeme kaydetmedi.</span>
+                    <span className="text-[11px] text-rose-600/80 dark:text-rose-400/80">
+                      Personel bu kısma herhangi bir malzeme girmediği veya kaydet demediği için buton kırmızı renkte gösterilmektedir.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* Edit / Input Mode (Staff or Admin in edit mode) */

@@ -109,9 +109,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     title: string;
   } | null>(null);
 
-  // Kullanılan malzemeler kontrolü ve yönetici / personel görünürlük kuralı
+  // Kullanılan malzemeler kontrolü (Personel kayıt yapmadıysa veya kaydet demediyse kırmızı, kayıt yapıldıysa yeşil)
   const hasMaterials = Boolean(note.usedMaterials && note.usedMaterials.trim().length > 0);
-  const showMaterialsBtn = !isAdmin || hasMaterials;
 
   // Only the creator or an Admin can edit or delete a note
   const canModify = isAdmin || isCreatedByMe;
@@ -481,21 +480,28 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           {note.content}
         </p>
 
-        {showMaterialsBtn && (
-          <button
-            type="button"
-            onClick={() => setIsMaterialsModalOpen(true)}
-            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer ${
-              hasMaterials
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
-                : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
-            }`}
-            title={hasMaterials ? 'Kullanılan Malzemeleri Görüntüle / Düzenle' : 'Kullanılan Malzemeleri Ekle'}
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Kullanılan Malzemeler</span>
-          </button>
-        )}
+        {/* Kullanılan Malzemeler Butonu: Kayıt yapıldıysa Yeşil, kayıt yapılmadıysa/boşsa Kırmızı */}
+        <button
+          type="button"
+          onClick={() => setIsMaterialsModalOpen(true)}
+          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer ${
+            hasMaterials
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
+              : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
+          }`}
+          title={
+            isAdmin
+              ? hasMaterials
+                ? 'Kullanılan Malzemeler (Personel Tarafından Kaydedildi - Yeşil)'
+                : 'Kullanılan Malzemeler (Henüz Malzeme Kaydı Yapılmadı - Kırmızı)'
+              : hasMaterials
+              ? 'Kullanılan Malzemeleri Görüntüle / Düzenle (Yeşil)'
+              : 'Kullanılan Malzemeleri Ekle (Kırmızı)'
+          }
+        >
+          <Package className="w-3.5 h-3.5" />
+          <span>Kullanılan Malzemeler</span>
+        </button>
       </div>
 
       {/* Attached Job Order Photos */}

@@ -114,6 +114,7 @@ interface StorageContextType {
   approveMultipleNotes: (ids: string[]) => Promise<{ success: boolean; count: number }>;
   completeNote: (id: string, completionNote?: string, completionPhotos?: string[]) => Promise<{ success: boolean; message: string }>;
   markNoteAsRead: (id: string) => Promise<{ success: boolean; message: string }>;
+  updateNoteMaterials: (id: string, usedMaterials: string) => Promise<{ success: boolean; message: string }>;
   addBranch: (params: {
     name: string;
     address: string;
@@ -1371,6 +1372,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: true, message: 'İş emri okundu olarak işaretlendi.' };
   };
 
+  const updateNoteMaterials = async (id: string, usedMaterials: string) => {
+    const trimmed = usedMaterials.trim();
+    const updated = notes.map((n) =>
+      n.id === id
+        ? {
+            ...n,
+            usedMaterials: trimmed.length > 0 ? trimmed : undefined,
+            updatedAt: Date.now(),
+          }
+        : n
+    );
+    setNotes(updated);
+    StorageService.saveNotes(updated).catch((err) => {
+      console.warn('Background saveNotes updateNoteMaterials error:', err);
+    });
+    return { success: true, message: 'Kullanılan malzemeler kaydedildi.' };
+  };
+
   const addBranch = async (params: {
     name: string;
     address: string;
@@ -1952,6 +1971,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         approveMultipleNotes,
         completeNote,
         markNoteAsRead,
+        updateNoteMaterials,
         addBranch,
         updateBranch,
         deleteBranch,

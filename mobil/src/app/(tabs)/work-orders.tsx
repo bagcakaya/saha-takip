@@ -42,6 +42,7 @@ import {
   Building2,
   Camera,
   UserCheck,
+  Package,
 } from 'lucide-react-native';
 import { GeneralNote } from '../../types/storage';
 import AddWorkOrderModal from '../../components/AddWorkOrderModal';
@@ -49,6 +50,7 @@ import { UserManagementModal } from '../../components/UserManagementModal';
 import { CreateCompanyModal } from '../../components/CreateCompanyModal';
 import { BranchManagementModal } from '../../components/BranchManagementModal';
 import { NotificationListModal } from '../../components/NotificationListModal';
+import UsedMaterialsModal from '../../components/UsedMaterialsModal';
 
 type FilterTab = 'all' | 'pending' | 'processed' | 'approved';
 
@@ -70,6 +72,7 @@ export default function WorkOrdersScreen() {
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
+  const [selectedNoteForMaterials, setSelectedNoteForMaterials] = useState<GeneralNote | null>(null);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -367,6 +370,21 @@ export default function WorkOrdersScreen() {
           >
             {item.content}
           </Text>
+
+          {/* Kullanılan Malzemeler Butonu: Kayıt yapıldıysa Yeşil, yapılmadıysa/boşsa Kırmızı */}
+          <TouchableOpacity
+            style={[
+              styles.usedMaterialsBtn,
+              {
+                backgroundColor: item.usedMaterials && item.usedMaterials.trim().length > 0 ? '#059669' : '#e11d48',
+              },
+            ]}
+            onPress={() => setSelectedNoteForMaterials(item)}
+            activeOpacity={0.8}
+          >
+            <Package size={13} color="#ffffff" />
+            <Text style={styles.usedMaterialsBtnText}>Kullanılan Malzemeler</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Job Order Photos (Görsel-4 style) */}
@@ -939,6 +957,14 @@ export default function WorkOrdersScreen() {
         onClose={() => setIsNotifModalOpen(false)}
       />
 
+      {/* Used Materials Modal */}
+      <UsedMaterialsModal
+        isOpen={Boolean(selectedNoteForMaterials)}
+        note={selectedNoteForMaterials}
+        onClose={() => setSelectedNoteForMaterials(null)}
+        isAdmin={isAdmin}
+      />
+
       {/* Lightbox Image Preview Modal */}
       <Modal
         visible={!!lightboxImage}
@@ -1291,6 +1317,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '500',
+  },
+  usedMaterialsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  usedMaterialsBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
   },
   photosSection: {
     gap: 6,
