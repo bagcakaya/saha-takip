@@ -2364,182 +2364,6 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
         )}
       </div>
 
-      {/* Görsel-2: Bölüm Bazlı Standart Maaş Tanımları Bölümü (Arama Kutusunun Hemen Altı) */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center border border-teal-200/60 dark:border-teal-900/40">
-              <Briefcase className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Bölüm & Standart Maaş Belirleme</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300">
-                  {activeCompanyName}
-                </span>
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Seçilen bölüme belirlenen tutar, belirlendiği aydan itibaren o bölümdeki personellerin aylık maaş hak edişine otomatik yazılır. Geçmiş aylar ve manuel seçimler korunur.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Bölüm Seçimi ve Altında Tutar Giriş Formu */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mt-3.5 items-end">
-          {/* Bölüm Açılır Seçimi */}
-          <div className={isCustomDeptInput ? 'sm:col-span-3' : 'sm:col-span-3'}>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Bölüm
-            </label>
-            <select
-              value={isCustomDeptInput ? '__NEW__' : selectedDeptForSalary}
-              onChange={(e) => handleSelectDeptForConfig(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
-            >
-              <option value="">-- Bölüm Seçiniz --</option>
-              {knownCompanyDepartments.map((dept) => {
-                const hasSalary = activeCompanyDeptSalaries.some(
-                  (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
-                );
-                return (
-                  <option key={dept} value={dept}>
-                    {dept} {hasSalary ? '✓' : ''}
-                  </option>
-                );
-              })}
-              <option value="__NEW__">➕ Yeni Bölüm Yaz...</option>
-            </select>
-          </div>
-
-          {/* Yeni Bölüm Yazılıyorsa Giriş Alanı */}
-          {isCustomDeptInput && (
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                Yeni Bölüm Adı
-              </label>
-              <input
-                type="text"
-                placeholder="Örn: Yazılım, Muhasebe..."
-                value={customDeptName}
-                onChange={(e) => setCustomDeptName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
-          )}
-
-          {/* Geçerlilik Başlangıcı (Ay) */}
-          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Geçerlilik Başlangıcı
-            </label>
-            <select
-              value={deptStartMonth}
-              onChange={(e) => setDeptStartMonth(Number(e.target.value))}
-              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
-            >
-              {MONTH_NAMES.map((m, idx) => (
-                <option key={idx + 1} value={idx + 1}>
-                  {m} {deptStartYear}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Tutar Giriş Alanı */}
-          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Tutar (₺)
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="0"
-                step="100"
-                placeholder="Örn: 30000"
-                value={deptSalaryInput}
-                onChange={(e) => setDeptSalaryInput(e.target.value)}
-                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                ₺
-              </span>
-            </div>
-          </div>
-
-          {/* Kaydet / Güncelle Butonu */}
-          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
-            <button
-              type="button"
-              onClick={handleSaveDeptSalary}
-              disabled={
-                isSavingDeptSalary ||
-                (!selectedDeptForSalary && !customDeptName.trim()) ||
-                !deptSalaryInput.trim()
-              }
-              className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Check className="w-4 h-4" />
-              <span>{isSavingDeptSalary ? 'Kaydediliyor...' : 'Tutarı Belirle'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Hafızadaki Kayıtlı Bölüm Rozetleri / Çipleri */}
-        {activeCompanyDeptSalaries.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mr-1">
-              Kayıtlı Bölüm Maaşları:
-            </span>
-            {activeCompanyDeptSalaries.map((ds) => {
-              const isCurrentSelected =
-                !isCustomDeptInput &&
-                selectedDeptForSalary.toLowerCase() === ds.department.toLowerCase();
-              const sYear = ds.startYear ?? (ds.updatedAt ? new Date(ds.updatedAt).getFullYear() : selectedYear);
-              const sMonth = ds.startMonth ?? (ds.updatedAt ? new Date(ds.updatedAt).getMonth() + 1 : currentMonth);
-              return (
-                <div
-                  key={ds.id || ds.department}
-                  onClick={() => handleSelectDeptForConfig(ds.department)}
-                  className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                    isCurrentSelected
-                      ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
-                      : 'bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-700 hover:border-teal-400'
-                  }`}
-                  title={`${ds.department} - ${MONTH_NAMES[sMonth - 1]} ${sYear}'den itibaren geçerli`}
-                >
-                  <Briefcase
-                    className={`w-3 h-3 ${
-                      isCurrentSelected ? 'text-white' : 'text-teal-600 dark:text-teal-400'
-                    }`}
-                  />
-                  <span>{ds.department}:</span>
-                  <span className={isCurrentSelected ? 'text-teal-100' : 'text-teal-700 dark:text-teal-300'}>
-                    {ds.defaultMonthlySalary.toLocaleString('tr-TR')} ₺
-                  </span>
-                  <span className={`text-[10px] font-normal ${isCurrentSelected ? 'text-teal-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                    ({MONTH_NAMES[sMonth - 1].slice(0, 3)} {sYear})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteDeptSalary(ds.department);
-                    }}
-                    className={`ml-0.5 p-0.5 rounded-full hover:bg-rose-500 hover:text-white transition-colors ${
-                      isCurrentSelected ? 'text-teal-200' : 'text-slate-400'
-                    }`}
-                    title="Bu bölüm tutarını sil"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* 4. Personel Kartları ve Açılır Çekmece (Accordion Drawer) */}
       {filteredStaff.length === 0 ? (
         <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800">
@@ -3002,6 +2826,182 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
           })}
         </div>
       )}
+
+      {/* Bölüm Bazlı Standart Maaş Tanımları Bölümü (Sayfanın En Altı) */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center border border-teal-200/60 dark:border-teal-900/40">
+              <Briefcase className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Bölüm & Standart Maaş Belirleme</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300">
+                  {activeCompanyName}
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Seçilen bölüme belirlenen tutar, belirlendiği aydan itibaren o bölümdeki personellerin aylık maaş hak edişine otomatik yazılır. Geçmiş aylar ve manuel seçimler korunur.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bölüm Seçimi ve Altında Tutar Giriş Formu */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mt-3.5 items-end">
+          {/* Bölüm Açılır Seçimi */}
+          <div className={isCustomDeptInput ? 'sm:col-span-3' : 'sm:col-span-3'}>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Bölüm
+            </label>
+            <select
+              value={isCustomDeptInput ? '__NEW__' : selectedDeptForSalary}
+              onChange={(e) => handleSelectDeptForConfig(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              <option value="">-- Bölüm Seçiniz --</option>
+              {knownCompanyDepartments.map((dept) => {
+                const hasSalary = activeCompanyDeptSalaries.some(
+                  (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
+                );
+                return (
+                  <option key={dept} value={dept}>
+                    {dept} {hasSalary ? '✓' : ''}
+                  </option>
+                );
+              })}
+              <option value="__NEW__">➕ Yeni Bölüm Yaz...</option>
+            </select>
+          </div>
+
+          {/* Yeni Bölüm Yazılıyorsa Giriş Alanı */}
+          {isCustomDeptInput && (
+            <div className="sm:col-span-3">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Yeni Bölüm Adı
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: Yazılım, Muhasebe..."
+                value={customDeptName}
+                onChange={(e) => setCustomDeptName(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          )}
+
+          {/* Geçerlilik Başlangıcı (Ay) */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Geçerlilik Başlangıcı
+            </label>
+            <select
+              value={deptStartMonth}
+              onChange={(e) => setDeptStartMonth(Number(e.target.value))}
+              className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              {MONTH_NAMES.map((m, idx) => (
+                <option key={idx + 1} value={idx + 1}>
+                  {m} {deptStartYear}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tutar Giriş Alanı */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Tutar (₺)
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="100"
+                placeholder="Örn: 30000"
+                value={deptSalaryInput}
+                onChange={(e) => setDeptSalaryInput(e.target.value)}
+                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                ₺
+              </span>
+            </div>
+          </div>
+
+          {/* Kaydet / Güncelle Butonu */}
+          <div className={isCustomDeptInput ? 'sm:col-span-2' : 'sm:col-span-3'}>
+            <button
+              type="button"
+              onClick={handleSaveDeptSalary}
+              disabled={
+                isSavingDeptSalary ||
+                (!selectedDeptForSalary && !customDeptName.trim()) ||
+                !deptSalaryInput.trim()
+              }
+              className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>{isSavingDeptSalary ? 'Kaydediliyor...' : 'Tutarı Belirle'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Hafızadaki Kayıtlı Bölüm Rozetleri / Çipleri */}
+        {activeCompanyDeptSalaries.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mr-1">
+              Kayıtlı Bölüm Maaşları:
+            </span>
+            {activeCompanyDeptSalaries.map((ds) => {
+              const isCurrentSelected =
+                !isCustomDeptInput &&
+                selectedDeptForSalary.toLowerCase() === ds.department.toLowerCase();
+              const sYear = ds.startYear ?? (ds.updatedAt ? new Date(ds.updatedAt).getFullYear() : selectedYear);
+              const sMonth = ds.startMonth ?? (ds.updatedAt ? new Date(ds.updatedAt).getMonth() + 1 : currentMonth);
+              return (
+                <div
+                  key={ds.id || ds.department}
+                  onClick={() => handleSelectDeptForConfig(ds.department)}
+                  className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    isCurrentSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-700 hover:border-teal-400'
+                  }`}
+                  title={`${ds.department} - ${MONTH_NAMES[sMonth - 1]} ${sYear}'den itibaren geçerli`}
+                >
+                  <Briefcase
+                    className={`w-3 h-3 ${
+                      isCurrentSelected ? 'text-white' : 'text-teal-600 dark:text-teal-400'
+                    }`}
+                  />
+                  <span>{ds.department}:</span>
+                  <span className={isCurrentSelected ? 'text-teal-100' : 'text-teal-700 dark:text-teal-300'}>
+                    {ds.defaultMonthlySalary.toLocaleString('tr-TR')} ₺
+                  </span>
+                  <span className={`text-[10px] font-normal ${isCurrentSelected ? 'text-teal-200' : 'text-slate-400 dark:text-slate-500'}`}>
+                    ({MONTH_NAMES[sMonth - 1].slice(0, 3)} {sYear})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDeptSalary(ds.department);
+                    }}
+                    className={`ml-0.5 p-0.5 rounded-full hover:bg-rose-500 hover:text-white transition-colors ${
+                      isCurrentSelected ? 'text-teal-200' : 'text-slate-400'
+                    }`}
+                    title="Bu bölüm tutarını sil"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ========================================================= */}
       {/* 5. İLGİLİ AYA TIKLANINCA AÇILAN DETAY KARTI (BLUR MODAL)  */}
