@@ -282,15 +282,17 @@ export const Header: React.FC<HeaderProps> = ({
       </button>
 
       {/* AI Assistant Button */}
-      <button
-        type="button"
-        onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
-        className="p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
-        title="Yapay Zekâ Asistanı (Sesli veya Yazılı)"
-        aria-label="Yapay Zekâ Asistanı"
-      >
-        <Sparkles className="w-4 h-4 animate-pulse text-indigo-600 dark:text-indigo-400" />
-      </button>
+      {isModulePermitted('ai_assistant', user, company) && (
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
+          className="p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
+          title="Yapay Zekâ Asistanı (Sesli veya Yazılı)"
+          aria-label="Yapay Zekâ Asistanı"
+        >
+          <Sparkles className="w-4 h-4 animate-pulse text-indigo-600 dark:text-indigo-400" />
+        </button>
+      )}
 
       <ThemeToggle />
 

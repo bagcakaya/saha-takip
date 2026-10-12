@@ -83,11 +83,17 @@ const MainApp: React.FC = () => {
 
   // Listen for AI Assistant open events and Alt+A hotkey
   useEffect(() => {
-    const handleOpenAi = () => setIsAiAssistantOpen(true);
+    const handleOpenAi = () => {
+      if (isModulePermitted('ai_assistant', user, company)) {
+        setIsAiAssistantOpen(true);
+      }
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        setIsAiAssistantOpen((prev) => !prev);
+        if (isModulePermitted('ai_assistant', user, company)) {
+          e.preventDefault();
+          setIsAiAssistantOpen((prev) => !prev);
+        }
       }
     };
 
@@ -97,7 +103,7 @@ const MainApp: React.FC = () => {
       window.removeEventListener('saha:open-ai-assistant', handleOpenAi);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [user, company]);
 
   // --- 1. History & Navigation Management for Android Back Button & iOS Swipe Back ---
   const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean; filter?: string }) => {
@@ -820,12 +826,16 @@ const MainApp: React.FC = () => {
       {isAdmin && <CariAlarmRingingModal />}
 
       {/* Yapay Zekâ Asistanı - Global Yüzen Buton & Modal */}
-      <AiFloatingButton onClick={() => setIsAiAssistantOpen(true)} />
-      <AiAssistantModal
-        isOpen={isAiAssistantOpen}
-        onClose={() => setIsAiAssistantOpen(false)}
-        onNavigateTab={(tab) => navigateToTab(tab as TabType)}
-      />
+      {isModulePermitted('ai_assistant', user, company) && (
+        <>
+          <AiFloatingButton onClick={() => setIsAiAssistantOpen(true)} />
+          <AiAssistantModal
+            isOpen={isAiAssistantOpen}
+            onClose={() => setIsAiAssistantOpen(false)}
+            onNavigateTab={(tab) => navigateToTab(tab as TabType)}
+          />
+        </>
+      )}
     </div>
   );
 };

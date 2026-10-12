@@ -220,19 +220,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             )}
 
             {/* Yapay Zekâ Asistanı */}
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
-              className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-black bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 hover:from-blue-600/20 hover:to-purple-600/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-all duration-150 cursor-pointer shadow-xs"
-            >
-              <div className="flex items-center gap-3">
-                <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-pulse" />
-                <span>AI Asistan</span>
-              </div>
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 uppercase">
-                Ücretsiz
-              </span>
-            </button>
+            {isModulePermitted('ai_assistant', user, company) && (
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
+                className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-black bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 hover:from-blue-600/20 hover:to-purple-600/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-all duration-150 cursor-pointer shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-pulse" />
+                  <span>AI Asistan</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 uppercase">
+                  Ücretsiz
+                </span>
+              </button>
+            )}
 
             {/* 1. Kurulumlar */}
             {isModulePermitted('installations', user, company) && (

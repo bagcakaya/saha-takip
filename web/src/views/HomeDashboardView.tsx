@@ -324,7 +324,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       glowColor: 'text-indigo-400',
       badgeText: 'Ücretsiz AI',
       action: () => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant')),
-      visible: true,
+      visible: isModulePermitted('ai_assistant', user, company),
     },
     {
       id: 'installations',

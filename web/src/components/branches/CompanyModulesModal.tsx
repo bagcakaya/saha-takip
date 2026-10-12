@@ -27,6 +27,7 @@ import {
   Receipt,
   Wallet,
   Tag,
+  Sparkles,
 } from 'lucide-react';
 import {
   Company,
@@ -54,6 +55,7 @@ const MODULE_ICONS: Record<string, any> = {
   logs: ShieldAlert,
   template: ListTodo,
   accounting: Calculator,
+  ai_assistant: Sparkles,
 };
 
 const SUB_MODULE_ICONS: Record<string, any> = {

@@ -522,6 +522,15 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
       },
     ],
   },
+  {
+    id: 'ai_assistant',
+    name: 'Yapay Zekâ Asistanı',
+    shortTitle: 'AI Asistan',
+    description: 'Sesle konuşarak veya yazarak akıllı iş emri, teknik servis, muhasebe masrafı açma ve canlı sistem sorgulama',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'core',
+  },
 ];
 
 /**
