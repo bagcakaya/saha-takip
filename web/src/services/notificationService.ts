@@ -1,6 +1,7 @@
 import { detectTabFromNotification, extractTabAndFilterFromUrl } from '../utils/navigationUtils';
 
 let activeAlarmInterval: any = null;
+let activeAlarmTimeout: any = null;
 let activeAudioCtx: any = null;
 
 export const NotificationService = {
@@ -76,10 +77,17 @@ export const NotificationService = {
   },
 
   /**
-   * Plays a repeating alarm sound pattern until stopAlarmSound is called
+   * Plays a repeating alarm sound pattern with an automatic safety timeout
    */
-  playAlarmSound(): void {
+  playAlarmSound(options?: { maxDurationSec?: number }): void {
     this.stopAlarmSound();
+
+    // Check if alarms are globally muted by user preference
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('@saha_mute_alarms') === 'true') {
+        return;
+      }
+    } catch {}
 
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -103,24 +111,32 @@ export const NotificationService = {
 
         const now = ctx.currentTime;
 
+        // Modern, gentle sine alert chime instead of harsh piercing sawtooth screech
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(880, now);
-        osc.frequency.exponentialRampToValueAtTime(1760, now + 0.15);
-        gain.gain.setValueAtTime(0.5, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(659.25, now); // E5
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.12); // A5
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start(now);
-        osc.stop(now + 0.2);
+        osc.stop(now + 0.25);
       } catch (e) {
         console.warn('Alarm audio playback failed:', e);
       }
     };
 
     playBeepPattern();
-    activeAlarmInterval = setInterval(playBeepPattern, 1800);
+    activeAlarmInterval = setInterval(playBeepPattern, 2000);
+
+    // Otomatik güvenlik zamanlayıcısı: Varsayılan 12 saniye sonra alarmı kendiliğinden susturur
+    // Böylece arka planda veya sekme açıldığında asla sonsuza kadar art arda ötmez!
+    const maxSec = options?.maxDurationSec ?? 12;
+    activeAlarmTimeout = setTimeout(() => {
+      this.stopAlarmSound();
+    }, maxSec * 1000);
   },
 
   /**
@@ -130,6 +146,10 @@ export const NotificationService = {
     if (activeAlarmInterval) {
       clearInterval(activeAlarmInterval);
       activeAlarmInterval = null;
+    }
+    if (activeAlarmTimeout) {
+      clearTimeout(activeAlarmTimeout);
+      activeAlarmTimeout = null;
     }
     if (activeAudioCtx) {
       try {

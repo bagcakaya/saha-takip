@@ -6033,15 +6033,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           activeRingingAlarm.id !== triggeredAlarm.id ||
           activeRingingAlarm.currentMilestoneKey !== milestoneKey
         ) {
-          const alarmWithMilestone: TimedFollowUp = {
-            ...triggeredAlarm,
-            currentMilestoneLabel: milestoneLabel,
-            currentMilestoneKey: milestoneKey,
-          };
-          setActiveRingingAlarm(alarmWithMilestone);
+          const isActualDue = milestoneKey === 'due' || milestoneKey === 'snooze_due';
+          if (isActualDue) {
+            const alarmWithMilestone: TimedFollowUp = {
+              ...triggeredAlarm,
+              currentMilestoneLabel: milestoneLabel,
+              currentMilestoneKey: milestoneKey,
+            };
+            setActiveRingingAlarm(alarmWithMilestone);
+          }
 
           if (triggeredAlarm.soundAlarm !== false) {
-            NotificationService.playAlarmSound();
+            if (isActualDue) {
+              NotificationService.playAlarmSound({ maxDurationSec: 12 });
+            } else {
+              NotificationService.playChime();
+            }
           }
 
           const title = `⏰ Süreli Takip (${milestoneLabel}): ${triggeredAlarm.cariName}`;
@@ -6478,7 +6485,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           );
 
           if (now - target < 2 * 60 * 60 * 1000 || isRepeating) {
-            NotificationService.playAlarmSound();
+            NotificationService.playChime();
             const repeatTag = isRepeating ? ' (Tekrarlayan)' : '';
             const title = `⏰ Kişisel Not Hatırlatıcısı${repeatTag}`;
             const body = note.title
@@ -6511,6 +6518,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } else {
               updatePersonalNote(note.id, { notified: true });
             }
+          } else {
+            // 2 saatten eski geçmiş hatırlatmayı tekrar kontrol etmemek için notified olarak işaretle
+            updatePersonalNote(note.id, { notified: true });
           }
         }
       }
