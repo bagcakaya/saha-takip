@@ -487,6 +487,41 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     defaultAdmin: true,
     category: 'management',
   },
+  {
+    id: 'accounting',
+    name: 'Muhasebe',
+    shortTitle: 'Muhasebe',
+    description: 'Gelir/Gider takibi, masraf ve gelir kalemleri, kasa mevcudu ve nakit/havale/kredi kartı dökümü',
+    defaultStaff: false,
+    defaultAdmin: true,
+    category: 'operations',
+    subModules: [
+      {
+        id: 'income_expense',
+        name: 'Gelir & Gider Takibi',
+        shortTitle: 'Gelir/Gider',
+        description: 'Masraf ve gelir kayıtları, ERP kodlu kalemler, ödeme ve tahsilat dökümü',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
+        id: 'cash_register',
+        name: 'Kasa & Günlük Mevcut',
+        shortTitle: 'Kasa Takibi',
+        description: 'Günlük nakit, havale ve kredi kartı kasa mevcudu ve kümülatif toplam dökümü',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
+        id: 'categories',
+        name: 'Kalem & ERP Kod Tanımları',
+        shortTitle: 'Masraf/Gelir Kalemleri',
+        description: 'Özelleştirilebilir masraf ve gelir kalemleri, ERP muhasebe kodları',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+    ],
+  },
 ];
 
 /**

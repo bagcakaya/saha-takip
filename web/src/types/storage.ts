@@ -328,6 +328,7 @@ export interface BackupData {
   shiftAssignments?: ShiftAssignment[];
   salaryRecords?: StaffSalaryMonthRecord[];
   departmentSalaries?: DepartmentSalaryConfig[];
+  accountingData?: AccountingDataPayload;
 }
 
 export interface CariData {
@@ -511,3 +512,77 @@ export interface DepartmentSalaryConfig {
   updatedAt?: number;
   updatedBy?: string;
 }
+
+// ==========================================
+// MUHASEBE (GELİR / GİDER & KASA) MODÜLÜ VERİ MODELLERİ
+// ==========================================
+
+export type AccountingTransactionType = 'income' | 'expense'; // Gelir | Gider
+
+// Gider ödeme yöntemleri: Havale, Kasadan, Cepten, Kredi Kartı
+// Gelir tahsilat yöntemleri: Havale, Kasa, Kredi Kartı
+export type AccountingPaymentMethod =
+  | 'bank_transfer' // Havale / EFT / Banka
+  | 'cash_register' // Kasadan / Kasa (Nakit)
+  | 'out_of_pocket' // Cepten (Şahsi / Personel)
+  | 'credit_card'; // Kredi Kartı / POS
+
+export interface AccountingCategory {
+  id: string;
+  code: string; // ERP Hesap / Masraf Kodu (örn: 770.01, GDR-001, GLR-001)
+  name: string; // Kalem Adı (örn: Yemek Masrafı, Servis Geliri)
+  type: AccountingTransactionType; // 'income' | 'expense'
+  description?: string;
+  isActive: boolean;
+  createdAt: number;
+}
+
+export interface AccountingTransaction {
+  id: string;
+  type: AccountingTransactionType; // 'income' | 'expense'
+  categoryId: string; // İlgili Kalem ID
+  categoryCode: string; // ERP Kodu
+  categoryName: string; // Kalem Adı
+  amount: number; // Tutar (₺)
+  paymentMethod: AccountingPaymentMethod; // 'bank_transfer' | 'cash_register' | 'out_of_pocket' | 'credit_card'
+  cashRegisterName?: string; // İlgili Kasa Adı (örn: Merkez Kasa)
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  description?: string; // Açıklama / Fiş Detayı
+  receiptNumber?: string; // Fatura / Fiş No
+  receiptPhoto?: string; // Fiş/Fatura Belge Görseli (base64)
+  branchId?: string;
+  branchName?: string;
+  createdAt: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
+export interface CashRegister {
+  id: string;
+  name: string; // Kasa Adı (örn: Merkez Kasa, Mağaza Kasa, Şube 1 Kasası)
+  description?: string;
+  isDefault?: boolean;
+}
+
+export interface DailyCashBalance {
+  id: string; // `${cashRegisterName}_${date}`
+  cashRegisterName: string; // Kasa Adı
+  date: string; // YYYY-MM-DD
+  cashAmount: number; // Nakit Tutarı (₺)
+  bankAmount: number; // Havale Tutarı (₺)
+  creditCardAmount: number; // Kredi Kartı Tutarı (₺)
+  totalAmount: number; // Nakit + Havale + Kredi Kartı (₺)
+  notes?: string;
+  updatedAt: number;
+  updatedBy?: string;
+  updatedByName?: string;
+}
+
+export interface AccountingDataPayload {
+  transactions: AccountingTransaction[];
+  categories: AccountingCategory[];
+  cashRegisters: CashRegister[];
+  dailyBalances: DailyCashBalance[];
+}
+

@@ -21,6 +21,7 @@ import {
   Trash2,
   Loader2,
   Maximize2,
+  Calculator,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -75,6 +76,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     badgeCount,
     lastReadTime,
     markAllAsRead,
+    accountingData,
   } = useStorage();
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
@@ -383,6 +385,19 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       activeCount: newJobApplicationsCount > 0 ? newJobApplicationsCount : undefined,
       action: () => onNavigate('job_applications'),
       visible: isModulePermitted('job_applications', user, company),
+    },
+    {
+      id: 'accounting',
+      title: 'Muhasebe',
+      shortTitle: 'Muhasebe',
+      description: 'Gelir/Gider masraf takibi, ERP kodları ve günlük kasa mevcudu',
+      icon: Calculator,
+      gradient: 'bg-gradient-to-br from-emerald-600 via-teal-700 to-indigo-900',
+      borderColor: 'border-emerald-400/40',
+      glowColor: 'text-emerald-400',
+      badgeText: `${accountingData?.transactions?.length || 0} Hareket`,
+      action: () => onNavigate('accounting'),
+      visible: isModulePermitted('accounting', user, company),
     },
     {
       id: 'timed_follow_ups',

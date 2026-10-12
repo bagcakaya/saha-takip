@@ -20,7 +20,9 @@ import {
   JobApplication,
   StaffSalaryMonthRecord,
   DepartmentSalaryConfig,
+  AccountingDataPayload,
 } from '../types/storage';
+import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
@@ -46,6 +48,7 @@ const SHIFT_DATA_KEY = '@saha_takip_shift_data';
 const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
 const SALARY_RECORDS_KEY = '@saha_takip_salary_records';
 const DEPARTMENT_SALARIES_KEY = '@saha_takip_department_salaries';
+const ACCOUNTING_DATA_KEY = '@saha_takip_accounting_data';
 
 const companyIdCache = new Map<string, number>([
   ['POLATLAR', 1],
@@ -3020,6 +3023,82 @@ export const StorageService = {
     }
   },
 
+  /**
+   * Retrieves accounting data (transactions, categories, cash registers, daily balances)
+   * Slot 8 in cloud chunked slot storage + IndexedDB/localStorage cache
+   */
+  async getAccountingData(): Promise<AccountingDataPayload> {
+    const localKey = this.getStorageKey(ACCOUNTING_DATA_KEY);
+    const slotId = this.getSlotId(8);
+
+    const { data: cloudData, notFound } = await loadChunkedSlot<AccountingDataPayload>(slotId);
+    if (cloudData && typeof cloudData === 'object') {
+      const merged: AccountingDataPayload = {
+        transactions: Array.isArray(cloudData.transactions) ? cloudData.transactions : [],
+        categories:
+          Array.isArray(cloudData.categories) && cloudData.categories.length > 0
+            ? cloudData.categories
+            : DEFAULT_ACCOUNTING_CATEGORIES,
+        cashRegisters:
+          Array.isArray(cloudData.cashRegisters) && cloudData.cashRegisters.length > 0
+            ? cloudData.cashRegisters
+            : DEFAULT_CASH_REGISTERS,
+        dailyBalances: Array.isArray(cloudData.dailyBalances) ? cloudData.dailyBalances : [],
+      };
+      await saveItem(localKey, merged);
+      return merged;
+    }
+
+    if (activeCompanyCode !== 'POLATLAR' && notFound) {
+      const initial: AccountingDataPayload = {
+        transactions: [],
+        categories: DEFAULT_ACCOUNTING_CATEGORIES,
+        cashRegisters: DEFAULT_CASH_REGISTERS,
+        dailyBalances: [],
+      };
+      await saveItem(localKey, initial);
+      return initial;
+    }
+
+    const cached = await loadItem<AccountingDataPayload>(localKey);
+    if (cached && typeof cached === 'object') {
+      return {
+        transactions: Array.isArray(cached.transactions) ? cached.transactions : [],
+        categories:
+          Array.isArray(cached.categories) && cached.categories.length > 0
+            ? cached.categories
+            : DEFAULT_ACCOUNTING_CATEGORIES,
+        cashRegisters:
+          Array.isArray(cached.cashRegisters) && cached.cashRegisters.length > 0
+            ? cached.cashRegisters
+            : DEFAULT_CASH_REGISTERS,
+        dailyBalances: Array.isArray(cached.dailyBalances) ? cached.dailyBalances : [],
+      };
+    }
+
+    return {
+      transactions: [],
+      categories: DEFAULT_ACCOUNTING_CATEGORIES,
+      cashRegisters: DEFAULT_CASH_REGISTERS,
+      dailyBalances: [],
+    };
+  },
+
+  /**
+   * Saves accounting data to cloud slot 8 and local cache
+   */
+  async saveAccountingData(data: AccountingDataPayload): Promise<void> {
+    const localKey = this.getStorageKey(ACCOUNTING_DATA_KEY);
+    await saveItem(localKey, data);
+
+    try {
+      const slotId = this.getSlotId(8);
+      await saveChunkedSlot(slotId, data);
+    } catch (e) {
+      console.warn('Accounting data cloud save error:', e);
+    }
+  },
+
   async exportBackup(): Promise<string> {
     const locations = await this.getLocations();
     const standardTasks = await this.getStandardTasks();
@@ -3037,6 +3116,7 @@ export const StorageService = {
     const shiftData = await this.getShiftData();
     const salaryRecords = await this.getSalaryRecords();
     const departmentSalaries = await this.getDepartmentSalaries();
+    const accountingData = await this.getAccountingData();
     const backup: BackupData = {
       locations,
       standardTasks,
@@ -3055,6 +3135,7 @@ export const StorageService = {
       shiftAssignments: shiftData.assignments,
       salaryRecords,
       departmentSalaries,
+      accountingData,
     };
     return JSON.stringify(backup, null, 2);
   },
@@ -3115,6 +3196,9 @@ export const StorageService = {
     }
     if (backupData.departmentSalaries && Array.isArray(backupData.departmentSalaries)) {
       await this.saveDepartmentSalaries(backupData.departmentSalaries);
+    }
+    if (backupData.accountingData && typeof backupData.accountingData === 'object') {
+      await this.saveAccountingData(backupData.accountingData);
     }
   },
 };

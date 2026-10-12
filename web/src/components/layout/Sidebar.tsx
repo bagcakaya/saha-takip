@@ -19,6 +19,7 @@ import {
   Server,
   Settings,
   UserPlus,
+  Calculator,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -55,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     cariler,
     timedFollowUps,
     jobApplications,
+    accountingData,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -377,6 +379,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                     </span>
                   )}
                 </div>
+              </button>
+            )}
+
+            {/* 4.2. Muhasebe & Kasa */}
+            {isModulePermitted('accounting', user, company) && (
+              <button
+                onClick={() => setActiveTab('accounting')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
+                  activeTab === 'accounting'
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Calculator className="w-4 h-4" />
+                  <span>Muhasebe</span>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'accounting'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                  }`}
+                >
+                  {accountingData?.transactions?.length || 0}
+                </span>
               </button>
             )}
 

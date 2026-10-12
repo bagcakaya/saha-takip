@@ -18,6 +18,7 @@ import { BranchesView } from './views/BranchesView';
 import { TimedFollowUpsView } from './views/TimedFollowUpsView';
 import { PersonalNotesView } from './views/PersonalNotesView';
 import { JobApplicationsView } from './views/JobApplicationsView';
+import { AccountingView } from './views/AccountingView';
 import { LoginView } from './views/LoginView';
 import { LicenseLockedView } from './components/licensing/LicenseLockedView';
 import { LocationItem } from './types/storage';
@@ -561,6 +562,11 @@ const MainApp: React.FC = () => {
           subtitle: 'Şablon Yönetimi',
           title: 'Standart Görevler',
         };
+      case 'accounting':
+        return {
+          subtitle: 'Gelir/Gider & Günlük Kasa Takibi',
+          title: 'Muhasebe',
+        };
     }
   };
 
@@ -681,6 +687,12 @@ const MainApp: React.FC = () => {
             {activeTab === 'template' &&
               (isModulePermitted('template', user, company) ? (
                 <TemplateView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'accounting' &&
+              (isModulePermitted('accounting', user, company) ? (
+                <AccountingView />
               ) : (
                 <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}

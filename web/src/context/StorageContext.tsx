@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance } from '../types/storage';
+import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -267,6 +268,28 @@ interface StorageContextType {
   ) => Promise<void>;
   deleteDepartmentSalary: (department: string) => Promise<void>;
   refreshDepartmentSalaries: () => Promise<void>;
+  // Muhasebe (Gelir / Gider & Kasa)
+  accountingData: AccountingDataPayload;
+  addAccountingTransaction: (
+    tx: Omit<AccountingTransaction, 'id' | 'createdAt'>
+  ) => Promise<void>;
+  updateAccountingTransaction: (
+    tx: AccountingTransaction
+  ) => Promise<void>;
+  deleteAccountingTransaction: (id: string) => Promise<void>;
+  addAccountingCategory: (
+    cat: Omit<AccountingCategory, 'id' | 'createdAt'>
+  ) => Promise<void>;
+  updateAccountingCategory: (
+    cat: AccountingCategory
+  ) => Promise<void>;
+  deleteAccountingCategory: (id: string) => Promise<void>;
+  saveDailyCashBalance: (
+    balance: Omit<DailyCashBalance, 'id' | 'updatedAt'>
+  ) => Promise<void>;
+  addCashRegister: (name: string, description?: string) => Promise<void>;
+  deleteCashRegister: (id: string) => Promise<void>;
+  refreshAccountingData: () => Promise<void>;
 }
 
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
@@ -356,6 +379,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
   const [salaryRecords, setSalaryRecords] = useState<StaffSalaryMonthRecord[]>([]);
   const [departmentSalaries, setDepartmentSalaries] = useState<DepartmentSalaryConfig[]>([]);
+  const [accountingData, setAccountingData] = useState<AccountingDataPayload>({
+    transactions: [],
+    categories: DEFAULT_ACCOUNTING_CATEGORIES,
+    cashRegisters: DEFAULT_CASH_REGISTERS,
+    dailyBalances: [],
+  });
   const [activeRingingAlarm, setActiveRingingAlarm] = useState<TimedFollowUp | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataCompanyCode, setDataCompanyCode] = useState<string>('');
@@ -443,6 +472,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCarilerTotal(0);
       setTimedFollowUps([]);
       setPersonalNotes([]);
+      setAccountingData({ transactions: [], categories: DEFAULT_ACCOUNTING_CATEGORIES, cashRegisters: DEFAULT_CASH_REGISTERS, dailyBalances: [] });
       setActiveRingingAlarm(null);
       setIsLoading(false);
       setDataCompanyCode('');
@@ -517,6 +547,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (sData.assignments && sData.assignments.length > 0) setShiftAssignments(sData.assignments);
             }
           }).catch(() => {});
+          // Fast cached accounting data for company
+          StorageService.getAccountingData().then((acc) => {
+            if (isMounted && acc) setAccountingData(acc);
+          }).catch(() => {});
           // If cached data was loaded, unlock the UI immediately
           if (
             (cached.locations && cached.locations.length > 0) ||
@@ -534,7 +568,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries, deptSalaries] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries, deptSalaries, accData] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -553,8 +587,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getJobApplications(),
           StorageService.getSalaryRecords(),
           StorageService.getDepartmentSalaries(),
+          StorageService.getAccountingData(),
         ]);
         if (!isMounted) return;
+        if (accData) setAccountingData(accData);
 
         const migratedLocs = locs.map((l) => ({
           ...l,
@@ -4057,6 +4093,170 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // --- ACCOUNTING (GELİR / GİDER & KASA) METHODS ---
+  const addAccountingTransaction = async (
+    tx: Omit<AccountingTransaction, 'id' | 'createdAt'>
+  ): Promise<void> => {
+    const newTx: AccountingTransaction = {
+      ...tx,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      transactions: [newTx, ...(accountingData.transactions || [])],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const updateAccountingTransaction = async (
+    tx: AccountingTransaction
+  ): Promise<void> => {
+    const updatedTransactions = (accountingData.transactions || []).map((t) =>
+      t.id === tx.id ? tx : t
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      transactions: updatedTransactions,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteAccountingTransaction = async (id: string): Promise<void> => {
+    const updatedTransactions = (accountingData.transactions || []).filter(
+      (t) => t.id !== id
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      transactions: updatedTransactions,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const addAccountingCategory = async (
+    cat: Omit<AccountingCategory, 'id' | 'createdAt'>
+  ): Promise<void> => {
+    const newCat: AccountingCategory = {
+      ...cat,
+      id: generateId(),
+      createdAt: Date.now(),
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      categories: [...(accountingData.categories || []), newCat],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const updateAccountingCategory = async (
+    cat: AccountingCategory
+  ): Promise<void> => {
+    const updatedCategories = (accountingData.categories || []).map((c) =>
+      c.id === cat.id ? cat : c
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      categories: updatedCategories,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteAccountingCategory = async (id: string): Promise<void> => {
+    const updatedCategories = (accountingData.categories || []).filter(
+      (c) => c.id !== id
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      categories: updatedCategories,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const saveDailyCashBalance = async (
+    balance: Omit<DailyCashBalance, 'id' | 'updatedAt'>
+  ): Promise<void> => {
+    const cash = Number(balance.cashAmount) || 0;
+    const bank = Number(balance.bankAmount) || 0;
+    const card = Number(balance.creditCardAmount) || 0;
+    const total = cash + bank + card;
+
+    const id = `${balance.cashRegisterName.trim().toLowerCase()}_${balance.date}`;
+    const newBalanceItem: DailyCashBalance = {
+      ...balance,
+      id,
+      cashAmount: cash,
+      bankAmount: bank,
+      creditCardAmount: card,
+      totalAmount: total,
+      updatedAt: Date.now(),
+      updatedBy: user?.id,
+      updatedByName: user?.name,
+    };
+
+    const existingIndex = (accountingData.dailyBalances || []).findIndex(
+      (b) => b.id === id || (b.cashRegisterName.toLowerCase() === balance.cashRegisterName.toLowerCase() && b.date === balance.date)
+    );
+
+    let updatedList: DailyCashBalance[];
+    if (existingIndex >= 0) {
+      updatedList = [...(accountingData.dailyBalances || [])];
+      updatedList[existingIndex] = newBalanceItem;
+    } else {
+      updatedList = [newBalanceItem, ...(accountingData.dailyBalances || [])];
+    }
+
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      dailyBalances: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const addCashRegister = async (name: string, description?: string): Promise<void> => {
+    const cleanName = (name || '').trim();
+    if (!cleanName) return;
+    const newReg: CashRegister = {
+      id: generateId(),
+      name: cleanName,
+      description,
+      isDefault: false,
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      cashRegisters: [...(accountingData.cashRegisters || []), newReg],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteCashRegister = async (id: string): Promise<void> => {
+    const updatedRegisters = (accountingData.cashRegisters || []).filter((r) => r.id !== id);
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      cashRegisters: updatedRegisters,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const refreshAccountingData = async (): Promise<void> => {
+    try {
+      const data = await StorageService.getAccountingData();
+      if (data) setAccountingData(data);
+    } catch (err) {
+      console.warn('refreshAccountingData error:', err);
+    }
+  };
+
   // Staff check-in (Within 20 meters of assigned branch = direct; Outside or other branch = requires manager confirmation & approval)
   const checkInStaff = async (options?: {
     allowOutside?: boolean;
@@ -6819,6 +7019,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         saveDepartmentSalary,
         deleteDepartmentSalary,
         refreshDepartmentSalaries,
+        accountingData,
+        addAccountingTransaction,
+        updateAccountingTransaction,
+        deleteAccountingTransaction,
+        addAccountingCategory,
+        updateAccountingCategory,
+        deleteAccountingCategory,
+        saveDailyCashBalance,
+        addCashRegister,
+        deleteCashRegister,
+        refreshAccountingData,
         checkInStaff,
         checkOutStaff,
         startBreak,

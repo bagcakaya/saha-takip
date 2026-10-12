@@ -14,6 +14,7 @@ export const VALID_TABS: TabType[] = [
   'logs',
   'template',
   'job_applications',
+  'accounting',
 ];
 
 /**
@@ -91,6 +92,12 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
     is_basvurusu: 'job_applications',
     basvuru: 'job_applications',
     basvurular: 'job_applications',
+
+    accounting: 'accounting',
+    muhasebe: 'accounting',
+    gelir_gider: 'accounting',
+    gelirgider: 'accounting',
+    kasa: 'accounting',
   };
 
   if (aliases[clean]) {

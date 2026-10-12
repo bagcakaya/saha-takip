@@ -10,7 +10,7 @@ import { useStorage } from '../../context/StorageContext';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
 
-export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications';
+export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications' | 'accounting';
 
 interface HeaderProps {
   activeTab: TabType;

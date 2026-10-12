@@ -23,6 +23,10 @@ import {
   Users,
   Banknote,
   Store,
+  Calculator,
+  Receipt,
+  Wallet,
+  Tag,
 } from 'lucide-react';
 import {
   Company,
@@ -49,6 +53,7 @@ const MODULE_ICONS: Record<string, any> = {
   returns: RotateCcw,
   logs: ShieldAlert,
   template: ListTodo,
+  accounting: Calculator,
 };
 
 const SUB_MODULE_ICONS: Record<string, any> = {
@@ -60,6 +65,9 @@ const SUB_MODULE_ICONS: Record<string, any> = {
   salary: Banknote,
   workplace: Store,
   definitions: Sliders,
+  income_expense: Receipt,
+  cash_register: Wallet,
+  categories: Tag,
 };
 
 export const CompanyModulesModal: React.FC<CompanyModulesModalProps> = ({
