@@ -40,6 +40,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     accountingData,
     attendanceRecords,
     salaryRecords,
+    leaveRequests,
     cariler,
     branches,
     addNote,
@@ -83,8 +84,14 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   // Context preparation for AI
   const aiContext: AiContextData = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const activeStaff = attendanceRecords
-      .filter((r) => r.date === todayStr && r.status === 'checked_in')
+    const todayAttendance = (attendanceRecords || []).filter((r) => r.date === todayStr);
+
+    const activeStaff = todayAttendance
+      .filter((r) => r.status === 'checked_in')
+      .map((r) => r.userName || r.userId);
+
+    const completedStaff = todayAttendance
+      .filter((r) => r.status === 'completed' || Boolean(r.checkOutTime))
       .map((r) => r.userName || r.userId);
 
     const monthlyIncome = (accountingData?.transactions || [])
@@ -120,17 +127,78 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           note: p.description,
         })),
       })),
+      attendanceRecords: (attendanceRecords || []).map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userName: r.userName || r.userId,
+        date: r.date,
+        checkInTime: r.checkInTime,
+        checkOutTime: r.checkOutTime,
+        status: r.status,
+        workDurationMinutes: r.workDurationMinutes,
+        totalBreakMinutes: r.totalBreakMinutes,
+        branchName: r.branchName || r.assignedBranchName,
+      })),
+      leaveRequests: (leaveRequests || []).map((l) => ({
+        id: l.id,
+        userName: l.userName || l.userId,
+        startDate: l.date,
+        endDate: l.endDate,
+        type: l.leaveType,
+        status: l.status,
+        reason: l.reason,
+      })),
+      notes: (notes || []).map((n) => ({
+        id: n.id,
+        content: n.content,
+        cariName: n.cariName,
+        targetUserNames: n.targetUserNames,
+        reminderDate: n.reminderDate,
+        status: n.status || 'pending',
+        createdAt: n.createdAt,
+      })),
+      services: (services || []).map((s) => ({
+        id: s.id,
+        companyName: s.companyName,
+        cariName: s.cariName,
+        workDone: s.workDone,
+        location: s.location,
+        status: s.status || 'pending',
+        date: s.date,
+        createdByName: s.createdByName,
+      })),
+      accountingTransactions: (accountingData?.transactions || []).map((t) => ({
+        id: t.id,
+        type: t.type,
+        categoryName: t.categoryName,
+        amount: Number(t.amount) || 0,
+        paymentMethod: t.paymentMethod,
+        date: t.date,
+        description: t.description,
+      })),
+      dailyBalances: (accountingData?.dailyBalances || []).map((b) => ({
+        date: b.date,
+        cashAmount: Number(b.cashAmount) || 0,
+        bankAmount: Number(b.bankAmount) || 0,
+        creditCardAmount: Number(b.creditCardAmount) || 0,
+        totalAmount: Number(b.totalAmount) || 0,
+        notes: b.notes,
+      })),
       systemSummary: {
         today: todayStr,
-        pendingNotesCount: notes.filter((n) => !n.status || n.status === 'pending').length,
-        pendingServicesCount: services.filter((s) => !s.status || s.status === 'pending').length,
+        pendingNotesCount: (notes || []).filter((n) => !n.status || n.status === 'pending').length,
+        pendingServicesCount: (services || []).filter((s) => !s.status || s.status === 'pending').length,
         activeStaffNames: activeStaff,
+        completedStaffNames: completedStaff,
         monthlyIncome,
         monthlyExpense,
         cashBalance: todayCash?.totalAmount || 0,
+        todayCash: todayCash?.cashAmount || 0,
+        todayBank: todayCash?.bankAmount || 0,
+        todayCreditCard: todayCash?.creditCardAmount || 0,
       },
     };
-  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords, salaryRecords]);
+  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords, salaryRecords, leaveRequests]);
 
   // --------------------------------------------------------------------------
   // Web Speech API Voice Recognition (Browser Native - Free & Unlimited)

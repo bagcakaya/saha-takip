@@ -17,14 +17,75 @@ export interface AiContextData {
     agreedAmount?: number;
     payments: Array<{ amount: number; paymentType: string; date?: string; note?: string }>;
   }>;
+  attendanceRecords?: Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    date: string;
+    checkInTime: number;
+    checkOutTime?: number;
+    status: string;
+    workDurationMinutes?: number;
+    totalBreakMinutes?: number;
+    branchName?: string;
+  }>;
+  leaveRequests?: Array<{
+    id: string;
+    userName: string;
+    startDate: string;
+    endDate?: string;
+    type?: string;
+    status: string;
+    reason?: string;
+  }>;
+  notes?: Array<{
+    id: string;
+    content: string;
+    cariName?: string;
+    targetUserNames?: string[];
+    reminderDate?: string;
+    status?: string;
+    createdAt?: number;
+  }>;
+  services?: Array<{
+    id: string;
+    companyName: string;
+    cariName?: string;
+    workDone: string;
+    location?: string;
+    status?: string;
+    date?: string;
+    createdByName?: string;
+  }>;
+  accountingTransactions?: Array<{
+    id: string;
+    type: 'income' | 'expense';
+    categoryName: string;
+    amount: number;
+    paymentMethod: string;
+    date: string;
+    description?: string;
+  }>;
+  dailyBalances?: Array<{
+    date: string;
+    cashAmount: number;
+    bankAmount: number;
+    creditCardAmount: number;
+    totalAmount: number;
+    notes?: string;
+  }>;
   systemSummary?: {
     today: string;
     pendingNotesCount: number;
     pendingServicesCount: number;
     activeStaffNames: string[];
+    completedStaffNames?: string[];
     monthlyIncome: number;
     monthlyExpense: number;
     cashBalance: number;
+    todayCash?: number;
+    todayBank?: number;
+    todayCreditCard?: number;
   };
 }
 
@@ -164,12 +225,44 @@ export const AiService = {
 Sen Saha Takip ve Yönetim Sistemi için tasarlanmış uzman, pratik ve hızlı bir Türkçe Yapay Zeka Asistanısın.
 Bugünün tarihi: ${todayStr}, saat: ${nowTimeStr}.
 
-Sistemdeki Mevcut Veriler:
+Sistemdeki Canlı Veriler:
 - Personeller: ${JSON.stringify(context.staffMembers.map((s) => ({ id: s.id, name: s.name, role: s.role })))}
-- Cariler / Müşteriler (Örnekler): ${JSON.stringify(context.cariler.slice(0, 40))}
+- Cariler / Müşteriler: ${JSON.stringify(context.cariler.slice(0, 40))}
 - Masraf ve Gelir Kalemleri (ERP Kodlu): ${JSON.stringify(context.categories.map((c) => ({ id: c.id, code: c.code, name: c.name, type: c.type })))}
-- Maaş & Avans Ödeme Kayıtları: ${JSON.stringify(
-  (context.salaryRecords || []).slice(0, 40).map((s) => ({
+- Personel Mesai & Puantaj Kayıtları: ${JSON.stringify(
+  (context.attendanceRecords || []).slice(0, 50).map((r) => {
+    let diffMins = 0;
+    if (r.workDurationMinutes && r.workDurationMinutes > 0) diffMins = r.workDurationMinutes;
+    else if (r.checkOutTime && r.checkInTime) diffMins = Math.max(0, Math.round((r.checkOutTime - r.checkInTime) / 60000));
+    else if (r.checkInTime) diffMins = Math.max(0, Math.round((Date.now() - r.checkInTime) / 60000));
+    const h = Math.floor(diffMins / 60);
+    const m = diffMins % 60;
+    return {
+      personel: r.userName,
+      tarih: r.date,
+      giris: r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : null,
+      cikis: r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : null,
+      durum: r.status === 'completed' || r.checkOutTime ? 'Mesaisi Bitti (Çıkış Yaptı)' : 'Halen İşte (Çalışıyor)',
+      toplamMesai: `${h} sa ${m} dk`,
+      molaDakika: r.totalBreakMinutes || 0,
+      sube: r.branchName || 'Merkez Şube',
+    };
+  })
+)}
+- İzinli Personeller: ${JSON.stringify((context.leaveRequests || []).slice(0, 20).map((l) => ({ personel: l.userName, baslangic: l.startDate, bitis: l.endDate, tur: l.type, durum: l.status, sebep: l.reason })))}
+- Bekleyen Teknik Servisler: ${JSON.stringify((context.services || []).filter((s) => s.status !== 'completed' && s.status !== 'approved').slice(0, 25).map((s) => ({ cari: s.cariName || s.companyName, is: s.workDone, konum: s.location, tarih: s.date })))}
+- Bekleyen İş Emirleri & Görevler: ${JSON.stringify((context.notes || []).filter((n) => !n.status || n.status === 'pending').slice(0, 25).map((n) => ({ icerik: n.content, hedefPersoneller: n.targetUserNames, cari: n.cariName, tarih: n.reminderDate })))}
+- Kasa & Finans: ${JSON.stringify({
+    toplamKasa: context.systemSummary?.cashBalance || 0,
+    nakit: context.systemSummary?.todayCash || 0,
+    banka: context.systemSummary?.todayBank || 0,
+    pos: context.systemSummary?.todayCreditCard || 0,
+    aylikGelir: context.systemSummary?.monthlyIncome || 0,
+    aylikGider: context.systemSummary?.monthlyExpense || 0,
+    sonHareketler: (context.accountingTransactions || []).slice(0, 8).map((t) => ({ tur: t.type, kalem: t.categoryName, tutar: t.amount, yontem: t.paymentMethod, tarih: t.date, aciklama: t.description })),
+  })}
+- Maaş & Avans Ödemeleri: ${JSON.stringify(
+  (context.salaryRecords || []).slice(0, 30).map((s) => ({
     personel: s.staffName,
     yil: s.year,
     ay: s.month,
@@ -183,14 +276,14 @@ Sistemdeki Mevcut Veriler:
 GÖREVİN:
 Kullanıcının Türkçe komutunu, konuşmasını veya sorusunu incele.
 ÖNEMLİ KURAL:
-Eğer kullanıcı bir soru soruyorsa (örn: 'Eylül ayında kime ne kadar maaş verdik', 'Bugün kimler geldi', 'Kaç bekleyen servis var', 'Kasa durumu nedir' vb.), 'actionType': 'system_query' seç ve cevabı 'explanation' alanında detaylı, kibar ve biçimlendirilmiş Türkçe olarak açıkla. ASLA bir soruya 'create_note' (iş emri) açmaya kalkma!
+Eğer kullanıcı bir soru soruyorsa (örn: 'Bugün Mesaisi biten personel dahil Kim, ne kadar mesai yaptı', 'Eylül ayında kime ne kadar maaş verdik', 'Kaç bekleyen servis var', 'Kasa durumu nedir' vb.), 'actionType': 'system_query' seç ve cevabı 'explanation' alanında detaylı, kibar, maddeli ve biçimlendirilmiş Türkçe olarak açıkla. ASLA bir soruya 'create_note' (iş emri) açmaya kalkma!
 
 Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
 1. 'create_note': SADECE kullanıcı açıkça personele görev atamak veya iş emri/not açmak istediğinde ('Ahmet'e iş emri aç', 'görev ata', 'not ekle' vb.).
 2. 'create_service': Müşteri/şube için teknik servis, müdahale veya montaj kaydı açma.
 3. 'create_accounting': Gelir tahsilatı veya gider masrafı işleme. (Ödeme yöntemi: cash_register=kasadan, bank_transfer=havale, credit_card=kredi kartı, out_of_pocket=cepten).
 4. 'create_follow_up': Cari bazlı zaman ayarlı randevu, arama veya ödeme takibi.
-5. 'system_query': Sistem verilerini sorma (maaş dökümü, bekleyen işler, masraflar, kasa durumu, personel kimler geldi vb.).
+5. 'system_query': Sistem verilerini sorma (mesai ve puantaj, maaş dökümü, bekleyen servisler, iş emirleri, masraflar, kasa durumu vb.).
 6. 'general_chat': Diğer genel sorular veya tebrik/selamlama.
 
 ÇOK ÖNEMLİ KURALLAR:
@@ -232,8 +325,8 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
 }
 `;
 
-    // Try models in order: gemini-1.5-flash then gemini-2.0-flash
-    const models = ['gemini-1.5-flash', 'gemini-2.0-flash'];
+    // Try models in order: gemini-1.5-flash then gemini-1.5-flash-latest then gemini-2.0-flash
+    const models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-2.5-flash'];
 
     for (const model of models) {
       try {
@@ -519,81 +612,298 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
     }
 
     // -------------------------------------------------------------
-    // AKSİYON 2: DİĞER SİSTEM SORULARI (Attendance, Services, Balance)
+    // AKSİYON 2: KAPSAMLI SİSTEM SORULARI (Mesai, Puantaj, Servis, Görev, Kasa)
     // -------------------------------------------------------------
     if (isQuestion && !isExplicitNoteCommand) {
       const s = context.systemSummary;
 
-      // 1. Personel / Giriş-Çıkış Sorusu
-      if (lower.includes('kim') || lower.includes('personel') || lower.includes('çalışan') || lower.includes('geldi') || lower.includes('mesai')) {
-        const activeNames = s?.activeStaffNames || [];
-        const ans = activeNames.length > 0
-          ? `👥 **Bugün İşte Olan Personeller (${activeNames.length} Kişi):**\n• ${activeNames.join('\n• ')}`
-          : `👥 **Personel Durumu:**\nBugün (${todayStr}) henüz sisteme giriş yapmış aktif personel bulunmuyor.`;
+      // 1. PERSONEL / MESAİ / PUANTAJ / GİRİŞ-ÇIKIŞ / İZİN SORULARI
+      const isAttendanceQuery =
+        lower.includes('mesai') ||
+        lower.includes('puantaj') ||
+        lower.includes('giriş') ||
+        lower.includes('çıkış') ||
+        lower.includes('kaç saat') ||
+        lower.includes('ne kadar çalıştı') ||
+        lower.includes('kimler geldi') ||
+        lower.includes('kim geldi') ||
+        lower.includes('işte kimler') ||
+        lower.includes('kimler var') ||
+        lower.includes('kim ne kadar') ||
+        lower.includes('çalışan') ||
+        lower.includes('vardiya') ||
+        lower.includes('izinli') ||
+        lower.includes('izin') ||
+        lower.includes('raporlu') ||
+        (lower.includes('kim') && (lower.includes('personel') || lower.includes('geldi') || lower.includes('yaptı')));
 
-        return {
-          actionType: 'system_query',
-          title: 'Bugünkü Personel Durumu',
-          explanation: ans,
-          confidence: 0.9,
-          provider: 'local_nlp',
-          data: { answer: ans },
-        };
+      if (isAttendanceQuery) {
+        let queryDate = todayStr;
+        let queryDateLabel = 'Bugün';
+
+        if (lower.includes('dün')) {
+          const yDate = new Date(today);
+          yDate.setDate(yDate.getDate() - 1);
+          queryDate = yDate.toISOString().split('T')[0];
+          queryDateLabel = 'Dün';
+        }
+
+        const dateFormatted = queryDate.split('-').reverse().join('.');
+
+        // 1a. İzin kontrolü
+        const activeLeaves = (context.leaveRequests || []).filter(
+          (l) => l.status === 'approved' && l.startDate <= queryDate && (!l.endDate || l.endDate >= queryDate)
+        );
+
+        // 1b. Puantaj ve Mesai kayıtları
+        const records = (context.attendanceRecords || []).filter((r) => r.date === queryDate);
+
+        // Belirli bir personel adı sorulduysa filtrele
+        let filteredRecords = records;
+        if (matchedStaff) {
+          filteredRecords = records.filter(
+            (r) => r.userId === matchedStaff?.id || r.userName.toLowerCase().includes(matchedStaff!.name.toLowerCase())
+          );
+        }
+
+        if (filteredRecords.length > 0) {
+          const completedList: string[] = [];
+          const activeList: string[] = [];
+
+          filteredRecords.forEach((r) => {
+            const checkInStr = r.checkInTime
+              ? new Date(r.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+              : '—';
+            const checkOutStr = r.checkOutTime
+              ? new Date(r.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+              : null;
+
+            // Çalışma süresi hesapla
+            let diffMins = 0;
+            if (r.workDurationMinutes && r.workDurationMinutes > 0) {
+              diffMins = r.workDurationMinutes;
+            } else if (r.checkOutTime && r.checkInTime) {
+              diffMins = Math.max(0, Math.round((r.checkOutTime - r.checkInTime) / 60000));
+            } else if (r.checkInTime) {
+              diffMins = Math.max(0, Math.round((Date.now() - r.checkInTime) / 60000));
+            }
+
+            const h = Math.floor(diffMins / 60);
+            const m = diffMins % 60;
+            const durationText = h > 0 ? `${h} sa ${m} dk` : `${m} dk`;
+            const breakText = r.totalBreakMinutes ? ` (Mola: ${r.totalBreakMinutes} dk)` : '';
+            const branchText = r.branchName ? ` [${r.branchName}]` : '';
+
+            if (checkOutStr || r.status === 'completed') {
+              completedList.push(
+                `• 🏁 **${r.userName}:** Giriş: ${checkInStr} | Çıkış: ${checkOutStr || 'Tamamlandı'} ➔ Toplam Mesai: **${durationText}**${breakText}${branchText}`
+              );
+            } else {
+              activeList.push(
+                `• 🟢 **${r.userName}:** Giriş: ${checkInStr} | Çıkış: — (**Halen Mesai Yapıyor**) ➔ Şu Anki Süre: **${durationText}**${breakText}${branchText}`
+              );
+            }
+          });
+
+          let ans = `👥 **${queryDateLabel} (${dateFormatted}) Personel Mesai & Puantaj Raporu:**\n\n`;
+
+          if (completedList.length > 0) {
+            ans += `🏁 **Mesaisi Biten Personeller (${completedList.length} Kişi):**\n` + completedList.join('\n') + '\n\n';
+          }
+
+          if (activeList.length > 0) {
+            ans += `🟢 **Halen Çalışan / İşte Olan Personeller (${activeList.length} Kişi):**\n` + activeList.join('\n') + '\n\n';
+          }
+
+          if (activeLeaves.length > 0) {
+            ans +=
+              `🏖️ **İzinli / Raporlu Personeller (${activeLeaves.length} Kişi):**\n` +
+              activeLeaves.map((l) => `• 🏖️ ${l.userName} (${l.type || 'İzinli'}${l.reason ? ` - ${l.reason}` : ''})`).join('\n') +
+              '\n\n';
+          }
+
+          ans +=
+            `───────────────────────────\n` +
+            `📊 **Özet:** Toplam **${records.length}** personel giriş yaptı, **${completedList.length}** personelin mesaisi tamamlandı, **${activeList.length}** personel aktif çalışmaya devam ediyor.`;
+
+          return {
+            actionType: 'system_query',
+            title: `${queryDateLabel} Personel Mesai Raporu`,
+            explanation: ans,
+            confidence: 0.95,
+            provider: 'local_nlp',
+            data: { answer: ans },
+          };
+        } else {
+          // O güne ait giriş kaydı yoksa
+          let ans = `👥 **${queryDateLabel} (${dateFormatted}) Personel Mesai Bilgisi:**\n`;
+          ans += `${queryDateLabel.toLowerCase()} sisteme henüz giriş yapmış veya mesaisini tamamlamış bir personel kaydı bulunmuyor.\n\n`;
+
+          if (activeLeaves.length > 0) {
+            ans +=
+              `🏖️ **Bugün İzinli Olan Personeller (${activeLeaves.length} Kişi):**\n` +
+              activeLeaves.map((l) => `• ${l.userName} (${l.type || 'İzinli'})`).join('\n') +
+              '\n\n';
+          }
+
+          const staffList = context.staffMembers.map((st) => st.name + (st.role ? ` (${st.role})` : ''));
+          if (staffList.length > 0) {
+            ans += `📋 **Sistemdeki Kayıtlı Personeller (${staffList.length} Kişi):**\n• ` + staffList.join('\n• ') + '\n\n';
+          }
+
+          ans += `💡 *Personeller mobil uygulamadan veya web puantaj ekranından QR kod ya da konumla 'Giriş Yap' butonuna bastığında giriş-çıkış saatleri ve mesai süreleri burada canlı olarak listelenir.*`;
+
+          return {
+            actionType: 'system_query',
+            title: `${queryDateLabel} Personel Mesai Bilgisi`,
+            explanation: ans,
+            confidence: 0.9,
+            provider: 'local_nlp',
+            data: { answer: ans },
+          };
+        }
       }
 
-      // 2. Servis Sorusu
-      if (lower.includes('servis')) {
-        const count = s?.pendingServicesCount || 0;
-        const ans = `🔧 **Teknik Servis Durumu:**\nŞu anda sahada işlem bekleyen toplam **${count}** adet teknik servis kaydı bulunmaktadır.`;
+      // 2. TEKNİK SERVİS SORULARI
+      const isServiceQuery =
+        lower.includes('servis') ||
+        lower.includes('arıza') ||
+        lower.includes('tamir') ||
+        lower.includes('montaj');
+
+      if (isServiceQuery) {
+        const pendingServices = (context.services || []).filter(
+          (svc) => svc.status !== 'completed' && svc.status !== 'approved'
+        );
+        const completedServices = (context.services || []).filter(
+          (svc) => svc.status === 'completed' || svc.status === 'approved'
+        );
+
+        let ans = `🔧 **Teknik Servis Durum Raporu:**\n\n`;
+        if (pendingServices.length > 0) {
+          ans += `⏳ **Sahada İşlem Bekleyen Servisler (${pendingServices.length} Adet):**\n`;
+          pendingServices.slice(0, 8).forEach((svc, idx) => {
+            ans += `${idx + 1}. **${svc.cariName || svc.companyName}**${svc.location ? ` - ${svc.location}` : ''}\n   • İş: ${svc.workDone || 'Servis müdahalesi'}${svc.date ? ` | Tarih: ${svc.date}` : ''}\n`;
+          });
+          if (pendingServices.length > 8) {
+            ans += `*(Ve ${pendingServices.length - 8} bekleyen servis daha...)*\n`;
+          }
+        } else {
+          ans += `✅ Şu anda sahada işlem bekleyen açık teknik servis kaydı bulunmamaktadır. Tüm servisler tamamlanmıştır.\n`;
+        }
+
+        ans += `\n📊 Toplam **${completedServices.length}** adet tamamlanmış, **${pendingServices.length}** adet bekleyen servis mevcuttur.`;
+
         return {
           actionType: 'system_query',
           title: 'Teknik Servis Durumu',
           explanation: ans,
-          confidence: 0.9,
+          confidence: 0.95,
           provider: 'local_nlp',
           data: { answer: ans },
         };
       }
 
-      // 3. İş Emri Sorusu
-      if (lower.includes('iş') || lower.includes('görev')) {
-        const count = s?.pendingNotesCount || 0;
-        const ans = `📝 **İş Emirleri Durumu:**\nŞu anda sistemde personele atanmış ve bekleyen toplam **${count}** adet iş emri ve görev bulunmaktadır.`;
+      // 3. İŞ EMİRLERİ VE GÖREV SORULARI
+      const isNoteQuery =
+        lower.includes('iş emri') ||
+        lower.includes('iş emirleri') ||
+        lower.includes('görev') ||
+        lower.includes('notlar') ||
+        lower.includes('yapılacak');
+
+      if (isNoteQuery) {
+        let pendingNotes = (context.notes || []).filter((n) => !n.status || n.status === 'pending');
+        if (matchedStaff) {
+          pendingNotes = pendingNotes.filter((n) =>
+            n.targetUserNames?.some((name) => name.toLowerCase().includes(matchedStaff!.name.toLowerCase()))
+          );
+        }
+
+        let ans = `📝 **İş Emirleri ve Görevler Raporu:**\n\n`;
+        if (pendingNotes.length > 0) {
+          ans += `📋 **Aktif / Bekleyen Görevler (${pendingNotes.length} Adet):**\n`;
+          pendingNotes.slice(0, 8).forEach((n, idx) => {
+            const cariTag = n.cariName ? `[${n.cariName}] ` : '';
+            const staffTag = n.targetUserNames?.length ? `(Atanan: ${n.targetUserNames.join(', ')}) ` : '';
+            ans += `${idx + 1}. **${cariTag}${staffTag}**${n.content}${n.reminderDate ? ` ➔ ${n.reminderDate}` : ''}\n`;
+          });
+          if (pendingNotes.length > 8) {
+            ans += `*(Ve ${pendingNotes.length - 8} bekleyen iş emri daha...)*\n`;
+          }
+        } else {
+          ans += matchedStaff
+            ? `✅ ${matchedStaff.name} personeli üzerinde bekleyen açık bir iş emri bulunmamaktadır.`
+            : `✅ Sistemde bekleyen açık iş emri bulunmamaktadır.`;
+        }
+
         return {
           actionType: 'system_query',
           title: 'İş Emirleri Durumu',
           explanation: ans,
-          confidence: 0.9,
+          confidence: 0.95,
           provider: 'local_nlp',
           data: { answer: ans },
         };
       }
 
-      // 4. Finans / Kasa / Masraf Sorusu
-      if (lower.includes('kasa') || lower.includes('masraf') || lower.includes('gelir') || lower.includes('bakiye') || lower.includes('para')) {
-        const ans =
-          `💼 **Finans ve Kasa Durumu:**\n` +
-          `• 💰 **Bu Ay Toplam Gelir:** ${(s?.monthlyIncome || 0).toLocaleString('tr-TR')} ₺\n` +
-          `• 💸 **Bu Ay Toplam Gider:** ${(s?.monthlyExpense || 0).toLocaleString('tr-TR')} ₺\n` +
-          `• 🏦 **Bugünkü Kasa Mevcudu:** ${(s?.cashBalance || 0).toLocaleString('tr-TR')} ₺`;
+      // 4. FİNANS, KASA, MASRAF VE GELİR SORULARI
+      const isFinQuery =
+        lower.includes('kasa') ||
+        lower.includes('masraf') ||
+        lower.includes('gelir') ||
+        lower.includes('gider') ||
+        lower.includes('bakiye') ||
+        lower.includes('nakit') ||
+        lower.includes('pos') ||
+        lower.includes('para');
+
+      if (isFinQuery) {
+        const cash = s?.todayCash || 0;
+        const bank = s?.todayBank || 0;
+        const pos = s?.todayCreditCard || 0;
+        const total = s?.cashBalance || cash + bank + pos;
+
+        const recentTxs = (context.accountingTransactions || []).slice(0, 5);
+
+        let ans = `💼 **Finans ve Kasa Durum Raporu:**\n\n`;
+        ans += `💰 **Bugünkü Kasa Mevcudu (Toplam: ${total.toLocaleString('tr-TR')} ₺):**\n`;
+        ans += `• 💵 **Nakit Kasa:** ${cash.toLocaleString('tr-TR')} ₺\n`;
+        ans += `• 🏦 **Banka / Havale:** ${bank.toLocaleString('tr-TR')} ₺\n`;
+        ans += `• 💳 **Kredi Kartı / POS:** ${pos.toLocaleString('tr-TR')} ₺\n\n`;
+
+        ans += `📊 **Bu Ayki Finansal Özet:**\n`;
+        ans += `• 📈 **Toplam Gelir / Tahsilat:** ${(s?.monthlyIncome || 0).toLocaleString('tr-TR')} ₺\n`;
+        ans += `• 📉 **Toplam Masraf / Gider:** ${(s?.monthlyExpense || 0).toLocaleString('tr-TR')} ₺\n`;
+        const diff = (s?.monthlyIncome || 0) - (s?.monthlyExpense || 0);
+        ans += `• ⚖️ **Net Fark:** ${diff >= 0 ? '+' : ''}${diff.toLocaleString('tr-TR')} ₺\n`;
+
+        if (recentTxs.length > 0) {
+          ans += `\n🧾 **Son Muhasebe Hareketleri:**\n`;
+          recentTxs.forEach((t) => {
+            const icon = t.type === 'income' ? '🟢 Gelir' : '🔴 Gider';
+            ans += `• ${icon}: ${t.amount.toLocaleString('tr-TR')} ₺ - ${t.categoryName || 'Genel'} (${t.description || t.date})\n`;
+          });
+        }
 
         return {
           actionType: 'system_query',
-          title: 'Finansal Durum Raporu',
+          title: 'Kasa ve Muhasebe Durumu',
           explanation: ans,
-          confidence: 0.9,
+          confidence: 0.95,
           provider: 'local_nlp',
           data: { answer: ans },
         };
       }
 
-      // 5. Genel Canlı Özet Sorusu
+      // 5. GENEL CANLI SİSTEM ÖZETİ
       if (s) {
         const ans =
           `📊 **Saha Takip Canlı Sistem Özeti (${todayStr})**:\n` +
           `• 📝 **Bekleyen İş Emirleri:** ${s.pendingNotesCount} adet\n` +
           `• 🔧 **Bekleyen Servisler:** ${s.pendingServicesCount} adet\n` +
           `• 👥 **Şu An İşte Olan Personeller (${s.activeStaffNames.length}):** ${s.activeStaffNames.join(', ') || 'Henüz giriş yapan yok'}\n` +
+          `• 🏁 **Bugün Mesaisi Bitenler (${(s.completedStaffNames || []).length}):** ${(s.completedStaffNames || []).join(', ') || 'Henüz çıkış yapan yok'}\n` +
           `• 💰 **Bu Ay Toplam Gelir:** ${s.monthlyIncome.toLocaleString('tr-TR')} ₺\n` +
           `• 💸 **Bu Ay Toplam Gider:** ${s.monthlyExpense.toLocaleString('tr-TR')} ₺\n` +
           `• 💼 **Bugünkü Kasa Mevcudu:** ${s.cashBalance.toLocaleString('tr-TR')} ₺`;
