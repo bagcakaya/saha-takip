@@ -27,6 +27,8 @@ import { PublicSalarySlipViewer } from './components/salary/PublicSalarySlipView
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
+import { AiFloatingButton } from './components/ai/AiFloatingButton';
+import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { isUserAdmin, canUserManageInstitutionsAndBranches, isModulePermitted } from './types/auth';
 import {
@@ -76,7 +78,26 @@ const MainApp: React.FC = () => {
   // Selected location for right summary panel preview / detail modal
   const [previewLocation, setPreviewLocation] = useState<LocationItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
   const mainScrollRef = useRef<HTMLDivElement>(null);
+
+  // Listen for AI Assistant open events and Alt+A hotkey
+  useEffect(() => {
+    const handleOpenAi = () => setIsAiAssistantOpen(true);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        setIsAiAssistantOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('saha:open-ai-assistant', handleOpenAi);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('saha:open-ai-assistant', handleOpenAi);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // --- 1. History & Navigation Management for Android Back Button & iOS Swipe Back ---
   const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean; filter?: string }) => {
@@ -797,6 +818,14 @@ const MainApp: React.FC = () => {
 
       {/* Global Ringing Alarm Modal for Managers */}
       {isAdmin && <CariAlarmRingingModal />}
+
+      {/* Yapay Zekâ Asistanı - Global Yüzen Buton & Modal */}
+      <AiFloatingButton onClick={() => setIsAiAssistantOpen(true)} />
+      <AiAssistantModal
+        isOpen={isAiAssistantOpen}
+        onClose={() => setIsAiAssistantOpen(false)}
+        onNavigateTab={(tab) => navigateToTab(tab as TabType)}
+      />
     </div>
   );
 };

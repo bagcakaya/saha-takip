@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote, UserPlus } from 'lucide-react';
+import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote, UserPlus, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
@@ -279,6 +279,17 @@ export const Header: React.FC<HeaderProps> = ({
         {permission !== 'granted' && (
           <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
         )}
+      </button>
+
+      {/* AI Assistant Button */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
+        className="p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
+        title="Yapay Zekâ Asistanı (Sesli veya Yazılı)"
+        aria-label="Yapay Zekâ Asistanı"
+      >
+        <Sparkles className="w-4 h-4 animate-pulse text-indigo-600 dark:text-indigo-400" />
       </button>
 
       <ThemeToggle />
