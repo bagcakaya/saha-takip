@@ -39,6 +39,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     services,
     accountingData,
     attendanceRecords,
+    salaryRecords,
     cariler,
     branches,
     addNote,
@@ -106,6 +107,19 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         name: c.name,
         type: c.type,
       })),
+      salaryRecords: (salaryRecords || []).map((s) => ({
+        staffName: s.staffName,
+        userId: s.userId,
+        year: s.year,
+        month: s.month,
+        agreedAmount: s.agreedAmount,
+        payments: (s.payments || []).map((p) => ({
+          amount: Number(p.amount) || 0,
+          paymentType: p.paymentMethod || 'bank',
+          date: p.date,
+          note: p.description,
+        })),
+      })),
       systemSummary: {
         today: todayStr,
         pendingNotesCount: notes.filter((n) => !n.status || n.status === 'pending').length,
@@ -116,7 +130,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         cashBalance: todayCash?.totalAmount || 0,
       },
     };
-  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords]);
+  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords, salaryRecords]);
 
   // --------------------------------------------------------------------------
   // Web Speech API Voice Recognition (Browser Native - Free & Unlimited)
@@ -329,9 +343,14 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             <div>
               <h2 className="text-base font-black tracking-tight flex items-center gap-2">
                 <span>Yapay Zekâ Asistanı</span>
-                <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-white/20 text-white">
-                  {hasApiKey ? 'Gemini 1.5 Flash' : 'Akıllı Yerel NLP'}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                  className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
+                  title="Model ayarları ve ücretsiz Gemini API anahtarı"
+                >
+                  {hasApiKey ? '⚡ Gemini 1.5 Flash' : '🧠 Akıllı Yerel NLP (⚙️)'}
+                </button>
               </h2>
               <p className="text-xs text-white/80">
                 Sesle konuşun veya yazın; iş emri, servis, masraf ve takipleri anında oluştursun.
@@ -697,6 +716,61 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   >
                     <Check className="w-4 h-4" />
                     <span>Onayla ve Sisteme Kaydet</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Soru & Rapor Yanıtları İçin Hızlı Yönlendirme ve Temizleme Çubuğu */}
+              {(parsedResponse.actionType === 'system_query' || parsedResponse.actionType === 'general_chat') && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {parsedResponse.title.toLowerCase().includes('maaş') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          if (onNavigateTab) onNavigateTab('staff_tracking');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-200/80 dark:border-indigo-800 hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        💳 Maaş Takibine Git
+                      </button>
+                    )}
+                    {parsedResponse.title.toLowerCase().includes('servis') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          if (onNavigateTab) onNavigateTab('services');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 text-xs font-bold border border-amber-200/80 dark:border-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
+                      >
+                        🔧 Servislere Git
+                      </button>
+                    )}
+                    {parsedResponse.title.toLowerCase().includes('finans') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          if (onNavigateTab) onNavigateTab('accounting');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-200/80 dark:border-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
+                      >
+                        💰 Muhasebeye Git
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setParsedResponse(null);
+                      setPrompt('');
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Yeni Soru Sor
                   </button>
                 </div>
               )}

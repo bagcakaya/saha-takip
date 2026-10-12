@@ -9,6 +9,14 @@ export interface AiContextData {
   cariler: string[];
   branches: Array<{ id: string; name: string }>;
   categories: Array<{ id: string; code: string; name: string; type: 'income' | 'expense' }>;
+  salaryRecords?: Array<{
+    staffName: string;
+    userId: string;
+    year: number;
+    month: number;
+    agreedAmount?: number;
+    payments: Array<{ amount: number; paymentType: string; date?: string; note?: string }>;
+  }>;
   systemSummary?: {
     today: string;
     pendingNotesCount: number;
@@ -160,16 +168,29 @@ Sistemdeki Mevcut Veriler:
 - Personeller: ${JSON.stringify(context.staffMembers.map((s) => ({ id: s.id, name: s.name, role: s.role })))}
 - Cariler / Müşteriler (Örnekler): ${JSON.stringify(context.cariler.slice(0, 40))}
 - Masraf ve Gelir Kalemleri (ERP Kodlu): ${JSON.stringify(context.categories.map((c) => ({ id: c.id, code: c.code, name: c.name, type: c.type })))}
+- Maaş & Avans Ödeme Kayıtları: ${JSON.stringify(
+  (context.salaryRecords || []).slice(0, 40).map((s) => ({
+    personel: s.staffName,
+    yil: s.year,
+    ay: s.month,
+    anlasilanMaas: s.agreedAmount,
+    toplamOdenen: (s.payments || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0),
+    odemeler: s.payments,
+  }))
+)}
 - Sistem Canlı Özeti: ${JSON.stringify(context.systemSummary || {})}
 
 GÖREVİN:
 Kullanıcının Türkçe komutunu, konuşmasını veya sorusunu incele.
+ÖNEMLİ KURAL:
+Eğer kullanıcı bir soru soruyorsa (örn: 'Eylül ayında kime ne kadar maaş verdik', 'Bugün kimler geldi', 'Kaç bekleyen servis var', 'Kasa durumu nedir' vb.), 'actionType': 'system_query' seç ve cevabı 'explanation' alanında detaylı, kibar ve biçimlendirilmiş Türkçe olarak açıkla. ASLA bir soruya 'create_note' (iş emri) açmaya kalkma!
+
 Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
-1. 'create_note': Personele görev atama, anlık iş emri veya hatırlatıcı oluşturma.
+1. 'create_note': SADECE kullanıcı açıkça personele görev atamak veya iş emri/not açmak istediğinde ('Ahmet'e iş emri aç', 'görev ata', 'not ekle' vb.).
 2. 'create_service': Müşteri/şube için teknik servis, müdahale veya montaj kaydı açma.
 3. 'create_accounting': Gelir tahsilatı veya gider masrafı işleme. (Ödeme yöntemi: cash_register=kasadan, bank_transfer=havale, credit_card=kredi kartı, out_of_pocket=cepten).
 4. 'create_follow_up': Cari bazlı zaman ayarlı randevu, arama veya ödeme takibi.
-5. 'system_query': Sistem verilerini sorma (bekleyen işler, masraflar, kasa durumu, personel kimler geldi vb.).
+5. 'system_query': Sistem verilerini sorma (maaş dökümü, bekleyen işler, masraflar, kasa durumu, personel kimler geldi vb.).
 6. 'general_chat': Diğer genel sorular veya tebrik/selamlama.
 
 ÇOK ÖNEMLİ KURALLAR:
@@ -349,55 +370,264 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
     targetDateTime = `${targetDate}T${targetTime}`;
 
     // -------------------------------------------------------------
-    // AKSİYON 1: SİSTEM SORGULAMA (system_query)
+    // 5. SORU / SORGU TESPİTİ (Question / Query Detection)
     // -------------------------------------------------------------
-    if (
+    const isQuestion =
+      prompt.trim().endsWith('?') ||
+      lower.includes('kime') ||
+      lower.includes('kimler') ||
+      lower.includes('kim') ||
+      lower.includes('ne kadar') ||
+      lower.includes('hangi') ||
+      lower.includes('nasıl') ||
+      lower.includes('nerede') ||
+      lower.includes('ne zaman') ||
+      lower.includes('nedir') ||
+      lower.includes('neler') ||
+      lower.includes('mı') ||
+      lower.includes('mi') ||
+      lower.includes('mu') ||
+      lower.includes('mü') ||
+      lower.includes('mıyız') ||
+      lower.includes('miyiz') ||
+      lower.includes('misin') ||
+      lower.includes('misiniz') ||
       lower.includes('kaç') ||
-      lower.includes('durum') ||
+      lower.includes('kaçta') ||
+      lower.includes('toplam') ||
+      lower.includes('listele') ||
+      lower.includes('göster') ||
+      lower.includes('söyle') ||
+      lower.includes('bilgi') ||
       lower.includes('özet') ||
       lower.includes('rapor') ||
-      lower.includes('kimler geldi') ||
-      lower.includes('ne kadar masraf') ||
-      lower.includes('kasa mevcudu')
-    ) {
+      lower.includes('durum') ||
+      lower.includes('verdik') ||
+      lower.includes('ödedik') ||
+      lower.includes('yapıldı') ||
+      lower.includes('alındı');
+
+    const isExplicitNoteCommand =
+      lower.includes('iş emri') ||
+      lower.includes('görev ata') ||
+      lower.includes('görev ver') ||
+      lower.includes('not ekle') ||
+      lower.includes('not al') ||
+      lower.includes('talimat ver') ||
+      lower.includes('yapılacak');
+
+    // -------------------------------------------------------------
+    // AKSİYON 1: MAAŞ & AVANS & ÖDEME SORGUSU (Salary Questions)
+    // -------------------------------------------------------------
+    const isSalaryQuery =
+      lower.includes('maaş') ||
+      lower.includes('avans') ||
+      lower.includes('hakediş') ||
+      lower.includes('ücret') ||
+      lower.includes('bordro') ||
+      (isQuestion && lower.includes('ödeme'));
+
+    if (isSalaryQuery) {
+      const monthNames = [
+        'ocak', 'şubat', 'mart', 'nisan', 'mayıs', 'haziran',
+        'temmuz', 'ağustos', 'eylül', 'ekim', 'kasım', 'aralık'
+      ];
+      let targetMonthNum = today.getMonth() + 1; // Varsayılan: bu ay
+      let targetMonthName = monthNames[today.getMonth()];
+
+      // Belirtilen ayı bul
+      for (let i = 0; i < monthNames.length; i++) {
+        if (lower.includes(monthNames[i])) {
+          targetMonthNum = i + 1;
+          targetMonthName = monthNames[i];
+          break;
+        }
+      }
+      if (lower.includes('geçen ay')) {
+        targetMonthNum = today.getMonth() === 0 ? 12 : today.getMonth();
+        targetMonthName = monthNames[targetMonthNum - 1];
+      }
+
+      // Belirtilen yılı bul (örn: 2025, 2026)
+      const yearMatch = prompt.match(/\b(202\d)\b/);
+      const targetYearNum = yearMatch ? parseInt(yearMatch[1], 10) : today.getFullYear();
+      const capMonthName = targetMonthName.charAt(0).toUpperCase() + targetMonthName.slice(1);
+
+      // context.salaryRecords içinde ara
+      const allSalary = context.salaryRecords || [];
+      const matchedMonthRecords = allSalary.filter(
+        (r) => r.month === targetMonthNum && (yearMatch ? r.year === targetYearNum : true)
+      );
+
+      if (matchedMonthRecords.length > 0) {
+        let grandTotal = 0;
+        const lines: string[] = [];
+
+        matchedMonthRecords.forEach((r) => {
+          const totalPaid = (r.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+          grandTotal += totalPaid;
+
+          const nakit = (r.payments || []).filter((p) => p.paymentType === 'cash').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+          const banka = (r.payments || []).filter((p) => p.paymentType === 'bank').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+          let paymentDetail = '';
+          if (nakit > 0 && banka > 0) {
+            paymentDetail = ` (Banka: ${banka.toLocaleString('tr-TR')} ₺, Nakit: ${nakit.toLocaleString('tr-TR')} ₺)`;
+          } else if (banka > 0) {
+            paymentDetail = ` (Banka: ${banka.toLocaleString('tr-TR')} ₺)`;
+          } else if (nakit > 0) {
+            paymentDetail = ` (Nakit: ${nakit.toLocaleString('tr-TR')} ₺)`;
+          }
+
+          const agreedText = r.agreedAmount ? ` [Maaş: ${r.agreedAmount.toLocaleString('tr-TR')} ₺]` : '';
+          lines.push(`• **${r.staffName}:** ${totalPaid.toLocaleString('tr-TR')} ₺${paymentDetail}${agreedText}`);
+        });
+
+        const explanation =
+          `📊 **${capMonthName} ${targetYearNum} Maaş & Ödeme Dökümü:**\n\n` +
+          lines.join('\n') +
+          `\n\n💰 **Toplam Ödenen:** ${grandTotal.toLocaleString('tr-TR')} ₺\n` +
+          `👥 **Ödeme Yapılan Personel:** ${matchedMonthRecords.length} kişi`;
+
+        return {
+          actionType: 'system_query',
+          title: `${capMonthName} ${targetYearNum} Maaş Raporu`,
+          explanation,
+          confidence: 0.95,
+          provider: 'local_nlp',
+          data: { answer: explanation },
+        };
+      } else {
+        // Kayıt bulunamadı
+        const existingMonths = Array.from(new Set(allSalary.map((s) => `${monthNames[(s.month || 1) - 1]} ${s.year}`)));
+        const availableText = existingMonths.length > 0 ? `Sistemde kayıtlı dönemler: ${existingMonths.join(', ')}.` : 'Sistemde henüz girilmiş bir maaş ödeme kaydı bulunmuyor.';
+
+        const explanation =
+          `📅 **${capMonthName} ${targetYearNum}** dönemine ait henüz sisteme kaydedilmiş bir maaş veya avans ödemesi bulunamadı.\n\n` +
+          `${availableText}\n\n` +
+          `*(Ödeme girmek veya kontrol etmek için Personel Takibi > Maaş Takibi sekmesini kullanabilirsiniz.)*`;
+
+        return {
+          actionType: 'system_query',
+          title: `${capMonthName} Maaş Bilgisi Bulunamadı`,
+          explanation,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: explanation },
+        };
+      }
+    }
+
+    // -------------------------------------------------------------
+    // AKSİYON 2: DİĞER SİSTEM SORULARI (Attendance, Services, Balance)
+    // -------------------------------------------------------------
+    if (isQuestion && !isExplicitNoteCommand) {
       const s = context.systemSummary;
-      let ans = 'Sistem canlı durumu:\n';
+
+      // 1. Personel / Giriş-Çıkış Sorusu
+      if (lower.includes('kim') || lower.includes('personel') || lower.includes('çalışan') || lower.includes('geldi') || lower.includes('mesai')) {
+        const activeNames = s?.activeStaffNames || [];
+        const ans = activeNames.length > 0
+          ? `👥 **Bugün İşte Olan Personeller (${activeNames.length} Kişi):**\n• ${activeNames.join('\n• ')}`
+          : `👥 **Personel Durumu:**\nBugün (${todayStr}) henüz sisteme giriş yapmış aktif personel bulunmuyor.`;
+
+        return {
+          actionType: 'system_query',
+          title: 'Bugünkü Personel Durumu',
+          explanation: ans,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 2. Servis Sorusu
+      if (lower.includes('servis')) {
+        const count = s?.pendingServicesCount || 0;
+        const ans = `🔧 **Teknik Servis Durumu:**\nŞu anda sahada işlem bekleyen toplam **${count}** adet teknik servis kaydı bulunmaktadır.`;
+        return {
+          actionType: 'system_query',
+          title: 'Teknik Servis Durumu',
+          explanation: ans,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 3. İş Emri Sorusu
+      if (lower.includes('iş') || lower.includes('görev')) {
+        const count = s?.pendingNotesCount || 0;
+        const ans = `📝 **İş Emirleri Durumu:**\nŞu anda sistemde personele atanmış ve bekleyen toplam **${count}** adet iş emri ve görev bulunmaktadır.`;
+        return {
+          actionType: 'system_query',
+          title: 'İş Emirleri Durumu',
+          explanation: ans,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 4. Finans / Kasa / Masraf Sorusu
+      if (lower.includes('kasa') || lower.includes('masraf') || lower.includes('gelir') || lower.includes('bakiye') || lower.includes('para')) {
+        const ans =
+          `💼 **Finans ve Kasa Durumu:**\n` +
+          `• 💰 **Bu Ay Toplam Gelir:** ${(s?.monthlyIncome || 0).toLocaleString('tr-TR')} ₺\n` +
+          `• 💸 **Bu Ay Toplam Gider:** ${(s?.monthlyExpense || 0).toLocaleString('tr-TR')} ₺\n` +
+          `• 🏦 **Bugünkü Kasa Mevcudu:** ${(s?.cashBalance || 0).toLocaleString('tr-TR')} ₺`;
+
+        return {
+          actionType: 'system_query',
+          title: 'Finansal Durum Raporu',
+          explanation: ans,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 5. Genel Canlı Özet Sorusu
       if (s) {
-        ans = `📊 **Saha Takip Canlı Durum Özeti (${todayStr})**:\n` +
+        const ans =
+          `📊 **Saha Takip Canlı Sistem Özeti (${todayStr})**:\n` +
           `• 📝 **Bekleyen İş Emirleri:** ${s.pendingNotesCount} adet\n` +
           `• 🔧 **Bekleyen Servisler:** ${s.pendingServicesCount} adet\n` +
           `• 👥 **Şu An İşte Olan Personeller (${s.activeStaffNames.length}):** ${s.activeStaffNames.join(', ') || 'Henüz giriş yapan yok'}\n` +
           `• 💰 **Bu Ay Toplam Gelir:** ${s.monthlyIncome.toLocaleString('tr-TR')} ₺\n` +
           `• 💸 **Bu Ay Toplam Gider:** ${s.monthlyExpense.toLocaleString('tr-TR')} ₺\n` +
           `• 💼 **Bugünkü Kasa Mevcudu:** ${s.cashBalance.toLocaleString('tr-TR')} ₺`;
-      } else {
-        ans = 'Sistemde kayıtlı işlemleriniz aktif durumdadır.';
-      }
 
-      return {
-        actionType: 'system_query',
-        title: 'Sistem Durumu & Canlı Rapor',
-        explanation: ans,
-        confidence: 0.9,
-        provider: 'local_nlp',
-        data: { answer: ans },
-      };
+        return {
+          actionType: 'system_query',
+          title: 'Canlı Sistem Durumu',
+          explanation: ans,
+          confidence: 0.9,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
     }
 
     // -------------------------------------------------------------
-    // AKSİYON 2: MUHASEBE GELİR / GİDER (create_accounting)
+    // AKSİYON 3: MUHASEBE GELİR / GİDER EKLEME (create_accounting)
     // -------------------------------------------------------------
-    const isAccounting =
-      lower.includes('masraf') ||
-      lower.includes('gider') ||
-      lower.includes('gelir') ||
-      lower.includes('ödedik') ||
-      lower.includes('harcadık') ||
-      lower.includes('kasadan') ||
-      lower.includes('tahsil') ||
-      (extractedAmount !== undefined && (lower.includes('fatura') || lower.includes('yemek') || lower.includes('benzin') || lower.includes('havale')));
+    const isAccountingAction =
+      !isQuestion &&
+      extractedAmount !== undefined &&
+      (lower.includes('masraf') ||
+        lower.includes('gider') ||
+        lower.includes('gelir') ||
+        lower.includes('ödedik') ||
+        lower.includes('harcadık') ||
+        lower.includes('kasadan') ||
+        lower.includes('tahsil') ||
+        lower.includes('fatura') ||
+        lower.includes('yemek') ||
+        lower.includes('benzin') ||
+        lower.includes('havale'));
 
-    if (isAccounting && extractedAmount !== undefined) {
+    if (isAccountingAction && extractedAmount !== undefined) {
       const isIncome = lower.includes('gelir') || lower.includes('tahsil') || lower.includes('aldık') || lower.includes('para geldi');
       const txType: 'income' | 'expense' = isIncome ? 'income' : 'expense';
 
@@ -410,7 +640,7 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
         paymentMethod = 'out_of_pocket';
       }
 
-      // Uygun masraf/gelir kalemi eşleştirme
+      // Kalem eşleştirme
       let matchedCategory = context.categories.find((c) => c.type === txType && lower.includes(c.name.toLowerCase()));
       if (!matchedCategory) {
         if (lower.includes('yemek') || lower.includes('öğle')) {
@@ -448,18 +678,17 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
     }
 
     // -------------------------------------------------------------
-    // AKSİYON 3: TEKNİK SERVİS (create_service)
+    // AKSİYON 4: TEKNİK SERVİS AÇMA (create_service)
     // -------------------------------------------------------------
-    const isService =
-      lower.includes('servis') ||
-      lower.includes('arıza') ||
-      lower.includes('tamir') ||
-      lower.includes('klima') ||
-      lower.includes('fırın') ||
-      lower.includes('parça') ||
-      lower.includes('montaj');
+    const isServiceAction =
+      !isQuestion &&
+      (lower.includes('servis aç') ||
+        lower.includes('servis kayd') ||
+        lower.includes('arıza kayd') ||
+        lower.includes('servis gir') ||
+        (matchedCari && (lower.includes('arıza') || lower.includes('tamir') || lower.includes('klima') || lower.includes('fırın'))));
 
-    if (isService) {
+    if (isServiceAction) {
       let priority: 'low' | 'normal' | 'high' | 'urgent' = 'normal';
       if (lower.includes('acil') || lower.includes('önemli')) priority = 'urgent';
 
@@ -481,17 +710,19 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
     }
 
     // -------------------------------------------------------------
-    // AKSİYON 4: SÜRELİ TAKİP (create_follow_up)
+    // AKSİYON 5: SÜRELİ TAKİP (create_follow_up)
     // -------------------------------------------------------------
-    const isFollowUp =
-      lower.includes('görüş') ||
-      lower.includes('ara') ||
-      lower.includes('hatırlat') ||
-      lower.includes('randevu') ||
-      lower.includes('süreli') ||
-      lower.includes('vade');
+    const isFollowUpAction =
+      !isQuestion &&
+      (lower.includes('görüş') ||
+        lower.includes('ara') ||
+        lower.includes('hatırlat') ||
+        lower.includes('randevu') ||
+        lower.includes('süreli takip') ||
+        lower.includes('alarm kur')) &&
+      matchedCari;
 
-    if (isFollowUp && matchedCari) {
+    if (isFollowUpAction) {
       return {
         actionType: 'create_follow_up',
         title: 'Süreli Cari Takibi & Alarm',
@@ -508,23 +739,45 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
     }
 
     // -------------------------------------------------------------
-    // AKSİYON 5: İŞ EMRİ / NOT (create_note - Varsayılan Aksiyon)
+    // AKSİYON 6: İŞ EMRİ / NOT AÇMA (Sadece açıkça istenirse veya personele atanırsa)
     // -------------------------------------------------------------
+    if (isExplicitNoteCommand || (matchedStaff && !isQuestion)) {
+      return {
+        actionType: 'create_note',
+        title: 'İş Emri / Görev Atama',
+        explanation: `${matchedStaff?.name ? matchedStaff.name + ' personeline ' : ''}${matchedCari ? matchedCari + ' carisi için ' : ''}iş emri hazırlandı.`,
+        confidence: 0.85,
+        provider: 'local_nlp',
+        data: {
+          noteContent: prompt,
+          cariName: matchedCari,
+          targetUserId: matchedStaff?.id,
+          targetUserName: matchedStaff?.name,
+          reminderDate: targetDate,
+          reminderTime: targetTime,
+          reminderActive: true,
+        },
+      };
+    }
+
+    // -------------------------------------------------------------
+    // GENEL YANIT (Asla soruya yanlışlıkla iş emri açmaz!)
+    // -------------------------------------------------------------
+    const defaultAnswer =
+      `"${prompt}" talebiniz incelendi.\n\n` +
+      `💡 **Yapabileceğiniz İşlemler:**\n` +
+      `• **Soru Sormak:** "Eylül ayında kime ne kadar maaş verdik?", "Bugün kimler geldi?", "Kaç servis bekliyor?"\n` +
+      `• **İş Emri Açmak:** "Ahmet ustaya yarın 10:00'da Maya Pastanesine iş emri aç"\n` +
+      `• **Masraf Girmek:** "Bugün kasadan 450 TL yemek masrafı gir"\n` +
+      `• **Servis Kaydetmek:** "Maya Pastanesi Kadıköy için klima gaz dolumu servis kaydı aç"`;
+
     return {
-      actionType: 'create_note',
-      title: 'İş Emri / Görev Atama',
-      explanation: `${matchedStaff?.name ? matchedStaff.name + ' personeline ' : ''}${matchedCari ? matchedCari + ' carisi için ' : ''}iş emri hazırlandı.`,
-      confidence: 0.8,
+      actionType: 'system_query',
+      title: 'Yapay Zekâ Bilgilendirme',
+      explanation: defaultAnswer,
+      confidence: 0.9,
       provider: 'local_nlp',
-      data: {
-        noteContent: prompt,
-        cariName: matchedCari,
-        targetUserId: matchedStaff?.id,
-        targetUserName: matchedStaff?.name,
-        reminderDate: targetDate,
-        reminderTime: targetTime,
-        reminderActive: true,
-      },
+      data: { answer: defaultAnswer },
     };
   },
 };
