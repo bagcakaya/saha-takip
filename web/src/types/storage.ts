@@ -586,3 +586,37 @@ export interface AccountingDataPayload {
   dailyBalances: DailyCashBalance[];
 }
 
+// ==========================================
+// İŞ TAKİP SİSTEMİ HATA VE SİSTEM GÜNLÜĞÜ (SYSTEM LOGS)
+// ==========================================
+export type SystemLogLevel = 'ERROR' | 'WARN' | 'INFO';
+
+export type SystemLogCategory =
+  | 'MESAI_GIRIS'
+  | 'MESAI_CIKIS'
+  | 'MESAI_ONAY'
+  | 'MOLA'
+  | 'GPS_KONUM'
+  | 'VARDIYA'
+  | 'BILDIRIM'
+  | 'SENKRONIZASYON'
+  | 'VERITABANI'
+  | 'AUTH'
+  | 'SISTEM_GENEL';
+
+export interface SystemLogItem {
+  id: string;
+  timestamp: number;
+  dateStr: string;
+  level: SystemLogLevel;
+  category: SystemLogCategory;
+  message: string;
+  details?: string;
+  userId?: string;
+  userName?: string;
+  userRole?: string;
+  companyCode?: string;
+  deviceInfo?: string;
+  url?: string;
+}
+

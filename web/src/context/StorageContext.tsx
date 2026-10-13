@@ -17,6 +17,7 @@ import { FastActionAgent } from '../services/fastActionAgent';
 import { ShiftReminderService } from '../services/shiftReminderService';
 import { parseDueDateTime, checkMilestoneTrigger } from '../utils/dateUtils';
 import { ApprovalShield } from '../services/approvalShield';
+import { SystemLogger } from '../services/systemLogger';
 
 interface StorageContextType {
   locations: LocationItem[];
@@ -345,6 +346,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ).trim().toUpperCase();
   const activeCompId = (isSuper ? viewingCompany?.id : null) || company?.id || (activeCompCode === 'POLATLAR' ? 1 : undefined);
   const compCode = activeCompCode;
+
+  useEffect(() => {
+    SystemLogger.setUserContext(user);
+  }, [user]);
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);
@@ -4403,6 +4408,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       userPos = await LocationService.getFastOrWarmPosition();
     } catch (err: any) {
+      SystemLogger.error('GPS_KONUM', `İşe giriş sırasında konum alınamadı: ${err?.message || 'Bilinmiyor'}`, err);
       if (err?.isMockLocation) {
         return {
           success: false,
@@ -5043,6 +5049,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       userPos = await LocationService.getFastOrWarmPosition();
     } catch (err: any) {
+      SystemLogger.error('GPS_KONUM', `İşten çıkış sırasında konum alınamadı: ${err?.message || 'Bilinmiyor'}`, err);
       if (err?.isMockLocation) {
         return {
           success: false,
@@ -5191,6 +5198,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await StorageService.saveAttendanceRecords(updatedRecords);
       ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
+      SystemLogger.warn(
+        'MESAI_CIKIS',
+        `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta işten çıkış onay talebi gönderdi.${options.note ? ' Not: ' + options.note : ''}`
+      );
+
       // CRITICAL: Push notification to admins
       FastActionAgent.enqueuePushNotification({
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
@@ -5248,6 +5260,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
     await StorageService.saveAttendanceRecords(updatedRecords);
     ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
+
+    SystemLogger.info('MESAI_CIKIS', `${user.name}, ${targetName} şubesinden çıkış yaptı (${durationText}).`);
 
     // Push notification to admins
     FastActionAgent.enqueuePushNotification({
@@ -5631,8 +5645,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI reflex)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
-    // Doğrudan yerel hafıza ve buluta hemen yaz ve bekle
     await StorageService.saveAttendanceRecords(updated);
+
+    SystemLogger.info(
+      'MESAI_ONAY',
+      `Yönetici ${user.name}, ${record.userName} personelinin ${actionType === 'checkin' ? 'işe giriş' : 'işten çıkış'} onay talebini ONAYLADI.`
+    );
 
     return { success: true, message: 'Talep başarıyla onaylandı.' };
   };
@@ -5697,6 +5715,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       });
     }
+
+    SystemLogger.warn(
+      'MESAI_ONAY',
+      `Yönetici ${user.name}, ${record.userName} personelinin ${actionType === 'checkin' ? 'işe giriş' : 'işten çıkış'} onay talebini REDDETTİ.${reason ? ' Gerekçe: ' + reason : ''}`
+    );
 
     return { success: true, message: 'Talep reddedildi.' };
   };

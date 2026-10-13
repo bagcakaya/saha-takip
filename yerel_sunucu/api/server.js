@@ -474,6 +474,61 @@ app.all('/api/sync-cloud', async (req, res) => {
   }
 });
 
+// =========================================================================
+// 9. SYSTEM LOGS ENDPOINTS (İş Takip Sistemi Hata ve Olay Günlüğü)
+// =========================================================================
+const logsDir = process.env.LOGS_DIR || path.resolve(__dirname, '../../Logs');
+if (!fs.existsSync(logsDir)) {
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+  } catch {}
+}
+
+app.post('/api/logs', (req, res) => {
+  try {
+    const item = req.body;
+    if (!item) return res.status(400).json({ error: 'Log payload is empty' });
+
+    const now = new Date();
+    const dateStr = item.dateStr || now.toISOString().replace('T', ' ').substring(0, 19);
+    const level = item.level || 'INFO';
+    const category = item.category || 'SISTEM_GENEL';
+    const userStr = item.userName ? `[Kullanıcı: ${item.userName}${item.companyCode ? ' / ' + item.companyCode : ''}] ` : '';
+    const message = item.message || '';
+    const details = item.details ? `\n   -> Detay: ${String(item.details).replace(/\n/g, '\n      ')}` : '';
+    const device = item.deviceInfo ? `\n   -> Cihaz: ${item.deviceInfo}` : '';
+
+    const logLine = `[${dateStr}] [${level}] [${category}] ${userStr}${message}${details}${device}\n`;
+
+    // 1. Ana kümülatif hata log dosyasına yaz
+    const mainLogFile = path.join(logsDir, 'is_takip_hatalari.log');
+    fs.appendFileSync(mainLogFile, logLine, 'utf8');
+
+    // 2. Günlük log dosyasına yaz
+    const yyyymmdd = now.toISOString().split('T')[0].replace(/-/g, '');
+    const dailyLogFile = path.join(logsDir, `is_takip_${yyyymmdd}.log`);
+    fs.appendFileSync(dailyLogFile, logLine, 'utf8');
+
+    res.json({ success: true, loggedAt: dateStr });
+  } catch (err) {
+    console.error('Log yazma hatası:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/logs', (req, res) => {
+  try {
+    const mainLogFile = path.join(logsDir, 'is_takip_hatalari.log');
+    if (!fs.existsSync(mainLogFile)) {
+      return res.json({ content: 'Henüz log kaydı bulunmuyor.' });
+    }
+    const content = fs.readFileSync(mainLogFile, 'utf8');
+    res.json({ content });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Başlat
 app.listen(PORT, '0.0.0.0', () => {
   console.log('================================================================');

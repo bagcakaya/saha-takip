@@ -60,6 +60,7 @@ import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 import { StaffSelect } from '../components/common/StaffSelect';
 import { StaffSalaryModule } from '../components/salary/StaffSalaryModule';
 import { ApprovalShield } from '../services/approvalShield';
+import { SystemLogsModal } from '../components/common/SystemLogsModal';
 
 export const StaffTrackingView: React.FC = () => {
   const { user, users, company, viewingCompany } = useAuth();
@@ -1520,6 +1521,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     return 'menu';
   });
 
+  const [isSystemLogsOpen, setIsSystemLogsOpen] = useState(false);
+
   // Auto-refresh when entering 'workplace' (Merkez İş Yeri Lokasyonu) to guarantee latest cloud branches
   useEffect(() => {
     if (activeSection === 'workplace') {
@@ -2219,6 +2222,18 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'menu' && (
         <div className="pt-4 pb-6">
+          {isAdmin && (
+            <div className="flex items-center justify-end mb-3">
+              <button
+                type="button"
+                onClick={() => setIsSystemLogsOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all cursor-pointer shadow-xs active:scale-95"
+              >
+                <FileText className="w-4 h-4 text-rose-500" />
+                <span>Sistem Hata Günlüğü (Loglar)</span>
+              </button>
+            </div>
+          )}
           {(() => {
             const availableSubModules = [
               {
@@ -2386,14 +2401,28 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleBackToSectionMenu}
-            className="inline-flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
-          >
-            <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
-            <span>Personel Takibi Menüsü</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsSystemLogsOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
+                title="İş Takip Sistemi Hata ve Olay Günlüğü"
+              >
+                <FileText className="w-4 h-4 text-rose-500" />
+                <span className="hidden sm:inline">Sistem Logları</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleBackToSectionMenu}
+              className="inline-flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+              <span>Personel Takibi Menüsü</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -7003,6 +7032,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           </button>
         </div>
       )}
+
+      {/* İş Takip Sistemi - Hata ve Sistem Günlüğü Modalı */}
+      <SystemLogsModal isOpen={isSystemLogsOpen} onClose={() => setIsSystemLogsOpen(false)} />
     </div>
   );
 };
