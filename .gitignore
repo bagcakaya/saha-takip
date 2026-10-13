@@ -48,3 +48,5 @@ example
 /android
 
 scratch/
+Logs/
+*.log
