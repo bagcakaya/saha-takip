@@ -2187,6 +2187,10 @@ export const StorageService = {
           updated.checkOutApprovalStatus = 'pending';
           updated.checkOutOutside = true;
           if (localRec.checkOutTime) updated.checkOutTime = localRec.checkOutTime;
+          if (localRec.checkOutDistance !== undefined) updated.checkOutDistance = localRec.checkOutDistance;
+          if (localRec.checkOutAddress) updated.checkOutAddress = localRec.checkOutAddress;
+          if (localRec.approvalNote) updated.approvalNote = localRec.approvalNote;
+          if (localRec.workDurationMinutes !== undefined) updated.workDurationMinutes = localRec.workDurationMinutes;
           localHasNewerData = true;
         }
 

@@ -2397,8 +2397,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         </div>
       )}
 
-      {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ (Hem Ana Menüde Hem İşe Giriş/Çıkış Modülünde Görünür) --- */}
-      {(activeSection === 'menu' || activeSection === 'checkin_checkout') && isAdmin && pendingRequests.length > 0 && (
+      {/* --- ADMIN: ONAY BEKLEYEN PERSONEL TALEPLERİ PANELİ (Ana Menüde, Giriş/Çıkış ve Özet Modüllerinde Görünür) --- */}
+      {(activeSection === 'menu' || activeSection === 'checkin_checkout' || activeSection === 'summary') && isAdmin && pendingRequests.length > 0 && (
         <div className="bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-orange-500/15 dark:from-amber-950/50 dark:via-slate-900 dark:to-orange-950/50 rounded-3xl p-5 sm:p-6 border-2 border-amber-400 dark:border-amber-600 shadow-xl shadow-amber-500/10 space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-amber-200 dark:border-amber-800/80 pb-3">
             <div className="flex items-center gap-3">

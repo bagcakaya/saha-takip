@@ -4464,6 +4464,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               shiftCheckout20mNotificationId: aId,
             };
             FastActionAgent.enqueueAttendanceSync(compCode, updated);
+            StorageService.saveAttendanceRecords(updated).catch(() => {});
             return updated;
           });
         }
@@ -4496,6 +4497,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
+      await StorageService.saveAttendanceRecords(updated);
 
       return {
         success: true,
@@ -4544,6 +4546,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -4619,6 +4622,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -4672,6 +4676,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
+        await StorageService.saveAttendanceRecords(updated);
         registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
@@ -4719,6 +4724,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updated = [newRecord, ...attendanceRecords];
           setAttendanceRecords(updated);
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
+          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -4782,6 +4788,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated = [newRecord, ...attendanceRecords];
         setAttendanceRecords(updated);
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
+        await StorageService.saveAttendanceRecords(updated);
         registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
@@ -4846,6 +4853,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
+      await StorageService.saveAttendanceRecords(updated);
       registerShiftRemindersOnCheckIn(newRecord);
 
       FastActionAgent.enqueuePushNotification({
@@ -4886,6 +4894,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [newRecord, ...attendanceRecords];
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
+    await StorageService.saveAttendanceRecords(updated);
     registerShiftRemindersOnCheckIn(newRecord);
 
     FastActionAgent.enqueuePushNotification({
@@ -5020,6 +5029,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+      await StorageService.saveAttendanceRecords(updatedRecords);
       ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
       return {
@@ -5178,6 +5188,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedRecords[recordIndex] = updatedRecord;
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+      await StorageService.saveAttendanceRecords(updatedRecords);
       ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
       // CRITICAL: Push notification to admins
@@ -5235,6 +5246,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setAttendanceRecords(updatedRecords);
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
+    await StorageService.saveAttendanceRecords(updatedRecords);
     ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
 
     // Push notification to admins
@@ -5313,6 +5325,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
+    StorageService.saveAttendanceRecords(updated).catch(() => {});
 
     // Cancel any previous scheduled break push for this user to avoid ghost alerts
     if (record.currentBreakNotificationId) {
@@ -5418,6 +5431,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
+    StorageService.saveAttendanceRecords(updated).catch(() => {});
 
     // Push notification to admins about break end
     FastActionAgent.enqueuePushNotification({
@@ -5499,6 +5513,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
+    StorageService.saveAttendanceRecords(updated).catch(() => {});
 
     // Personele yöneticinin molayı sonlandırdığını anında OneSignal bildirimiyle ilet
     if (record.userId) {

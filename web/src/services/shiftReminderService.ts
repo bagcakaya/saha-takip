@@ -283,8 +283,15 @@ export const ShiftReminderService = {
       // Must have checked in today
       if (!record || !record.checkInTime) continue;
 
-      // If already checked out or completed, skip! (User did not forget)
-      if (record.checkOutTime || record.status === 'completed') continue;
+      // If already checked out, completed, or pending checkout approval, skip! (User did not forget)
+      if (
+        record.checkOutTime ||
+        record.status === 'completed' ||
+        record.status === 'pending_checkout_approval' ||
+        (Boolean(record.checkOutOutside) && record.checkOutApprovalStatus === 'pending')
+      ) {
+        continue;
+      }
 
       let recordUpdated = false;
       const updatedRecord: AttendanceRecord = { ...record };
