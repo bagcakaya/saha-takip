@@ -9,10 +9,13 @@ echo ===================================================
 echo.
 
 :: Port 3001'i mesgul eden eski bir arka plan node islemi varsa temizle
+echo [BILGI] Eski calisan servisler kontrol ediliyor...
+taskkill /f /im node.exe >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3001 ^| findstr LISTENING') do (
-    echo [BILGI] Port 3001'deki eski oturum sonlandiriliyor (PID: %%a)...
+    echo [BILGI] Port 3001'i tutan islem kapatiliyor (PID: %%a)...
     taskkill /f /pid %%a >nul 2>&1
 )
+timeout /t 1 >nul
 
 if not exist ".env" (
     echo [UYARI] .env dosyasi bulunamadi! .env.example dosyasindan olusturuluyor...
@@ -32,8 +35,17 @@ if exist "..\..\web\dist" (
     xcopy /e /i /y /q "..\..\web\dist" "dist" >nul 2>&1
 )
 
-echo [BILGI] API ve Web Servisi baslatiliyor...
-echo Kapatmak icin pencereyi kapatabilir veya Ctrl+C yapabilirsiniz.
+echo.
+echo ===================================================
+echo   API ve Web Paneli Baslatiliyor (Port: 3001)...
+echo ===================================================
+echo Bu pencereyi ACIK BIRAKINIZ.
+echo Kapatmak icin pencereyi carpisindan kapatabilir veya Ctrl+C yapabilirsiniz.
 echo.
 node server.js
+if %errorlevel% neq 0 (
+    echo.
+    echo [DIKKAT] Servis bir hata ile kapandi! (Hata Kodu: %errorlevel%)
+    echo Eger port cakismasi varsa Gorev Yoneticisi'nden 'node.exe'yi sonlandiriniz.
+)
 pause
