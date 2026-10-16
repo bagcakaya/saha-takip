@@ -1,4 +1,10 @@
 @echo off
 chcp 65001 >nul
-cd /d "%~dp0api"
-call Durdur.bat
+title Saha Takip - Servisi Durdur
+echo Saha Takip Yerel servisi durduruluyor...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3001 ^| findstr LISTENING') do (
+    echo Port 3001'i kullanan islem kapatiliyor - PID: %%a
+    taskkill /f /pid %%a >nul 2>&1
+)
+echo Port 3001 Saha Takip servisi basariyla durduruldu. Diger projeler etkilenmedi.
+ping 127.0.0.1 -n 3 >nul
