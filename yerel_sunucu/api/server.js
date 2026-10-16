@@ -535,25 +535,75 @@ app.get('/api/logs', (req, res) => {
 const webDistCandidates = [
   path.resolve(__dirname, 'dist'),
   path.resolve(__dirname, '../dist'),
+  path.resolve(process.cwd(), 'dist'),
+  path.resolve(process.cwd(), 'api/dist'),
   path.resolve(__dirname, '../../web/dist'),
   path.resolve(__dirname, '../web/dist'),
   path.resolve(__dirname, './web/dist'),
 ];
-const webDistPath = webDistCandidates.find((p) => fs.existsSync(p));
+const webDistPath = webDistCandidates.find((p) => fs.existsSync(path.join(p, 'index.html')) || fs.existsSync(p));
 
-if (webDistPath) {
+// Tanı ve durum kontrol endpoint'i
+app.get('/api/web-status', (req, res) => {
+  res.json({
+    status: 'ok',
+    version: '2.0-web-hosted',
+    serverTime: new Date().toISOString(),
+    dirname: __dirname,
+    cwd: process.cwd(),
+    webDistPath: webDistPath || null,
+    hasIndexHtml: webDistPath ? fs.existsSync(path.join(webDistPath, 'index.html')) : false,
+    candidates: webDistCandidates.map((c) => ({
+      path: c,
+      exists: fs.existsSync(c),
+      hasIndexHtml: fs.existsSync(path.join(c, 'index.html')),
+    })),
+  });
+});
+
+if (webDistPath && fs.existsSync(webDistPath)) {
   console.log(`>> Web Paneli statik yayını devrede: ${webDistPath}`);
   app.use(express.static(webDistPath));
+
+  // Ana Sayfa Açılışı (GET /)
+  app.get('/', (req, res) => {
+    const indexPath = path.join(webDistPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    res.status(404).send('Web Paneli index.html bulunamadı.');
+  });
 
   // Single Page Application (SPA) Rota Desteği - API & Uploads dışındaki tüm istekleri index.html'e yönlendir
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       return next();
     }
-    res.sendFile(path.join(webDistPath, 'index.html'));
+    const indexPath = path.join(webDistPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    next();
   });
 } else {
-  console.log('>> Bilgi: Web build klasörü (web/dist) bulunamadı. Yalnızca API modunda çalışıyor.');
+  console.log('>> Bilgi: Web build klasörü (dist) bulunamadı. Yalnızca API modunda çalışıyor.');
+  app.get('/', (req, res) => {
+    res.status(404).send(`
+      <!DOCTYPE html>
+      <html lang="tr">
+        <head><meta charset="utf-8"><title>Saha Takip - Web Kurulum Rehberi</title></head>
+        <body style="font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:40px auto;padding:24px;line-height:1.6;color:#1e293b;">
+          <h2 style="color:#0f766e;">✅ Saha Takip API Servisi Başarıyla Çalışıyor</h2>
+          <p>Sunucunuz hazır ve istekleri karşılıyor. Ancak web arayüzünün <b>dist</b> klasörü eksik olduğu için web paneli açılamadı.</p>
+          <div style="background:#f1f5f9;padding:16px;border-radius:12px;margin:20px 0;font-family:monospace;font-size:13px;">
+            <b>Aranan Konumlar:</b><br/>
+            ${webDistCandidates.map((c) => `• ${c} (Mevcut: ${fs.existsSync(c) ? 'VAR' : 'YOK'})`).join('<br/>')}
+          </div>
+          <p><b>Çözüm:</b> Bilgisayarınızdaki <code>yerel_sunucu/api/dist</code> klasörünü sunucudaki <code>api</code> klasörünün içine kopyalayınız.</p>
+        </body>
+      </html>
+    `);
+  });
 }
 
 // Başlat
