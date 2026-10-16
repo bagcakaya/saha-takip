@@ -108,9 +108,9 @@ export const getEffectiveDepartmentSalary = (
 };
 
 // Firma kodu normalizasyonu (Örn: 'MAYAPASTANELERİ' veya 'MAYAPASTANE' tam uyumu)
-export const normalizeCompanyCode = (code?: string | null): string => {
+export const normalizeCompanyCode = (code?: any): string => {
   if (!code) return 'POLATLAR';
-  const clean = code.trim().toUpperCase();
+  const clean = String(code).trim().toUpperCase();
   if (
     clean === 'MAYAPASTANELERİ' ||
     clean === 'MAYAPASTANELERI' ||
@@ -249,17 +249,18 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   const knownCompanyDepartments = useMemo(() => {
     const set = new Set<string>();
     companyStaff.forEach((s) => {
-      if (s.department && s.department.trim()) {
-        set.add(s.department.trim());
+      const d = (s.department || '').trim();
+      if (d) {
+        set.add(d);
       }
     });
     departmentSalaries?.forEach((ds) => {
+      const d = (ds?.department || '').trim();
       if (
-        normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
-        ds.department &&
-        ds.department.trim()
+        normalizeCompanyCode(ds?.companyCode) === activeCompanyCode &&
+        d
       ) {
-        set.add(ds.department.trim());
+        set.add(d);
       }
     });
     return Array.from(set).sort();
@@ -268,17 +269,17 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // Bu firmaya ait kaydedilmiş bölüm maaş tutarları
   const activeCompanyDeptSalaries = useMemo(() => {
     return (departmentSalaries || []).filter(
-      (ds) => normalizeCompanyCode(ds.companyCode) === activeCompanyCode
+      (ds) => normalizeCompanyCode(ds?.companyCode) === activeCompanyCode
     );
   }, [departmentSalaries, activeCompanyCode]);
 
   const handleSaveDeptSalary = async () => {
-    const deptToUse = isCustomDeptInput ? customDeptName.trim() : selectedDeptForSalary.trim();
+    const deptToUse = isCustomDeptInput ? (customDeptName || '').trim() : (selectedDeptForSalary || '').trim();
     if (!deptToUse) {
       alert('Lütfen bir bölüm seçiniz veya yeni bölüm adı yazınız.');
       return;
     }
-    const cleanVal = deptSalaryInput.trim().replace(/\./g, '').replace(',', '.');
+    const cleanVal = (deptSalaryInput || '').trim().replace(/\./g, '').replace(',', '.');
     const amount = parseFloat(cleanVal);
     if (isNaN(amount) || amount < 0) {
       alert('Lütfen geçerli bir aylık maaş tutarı giriniz.');
@@ -328,7 +329,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     setSelectedDeptForSalary(dept);
     setCustomDeptName('');
     const found = activeCompanyDeptSalaries.find(
-      (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
+      (ds) => (ds?.department || '').trim().toLowerCase() === (dept || '').trim().toLowerCase()
     );
     if (found && found.defaultMonthlySalary > 0) {
       setDeptSalaryInput(String(found.defaultMonthlySalary));
@@ -465,12 +466,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       }[] = [];
 
       targetStaff.forEach((st) => {
-        const staffDept = st.department?.trim();
+        const staffDept = (st.department || '').trim();
         const deptConfig = staffDept
           ? (departmentSalaries || []).find(
               (ds) =>
-                normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
-                ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+                normalizeCompanyCode(ds?.companyCode) === activeCompanyCode &&
+                (ds?.department || '').trim().toLowerCase() === staffDept.toLowerCase()
             )
           : undefined;
 
@@ -634,12 +635,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
     let paymentsCount = 0;
 
     const staffObj = companyStaff.find((s) => s.id === userId);
-    const staffDept = staffObj?.department?.trim();
+    const staffDept = (staffObj?.department || '').trim();
     const deptConfig = staffDept
       ? (departmentSalaries || []).find(
           (ds) =>
-            normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
-            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+            normalizeCompanyCode(ds?.companyCode) === activeCompanyCode &&
+            (ds?.department || '').trim().toLowerCase() === staffDept.toLowerCase()
         )
       : undefined;
 
@@ -788,12 +789,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
       if (p.paymentMethod === 'bank') totalBank += p.amount || 0;
     });
 
-    const staffDept = activeModalData?.staff?.department?.trim();
+    const staffDept = (activeModalData?.staff?.department || '').trim();
     const deptConfig = staffDept
       ? (departmentSalaries || []).find(
           (ds) =>
-            normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
-            ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+            normalizeCompanyCode(ds?.companyCode) === activeCompanyCode &&
+            (ds?.department || '').trim().toLowerCase() === staffDept.toLowerCase()
         )
       : undefined;
 
@@ -2391,12 +2392,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               ? currentMonthRec.agreedAmount
               : undefined;
 
-            const staffDept = staff.department?.trim();
+            const staffDept = (staff.department || '').trim();
             const deptConfig = staffDept
               ? (departmentSalaries || []).find(
                   (ds) =>
-                    normalizeCompanyCode(ds.companyCode) === activeCompanyCode &&
-                    ds.department.trim().toLowerCase() === staffDept.toLowerCase()
+                    normalizeCompanyCode(ds?.companyCode) === activeCompanyCode &&
+                    (ds?.department || '').trim().toLowerCase() === staffDept.toLowerCase()
                 )
               : undefined;
 
@@ -2863,7 +2864,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               <option value="">-- Bölüm Seçiniz --</option>
               {knownCompanyDepartments.map((dept) => {
                 const hasSalary = activeCompanyDeptSalaries.some(
-                  (ds) => ds.department.trim().toLowerCase() === dept.trim().toLowerCase()
+                  (ds) => (ds?.department || '').trim().toLowerCase() === (dept || '').trim().toLowerCase()
                 );
                 return (
                   <option key={dept} value={dept}>
@@ -2938,8 +2939,8 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               onClick={handleSaveDeptSalary}
               disabled={
                 isSavingDeptSalary ||
-                (!selectedDeptForSalary && !customDeptName.trim()) ||
-                !deptSalaryInput.trim()
+                (!selectedDeptForSalary && !(customDeptName || '').trim()) ||
+                !(deptSalaryInput || '').trim()
               }
               className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
             >

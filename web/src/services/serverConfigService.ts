@@ -25,16 +25,29 @@ export function normalizeServerUrl(url: string): string {
 
 export function shouldProxy(targetUrl: string): boolean {
   if (typeof window === 'undefined') return false;
+  // Sitemiz doğrudan HTTP üzerinde (örn: http://81.213.219.69:3001) çalışıyorsa proxy gerekmez
+  if (window.location.protocol === 'http:') return false;
+  // Aynı origin ise proxy gerekmez
+  const currentOrigin = window.location.origin.replace(/\/+$/, '').toLowerCase();
+  const cleanTarget = (targetUrl || '').replace(/\/+$/, '').toLowerCase();
+  if (currentOrigin === cleanTarget) return false;
   return window.location.protocol === 'https:' && targetUrl.startsWith('http:');
 }
 
 export function getResolvedApiUrl(targetBaseUrl: string, endpoint: string): string {
+  const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   if (shouldProxy(targetBaseUrl)) {
-    const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     return `/api/proxy?endpoint=${encodeURIComponent(cleanEp)}&target=${encodeURIComponent(targetBaseUrl.replace(/\/+$/, ''))}`;
   }
+  // Sitemiz kendi sunucumuzdaysa doğrudan göreceli /api rotası kullanılır
+  if (typeof window !== 'undefined') {
+    const curOrigin = window.location.origin.replace(/\/+$/, '').toLowerCase();
+    const cleanBase = targetBaseUrl.replace(/\/+$/, '').toLowerCase();
+    if (curOrigin === cleanBase) {
+      return cleanEp;
+    }
+  }
   const cleanBase = targetBaseUrl.replace(/\/+$/, '');
-  const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   return `${cleanBase}${cleanEp}`;
 }
 

@@ -529,6 +529,32 @@ app.get('/api/logs', (req, res) => {
   }
 });
 
+// =========================================================================
+// 8. WEB PANELİ STATİK SUNUMU (Vercel Yerine Doğrudan Sunucu Yayını)
+// =========================================================================
+const webDistCandidates = [
+  path.resolve(__dirname, '../../web/dist'),
+  path.resolve(__dirname, '../web/dist'),
+  path.resolve(__dirname, './web/dist'),
+  path.resolve(__dirname, './dist'),
+];
+const webDistPath = webDistCandidates.find((p) => fs.existsSync(p));
+
+if (webDistPath) {
+  console.log(`>> Web Paneli statik yayını devrede: ${webDistPath}`);
+  app.use(express.static(webDistPath));
+
+  // Single Page Application (SPA) Rota Desteği - API & Uploads dışındaki tüm istekleri index.html'e yönlendir
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      return next();
+    }
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+} else {
+  console.log('>> Bilgi: Web build klasörü (web/dist) bulunamadı. Yalnızca API modunda çalışıyor.');
+}
+
 // Başlat
 app.listen(PORT, '0.0.0.0', () => {
   console.log('================================================================');

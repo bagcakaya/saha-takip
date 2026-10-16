@@ -179,7 +179,7 @@ export const StaffTrackingView: React.FC = () => {
       }
       if (currentUserTodayRecord.branchName && branches && branches.length > 0) {
         const checkedInBranch = branches.find(
-          (b) => b.name.trim().toLowerCase() === currentUserTodayRecord.branchName?.trim().toLowerCase()
+          (b) => (b?.name || '').trim().toLowerCase() === (currentUserTodayRecord.branchName || '').trim().toLowerCase()
         );
         if (checkedInBranch) {
           return {
@@ -822,7 +822,7 @@ export const StaffTrackingView: React.FC = () => {
     }
     companyUsers.forEach((u) => {
       if (u.branchId === selectedBranchId) set.add(u.id);
-      if (branch?.name && u.branchName && u.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) {
+      if (branch?.name && u.branchName && (u.branchName || '').trim().toLowerCase() === (branch.name || '').trim().toLowerCase()) {
         set.add(u.id);
       }
     });
@@ -836,7 +836,7 @@ export const StaffTrackingView: React.FC = () => {
       companyUsers.forEach((u) => {
         if (
           u.branchId === b.id ||
-          (b.name && u.branchName && u.branchName.trim().toLowerCase() === b.name.trim().toLowerCase())
+          (b.name && u.branchName && (u.branchName || '').trim().toLowerCase() === (b.name || '').trim().toLowerCase())
         ) {
           assignedIds.add(u.id);
         }
@@ -1045,7 +1045,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       const branch = companyBranches.find((b) => b.id === selectedBranchId);
       list = list.filter((r) => {
         if (r.branchId === selectedBranchId) return true;
-        if (branch?.name && r.branchName && r.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) return true;
+        if (branch?.name && r.branchName && (r.branchName || '').trim().toLowerCase() === (branch.name || '').trim().toLowerCase()) return true;
         if (branchUserIds && branchUserIds.has(r.userId)) return true;
         return false;
       });
@@ -1131,7 +1131,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       const branch = companyBranches.find((b) => b.id === selectedBranchId);
       rangeRecords = rangeRecords.filter((r) => {
         if (r.branchId === selectedBranchId) return true;
-        if (branch?.name && r.branchName && r.branchName.trim().toLowerCase() === branch.name.trim().toLowerCase()) return true;
+        if (branch?.name && r.branchName && (r.branchName || '').trim().toLowerCase() === (branch.name || '').trim().toLowerCase()) return true;
         if (branchUserIds && branchUserIds.has(r.userId)) return true;
         return false;
       });
@@ -2876,7 +2876,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 <button
                   type="button"
                   onClick={handleOpenGoogleMaps}
-                  disabled={!addressText.trim() && !lat}
+                  disabled={!(addressText || '').trim() && !lat}
                   className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors disabled:opacity-40 shrink-0 cursor-pointer"
                   title="Haritada Göster"
                   aria-label="Haritada Göster"
