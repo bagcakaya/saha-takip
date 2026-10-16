@@ -394,11 +394,47 @@ app.post('/api/upload', upload.single('photo'), (req, res) => {
 // =========================================================================
 const serverRecentNotifications = new Map();
 
+app.delete('/api/send-notification', async (req, res) => {
+  try {
+    const notificationId = req.query.id;
+    const apiKey = process.env.ONESIGNAL_REST_KEY;
+    const appId = process.env.ONESIGNAL_APP_ID;
+    if (!notificationId) {
+      return res.status(400).json({ error: 'notificationId gerekli' });
+    }
+    const response = await fetch(`https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${appId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Basic ${apiKey}`,
+      },
+    });
+    const data = await response.json();
+    console.log(`>> [Yerel Sunucu] Zamanlanmış bildirim OneSignal üzerinden iptal edildi (ID: ${notificationId})`);
+    res.json(data);
+  } catch (err) {
+    console.error('OneSignal bildirim iptal hatası:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/send-notification', async (req, res) => {
   try {
     const payload = req.body;
     const apiKey = process.env.ONESIGNAL_REST_KEY;
     const appId = process.env.ONESIGNAL_APP_ID;
+
+    // Bildirim İptal Talebi
+    if (payload.action === 'cancel' && payload.id) {
+      const response = await fetch(`https://onesignal.com/api/v1/notifications/${payload.id}?app_id=${appId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Basic ${apiKey}`,
+        },
+      });
+      const data = await response.json();
+      console.log(`>> [Yerel Sunucu] Zamanlanmış bildirim OneSignal üzerinden iptal edildi (ID: ${payload.id})`);
+      return res.json(data);
+    }
 
     if (!payload.app_id) payload.app_id = appId;
 

@@ -9,13 +9,12 @@ echo ===================================================
 echo.
 
 :: Port 3001'i mesgul eden eski bir arka plan node islemi varsa temizle
-echo [BILGI] Eski calisan servisler kontrol ediliyor...
-taskkill /f /im node.exe >nul 2>&1
+echo [BILGI] Yalnizca Port 3001'i kullanan islem kontrol ediliyor...
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3001 ^| findstr LISTENING') do (
-    echo [BILGI] Port 3001'i tutan islem kapatiliyor (PID: %%a)...
+    echo [BILGI] Port 3001'i tutan Saha Takip islemi kapatiliyor - PID: %%a
     taskkill /f /pid %%a >nul 2>&1
 )
-timeout /t 1 >nul
+ping 127.0.0.1 -n 2 >nul
 
 if not exist ".env" (
     echo [UYARI] .env dosyasi bulunamadi! .env.example dosyasindan olusturuluyor...
@@ -45,7 +44,7 @@ echo.
 node server.js
 if %errorlevel% neq 0 (
     echo.
-    echo [DIKKAT] Servis bir hata ile kapandi! (Hata Kodu: %errorlevel%)
-    echo Eger port cakismasi varsa Gorev Yoneticisi'nden 'node.exe'yi sonlandiriniz.
+    echo [DIKKAT] Servis bir hata ile kapandi! - Hata Kodu: %errorlevel%
+    echo Eger port cakismasi varsa Durdur.bat calistiriniz.
 )
 pause
