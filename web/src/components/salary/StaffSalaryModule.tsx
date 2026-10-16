@@ -269,7 +269,11 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   // Bu firmaya ait kaydedilmiş bölüm maaş tutarları
   const activeCompanyDeptSalaries = useMemo(() => {
     return (departmentSalaries || []).filter(
-      (ds) => normalizeCompanyCode(ds?.companyCode) === activeCompanyCode
+      (ds) =>
+        ds &&
+        typeof ds.department === 'string' &&
+        ds.department.trim() &&
+        normalizeCompanyCode(ds?.companyCode) === activeCompanyCode
     );
   }, [departmentSalaries, activeCompanyCode]);
 
@@ -307,7 +311,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
   const handleDeleteDeptSalary = async (dept: string) => {
     if (window.confirm(`"${dept}" bölümü için belirlenen standart maaş tutarını silmek istediğinize emin misiniz?`)) {
       await deleteDepartmentSalary(dept);
-      if (selectedDeptForSalary.toLowerCase() === dept.toLowerCase()) {
+      if ((selectedDeptForSalary || '').toLowerCase() === (dept || '').toLowerCase()) {
         setDeptSalaryInput('');
       }
       setToastMessage(`"${dept}" bölümü maaş tanımı silindi.`);
@@ -397,14 +401,14 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
   // Filtrelenmiş personel listesi (Şube & Arama - kart listesi için)
   const filteredStaff = useMemo(() => {
-    if (!searchQuery.trim()) return branchStaff;
-    const q = searchQuery.toLowerCase().trim();
+    const rawSearch = (searchQuery || '').trim();
+    if (!rawSearch) return branchStaff;
+    const q = rawSearch.toLowerCase();
     return branchStaff.filter((st) => {
-      return (
-        st.name?.toLowerCase().includes(q) ||
-        st.username?.toLowerCase().includes(q) ||
-        (st.phone && st.phone.toLowerCase().includes(q))
-      );
+      const name = String(st.name || '').toLowerCase();
+      const user = String(st.username || '').toLowerCase();
+      const phone = String(st.phone || '').toLowerCase();
+      return name.includes(q) || user.includes(q) || phone.includes(q);
     });
   }, [branchStaff, searchQuery]);
 
@@ -2056,11 +2060,12 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
             // Filtreleme (arama + durum)
             const staffList = activeMonthData.staffDetails.filter((item) => {
-              if (breakdownStaffSearch.trim()) {
-                const q = breakdownStaffSearch.toLowerCase().trim();
-                const matchName = (item.staffName || '').toLowerCase().includes(q);
-                const matchUser = (item.username || '').toLowerCase().includes(q);
-                const matchDept = (item.department || '').toLowerCase().includes(q);
+              const rawSearch = (breakdownStaffSearch || '').trim();
+              if (rawSearch) {
+                const q = rawSearch.toLowerCase();
+                const matchName = String(item.staffName || '').toLowerCase().includes(q);
+                const matchUser = String(item.username || '').toLowerCase().includes(q);
+                const matchDept = String(item.department || '').toLowerCase().includes(q);
                 if (!matchName && !matchUser && !matchDept) return false;
               }
               if (breakdownStaffStatusFilter === 'remaining') {
@@ -2957,39 +2962,44 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
               Kayıtlı Bölüm Maaşları:
             </span>
             {activeCompanyDeptSalaries.map((ds) => {
+              const deptName = String(ds?.department || '').trim();
+              if (!deptName) return null;
               const isCurrentSelected =
                 !isCustomDeptInput &&
-                selectedDeptForSalary.toLowerCase() === ds.department.toLowerCase();
+                (selectedDeptForSalary || '').toLowerCase() === deptName.toLowerCase();
               const sYear = ds.startYear ?? (ds.updatedAt ? new Date(ds.updatedAt).getFullYear() : selectedYear);
-              const sMonth = ds.startMonth ?? (ds.updatedAt ? new Date(ds.updatedAt).getMonth() + 1 : currentMonth);
+              const rawMonth = ds.startMonth ?? (ds.updatedAt ? new Date(ds.updatedAt).getMonth() + 1 : currentMonth);
+              const sMonth = Math.max(1, Math.min(12, Number(rawMonth) || 1));
+              const monthLabel = MONTH_NAMES[sMonth - 1] || 'Oca';
+              const salaryAmount = Number(ds.defaultMonthlySalary) || 0;
               return (
                 <div
-                  key={ds.id || ds.department}
-                  onClick={() => handleSelectDeptForConfig(ds.department)}
+                  key={ds.id || deptName}
+                  onClick={() => handleSelectDeptForConfig(deptName)}
                   className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                     isCurrentSelected
                       ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
                       : 'bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-700 hover:border-teal-400'
                   }`}
-                  title={`${ds.department} - ${MONTH_NAMES[sMonth - 1]} ${sYear}'den itibaren geçerli`}
+                  title={`${deptName} - ${monthLabel} ${sYear}'den itibaren geçerli`}
                 >
                   <Briefcase
                     className={`w-3 h-3 ${
                       isCurrentSelected ? 'text-white' : 'text-teal-600 dark:text-teal-400'
                     }`}
                   />
-                  <span>{ds.department}:</span>
+                  <span>{deptName}:</span>
                   <span className={isCurrentSelected ? 'text-teal-100' : 'text-teal-700 dark:text-teal-300'}>
-                    {ds.defaultMonthlySalary.toLocaleString('tr-TR')} ₺
+                    {salaryAmount.toLocaleString('tr-TR')} ₺
                   </span>
                   <span className={`text-[10px] font-normal ${isCurrentSelected ? 'text-teal-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                    ({MONTH_NAMES[sMonth - 1].slice(0, 3)} {sYear})
+                    ({monthLabel.slice(0, 3)} {sYear})
                   </span>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDeleteDeptSalary(ds.department);
+                      handleDeleteDeptSalary(deptName);
                     }}
                     className={`ml-0.5 p-0.5 rounded-full hover:bg-rose-500 hover:text-white transition-colors ${
                       isCurrentSelected ? 'text-teal-200' : 'text-slate-400'
