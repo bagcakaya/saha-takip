@@ -27,7 +27,12 @@ if not exist "node_modules" (
     echo.
 )
 
-echo [BILGI] API Servisi baslatiliyor...
+if exist "..\..\web\dist" (
+    echo [BILGI] Web Paneli dosyalari kontrol ediliyor ve kopyalaniyor...
+    xcopy /e /i /y /q "..\..\web\dist" "dist" >nul 2>&1
+)
+
+echo [BILGI] API ve Web Servisi baslatiliyor...
 echo Kapatmak icin pencereyi kapatabilir veya Ctrl+C yapabilirsiniz.
 echo.
 node server.js

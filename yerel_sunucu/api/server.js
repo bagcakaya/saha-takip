@@ -533,10 +533,11 @@ app.get('/api/logs', (req, res) => {
 // 8. WEB PANELİ STATİK SUNUMU (Vercel Yerine Doğrudan Sunucu Yayını)
 // =========================================================================
 const webDistCandidates = [
+  path.resolve(__dirname, 'dist'),
+  path.resolve(__dirname, '../dist'),
   path.resolve(__dirname, '../../web/dist'),
   path.resolve(__dirname, '../web/dist'),
   path.resolve(__dirname, './web/dist'),
-  path.resolve(__dirname, './dist'),
 ];
 const webDistPath = webDistCandidates.find((p) => fs.existsSync(p));
 

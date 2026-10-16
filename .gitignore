@@ -6,9 +6,10 @@ web/node_modules/
 
 # Expo & Web builds
 .expo/
-dist/
+/dist/
 web/dist/
 web-build/
+yerel_sunucu/dist/
 expo-env.d.ts
 
 # Native
