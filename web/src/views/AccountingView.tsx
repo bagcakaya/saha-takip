@@ -1125,6 +1125,7 @@ export const AccountingView: React.FC = () => {
                   <div className="relative">
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="any"
                       min="0"
                       placeholder="0.00"
@@ -1150,6 +1151,7 @@ export const AccountingView: React.FC = () => {
                   <div className="relative">
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="any"
                       min="0"
                       placeholder="0.00"
@@ -1175,6 +1177,7 @@ export const AccountingView: React.FC = () => {
                   <div className="relative">
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="any"
                       min="0"
                       placeholder="0.00"
@@ -1635,6 +1638,7 @@ export const AccountingView: React.FC = () => {
                 <div className="relative">
                   <input
                     type="number"
+                    inputMode="decimal"
                     step="any"
                     min="0"
                     placeholder="0.00"

@@ -580,6 +580,7 @@ const SingleNoteCard: React.FC<SingleNoteCardProps> = ({
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
+                        inputMode="numeric"
                         min={1}
                         max={customRepeatUnit === 'hours' ? 24 : 1440}
                         value={customRepeatValue}

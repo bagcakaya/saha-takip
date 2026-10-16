@@ -2917,8 +2917,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             <div className="relative">
               <input
                 type="number"
+                inputMode="decimal"
                 min="0"
-                step="100"
+                step="any"
                 placeholder="Örn: 30000"
                 value={deptSalaryInput}
                 onChange={(e) => setDeptSalaryInput(e.target.value)}
@@ -3182,6 +3183,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       <div className="relative flex-1">
                         <input
                           type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="any"
                           placeholder="Aylık Hak Ediş / Maaş Tutarı (₺)"
                           value={editingAgreedAmount}
                           onChange={(e) => setEditingAgreedAmount(e.target.value)}
@@ -3387,6 +3391,9 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                       </label>
                       <input
                         type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
                         placeholder="Örn: 15000"
                         value={paymentAmount}
                         onChange={(e) => setPaymentAmount(e.target.value)}

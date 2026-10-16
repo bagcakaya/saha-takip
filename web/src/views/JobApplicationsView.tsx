@@ -1337,6 +1337,7 @@ const AddEditApplicationModal: React.FC<AddEditModalProps> = ({
               </label>
               <input
                 type="text"
+                inputMode="decimal"
                 placeholder="Örn: 35.000 TL"
                 value={salaryExpectation}
                 onChange={(e) => setSalaryExpectation(e.target.value)}
