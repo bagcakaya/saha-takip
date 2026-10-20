@@ -1,0 +1,6 @@
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_1.mp4'
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_2.mp4'
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_3.mp4'
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_4.mp4'
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_5.mp4'
+file 'C:/Users/Mert/Desktop/Görev_Tamamlama/promo_video/temp/scene_6.mp4'

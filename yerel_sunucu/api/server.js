@@ -452,6 +452,22 @@ app.post('/api/send-notification', async (req, res) => {
       payload.contents = { en: cText, tr: cText };
     }
 
+    // KESİN KURAL: Yöneticiye vardiya çıkış gecikmesi bildirimi gönderilmesini sunucu seviyesinde de engelle
+    // (Eski önbellekli tarayıcı sekmelerinden gelebilecek istekleri de tamamen bloke eder)
+    const headingCheck = String(payload.headings?.tr || payload.headings?.en || payload.title || '');
+    const collapseCheck = String(payload.collapse_id || payload.collapseId || '');
+    if (
+      collapseCheck.startsWith('shift_admin_') ||
+      headingCheck.includes('Vardiya Çıkış Gecikmesi')
+    ) {
+      console.log('>> [Yerel Sunucu] Yönetici vardiya çıkış gecikmesi bildirimi kural gereği engellendi:', headingCheck);
+      return res.json({ id: 'blocked_admin_shift_alert', blocked: true });
+    }
+
+    if (payload.targetSubscriptionIds && Array.isArray(payload.targetSubscriptionIds) && payload.targetSubscriptionIds.length > 0 && !payload.include_player_ids) {
+      payload.include_player_ids = payload.targetSubscriptionIds;
+    }
+
     if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';

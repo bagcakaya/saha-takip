@@ -1,5 +1,5 @@
 import { AttendanceRecord, ShiftDefinition, ShiftAssignment } from '../types/storage';
-import { OneSignalService } from './oneSignalService';
+import { StorageService } from './storageService';
 import { NotificationService } from './notificationService';
 import { FastActionAgent } from './fastActionAgent';
 
@@ -14,11 +14,13 @@ export interface ShiftReminderCheckParams {
 
 const LOCAL_DEDUP_PREFIX = '@shift_checkout_alert_';
 
-function getLocalDedupKey(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): string {
+type DedupAlertType = '5m' | '10m' | 'staff' | 'admin' | '20m';
+
+function getLocalDedupKey(dateStr: string, userId: string, type: DedupAlertType): string {
   return `${LOCAL_DEDUP_PREFIX}${dateStr}_${userId}_${type}`;
 }
 
-function hasSentLocalAlert(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): boolean {
+function hasSentLocalAlert(dateStr: string, userId: string, type: DedupAlertType): boolean {
   if (typeof localStorage === 'undefined') return false;
   try {
     return localStorage.getItem(getLocalDedupKey(dateStr, userId, type)) === '1';
@@ -27,11 +29,38 @@ function hasSentLocalAlert(dateStr: string, userId: string, type: 'staff' | 'adm
   }
 }
 
-function markSentLocalAlert(dateStr: string, userId: string, type: 'staff' | 'admin' | '10m' | '20m'): void {
+function markSentLocalAlert(dateStr: string, userId: string, type: DedupAlertType): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(getLocalDedupKey(dateStr, userId, type), '1');
   } catch {}
+}
+
+function isUserCheckedOutInRecords(records: AttendanceRecord[], userId: string, dateStr: string): {
+  hasCheckedOut: boolean;
+  activeRecord: AttendanceRecord | undefined;
+} {
+  const userTodayRecords = records.filter((r) => r.userId === userId && r.date === dateStr);
+  if (userTodayRecords.length === 0) {
+    return { hasCheckedOut: false, activeRecord: undefined };
+  }
+
+  const hasCheckedOut = userTodayRecords.some((r) => {
+    if (r.checkOutTime && Number(r.checkOutTime) > 0) return true;
+    if (r.status === 'completed' || r.status === 'pending_checkout_approval') return true;
+    if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return true;
+    return false;
+  });
+
+  const activeRecord = userTodayRecords.find((r) => {
+    if (!r.checkInTime) return false;
+    if (r.checkOutTime && Number(r.checkOutTime) > 0) return false;
+    if (r.status === 'completed' || r.status === 'pending_checkout_approval') return false;
+    if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return false;
+    return r.status === 'checked_in';
+  });
+
+  return { hasCheckedOut, activeRecord };
 }
 
 export const ShiftReminderService = {
@@ -83,18 +112,20 @@ export const ShiftReminderService = {
   },
 
   /**
-   * Calculates exact shift end and reminder thresholds for today:
-   * - shiftEndMs / targetStaffMs: Exact shift end time
-   * - targetAdminMs: 10 minutes after shift end time (+10m)
+   * Calculates exact shift end and staff reminder thresholds for today:
+   * - shiftEndMs: Exact shift end time
+   * - target5mMs: 5 minutes after shift end time (+5m) -> 1st reminder to staff
+   * - target10mMs: 10 minutes after shift end time (+10m) -> 2nd reminder to staff
    */
   calculateShiftTimestamps(
     shift: ShiftDefinition,
     assignment?: ShiftAssignment
   ): {
     shiftEndMs: number;
+    target5mMs: number;
+    target10mMs: number;
     targetStaffMs: number;
     targetAdminMs: number;
-    target10mMs: number;
     target20mMs: number;
   } | null {
     const endTimeStr = shift.endTime || assignment?.endTime;
@@ -122,28 +153,29 @@ export const ShiftReminderService = {
     }
 
     const shiftEndMs = shiftEndDate.getTime();
-    const targetStaffMs = shiftEndMs; // Tam vardiya saatinde personele
-    const targetAdminMs = shiftEndMs + 10 * 60 * 1000; // 10 dakika sonra yöneticiye
+    const target5mMs = shiftEndMs + 5 * 60 * 1000; // Vardiya bitiminden 5 dk sonra personele 1. bildirim
+    const target10mMs = shiftEndMs + 10 * 60 * 1000; // Vardiya bitiminden 10 dk sonra personele 2. bildirim
     const target20mMs = shiftEndMs + 20 * 60 * 1000;
 
     return {
       shiftEndMs,
-      targetStaffMs,
-      targetAdminMs,
-      target10mMs: targetAdminMs,
+      target5mMs,
+      target10mMs,
+      targetStaffMs: target5mMs,
+      targetAdminMs: target10mMs,
       target20mMs,
     };
   },
 
   /**
-   * Pre-schedules push notifications via OneSignal cloud server when staff checks in:
-   * 1. At EXACT shift end time: Delivered directly to staff member's locked phone.
-   *    "Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!"
-   * 2. At shift end + 10 min: Delivered directly to admin(s) if staff hasn't checked out.
-   *    "XXXX XXXXX mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır."
-   * If staff clicks "İşten Çıkış Yaptım", these pre-scheduled pushes are instantly cancelled!
+   * KESİN KURAL:
+   * Vardiya çıkış bildirimleri sabah işe girişte OneSignal sunucusuna saatler öncesinden ZAMANLANMAZ!
+   * Önceden zamanlanan bildirimler, personel vardiya saatinde çıkış yapsa bile OneSignal kuyruğunda kalarak
+   * yanlış bildirim gitmesine yol açabilmektedir.
+   * Bunun yerine bildirimler yalnızca vardiya bitiminden +5 dk ve +10 dk sonra personel HALA çıkış yapmamışsa
+   * canlı veritabanı kontrolü yapılarak SADECE ilgili personele gönderilir (Yöneticiye ASLA bildirim gitmez).
    */
-  async scheduleShiftCheckoutReminders(params: {
+  async scheduleShiftCheckoutReminders(_params: {
     record: AttendanceRecord;
     shift: ShiftDefinition;
     companyCode: string;
@@ -153,76 +185,38 @@ export const ShiftReminderService = {
     shift10mId?: string;
     shift20mId?: string;
   }> {
-    const { record, shift, companyCode } = params;
-    const timestamps = this.calculateShiftTimestamps(shift);
-    if (!timestamps) return {};
-
-    const now = Date.now();
-    let shiftStaffId: string | undefined;
-
-    const comp = (record.companyCode || shift.companyCode || companyCode || 'POLATLAR').trim().toUpperCase();
-    const dateStr = record.date || this.getTodayDateString();
-
-    try {
-      // 1. SADECE Personele tam vardiya bitiş saatinde hatırlatma zamanla (isteğe bağlı)
-      if (timestamps.targetStaffMs > now) {
-        const isoStaff = new Date(timestamps.targetStaffMs).toISOString();
-        const resStaff = await OneSignalService.sendPushNotification({
-          title: '🔔 Mesai Çıkış Hatırlatması',
-          message: 'Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!',
-          targetMode: 'custom',
-          targetUserIds: [record.userId],
-          companyCode: comp,
-          sendAfter: isoStaff,
-          collapseId: `shift_staff_${dateStr}_${record.userId}`,
-          url: `${typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://81.213.219.69:3001'}/?tab=attendance`,
-        });
-        if (resStaff?.success && resStaff.data?.id) {
-          shiftStaffId = resStaff.data.id;
-        }
-      }
-
-      // KESİN KURAL: Yönetici eskalasyon bildirimi ASLA önceden OneSignal'a zamanlanmaz!
-      // Önceden zamanlandığında personel vaktinde çıksa bile OneSignal sunucusundaki kuyruk yanlış alarmlara sebep oluyordu.
-      // Yöneticiye bildirim; vardiya bitiminden tam 10 dakika sonra, yalnızca personel HALEN çıkış yapmamışsa canlı olarak gönderilir.
-    } catch (e) {
-      console.warn('[ShiftReminderService] scheduleShiftCheckoutReminders error:', e);
-    }
-
     return {
-      shiftStaffId,
+      shiftStaffId: undefined,
       shiftAdminId: undefined,
-      shift10mId: shiftStaffId,
+      shift10mId: undefined,
       shift20mId: undefined,
     };
   },
 
   /**
-   * Cancels pre-scheduled notifications when staff checks out or checkout is approved
+   * Cancels any pre-scheduled notifications and blocks local alert keys when staff checks out
    */
   cancelShiftCheckoutReminders(record: AttendanceRecord, companyCode?: string): void {
     const comp = (companyCode || record.companyCode || 'POLATLAR').toUpperCase();
     const dateStr = record.date || this.getTodayDateString();
 
-    if (record.shiftCheckoutStaffNotificationId) {
-      FastActionAgent.enqueueCancelNotification(record.shiftCheckoutStaffNotificationId, comp);
-    }
-    if (record.shiftCheckoutAdminNotificationId) {
-      FastActionAgent.enqueueCancelNotification(record.shiftCheckoutAdminNotificationId, comp);
-    }
-    if (record.shiftCheckout10mNotificationId && record.shiftCheckout10mNotificationId !== record.shiftCheckoutStaffNotificationId) {
-      FastActionAgent.enqueueCancelNotification(record.shiftCheckout10mNotificationId, comp);
-    }
-    if (record.shiftCheckout20mNotificationId && record.shiftCheckout20mNotificationId !== record.shiftCheckoutAdminNotificationId) {
-      FastActionAgent.enqueueCancelNotification(record.shiftCheckout20mNotificationId, comp);
+    const idsToCancel = new Set<string>();
+    if (record.shiftCheckout5mNotificationId) idsToCancel.add(record.shiftCheckout5mNotificationId);
+    if (record.shiftCheckoutStaffNotificationId) idsToCancel.add(record.shiftCheckoutStaffNotificationId);
+    if (record.shiftCheckoutAdminNotificationId) idsToCancel.add(record.shiftCheckoutAdminNotificationId);
+    if (record.shiftCheckout10mNotificationId) idsToCancel.add(record.shiftCheckout10mNotificationId);
+    if (record.shiftCheckout20mNotificationId) idsToCancel.add(record.shiftCheckout20mNotificationId);
+
+    for (const notifId of idsToCancel) {
+      FastActionAgent.enqueueCancelNotification(notifId, comp);
     }
 
     // Personel çıkış yaptığı için bugünün bildirim anahtarlarını kalıcı olarak bloke et
-    // Böylece periyodik denetleyici bu kullanıcı için yöneticiye ASLA bildirim tetiklemez
     if (record.userId) {
+      markSentLocalAlert(dateStr, record.userId, '5m');
+      markSentLocalAlert(dateStr, record.userId, '10m');
       markSentLocalAlert(dateStr, record.userId, 'staff');
       markSentLocalAlert(dateStr, record.userId, 'admin');
-      markSentLocalAlert(dateStr, record.userId, '10m');
       markSentLocalAlert(dateStr, record.userId, '20m');
     }
   },
@@ -230,11 +224,11 @@ export const ShiftReminderService = {
   /**
    * Periodic runner / client-side agent check:
    * Evaluates all staff with assigned shifts for today.
-   * If shift end has arrived:
-   *   -> Sends instant reminder push to staff: "Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!"
-   * If shift end has elapsed by 10 minutes and staff hasn't checked out:
-   *   -> Sends escalation push to Admin: "XXXX XXXXX mesai saati bitmesine rağmen İşten Çıktım işlemi yapmamıştır."
-   * STRICT: ONLY applies to staff members with an active shift assignment!
+   * - Yöneticiye (Admin) ASLA bildirim gönderilmez!
+   * - Vardiya saati bittiği halde HALA çıkış yapmayan personele:
+   *   1) +5. dakikada (target5mMs) 1. çıkış hatırlatma bildirimi gönderilir.
+   *   2) +10. dakikada (target10mMs) hala çıkış yapmadıysa 2. çıkış uyarı bildirimi gönderilir.
+   * - Personel çıkış yapmışsa hiçbir bildirim gönderilmez.
    */
   async checkShiftCheckoutReminders(params: ShiftReminderCheckParams): Promise<void> {
     const {
@@ -254,6 +248,8 @@ export const ShiftReminderService = {
     const now = Date.now();
     const comp = (companyCode || 'POLATLAR').toUpperCase();
 
+    let freshCloudRecords: AttendanceRecord[] | null = null;
+
     for (const assignment of shiftAssignments) {
       // 1. Strict Scope Check: Must have a shift assigned and valid for today
       const assigned = this.getAssignedShiftForToday(assignment.userId, shifts, shiftAssignments);
@@ -263,74 +259,93 @@ export const ShiftReminderService = {
       const timestamps = this.calculateShiftTimestamps(shift, assignment);
       if (!timestamps) continue;
 
-      const { shiftEndMs, targetStaffMs, targetAdminMs } = timestamps;
+      const { shiftEndMs, target5mMs, target10mMs } = timestamps;
 
-      // Vardiya bitiş saati henüz gelmediyse kontrol etmeye gerek yok
-      if (now < targetStaffMs) continue;
+      // Vardiya bitişinin üzerinden henüz 5 dakika geçmediyse kontrol etmeye gerek yok
+      if (now < target5mMs) continue;
 
       // Vardiya bitişi üzerinden 6 saatten fazla geçtiyse eski kayıtları es geç
       if (now - shiftEndMs > 6 * 60 * 60 * 1000) continue;
 
-      // Kullanıcının bugüne ait tüm kayıtlarını topla
-      const userTodayRecords = attendanceRecords.filter(
-        (r) => r.userId === assignment.userId && r.date === todayStr
-      );
+      // Önce mevcut bellek kayıtlarından kontrol et
+      const localCheck = isUserCheckedOutInRecords(attendanceRecords, assignment.userId, todayStr);
 
-      // Bugün hiç giriş kaydı yoksa (izinli/çalışmıyor) bildirim gönderilmez
-      if (userTodayRecords.length === 0) continue;
-
-      // Personel bugün herhangi bir kaydında çıkış yapmış mı?
-      const hasCheckedOut = userTodayRecords.some((r) => {
-        // Çıkış saati girilmişse çıkış yapmıştır
-        if (r.checkOutTime && Number(r.checkOutTime) > 0) return true;
-        // Durumu tamamlandı veya çıkış onayında ise çıkış yapmıştır
-        if (r.status === 'completed' || r.status === 'pending_checkout_approval') return true;
-        // Çıkış onayı onaylandı veya beklemede ise çıkış yapmıştır
-        if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return true;
-        return false;
-      });
-
-      // Aktif açık mesai kaydı var mı? (Giriş yapılmış ama çıkış yapılmamış)
-      const activeRecord = userTodayRecords.find((r) => {
-        if (!r.checkInTime) return false;
-        if (r.checkOutTime && Number(r.checkOutTime) > 0) return false;
-        if (r.status === 'completed' || r.status === 'pending_checkout_approval') return false;
-        if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return false;
-        return r.status === 'checked_in';
-      });
-
-      // KESİN KURAL: Eğer personel çıkış yaptıysa VEYA açıkta kalan aktif bir mesaisi yoksa:
-      // YÖNETİCİYE KESİNLİKLE BİLDİRİM GİTMEZ!
-      if (hasCheckedOut || !activeRecord) {
+      if (localCheck.hasCheckedOut || !localCheck.activeRecord) {
+        markSentLocalAlert(todayStr, assignment.userId, '5m');
+        markSentLocalAlert(todayStr, assignment.userId, '10m');
         markSentLocalAlert(todayStr, assignment.userId, 'staff');
-        markSentLocalAlert(todayStr, assignment.userId, 'admin');
         continue;
+      }
+
+      const activeRecord = localCheck.activeRecord;
+
+      const is5mNotified =
+        activeRecord.shiftCheckout5mNotified ||
+        activeRecord.shiftCheckoutStaffNotified ||
+        hasSentLocalAlert(todayStr, assignment.userId, '5m') ||
+        hasSentLocalAlert(todayStr, assignment.userId, 'staff');
+
+      const is10mNotified =
+        activeRecord.shiftCheckout10mNotified ||
+        hasSentLocalAlert(todayStr, assignment.userId, '10m');
+
+      const needs5m = !is5mNotified && now >= target5mMs && now < target10mMs;
+      const needs10m = !is10mNotified && now >= target10mMs;
+
+      if (!needs5m && !needs10m) continue;
+
+      // CANLI VERİTABANI DOĞRULAMASI:
+      // Bildirim göndermeden hemen önce sunucudan/buluttan en güncel mesai kayıtlarını çekerek
+      // personelin başka bir cihazdan/telefondan çıkış yapıp yapmadığını kesin olarak doğrula!
+      try {
+        if (!freshCloudRecords) {
+          freshCloudRecords = await StorageService.getAttendanceRecords();
+        }
+        if (freshCloudRecords && freshCloudRecords.length > 0) {
+          const freshCheck = isUserCheckedOutInRecords(freshCloudRecords, assignment.userId, todayStr);
+          if (freshCheck.hasCheckedOut || !freshCheck.activeRecord) {
+            markSentLocalAlert(todayStr, assignment.userId, '5m');
+            markSentLocalAlert(todayStr, assignment.userId, '10m');
+            markSentLocalAlert(todayStr, assignment.userId, 'staff');
+            continue;
+          }
+          if (
+            (needs5m && (freshCheck.activeRecord.shiftCheckout5mNotified || freshCheck.activeRecord.shiftCheckoutStaffNotified)) ||
+            (needs10m && freshCheck.activeRecord.shiftCheckout10mNotified)
+          ) {
+            if (freshCheck.activeRecord.shiftCheckout5mNotified || freshCheck.activeRecord.shiftCheckoutStaffNotified) {
+              markSentLocalAlert(todayStr, assignment.userId, '5m');
+              markSentLocalAlert(todayStr, assignment.userId, 'staff');
+            }
+            if (freshCheck.activeRecord.shiftCheckout10mNotified) {
+              markSentLocalAlert(todayStr, assignment.userId, '10m');
+            }
+            continue;
+          }
+        }
+      } catch {
+        // Ağ hatası olursa mevcut kayda göre devam et
       }
 
       let recordUpdated = false;
       const updatedRecord: AttendanceRecord = { ...activeRecord };
-      const staffName = assignment.userName || activeRecord.userName || 'Personel';
       const staffCompany = (activeRecord.companyCode || assignment.companyCode || shift.companyCode || comp).trim().toUpperCase();
       const appUrl = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://81.213.219.69:3001';
 
-      // --- KONTROL 1: TAM VARDİYA BİTİŞ SAATİNDE (Personele Kendi Çıkış Hatırlatması) ---
-      const isStaffNotified =
-        updatedRecord.shiftCheckoutStaffNotified ||
-        updatedRecord.shiftCheckout10mNotified ||
-        hasSentLocalAlert(todayStr, assignment.userId, 'staff') ||
-        hasSentLocalAlert(todayStr, assignment.userId, '10m');
-
-      if (!isStaffNotified && now >= targetStaffMs) {
+      // --- KONTROL 1: VARDİYA BİTİMİNDEN 5 DAKİKA SONRA (SADECE PERSONELE 1. BİLDİRİM) ---
+      if (needs5m) {
+        markSentLocalAlert(todayStr, assignment.userId, '5m');
         markSentLocalAlert(todayStr, assignment.userId, 'staff');
+        updatedRecord.shiftCheckout5mNotified = true;
+        updatedRecord.shiftCheckout5mNotifiedAt = now;
         updatedRecord.shiftCheckoutStaffNotified = true;
         updatedRecord.shiftCheckoutStaffNotifiedAt = now;
-        updatedRecord.shiftCheckout10mNotified = true;
         recordUpdated = true;
 
-        const title = '🔔 Mesai Çıkış Hatırlatması';
-        const message = 'Mesai saatiniz bitmiştir. İşten Çıkış yapmayı lütfen unutmayın!';
+        const title = '🔔 Vardiya Çıkış Hatırlatması (5. Dakika)';
+        const message = 'Vardiya saatiniz 5 dakika önce sona erdi ancak henüz çıkış yapmadınız. Lütfen işten çıkış işleminizi yapmayı unutmayın!';
 
-        // Kullanıcı şu an sisteme bağlı olan personelin kendisi ise bildirim ve zil çal
+        // Kullanıcı şu an sisteme bağlı olan personelin kendisi ise yerel bildirim ve ses çal
         if (currentUser?.id === assignment.userId) {
           NotificationService.playChime();
           NotificationService.sendNotification(
@@ -340,55 +355,51 @@ export const ShiftReminderService = {
           );
         }
 
-        // Personelin telefonuna push bildirim gönder
+        // SADECE ilgili personelin telefonuna push bildirim gönder (Yöneticiye ASLA gitmez)
         FastActionAgent.enqueuePushNotification({
           title,
           message,
           targetMode: 'custom',
           targetUserIds: [assignment.userId],
           companyCode: staffCompany,
-          collapseId: `shift_staff_${todayStr}_${assignment.userId}`,
+          collapseId: `shift_5m_${todayStr}_${assignment.userId}`,
           url: `${appUrl}/?tab=attendance`,
         });
       }
 
-      // --- KONTROL 2: VARDİYA BİTİMİNDEN 10 DK SONRA (Hala Çıkış Yapmayan Personel İçin YÖNETİCİYE BİLDİRİM) ---
-      // Kesin şart: now >= targetAdminMs (Vardiya bitiş saati + 10 dakika)
-      const isAdminNotified =
-        updatedRecord.shiftCheckoutAdminNotified ||
-        updatedRecord.shiftCheckout20mNotified ||
-        hasSentLocalAlert(todayStr, assignment.userId, 'admin') ||
-        hasSentLocalAlert(todayStr, assignment.userId, '20m');
-
-      if (!isAdminNotified && now >= targetAdminMs) {
-        markSentLocalAlert(todayStr, assignment.userId, 'admin');
-        updatedRecord.shiftCheckoutAdminNotified = true;
-        updatedRecord.shiftCheckoutAdminNotifiedAt = now;
-        updatedRecord.shiftCheckout20mNotified = true;
+      // --- KONTROL 2: VARDİYA BİTİMİNDEN 10 DAKİKA SONRA (SADECE PERSONELE 2. BİLDİRİM) ---
+      if (needs10m) {
+        markSentLocalAlert(todayStr, assignment.userId, '5m');
+        markSentLocalAlert(todayStr, assignment.userId, 'staff');
+        markSentLocalAlert(todayStr, assignment.userId, '10m');
+        updatedRecord.shiftCheckout5mNotified = true;
+        updatedRecord.shiftCheckoutStaffNotified = true;
+        updatedRecord.shiftCheckout10mNotified = true;
+        updatedRecord.shiftCheckout10mNotifiedAt = now;
         recordUpdated = true;
 
-        const title = `⚠️ Vardiya Çıkış Gecikmesi: ${staffName}`;
-        const message = `${staffName} vardiya bitiş saatinin üzerinden 10 dakika geçmesine rağmen henüz çıkış yapmamıştır.`;
+        const title = '⚠️ Vardiya Çıkış Uyarısı (10. Dakika)';
+        const message = 'Vardiya saatiniz 10 dakika önce sona erdi ve hala çıkış yapmadınız! Lütfen işten çıkış işleminizi gerçekleştiriniz.';
 
-        // Eğer şu an bağlı kullanıcı bu firmanın yöneticisi ise sesli ve yerel uyar
-        const currentAdminComp = (currentUser?.companyCode || comp).trim().toUpperCase();
-        if (currentUser?.role === 'admin' && (!currentUser?.companyCode || currentAdminComp === staffCompany)) {
+        // Kullanıcı şu an sisteme bağlı olan personelin kendisi ise yerel bildirim ve ses çal
+        if (currentUser?.id === assignment.userId) {
           NotificationService.playChime();
           NotificationService.sendNotification(
             title,
             message,
-            `${appUrl}/?tab=staff_tracking`
+            `${appUrl}/?tab=attendance`
           );
         }
 
-        // SADECE ilgili firmanın yöneticilerine push bildirim gönder
+        // SADECE ilgili personelin telefonuna push bildirim gönder (Yöneticiye ASLA gitmez)
         FastActionAgent.enqueuePushNotification({
           title,
           message,
-          targetMode: 'admin',
+          targetMode: 'custom',
+          targetUserIds: [assignment.userId],
           companyCode: staffCompany,
-          collapseId: `shift_admin_${todayStr}_${assignment.userId}`,
-          url: `${appUrl}/?tab=staff_tracking`,
+          collapseId: `shift_10m_${todayStr}_${assignment.userId}`,
+          url: `${appUrl}/?tab=attendance`,
         });
       }
 

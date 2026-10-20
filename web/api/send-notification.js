@@ -96,6 +96,17 @@ export default async function handler(req, res) {
       payload.contents = { en: cText, tr: cText };
     }
 
+    // KESİN KURAL: Yöneticiye vardiya çıkış gecikmesi bildirimi gönderilmesini sunucu seviyesinde de engelle
+    const headingCheck = String(payload.headings?.tr || payload.headings?.en || payload.title || '');
+    const collapseCheck = String(payload.collapse_id || payload.collapseId || '');
+    if (
+      collapseCheck.startsWith('shift_admin_') ||
+      headingCheck.includes('Vardiya Çıkış Gecikmesi')
+    ) {
+      res.status(200).json({ id: 'blocked_admin_shift_alert', blocked: true });
+      return;
+    }
+
     if (payload.targetSubscriptionIds && Array.isArray(payload.targetSubscriptionIds) && payload.targetSubscriptionIds.length > 0 && !payload.include_player_ids) {
       payload.include_player_ids = payload.targetSubscriptionIds;
     }
