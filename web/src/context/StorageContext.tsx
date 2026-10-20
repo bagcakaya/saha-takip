@@ -6385,11 +6385,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const targetTime = new Date(`${newNote.reminderDate}T${normalizedTime}`);
       if (!isNaN(targetTime.getTime()) && targetTime.getTime() > Date.now()) {
         try {
+          const cariPrefix = newNote.cariName ? `[${newNote.cariName}] ` : '';
           const pushRes = await OneSignalService.sendPushNotification({
             title: '⏰ Kişisel Not Hatırlatıcısı',
             message: newNote.title
-              ? `${newNote.title}: ${newNote.content || 'Hatırlatma vakti geldi.'}`
-              : (newNote.content || 'Kişisel notunuz için hatırlatma vakti geldi.'),
+              ? `${cariPrefix}${newNote.title}: ${newNote.content || 'Hatırlatma vakti geldi.'}`
+              : `${cariPrefix}${newNote.content || 'Kişisel notunuz için hatırlatma vakti geldi.'}`,
             targetMode: 'custom',
             targetUserIds: [user.id],
             companyCode: compCode,
@@ -6456,12 +6457,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!isNaN(targetTime.getTime()) && targetTime.getTime() > Date.now()) {
         const nextTitle = updates.title !== undefined ? updates.title : existing?.title;
         const nextContent = updates.content !== undefined ? updates.content : existing?.content;
+        const nextCari = updates.cariName !== undefined ? updates.cariName : existing?.cariName;
+        const cariPrefix = nextCari ? `[${nextCari}] ` : '';
         try {
           const pushRes = await OneSignalService.sendPushNotification({
             title: '⏰ Kişisel Not Hatırlatıcısı',
             message: nextTitle
-              ? `${nextTitle}: ${nextContent || 'Hatırlatma vakti geldi.'}`
-              : (nextContent || 'Kişisel notunuz için hatırlatma vakti geldi.'),
+              ? `${cariPrefix}${nextTitle}: ${nextContent || 'Hatırlatma vakti geldi.'}`
+              : `${cariPrefix}${nextContent || 'Kişisel notunuz için hatırlatma vakti geldi.'}`,
             targetMode: 'custom',
             targetUserIds: [user.id],
             companyCode: compCode,

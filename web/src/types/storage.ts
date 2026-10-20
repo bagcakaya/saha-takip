@@ -98,6 +98,7 @@ export interface PersonalNote {
   id: string;
   userId: string; // The user who owns this note (Strictly private)
   companyCode: string;
+  cariName?: string; // İlgili Cari / Müşteri Adı (İsteğe bağlı)
   title: string;
   content: string;
   color?: PersonalNoteColor;
