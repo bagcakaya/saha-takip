@@ -20,7 +20,13 @@ import {
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
-import { AiService, AiParsedResponse, AiContextData } from '../../services/aiService';
+import {
+  AiService,
+  AiParsedResponse,
+  AiContextData,
+  AI_MODEL_OPTIONS,
+  AiModelId,
+} from '../../services/aiService';
 
 interface AiAssistantModalProps {
   isOpen: boolean;
@@ -57,17 +63,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // Settings
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<AiModelId>(() => AiService.getSelectedModel());
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [groqKeyInput, setGroqKeyInput] = useState('');
+  const [hasGroqKey, setHasGroqKey] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load API Key on Mount
+  // Load API Keys & Selected Model on Mount
   useEffect(() => {
-    const currentKey = AiService.getApiKey();
-    setHasApiKey(Boolean(currentKey));
-    setApiKeyInput(currentKey);
+    const currentGeminiKey = AiService.getApiKey();
+    setHasApiKey(Boolean(currentGeminiKey));
+    setApiKeyInput(currentGeminiKey);
+
+    const currentGroqKey = AiService.getGroqApiKey();
+    setHasGroqKey(Boolean(currentGroqKey));
+    setGroqKeyInput(currentGroqKey);
+
+    setSelectedModel(AiService.getSelectedModel());
   }, [isOpen]);
 
   // Focus textarea when modal opens
@@ -383,10 +398,25 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
   };
 
+  const handleSelectModel = (modelId: AiModelId) => {
+    AiService.setSelectedModel(modelId);
+    setSelectedModel(modelId);
+  };
+
   const handleSaveApiKey = () => {
-    AiService.setApiKey(apiKeyInput);
-    setHasApiKey(Boolean(apiKeyInput.trim()));
-    setIsSettingsOpen(false);
+    const trimmed = apiKeyInput.trim();
+    if (trimmed.startsWith('gsk_')) {
+      AiService.setGroqApiKey(trimmed);
+      setGroqKeyInput(trimmed);
+      setHasGroqKey(true);
+      if (!selectedModel.startsWith('groq-')) {
+        handleSelectModel('groq-llama-3.3-70b');
+      }
+      alert('Groq Cloud API Anahtarı algılandı ve başarıyla kaydedildi!');
+      return;
+    }
+    AiService.setApiKey(trimmed);
+    setHasApiKey(Boolean(trimmed));
     alert('Google Gemini API Anahtarı başarıyla kaydedildi!');
   };
 
@@ -394,8 +424,51 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     AiService.setApiKey('');
     setApiKeyInput('');
     setHasApiKey(false);
-    alert('API Anahtarı kaldırıldı. Sistem dahili akıllı kurallarla (sıfır token) çalışmaya devam edecektir.');
+    alert('Google Gemini API Anahtarı kaldırıldı.');
   };
+
+  const handleSaveGroqKey = () => {
+    const trimmed = groqKeyInput.trim();
+    if (trimmed.startsWith('AIza')) {
+      AiService.setApiKey(trimmed);
+      setApiKeyInput(trimmed);
+      setHasApiKey(true);
+      if (!selectedModel.startsWith('gemini-')) {
+        handleSelectModel('gemini-2.5-pro');
+      }
+      alert('Google Gemini API Anahtarı algılandı ve başarıyla kaydedildi!');
+      return;
+    }
+    AiService.setGroqApiKey(trimmed);
+    setHasGroqKey(Boolean(trimmed));
+    if (trimmed && !selectedModel.startsWith('groq-')) {
+      handleSelectModel('groq-llama-3.3-70b');
+    }
+    alert('Groq Cloud API Anahtarı başarıyla kaydedildi!');
+  };
+
+  const handleRemoveGroqKey = () => {
+    AiService.setGroqApiKey('');
+    setGroqKeyInput('');
+    setHasGroqKey(false);
+    alert('Groq Cloud API Anahtarı kaldırıldı.');
+  };
+
+  const activeModelOption =
+    AI_MODEL_OPTIONS.find((m) => m.id === selectedModel) || AI_MODEL_OPTIONS[0];
+
+  const isSelectedModelReady =
+    activeModelOption.provider === 'local_nlp' ||
+    (activeModelOption.provider === 'gemini' && hasApiKey) ||
+    (activeModelOption.provider === 'groq' && hasGroqKey);
+
+  const headerBadgeText = isSelectedModelReady
+    ? activeModelOption.badge
+    : hasApiKey
+    ? '🧠 Gemini 2.5 Pro'
+    : hasGroqKey
+    ? '🔥 Llama 3.3 70B'
+    : `${activeModelOption.badge} (Anahtar ⚙️)`;
 
   if (!isOpen) return null;
 
@@ -409,15 +482,15 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
             </div>
             <div>
-              <h2 className="text-base font-black tracking-tight flex items-center gap-2">
+              <h2 className="text-base font-black tracking-tight flex items-center gap-2 flex-wrap">
                 <span>Yapay Zekâ Asistanı</span>
                 <button
                   type="button"
                   onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                  className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
-                  title="Model ayarları ve ücretsiz Gemini API anahtarı"
+                  className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer flex items-center gap-1"
+                  title="Model seçimi ve ücretsiz API anahtarı ayarları için tıklayın"
                 >
-                  {hasApiKey ? '⚡ Gemini 1.5 Flash' : '🧠 Akıllı Yerel NLP (⚙️)'}
+                  <span>{headerBadgeText}</span>
                 </button>
               </h2>
               <p className="text-xs text-white/80">
@@ -447,55 +520,156 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
         {/* Modal Gövdesi */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
-          {/* API Ayarları Açılır Bölümü */}
+          {/* Model Seçimi & API Ayarları Açılır Bölümü */}
           {isSettingsOpen && (
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-3 animate-in slide-in-from-top-2 duration-150">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
-                  <Key className="w-4 h-4 text-amber-500" />
-                  <span>Google Gemini API Anahtarı (Tamamen Ücretsiz)</span>
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-4 animate-in slide-in-from-top-2 duration-150">
+              {/* 1. Model Seçici */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                    <span>Yapay Zekâ Modeli Seçin (Ücretsiz Modeller)</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                    Aktif: {activeModelOption.name}
+                  </span>
                 </div>
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  <span>Ücretsiz Anahtar Al</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {AI_MODEL_OPTIONS.map((opt) => {
+                    const isSelected = selectedModel === opt.id;
+                    const keyReady =
+                      opt.provider === 'local_nlp' ||
+                      (opt.provider === 'gemini' && hasApiKey) ||
+                      (opt.provider === 'groq' && hasGroqKey);
+
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => handleSelectModel(opt.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/50 ring-2 ring-indigo-500/20'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-black text-slate-900 dark:text-white">
+                            {opt.badge}
+                          </span>
+                          <span
+                            className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                              keyReady
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300'
+                            }`}
+                          >
+                            {keyReady ? '✓ Hazır' : 'Anahtar Gerekli'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                          {opt.description}
+                        </p>
+                        <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">
+                          {opt.freeQuotaNote}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Google Gemini Flash modeli günde <strong>1.500 isteğe kadar tamamen ücretsizdir</strong>. Kredi kartı istemez.
-                Anahtar girmeseniz dahi dahili Türkçe kural motorumuz sıfır tokenle sorunsuz çalışır.
-              </p>
+              {/* 2. Google Gemini API Anahtarı (Gemini 2.5 Pro & 2.5 Flash) */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
+                    <Key className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Google Gemini API Anahtarı (Gemini 2.5 Pro & 2.5 Flash)</span>
+                  </div>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <span>Ücretsiz Gemini Anahtarı Al</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  placeholder="AIzaSy... ile başlayan ücretsiz anahtarınızı yapıştırın"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveApiKey}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
-                >
-                  Kaydet
-                </button>
-                {hasApiKey && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    placeholder="AIzaSy... ile başlayan ücretsiz Google AI Studio anahtarınız"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  />
                   <button
                     type="button"
-                    onClick={handleRemoveApiKey}
-                    className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
-                    title="Anahtarı Kaldır"
+                    onClick={handleSaveApiKey}
+                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    Kaydet
                   </button>
-                )}
+                  {hasApiKey && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveApiKey}
+                      className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
+                      title="Gemini Anahtarını Kaldır"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Groq Cloud API Anahtarı (Llama 3.3 70B & DeepSeek R1 70B) */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
+                    <Key className="w-3.5 h-3.5 text-orange-500" />
+                    <span>Groq Cloud API Anahtarı (Llama 3.3 70B & DeepSeek R1)</span>
+                  </div>
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 dark:text-orange-400 hover:underline"
+                  >
+                    <span>Ücretsiz Groq Anahtarı Al</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    placeholder="gsk_... ile başlayan ücretsiz Groq Cloud anahtarınız"
+                    value={groqKeyInput}
+                    onChange={(e) => setGroqKeyInput(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveGroqKey}
+                    className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Kaydet
+                  </button>
+                  {hasGroqKey && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveGroqKey}
+                      className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
+                      title="Groq Anahtarını Kaldır"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -688,7 +862,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       {parsedResponse.title}
                     </h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {parsedResponse.provider === 'gemini' ? 'Gemini 1.5 Flash tarafından ayrıştırıldı' : 'Dahili Akıllı Kural Motoru'}
+                      {parsedResponse.modelLabel
+                        ? `${parsedResponse.modelLabel} tarafından ayrıştırıldı`
+                        : parsedResponse.provider === 'gemini'
+                        ? 'Gemini 2.5 Pro tarafından ayrıştırıldı'
+                        : parsedResponse.provider === 'groq'
+                        ? 'Llama 3.3 70B (Groq) tarafından ayrıştırıldı'
+                        : 'Dahili Akıllı Kural Motoru'}
                     </p>
                   </div>
                 </div>

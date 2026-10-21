@@ -97,12 +97,81 @@ export type AiActionType =
   | 'system_query'        // Sistem verileri hakkında soru sorma / özet
   | 'general_chat';       // Genel asistan sohbeti
 
+export type AiModelId =
+  | 'gemini-2.5-pro'
+  | 'gemini-2.5-flash'
+  | 'gemini-2.0-flash'
+  | 'groq-llama-3.3-70b'
+  | 'groq-deepseek-r1'
+  | 'local-nlp';
+
+export interface AiModelOption {
+  id: AiModelId;
+  name: string;
+  badge: string;
+  provider: 'gemini' | 'groq' | 'local_nlp';
+  description: string;
+  freeQuotaNote: string;
+}
+
+export const AI_MODEL_OPTIONS: AiModelOption[] = [
+  {
+    id: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    badge: '🧠 Gemini 2.5 Pro',
+    provider: 'gemini',
+    description: 'En üst düzey akıl yürütme (reasoning), karmaşık muhasebe/puantaj analizi. (Kota dolarsa 2.5 Flash\'a otomatik geçer)',
+    freeQuotaNote: 'Google AI Studio Ücretsiz Kota',
+  },
+  {
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
+    badge: '🚀 Gemini 2.5 Flash',
+    provider: 'gemini',
+    description: 'Yeni nesil hibrit model. 1.5 Flash\'tan çok daha zeki, çok hızlı ve geniş ücretsiz kullanım hakkı.',
+    freeQuotaNote: 'Günde 1.500 İstek Ücretsiz',
+  },
+  {
+    id: 'groq-llama-3.3-70b',
+    name: 'Llama 3.3 70B (Groq)',
+    badge: '🔥 Llama 3.3 70B',
+    provider: 'groq',
+    description: 'Meta\'nın 70 Milyar parametreli güçlü modeli. Groq LPU üzerinde saniyede ~500 kelime hızında çalışır.',
+    freeQuotaNote: 'Groq Cloud Ücretsiz Kota',
+  },
+  {
+    id: 'groq-deepseek-r1',
+    name: 'DeepSeek R1 70B (Groq)',
+    badge: '🧬 DeepSeek R1 70B',
+    provider: 'groq',
+    description: 'Adım adım derin düşünme (Chain-of-Thought) odaklı ileri analiz modeli.',
+    freeQuotaNote: 'Groq Cloud Ücretsiz Kota',
+  },
+  {
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
+    badge: '⚡ Gemini 2.0 Flash',
+    provider: 'gemini',
+    description: 'Düşük gecikmeli hızlı standart Google Gemini 2.0 modeli.',
+    freeQuotaNote: 'Günde 1.500 İstek Ücretsiz',
+  },
+  {
+    id: 'local-nlp',
+    name: 'Dahili Akıllı Kural Motoru',
+    badge: '🛡️ Yerel NLP (Çevrimdışı)',
+    provider: 'local_nlp',
+    description: 'API anahtarı veya internet gerektirmeden sıfır token ile çalışan yerleşik Türkçe kural motoru.',
+    freeQuotaNote: 'Sınırsız & Anahtarsız',
+  },
+];
+
 export interface AiParsedResponse {
   actionType: AiActionType;
   title: string;
   explanation: string;
   confidence: number;
-  provider: 'gemini' | 'local_nlp';
+  provider: 'gemini' | 'groq' | 'local_nlp';
+  modelLabel?: string;
   data: {
     // create_note fields:
     noteContent?: string;
@@ -145,8 +214,40 @@ export interface AiParsedResponse {
 }
 
 const STORAGE_KEY_GEMINI = '@saha_takip_gemini_api_key';
+const STORAGE_KEY_GROQ = '@saha_takip_groq_api_key';
+const STORAGE_KEY_SELECTED_MODEL = '@saha_takip_ai_selected_model';
 
 export const AiService = {
+  /**
+   * Seçili AI modelini alır (Varsayılan: gemini-2.5-pro)
+   */
+  getSelectedModel(): AiModelId {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY_SELECTED_MODEL) as AiModelId | null;
+      if (stored && AI_MODEL_OPTIONS.some((m) => m.id === stored)) {
+        return stored;
+      }
+    }
+    return 'gemini-2.5-pro';
+  },
+
+  /**
+   * Seçili AI modelini kaydeder
+   */
+  setSelectedModel(modelId: AiModelId): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_SELECTED_MODEL, modelId);
+    }
+  },
+
+  /**
+   * Seçili modelin bilgilerini döndürür
+   */
+  getSelectedModelOption(): AiModelOption {
+    const id = this.getSelectedModel();
+    return AI_MODEL_OPTIONS.find((m) => m.id === id) || AI_MODEL_OPTIONS[0];
+  },
+
   /**
    * Gemini API anahtarını alır (Önce localStorage, sonra env)
    */
@@ -167,8 +268,14 @@ export const AiService = {
    */
   setApiKey(key: string): void {
     if (typeof localStorage !== 'undefined') {
-      if (key && key.trim()) {
-        localStorage.setItem(STORAGE_KEY_GEMINI, key.trim());
+      const trimmed = (key || '').trim();
+      // Eğer kullanıcı yanlışlıkla gsk_ ile başlayan Groq anahtarını buraya yapıştırdıysa otomatik Groq'a da kaydet
+      if (trimmed.startsWith('gsk_')) {
+        localStorage.setItem(STORAGE_KEY_GROQ, trimmed);
+        return;
+      }
+      if (trimmed) {
+        localStorage.setItem(STORAGE_KEY_GEMINI, trimmed);
       } else {
         localStorage.removeItem(STORAGE_KEY_GEMINI);
       }
@@ -176,9 +283,43 @@ export const AiService = {
   },
 
   /**
-   * Kullanıcının girdiği isteği işler:
-   * 1. API key varsa Google Gemini 1.5/2.0 Flash'a sorar (Ücretsiz kota).
-   * 2. API key yoksa veya ağ hatası olursa dahili Akıllı Kural Motorunu (Local NLP) çalıştırır.
+   * Groq Cloud API anahtarını alır (Önce localStorage, sonra env)
+   */
+  getGroqApiKey(): string {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY_GROQ);
+      if (stored && stored.trim()) return stored.trim();
+    }
+    try {
+      const envKey = (import.meta as any).env?.VITE_GROQ_API_KEY;
+      if (envKey && typeof envKey === 'string' && envKey.trim()) return envKey.trim();
+    } catch {}
+    return '';
+  },
+
+  /**
+   * Groq Cloud API anahtarını kaydeder
+   */
+  setGroqApiKey(key: string): void {
+    if (typeof localStorage !== 'undefined') {
+      const trimmed = (key || '').trim();
+      if (trimmed.startsWith('AIza')) {
+        localStorage.setItem(STORAGE_KEY_GEMINI, trimmed);
+        return;
+      }
+      if (trimmed) {
+        localStorage.setItem(STORAGE_KEY_GROQ, trimmed);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_GROQ);
+      }
+    }
+  },
+
+  /**
+   * Kullanıcının girdiği isteği seçili modele göre işler:
+   * 1. Seçili model Gemini ise (2.5 Pro / 2.5 Flash / 2.0 Flash) Google AI Studio API'sine sorar.
+   * 2. Seçili model Groq ise (Llama 3.3 70B / DeepSeek R1 70B) Groq Cloud LPU API'sine sorar.
+   * 3. Seçili modelin anahtarı yoksa diğer sağlayıcıyı dener, o da yoksa dahili Akıllı Kural Motorunu (Local NLP) çalıştırır.
    */
   async processCommand(userPrompt: string, context: AiContextData): Promise<AiParsedResponse> {
     const trimmed = userPrompt.trim();
@@ -189,20 +330,52 @@ export const AiService = {
         explanation: 'Lütfen bir komut, soru veya iş emri metni giriniz.',
         confidence: 0,
         provider: 'local_nlp',
+        modelLabel: 'Dahili Akıllı Kural Motoru',
         data: {},
       };
     }
 
-    const apiKey = this.getApiKey();
+    const selectedModel = this.getSelectedModel();
+    const geminiKey = this.getApiKey();
+    const groqKey = this.getGroqApiKey();
 
-    if (apiKey) {
-      try {
-        const geminiResult = await this.callGeminiApi(trimmed, context, apiKey);
-        if (geminiResult) {
-          return geminiResult;
+    if (selectedModel === 'local-nlp') {
+      return this.parseWithLocalRules(trimmed, context);
+    }
+
+    // 1. Kullanıcı Groq modeli seçtiyse önce Groq dene
+    if (selectedModel.startsWith('groq-')) {
+      if (groqKey) {
+        try {
+          const groqResult = await this.callGroqApi(trimmed, context, groqKey, selectedModel);
+          if (groqResult) return groqResult;
+        } catch (err) {
+          console.warn('[AiService] Groq API çağrısı başarısız oldu, yedek modele geçiliyor:', err);
         }
-      } catch (err) {
-        console.warn('[AiService] Gemini API çağrısı başarısız oldu, yerel NLP motoruna geçiliyor:', err);
+      }
+      // Groq anahtarı yoksa ama Gemini anahtarı varsa Gemini ile yanıtla
+      if (geminiKey) {
+        try {
+          const geminiFallback = await this.callGeminiApi(trimmed, context, geminiKey, 'gemini-2.5-flash');
+          if (geminiFallback) return geminiFallback;
+        } catch {}
+      }
+    } else {
+      // 2. Kullanıcı Gemini modeli seçtiyse önce Gemini dene
+      if (geminiKey) {
+        try {
+          const geminiResult = await this.callGeminiApi(trimmed, context, geminiKey, selectedModel);
+          if (geminiResult) return geminiResult;
+        } catch (err) {
+          console.warn('[AiService] Gemini API çağrısı başarısız oldu, yedek modele geçiliyor:', err);
+        }
+      }
+      // Gemini anahtarı yoksa ama Groq anahtarı varsa Groq ile yanıtla
+      if (groqKey) {
+        try {
+          const groqFallback = await this.callGroqApi(trimmed, context, groqKey, 'groq-llama-3.3-70b');
+          if (groqFallback) return groqFallback;
+        } catch {}
       }
     }
 
@@ -211,17 +384,13 @@ export const AiService = {
   },
 
   /**
-   * Google Gemini 1.5/2.0 Flash REST API Çağrısı (Ücretsiz Tier: Günde 1500 istek bedava)
+   * Ortak Türkçe Sistem Yönergesi (Gemini & Groq için)
    */
-  async callGeminiApi(
-    userPrompt: string,
-    context: AiContextData,
-    apiKey: string
-  ): Promise<AiParsedResponse | null> {
+  buildSystemInstruction(context: AiContextData): string {
     const todayStr = new Date().toISOString().split('T')[0];
     const nowTimeStr = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
-    const systemInstruction = `
+    return `
 Sen Saha Takip ve Yönetim Sistemi için tasarlanmış uzman, pratik ve hızlı bir Türkçe Yapay Zeka Asistanısın.
 Bugünün tarihi: ${todayStr}, saat: ${nowTimeStr}.
 
@@ -324,9 +493,57 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
   }
 }
 `;
+  },
 
-    // Try models in order: gemini-1.5-flash then gemini-1.5-flash-latest then gemini-2.0-flash
-    const models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-2.5-flash'];
+  /**
+   * Ham model metninden JSON nesnesini güvenli şekilde ayıklar
+   */
+  extractJsonFromText(rawText: string): any | null {
+    let cleanText = rawText.trim();
+    // DeepSeek R1 <think>...</think> bloklarını temizle
+    cleanText = cleanText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    if (cleanText.startsWith('```json')) {
+      cleanText = cleanText.replace(/^```json/i, '').replace(/```$/, '').trim();
+    } else if (cleanText.startsWith('```')) {
+      cleanText = cleanText.replace(/^```/, '').replace(/```$/, '').trim();
+    }
+    try {
+      return JSON.parse(cleanText);
+    } catch {
+      const firstBrace = cleanText.indexOf('{');
+      const lastBrace = cleanText.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        return JSON.parse(cleanText.slice(firstBrace, lastBrace + 1));
+      }
+      return null;
+    }
+  },
+
+  /**
+   * Google Gemini 2.5 Pro / 2.5 Flash / 2.0 Flash REST API Çağrısı
+   */
+  async callGeminiApi(
+    userPrompt: string,
+    context: AiContextData,
+    apiKey: string,
+    preferredModel: AiModelId = 'gemini-2.5-pro'
+  ): Promise<AiParsedResponse | null> {
+    const systemInstruction = this.buildSystemInstruction(context);
+
+    let models: string[];
+    if (preferredModel === 'gemini-2.5-pro') {
+      models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    } else if (preferredModel === 'gemini-2.0-flash') {
+      models = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    } else {
+      models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+    }
+
+    const modelLabels: Record<string, string> = {
+      'gemini-2.5-pro': 'Gemini 2.5 Pro',
+      'gemini-2.5-flash': 'Gemini 2.5 Flash',
+      'gemini-2.0-flash': 'Gemini 2.0 Flash',
+    };
 
     for (const model of models) {
       try {
@@ -355,27 +572,101 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
         }
 
         const json = await response.json();
-        const candidateText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const parts = json?.candidates?.[0]?.content?.parts || [];
+        // Gemini 2.5 thinking modellerinde son part asıl JSON yanıtını içerir
+        const textPart = [...parts].reverse().find((p: any) => typeof p?.text === 'string' && !p?.thought) || parts[0];
+        const candidateText = textPart?.text;
         if (!candidateText) continue;
 
-        let cleanText = candidateText.trim();
-        if (cleanText.startsWith('```json')) {
-          cleanText = cleanText.replace(/^```json/, '').replace(/```$/, '').trim();
-        } else if (cleanText.startsWith('```')) {
-          cleanText = cleanText.replace(/^```/, '').replace(/```$/, '').trim();
-        }
+        const parsed = this.extractJsonFromText(candidateText);
+        if (!parsed) continue;
 
-        const parsed = JSON.parse(cleanText);
         return {
           actionType: parsed.actionType || 'general_chat',
           title: parsed.title || 'Yapay Zeka Yanıtı',
           explanation: parsed.explanation || parsed.data?.answer || 'İşleminiz hazırlandı.',
-          confidence: parsed.confidence || 0.95,
+          confidence: parsed.confidence || 0.97,
           provider: 'gemini',
+          modelLabel: modelLabels[model] || model,
           data: parsed.data || {},
         };
       } catch (e) {
         console.warn(`[AiService] ${model} parse hatası:`, e);
+      }
+    }
+
+    return null;
+  },
+
+  /**
+   * Groq Cloud LPU REST API Çağrısı (Llama 3.3 70B & DeepSeek R1 Distill Llama 70B - Ücretsiz Tier)
+   */
+  async callGroqApi(
+    userPrompt: string,
+    context: AiContextData,
+    groqKey: string,
+    preferredModel: AiModelId = 'groq-llama-3.3-70b'
+  ): Promise<AiParsedResponse | null> {
+    const systemInstruction = this.buildSystemInstruction(context);
+
+    const models =
+      preferredModel === 'groq-deepseek-r1'
+        ? [
+            { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 70B (Groq)', useJsonFormat: false },
+            { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+          ]
+        : [
+            { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+            { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Groq)', useJsonFormat: true },
+          ];
+
+    for (const modelObj of models) {
+      try {
+        const bodyPayload: any = {
+          model: modelObj.id,
+          temperature: 0.1,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: `Kullanıcı Komutu:\n"${userPrompt}"` },
+          ],
+        };
+        if (modelObj.useJsonFormat) {
+          bodyPayload.response_format = { type: 'json_object' };
+        }
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify(bodyPayload),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn(`[AiService] Groq ${modelObj.id} isteği başarısız:`, response.status, errText);
+          continue;
+        }
+
+        const json = await response.json();
+        const content = json?.choices?.[0]?.message?.content;
+        if (!content) continue;
+
+        const parsed = this.extractJsonFromText(content);
+        if (!parsed) continue;
+
+        return {
+          actionType: parsed.actionType || 'general_chat',
+          title: parsed.title || 'Yapay Zeka Yanıtı',
+          explanation: parsed.explanation || parsed.data?.answer || 'İşleminiz hazırlandı.',
+          confidence: parsed.confidence || 0.96,
+          provider: 'groq',
+          modelLabel: modelObj.label,
+          data: parsed.data || {},
+        };
+      } catch (e) {
+        console.warn(`[AiService] Groq ${modelObj.id} parse hatası:`, e);
       }
     }
 
