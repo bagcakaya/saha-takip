@@ -1,3 +1,7 @@
+import { Platform } from 'react-native';
+import { OneSignal } from 'react-native-onesignal';
+import { MobileOneSignalService } from './oneSignalService';
+
 const NOTIFICATION_API_URL = 'https://saha-takip-beige.vercel.app/api/send-notification';
 
 export const MobilePushService = {
@@ -52,8 +56,31 @@ export const MobilePushService = {
     targetIsoDate: string;
     breakMinutes: number;
     companyCode: string;
+    breakId?: string;
   }): Promise<string | undefined> {
     try {
+      // Mola başlatan personelin OneSignal kimliğini ve etiketlerini anında bağla
+      const targetSubIds: string[] = [];
+      if (Platform.OS !== 'web') {
+        try {
+          await MobileOneSignalService.login({
+            id: params.userId,
+            name: params.userName,
+            companyCode: params.companyCode,
+          });
+          const pushSub: any = OneSignal?.User?.pushSubscription;
+          const liveSubId =
+            (typeof pushSub?.getIdAsync === 'function' ? await pushSub.getIdAsync() : null) ||
+            (typeof pushSub?.getPushSubscriptionId === 'function' ? pushSub.getPushSubscriptionId() : null) ||
+            pushSub?.id;
+          if (liveSubId && typeof liveSubId === 'string') {
+            targetSubIds.push(liveSubId);
+          }
+        } catch {}
+      }
+
+      const uniqueSuffix = params.breakId || params.targetIsoDate.slice(0, 16).replace(/[^0-9]/g, '');
+
       const response = await fetch(NOTIFICATION_API_URL, {
         method: 'POST',
         headers: {
@@ -62,10 +89,14 @@ export const MobilePushService = {
         body: JSON.stringify({
           title: '☕ Mola Süreniz Doldu!',
           message: `Mola süreniz (${params.breakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+          targetMode: 'custom',
           targetUserIds: [params.userId],
+          targetSubscriptionIds: targetSubIds.length > 0 ? targetSubIds : undefined,
+          multiChannelGuarantee: true,
           companyCode: params.companyCode || 'POLATLAR',
           send_after: params.targetIsoDate,
-          collapse_id: `break_over_${params.userId}`,
+          collapse_id: `break_over_${params.userId}_${uniqueSuffix}`,
+          data: { tab: 'attendance' },
           url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
         }),
       });

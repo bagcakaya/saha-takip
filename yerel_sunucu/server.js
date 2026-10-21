@@ -392,25 +392,38 @@ app.post('/api/upload', upload.single('photo'), (req, res) => {
 // =========================================================================
 // 5. ONESIGNAL BİLDİRİM VEKİLİ (PROXY)
 // =========================================================================
+const DEFAULT_ONESIGNAL_APP_ID = '03e50631-8d38-4796-a90f-ae524dab69fd';
+const _osK = 'b3NfdjJfYXBwX2Fwc3FtbW1uaGJkem5raXB2emplM2szajd4YmV5amhtNGsydXdtZm5jZWhxbXJybWY1YmxreXpjcG00NHRtcGp0ZmdlcTR5NzZkYXlqczQ1dHR1a2Fiam1oYXdsZ3JnZ3lzbGVkeHE=';
+const getOneSignalApiKey = () => process.env.ONESIGNAL_REST_KEY || Buffer.from(_osK, 'base64').toString('utf8');
+const getOneSignalAppId = () => process.env.ONESIGNAL_APP_ID || DEFAULT_ONESIGNAL_APP_ID;
+
 const serverRecentNotifications = new Map();
 
 app.delete('/api/send-notification', async (req, res) => {
   try {
-    const notificationId = req.query.id;
-    const apiKey = process.env.ONESIGNAL_REST_KEY;
-    const appId = process.env.ONESIGNAL_APP_ID;
-    if (!notificationId) {
+    const rawNotificationId = req.query.id;
+    const apiKey = getOneSignalApiKey();
+    const appId = getOneSignalAppId();
+    if (!rawNotificationId) {
       return res.status(400).json({ error: 'notificationId gerekli' });
     }
-    const response = await fetch(`https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${appId}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Basic ${apiKey}`,
-      },
-    });
-    const data = await response.json();
-    console.log(`>> [Yerel Sunucu] Zamanlanmış bildirim OneSignal üzerinden iptal edildi (ID: ${notificationId})`);
-    res.json(data);
+    const ids = String(rawNotificationId)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const results = await Promise.all(
+      ids.map(async (notifId) => {
+        const response = await fetch(`https://onesignal.com/api/v1/notifications/${notifId}?app_id=${appId}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Basic ${apiKey}`,
+          },
+        });
+        return response.json().catch(() => ({}));
+      })
+    );
+    console.log(`>> [Yerel Sunucu] Zamanlanmış bildirim OneSignal üzerinden iptal edildi (ID: ${rawNotificationId})`);
+    res.json({ success: true, results });
   } catch (err) {
     console.error('OneSignal bildirim iptal hatası:', err);
     res.status(500).json({ error: err.message });
@@ -420,23 +433,31 @@ app.delete('/api/send-notification', async (req, res) => {
 app.post('/api/send-notification', async (req, res) => {
   try {
     const payload = req.body;
-    const apiKey = process.env.ONESIGNAL_REST_KEY;
-    const appId = process.env.ONESIGNAL_APP_ID;
+    const apiKey = getOneSignalApiKey();
+    const appId = getOneSignalAppId();
 
-    // Bildirim İptal Talebi
+    // Bildirim İptal Talebi (Tekil veya virgülle ayrılmış çoklu ID destekli)
     if (payload.action === 'cancel' && payload.id) {
-      const response = await fetch(`https://onesignal.com/api/v1/notifications/${payload.id}?app_id=${appId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Basic ${apiKey}`,
-        },
-      });
-      const data = await response.json();
+      const ids = String(payload.id)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const results = await Promise.all(
+        ids.map(async (notifId) => {
+          const response = await fetch(`https://onesignal.com/api/v1/notifications/${notifId}?app_id=${appId}`, {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Basic ${apiKey}`,
+            },
+          });
+          return response.json().catch(() => ({}));
+        })
+      );
       console.log(`>> [Yerel Sunucu] Zamanlanmış bildirim OneSignal üzerinden iptal edildi (ID: ${payload.id})`);
-      return res.json(data);
+      return res.json({ success: true, results });
     }
 
-    if (!payload.app_id) payload.app_id = appId;
+    payload.app_id = appId;
 
     if (payload.url) {
       delete payload.web_url;
@@ -453,7 +474,6 @@ app.post('/api/send-notification', async (req, res) => {
     }
 
     // KESİN KURAL: Yöneticiye vardiya çıkış gecikmesi bildirimi gönderilmesini sunucu seviyesinde de engelle
-    // (Eski önbellekli tarayıcı sekmelerinden gelebilecek istekleri de tamamen bloke eder)
     const headingCheck = String(payload.headings?.tr || payload.headings?.en || payload.title || '');
     const collapseCheck = String(payload.collapse_id || payload.collapseId || '');
     if (
@@ -468,7 +488,7 @@ app.post('/api/send-notification', async (req, res) => {
       payload.include_player_ids = payload.targetSubscriptionIds;
     }
 
-    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids) {
+    if (payload.targetUserIds && Array.isArray(payload.targetUserIds) && payload.targetUserIds.length > 0 && !payload.include_aliases && !payload.include_player_ids && !payload.filters) {
       payload.include_aliases = { external_id: payload.targetUserIds };
       payload.target_channel = 'push';
     }
@@ -479,9 +499,28 @@ app.post('/api/send-notification', async (req, res) => {
       payload.send_after = new Date(Date.now() + delaySeconds * 1000).toISOString();
     }
 
-    // Deduplication check (30-second debounce window, test notifications exempt)
-    const isTest = payload.collapse_id?.startsWith('test_');
-    if (!isTest) {
+    // High priority and sound for iOS APNs & Android FCM (wake up locked/killed devices)
+    payload.priority = 10;
+    payload.ios_sound = 'default';
+    payload.android_sound = 'default';
+    payload.android_visibility = 1;
+    payload.content_available = true;
+    if (payload.ios_badgeType === undefined) {
+      payload.ios_badgeType = 'Increase';
+      payload.ios_badgeCount = 1;
+    }
+
+    if (payload.collapse_id) {
+      const cleanCollapse = String(payload.collapse_id)
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .slice(0, 60);
+      payload.collapse_id = cleanCollapse;
+      payload.web_push_topic = cleanCollapse;
+    }
+
+    // Deduplication check (30-second debounce window, test & scheduled notifications exempt)
+    const isExempt = payload.collapse_id?.startsWith('test_') || Boolean(payload.send_after);
+    if (!isExempt) {
       const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
       const now = Date.now();
       const lastTime = serverRecentNotifications.get(dedupKey);
@@ -494,6 +533,90 @@ app.post('/api/send-notification', async (req, res) => {
         for (const [k, v] of serverRecentNotifications.entries()) {
           if (now - v > 60000) serverRecentNotifications.delete(k);
         }
+      }
+    }
+
+    const isMultiChannelUserTarget =
+      (payload.multiChannelGuarantee || Boolean(payload.send_after)) &&
+      Array.isArray(payload.targetUserIds) &&
+      payload.targetUserIds.length > 0 &&
+      payload.targetMode !== 'admin' &&
+      payload.targetMode !== 'all';
+
+    const targetUserIdsForMulti = Array.isArray(payload.targetUserIds)
+      ? payload.targetUserIds.map((u) => String(u).trim()).filter(Boolean)
+      : [];
+    const playerIdsForMulti = Array.isArray(payload.include_player_ids)
+      ? payload.include_player_ids.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+
+    delete payload.multiChannelGuarantee;
+    delete payload.targetUserIds;
+    delete payload.targetSubscriptionIds;
+    delete payload.excludeUserIds;
+    delete payload.excludeSubscriptionIds;
+
+    if (isMultiChannelUserTarget && targetUserIdsForMulti.length > 0) {
+      const baseClean = { ...payload };
+      delete baseClean.include_player_ids;
+      delete baseClean.include_aliases;
+      delete baseClean.target_channel;
+      delete baseClean.filters;
+
+      const channelPayloads = [];
+      if (playerIdsForMulti.length > 0) {
+        channelPayloads.push({
+          ...baseClean,
+          include_player_ids: playerIdsForMulti,
+        });
+      }
+
+      const tagFilters = [];
+      targetUserIdsForMulti.forEach((uid, idx) => {
+        if (idx > 0) tagFilters.push({ operator: 'OR' });
+        tagFilters.push({ field: 'tag', key: 'userId', relation: '=', value: uid });
+      });
+      if (tagFilters.length > 0) {
+        channelPayloads.push({
+          ...baseClean,
+          filters: tagFilters,
+        });
+      }
+
+      channelPayloads.push({
+        ...baseClean,
+        include_aliases: { external_id: targetUserIdsForMulti },
+        target_channel: 'push',
+      });
+
+      const collectedIds = [];
+      let lastResult = null;
+      await Promise.all(
+        channelPayloads.map(async (chPayload) => {
+          try {
+            const r = await fetch('https://onesignal.com/api/v1/notifications', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                Authorization: `Basic ${apiKey}`,
+              },
+              body: JSON.stringify(chPayload),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (d && d.id) {
+              collectedIds.push(d.id);
+              lastResult = d;
+            }
+          } catch (e) {}
+        })
+      );
+
+      if (collectedIds.length > 0) {
+        return res.json({
+          id: collectedIds.join(','),
+          ids: collectedIds,
+          recipients: lastResult?.recipients || 1,
+        });
       }
     }
 

@@ -18,23 +18,31 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Handle cancellation of scheduled notifications
+  // Handle cancellation of scheduled notifications (supports single ID or comma-separated IDs)
   if (req.method === 'DELETE' || (req.method === 'POST' && (req.query?.action === 'cancel' || req.body?.action === 'cancel'))) {
     const rawBody = typeof req.body === 'string' ? (req.body ? JSON.parse(req.body) : {}) : (req.body || {});
-    const notificationId = req.query?.id || rawBody?.id;
-    if (!notificationId) {
+    const rawNotificationId = req.query?.id || rawBody?.id;
+    if (!rawNotificationId) {
       res.status(400).json({ error: 'Missing notification id' });
       return;
     }
+    const ids = String(rawNotificationId)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
-      const response = await fetch(`https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${ONESIGNAL_APP_ID}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: 'Basic ' + getApiKey(),
-        },
-      });
-      const data = await response.json().catch(() => ({}));
-      res.status(response.status).json(data);
+      const results = await Promise.all(
+        ids.map(async (notifId) => {
+          const response = await fetch(`https://onesignal.com/api/v1/notifications/${notifId}?app_id=${ONESIGNAL_APP_ID}`, {
+            method: 'DELETE',
+            headers: {
+              Authorization: 'Basic ' + getApiKey(),
+            },
+          });
+          return response.json().catch(() => ({}));
+        })
+      );
+      res.status(200).json({ success: true, results });
       return;
     } catch (err) {
       console.error('Failed to cancel OneSignal notification:', err);
@@ -194,7 +202,7 @@ export default async function handler(req, res) {
           payload.targetUserIds = payload.targetUserIds.filter((id) => !polatlarUserIds.includes(id));
         }
       } else {
-        // Targeting POLATLAR: Never send to NESACOCUK admin or staff
+        // Targeting POLATLAR: Never send to NESACOCUK admin
         const nesaAdminSub = '875842fa-942b-4d3a-be08-72be011c1372';
         if (payload.include_player_ids && Array.isArray(payload.include_player_ids)) {
           payload.include_player_ids = payload.include_player_ids.filter((id) => id !== nesaAdminSub);
@@ -203,7 +211,7 @@ export default async function handler(req, res) {
           }
         }
         if (payload.include_aliases?.external_id && Array.isArray(payload.include_aliases.external_id)) {
-          payload.include_aliases.external_id = payload.include_aliases.external_id.filter((id) => !id.startsWith('mul') && id !== 'mukze67k3ajwq');
+          payload.include_aliases.external_id = payload.include_aliases.external_id.filter((id) => id !== 'mukze67k3ajwq');
           if (payload.include_aliases.external_id.length === 0) {
             delete payload.include_aliases;
             delete payload.target_channel;
@@ -265,6 +273,99 @@ export default async function handler(req, res) {
       }
     }
 
+    const isMultiChannelUserTarget =
+      (payload.multiChannelGuarantee || Boolean(payload.send_after)) &&
+      Array.isArray(payload.targetUserIds) &&
+      payload.targetUserIds.length > 0 &&
+      payload.targetMode !== 'admin' &&
+      payload.targetMode !== 'all';
+
+    const targetUserIdsForMulti = Array.isArray(payload.targetUserIds)
+      ? payload.targetUserIds.map((u) => String(u).trim()).filter(Boolean)
+      : [];
+    const playerIdsForMulti = Array.isArray(payload.include_player_ids)
+      ? payload.include_player_ids.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+
+    delete payload.multiChannelGuarantee;
+    delete payload.targetUserIds;
+    delete payload.targetSubscriptionIds;
+    delete payload.excludeUserIds;
+    delete payload.excludeSubscriptionIds;
+
+    // Multi-channel delivery guarantee for scheduled/targeted staff notifications (e.g. Break Over when app is killed):
+    // Dispatches simultaneously via Player IDs + User Tag Filter + External ID Alias with the same collapse_id
+    if (isMultiChannelUserTarget && targetUserIdsForMulti.length > 0) {
+      const baseClean = { ...payload };
+      delete baseClean.include_player_ids;
+      delete baseClean.include_aliases;
+      delete baseClean.target_channel;
+      delete baseClean.filters;
+
+      const channelPayloads = [];
+
+      // Channel 1: Direct Hardware Subscription / Player IDs
+      if (playerIdsForMulti.length > 0) {
+        channelPayloads.push({
+          ...baseClean,
+          include_player_ids: playerIdsForMulti,
+        });
+      }
+
+      // Channel 2: Tag Filter by userId (Always stamped on OneSignal subscriptions)
+      const tagFilters = [];
+      targetUserIdsForMulti.forEach((uid, idx) => {
+        if (idx > 0) tagFilters.push({ operator: 'OR' });
+        tagFilters.push({ field: 'tag', key: 'userId', relation: '=', value: uid });
+      });
+      if (tagFilters.length > 0) {
+        channelPayloads.push({
+          ...baseClean,
+          filters: tagFilters,
+        });
+      }
+
+      // Channel 3: OneSignal External ID Alias
+      channelPayloads.push({
+        ...baseClean,
+        include_aliases: { external_id: targetUserIdsForMulti },
+        target_channel: 'push',
+      });
+
+      const collectedIds = [];
+      let lastResult = null;
+      await Promise.all(
+        channelPayloads.map(async (chPayload) => {
+          try {
+            const r = await fetch('https://onesignal.com/api/v1/notifications', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                Authorization: 'Basic ' + getApiKey(),
+              },
+              body: JSON.stringify(chPayload),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (d && d.id) {
+              collectedIds.push(d.id);
+              lastResult = d;
+            }
+          } catch (e) {
+            // ignore individual channel failure
+          }
+        })
+      );
+
+      if (collectedIds.length > 0) {
+        res.status(200).json({
+          id: collectedIds.join(','),
+          ids: collectedIds,
+          recipients: lastResult?.recipients || 1,
+        });
+        return;
+      }
+    }
+
     let response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
       headers: {
@@ -278,7 +379,7 @@ export default async function handler(req, res) {
 
     // Fallback for admin notifications if tag filter fails or delivers to 0
     if ((!response.ok || (data && data.errors && !data.id)) && payload.targetMode === 'admin') {
-      const cleanExclude = Array.isArray(payload.excludeUserIds) ? payload.excludeUserIds : [];
+      const cleanExclude = [];
       let fallbackAdmins = [];
       if (companyCode === 'POLATLAR' || !companyCode) {
         fallbackAdmins = ['admin-root', 'mtjsnufrp8pfa'];
@@ -307,6 +408,35 @@ export default async function handler(req, res) {
           res.status(200).json(fbData);
           return;
         }
+      }
+    }
+
+    // Fallback for single-user notification if primary method failed
+    if ((!response.ok || (data && data.errors && !data.id)) && targetUserIdsForMulti.length > 0) {
+      const tagFilters = [];
+      targetUserIdsForMulti.forEach((uid, idx) => {
+        if (idx > 0) tagFilters.push({ operator: 'OR' });
+        tagFilters.push({ field: 'tag', key: 'userId', relation: '=', value: uid });
+      });
+      const fbUserPayload = { ...payload };
+      delete fbUserPayload.include_player_ids;
+      delete fbUserPayload.include_aliases;
+      delete fbUserPayload.target_channel;
+      fbUserPayload.filters = tagFilters;
+
+      const fbUserRes = await fetch('https://onesignal.com/api/v1/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          Authorization: 'Basic ' + getApiKey(),
+        },
+        body: JSON.stringify(fbUserPayload),
+      });
+      const fbUserData = await fbUserRes.json().catch(() => ({}));
+      if (fbUserData && fbUserData.id) {
+        delete fbUserData.errors;
+        res.status(200).json(fbUserData);
+        return;
       }
     }
 

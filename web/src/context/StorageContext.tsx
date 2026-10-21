@@ -5317,12 +5317,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Determine break quota minutes from branch or central workplace
     let branchBreakMins: number | undefined;
-    const assignedBranch = branches.find((b) => b.assignedUserIds && b.assignedUserIds.includes(user.id));
+    const assignedBranch = branches.find(
+      (b) =>
+        (b.assignedUserIds && b.assignedUserIds.includes(user.id)) ||
+        (user.branchId && b.id === user.branchId)
+    );
     if (assignedBranch?.maxBreakMinutes) {
       branchBreakMins = assignedBranch.maxBreakMinutes;
     }
     if (!branchBreakMins && record.branchId) {
       const b = branches.find((item) => item.id === record.branchId);
+      if (b?.maxBreakMinutes) {
+        branchBreakMins = b.maxBreakMinutes;
+      }
+    }
+    if (!branchBreakMins && record.branchName) {
+      const b = branches.find((item) => item.name === record.branchName);
       if (b?.maxBreakMinutes) {
         branchBreakMins = b.maxBreakMinutes;
       }
@@ -5352,6 +5362,65 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Zırh koruması ve anında UI güncellemesi (0ms gecikme)
     ApprovalShield.recordBreakState(updatedRecord);
     setAttendanceRecords(updated);
+
+    // Cancel any previous scheduled break push for this user to avoid ghost alerts
+    if (record.currentBreakNotificationId) {
+      OneSignalService.cancelNotification(record.currentBreakNotificationId).catch(() => {});
+    }
+
+    const effectiveCompanyCode = (user.companyCode || compCode || 'POLATLAR').toUpperCase();
+
+    // Hemen (0ms gecikmeyle, keepalive: true ile) OneSignal bulut zamanlayıcısına mola bitiş bildirimini kaydet!
+    // Personel "Molaya Çık" deyip uygulamayı anında kill etse bile istek tarayıcı/OS tarafından kesilmez.
+    OneSignalService.scheduleBreakOverPush({
+      userId: user.id,
+      userName: user.name,
+      targetIsoDate,
+      breakMinutes: allowedMinutes,
+      companyCode: effectiveCompanyCode,
+      breakId: newBreak.id,
+    })
+      .then((scheduledId) => {
+        if (scheduledId) {
+          newBreak.scheduledNotificationId = scheduledId;
+          updatedRecord.currentBreakNotificationId = scheduledId;
+          ApprovalShield.recordBreakState(updatedRecord);
+          setAttendanceRecords((prev) =>
+            prev.map((r) =>
+              r.id === updatedRecord.id
+                ? {
+                    ...r,
+                    currentBreakNotificationId: scheduledId,
+                    breaks: (r.breaks || []).map((b) =>
+                      b.id === newBreak.id ? { ...b, scheduledNotificationId: scheduledId } : b
+                    ),
+                  }
+                : r
+            )
+          );
+          StorageService.saveAttendanceRecords(updated).catch(() => {});
+          FastActionAgent.enqueueAttendanceSync(compCode, updated);
+        } else {
+          // Anlık bağlantı sorunu varsa kuyruk üzerinden tekrar dene
+          FastActionAgent.enqueueScheduleBreakPush({
+            userId: user.id,
+            userName: user.name,
+            targetIsoDate,
+            breakMinutes: allowedMinutes,
+            companyCode: effectiveCompanyCode,
+          });
+        }
+      })
+      .catch(() => {
+        FastActionAgent.enqueueScheduleBreakPush({
+          userId: user.id,
+          userName: user.name,
+          targetIsoDate,
+          breakMinutes: allowedMinutes,
+          companyCode: effectiveCompanyCode,
+        });
+      });
+
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
     StorageService.saveAttendanceRecords(updated).catch(() => {});
 
@@ -5360,28 +5429,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       `${user.name}, ${record.branchName || 'Merkez'} şubesinde molaya çıktı.${note ? ` (Not: ${note})` : ''}`
     );
 
-    // Cancel any previous scheduled break push for this user to avoid ghost alerts
-    if (record.currentBreakNotificationId) {
-      FastActionAgent.enqueueCancelNotification(record.currentBreakNotificationId, compCode);
-    }
-
-    // Schedule hardware push notification via OneSignal cloud server
-    // Fires at targetIsoDate even if the phone is locked or app is killed!
-    FastActionAgent.enqueueScheduleBreakPush({
-      userId: user.id,
-      userName: user.name,
-      targetIsoDate,
-      breakMinutes: allowedMinutes,
-      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
-    });
-
     // Push notification to admins about break start
     FastActionAgent.enqueuePushNotification({
       title: '☕ Personel Molaya Çıktı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Not: ${note})` : ''}`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
-      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
+      companyCode: effectiveCompanyCode,
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
     });
 
@@ -6688,6 +6742,102 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const shiftInterval = setInterval(runShiftCheckoutWatcher, 20000);
     return () => clearInterval(shiftInterval);
   }, [attendanceRecords, shifts, shiftAssignments, compCode, user]);
+
+  // --- MOLA BİTİŞ PUSH TETİKLEYİCİ (Uygulama Kill Edilmiş Personeli Uyandırma Garantisi) ---
+  // Mola süresi dolan personelin cihazı kapalı/kill edilmiş olsa bile bulut zamanlayıcıya ek olarak
+  // açık olan herhangi bir yönetici veya personel oturumu üzerinden aynı collapseId ile donanım push'u tetikler.
+  useEffect(() => {
+    if (!attendanceRecords || attendanceRecords.length === 0) return;
+
+    const runBreakOvertimeWatcher = () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const now = Date.now();
+      let hasUpdates = false;
+
+      const updatedList = attendanceRecords.map((r) => {
+        if (r.date !== todayStr || !r.isOnBreak) return r;
+        const breaksList = Array.isArray(r.breaks) ? r.breaks : [];
+        if (breaksList.length === 0) return r;
+
+        const lastIdx = breaksList.length - 1;
+        const openBreak = breaksList[lastIdx];
+        if (!openBreak || openBreak.endTime || openBreak.overtimeNotified) return r;
+
+        // İlgili personelin şube / merkez mola hakkını hesapla
+        let branchBreakMins: number | undefined;
+        const assignedBranch = branches.find(
+          (b) => b.assignedUserIds && b.assignedUserIds.includes(r.userId)
+        );
+        if (assignedBranch?.maxBreakMinutes) {
+          branchBreakMins = assignedBranch.maxBreakMinutes;
+        }
+        if (!branchBreakMins && r.branchId) {
+          const b = branches.find((item) => item.id === r.branchId);
+          if (b?.maxBreakMinutes) branchBreakMins = b.maxBreakMinutes;
+        }
+        if (!branchBreakMins && r.branchName) {
+          const b = branches.find((item) => item.name === r.branchName);
+          if (b?.maxBreakMinutes) branchBreakMins = b.maxBreakMinutes;
+        }
+
+        const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 60;
+        const previousBreaks = breaksList.slice(0, lastIdx);
+        const alreadyUsedMinutes = previousBreaks.reduce((sum, b) => sum + (b.durationMinutes || 0), 0);
+        const allowedMinutes =
+          quotaMinutes > alreadyUsedMinutes ? quotaMinutes - alreadyUsedMinutes : quotaMinutes;
+
+        const startTime = openBreak.startTime || r.currentBreakStartTime || now;
+        const targetEndTime = startTime + allowedMinutes * 60 * 1000;
+
+        if (now >= targetEndTime && now - targetEndTime < 2 * 60 * 60 * 1000) {
+          const notifKey = `@saha_takip_break_over_push_${r.userId}_${openBreak.id || startTime}`;
+          if (typeof window !== 'undefined' && localStorage.getItem(notifKey)) {
+            return r;
+          }
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(notifKey, String(now));
+            } catch {}
+          }
+
+          hasUpdates = true;
+          const uniqueSuffix =
+            openBreak.id ||
+            new Date(targetEndTime).toISOString().slice(0, 16).replace(/[^0-9]/g, '');
+
+          // Mola başlatan personelin telefonuna (uygulama kill edilmiş olsa dahi) anında donanım push'u gönder!
+          OneSignalService.sendPushNotification({
+            title: '☕ Mola Süreniz Doldu!',
+            message: `Mola süreniz (${allowedMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
+            targetMode: 'custom',
+            targetUserIds: [r.userId],
+            companyCode: (r.companyCode || compCode || 'POLATLAR').toUpperCase(),
+            collapseId: `break_over_${r.userId}_${uniqueSuffix}`,
+            url: 'https://saha-takip-beige.vercel.app/?tab=attendance',
+          }).catch(() => {});
+
+          const nextBreaks = [...breaksList];
+          nextBreaks[lastIdx] = { ...openBreak, overtimeNotified: true };
+          return {
+            ...r,
+            breaks: nextBreaks,
+          };
+        }
+
+        return r;
+      });
+
+      if (hasUpdates) {
+        setAttendanceRecords(updatedList);
+        StorageService.saveAttendanceRecords(updatedList).catch(() => {});
+        FastActionAgent.enqueueAttendanceSync(compCode, updatedList);
+      }
+    };
+
+    runBreakOvertimeWatcher();
+    const breakInterval = setInterval(runBreakOvertimeWatcher, 15000);
+    return () => clearInterval(breakInterval);
+  }, [attendanceRecords, branches, workplaceLocation, compCode]);
 
   const [lastReadTime, setLastReadTime] = useState<number>(() => {
     if (typeof window !== 'undefined' && user?.id) {

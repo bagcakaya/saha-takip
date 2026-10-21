@@ -224,7 +224,17 @@ export const OneSignalService = {
   loginUser(userId: string, name: string, role: string, companyCode?: string): void {
     if (typeof window === 'undefined') return;
 
-    const compCode = (companyCode || localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
+    const compCode = (
+      companyCode ||
+      localStorage.getItem('@gorev_tamamlama_active_company') ||
+      localStorage.getItem('@saha_takip_company_code') ||
+      'POLATLAR'
+    ).toUpperCase();
+
+    try {
+      localStorage.setItem('@saha_takip_company_code', compCode);
+      localStorage.setItem('@saha_takip_user_id', userId);
+    } catch {}
 
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal: any) => {
@@ -246,6 +256,7 @@ export const OneSignalService = {
         if (currentSubId) {
           localStorage.setItem('@saha_takip_last_sub_id', currentSubId);
           localStorage.setItem(`@saha_takip_sub_${userId}`, currentSubId);
+          localStorage.setItem(`@saha_takip_sub_${compCode}_${userId}`, currentSubId);
         }
       } catch (e) {
         console.warn('OneSignal login hatası:', e);
@@ -765,16 +776,29 @@ export const OneSignalService = {
       });
       // Also add current device's hardware player ID if current user is in cleanIds
       // Strictly prevent current device player ID from being targeted if current device belongs to another company!
-      const myCompany = (localStorage.getItem('@saha_takip_company_code') || 'POLATLAR').toUpperCase();
+      let myCompany = '';
+      let myUid: string | null = localStorage.getItem('@saha_takip_user_id');
+      try {
+        const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+        if (u?.companyCode) myCompany = String(u.companyCode).toUpperCase();
+        if (!myUid && u?.id) myUid = String(u.id);
+      } catch {}
+      if (!myCompany) {
+        myCompany = (
+          localStorage.getItem('@gorev_tamamlama_active_company') ||
+          localStorage.getItem('@saha_takip_company_code') ||
+          'POLATLAR'
+        ).toUpperCase();
+      }
       if (myCompany === targetCompanyCode) {
-        let myUid: string | null = localStorage.getItem('@saha_takip_user_id');
-        if (!myUid) {
-          try {
-            const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
-            myUid = u.id || null;
-          } catch {}
-        }
-        const mySub = localStorage.getItem('@saha_takip_last_sub_id');
+        const livePushSub =
+          typeof window !== 'undefined'
+            ? window.OneSignal?.User?.PushSubscription || window.OneSignal?.User?.pushSubscription
+            : null;
+        const mySub =
+          livePushSub?.id ||
+          livePushSub?.token ||
+          localStorage.getItem('@saha_takip_last_sub_id');
         if (mySub && myUid && cleanIds.includes(myUid) && !cleanSubIds.includes(mySub) && !cachedSubIds.includes(mySub)) {
           if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(mySub)) {
             // Drop
@@ -1134,6 +1158,91 @@ export const OneSignalService = {
           return { success: true, data: { tenantFiltered: true } };
         }
 
+        // Build tag filter array for validTenantUserIds
+        const buildUserTagFilters = (): any[] => {
+          const filterArr: any[] = [];
+          const hasGenericAdminId = validTenantUserIds.some((id) => id === 'admin-root' || id === 'admin-1');
+          if (hasGenericAdminId) {
+            filterArr.push({ field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode });
+          }
+          if (validTenantUserIds.length === 1) {
+            filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: validTenantUserIds[0] });
+          } else {
+            const userFilters: any[] = [];
+            validTenantUserIds.forEach((id, idx) => {
+              if (idx > 0) userFilters.push({ operator: 'OR' });
+              userFilters.push({ field: 'tag', key: 'userId', relation: '=', value: id });
+            });
+            filterArr.push(userFilters);
+          }
+          return filterArr;
+        };
+
+        // MULTI-CHANNEL GUARANTEE FOR SCHEDULED ALARMS (e.g. Break End Notification when app is killed):
+        // OneSignal's scheduled API returns an ID immediately without validating if external_id or player_id is active.
+        // Dispatching across Player IDs + User Tag + External ID with the same collapse_id guarantees delivery when killed!
+        if (isScheduled) {
+          const scheduledIds: string[] = [];
+
+          // 1. First try proxy multi-channel endpoint in a single call
+          try {
+            const multiRes = await this._postNotification({
+              ...basePayload,
+              targetUserIds: validTenantUserIds,
+              targetSubscriptionIds: allHardwareSubIds,
+              multiChannelGuarantee: true,
+            });
+            if (multiRes && multiRes.id) {
+              return { success: true, data: multiRes };
+            }
+          } catch {
+            // Fallback to parallel direct channel calls below
+          }
+
+          const tasks: Promise<void>[] = [];
+          if (allHardwareSubIds.length > 0) {
+            tasks.push(
+              this._postNotification({
+                ...basePayload,
+                include_player_ids: allHardwareSubIds,
+              })
+                .then((r) => {
+                  if (r?.id) scheduledIds.push(r.id);
+                })
+                .catch(() => {})
+            );
+          }
+
+          tasks.push(
+            this._postNotification({
+              ...basePayload,
+              filters: buildUserTagFilters(),
+            })
+              .then((r) => {
+                if (r?.id) scheduledIds.push(r.id);
+              })
+              .catch(() => {})
+          );
+
+          tasks.push(
+            this._postNotification({
+              ...basePayload,
+              include_aliases: { external_id: validTenantUserIds },
+              target_channel: 'push',
+            })
+              .then((r) => {
+                if (r?.id) scheduledIds.push(r.id);
+              })
+              .catch(() => {})
+          );
+
+          await Promise.all(tasks);
+          if (scheduledIds.length > 0) {
+            const joined = Array.from(new Set(scheduledIds.join(',').split(',').filter(Boolean))).join(',');
+            return { success: true, data: { id: joined, ids: scheduledIds } };
+          }
+        }
+
         // Direct Hardware Delivery for valid users only
         if (allHardwareSubIds.length > 0) {
           try {
@@ -1150,7 +1259,18 @@ export const OneSignalService = {
           }
         }
 
-        // Step 4A: OneSignal external_id alias (for validated tenant user IDs only)
+        // Step 4A: Tag filter by userId (Always stamped on OneSignal subscriptions)
+        try {
+          const tagPayload = { ...basePayload, filters: buildUserTagFilters() };
+          const tagRes = await this._postNotification(tagPayload);
+          if (tagRes && tagRes.id) {
+            return { success: true, data: tagRes };
+          }
+        } catch (tagErr) {
+          console.warn('OneSignal tag push failed, falling back to alias:', tagErr);
+        }
+
+        // Step 4B: OneSignal external_id alias (for validated tenant user IDs only)
         try {
           const aliasPayload = {
             ...basePayload,
@@ -1162,31 +1282,7 @@ export const OneSignalService = {
             return { success: true, data: aliasRes };
           }
         } catch (aliasErr) {
-          console.warn('OneSignal alias push failed, falling back to tag:', aliasErr);
-        }
-
-        // Step 4B: Tag fallback (with company_code requirement!)
-        try {
-          const filterArr: any[] = [
-            { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
-          ];
-          if (validTenantUserIds.length === 1) {
-            filterArr.push({ field: 'tag', key: 'userId', relation: '=', value: validTenantUserIds[0] });
-          } else {
-            const userFilters: any[] = [];
-            validTenantUserIds.forEach((id, idx) => {
-              if (idx > 0) userFilters.push({ operator: 'OR' });
-              userFilters.push({ field: 'tag', key: 'userId', relation: '=', value: id });
-            });
-            filterArr.push(userFilters);
-          }
-          const tagPayload = { ...basePayload, filters: filterArr };
-          const tagRes = await this._postNotification(tagPayload);
-          if (tagRes && tagRes.id) {
-            return { success: true, data: tagRes };
-          }
-        } catch (tagErr) {
-          console.warn('OneSignal tag push failed, falling back to cached hardware ID:', tagErr);
+          console.warn('OneSignal alias push failed:', aliasErr);
         }
 
         return { success: false, error: 'Kullanıcıya bildirim iletilemedi.' };
@@ -1230,12 +1326,13 @@ export const OneSignalService = {
       delete cleanPayload.filters;
     }
 
-    // 1. Try serverless API proxy first (bypasses browser CORS & prevents unmount cancellation)
+    // 1. Try serverless API proxy first (bypasses browser CORS & prevents unmount/kill cancellation via keepalive)
     try {
       const proxyRes = await fetch('/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cleanPayload),
+        keepalive: true,
       });
       if (proxyRes.ok) {
         const data = await proxyRes.json();
@@ -1262,13 +1359,18 @@ export const OneSignalService = {
 
     // 2. Direct OneSignal REST API fallback
     try {
+      const directPayload = { ...cleanPayload };
+      delete directPayload.targetUserIds;
+      delete directPayload.targetSubscriptionIds;
+      delete directPayload.multiChannelGuarantee;
       const response = await fetch('https://onesignal.com/api/v1/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
         },
-        body: JSON.stringify(cleanPayload),
+        body: JSON.stringify(directPayload),
+        keepalive: true,
       });
       const result = await response.json();
       if (result?.id) {
@@ -1291,7 +1393,7 @@ export const OneSignalService = {
   },
 
   /**
-   * Cancels a scheduled push notification from OneSignal cloud
+   * Cancels a scheduled push notification from OneSignal cloud (supports single or comma-separated IDs)
    */
   async cancelNotification(notificationId: string): Promise<boolean> {
     if (!notificationId) return false;
@@ -1300,6 +1402,7 @@ export const OneSignalService = {
     try {
       const res = await fetch(`/api/send-notification?id=${encodeURIComponent(notificationId)}`, {
         method: 'DELETE',
+        keepalive: true,
       });
       if (res.ok) {
         return true;
@@ -1314,6 +1417,7 @@ export const OneSignalService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel', id: notificationId }),
+        keepalive: true,
       });
       if (postRes.ok) {
         return true;
@@ -1324,17 +1428,23 @@ export const OneSignalService = {
 
     // 3. Fallback to direct OneSignal REST API
     if (ONESIGNAL_CONFIG.REST_API_KEY && ONESIGNAL_CONFIG.APP_ID) {
+      const ids = String(notificationId)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       try {
-        const directRes = await fetch(
-          `https://onesignal.com/api/v1/notifications/${notificationId}?app_id=${ONESIGNAL_CONFIG.APP_ID}`,
-          {
-            method: 'DELETE',
-            headers: {
-              Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
-            },
-          }
+        await Promise.all(
+          ids.map((id) =>
+            fetch(`https://onesignal.com/api/v1/notifications/${id}?app_id=${ONESIGNAL_CONFIG.APP_ID}`, {
+              method: 'DELETE',
+              headers: {
+                Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+              },
+              keepalive: true,
+            })
+          )
         );
-        return directRes.ok;
+        return true;
       } catch (directErr) {
         console.warn('Direct OneSignal cancel API failed:', directErr);
       }
@@ -1353,16 +1463,55 @@ export const OneSignalService = {
     targetIsoDate: string;
     breakMinutes: number;
     companyCode: string;
+    breakId?: string;
   }): Promise<string | undefined> {
     try {
+      // Ensure current device's subscription ID and tags are bound immediately
+      const directSubs: string[] = [];
+      if (typeof window !== 'undefined') {
+        const pushSub =
+          window.OneSignal?.User?.PushSubscription || window.OneSignal?.User?.pushSubscription;
+        const liveId = pushSub?.id || pushSub?.token;
+        if (liveId) {
+          directSubs.push(liveId);
+          try {
+            localStorage.setItem('@saha_takip_last_sub_id', liveId);
+            localStorage.setItem(`@saha_takip_sub_${params.userId}`, liveId);
+          } catch {}
+        } else if (typeof localStorage !== 'undefined') {
+          const cachedSub =
+            localStorage.getItem(`@saha_takip_sub_${params.userId}`) ||
+            localStorage.getItem('@saha_takip_last_sub_id');
+          if (cachedSub) directSubs.push(cachedSub);
+        }
+
+        try {
+          if (window.OneSignal?.login) {
+            window.OneSignal.login(params.userId).catch(() => {});
+          }
+          if (window.OneSignal?.User?.addTags) {
+            window.OneSignal.User.addTags({
+              userId: params.userId,
+              name: params.userName || 'Personel',
+              company_code: (params.companyCode || 'POLATLAR').toUpperCase(),
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      const uniqueSuffix = params.breakId
+        ? String(params.breakId).replace(/[^a-zA-Z0-9]/g, '').slice(-12)
+        : String(Date.now()).slice(-8);
+
       const res = await this.sendPushNotification({
         title: '☕ Mola Süreniz Doldu!',
         message: `Mola süreniz (${params.breakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
         targetMode: 'custom',
         targetUserIds: [params.userId],
+        targetSubscriptionIds: directSubs,
         sendAfter: params.targetIsoDate,
         companyCode: params.companyCode || 'POLATLAR',
-        collapseId: `break_over_${params.userId}`,
+        collapseId: `break_over_${params.userId}_${uniqueSuffix}`,
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
       });
       if (res?.success && res.data?.id) {

@@ -247,6 +247,7 @@ export interface BreakItem {
   durationMinutes?: number;
   note?: string;
   scheduledNotificationId?: string;
+  overtimeNotified?: boolean;
 }
 
 export interface AttendanceRecord {

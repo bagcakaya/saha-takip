@@ -198,6 +198,7 @@ export const FastActionAgent = {
     targetIsoDate: string;
     breakMinutes: number;
     companyCode: string;
+    breakId?: string;
   }): void {
     const comp = (params.companyCode || activeCompany).toUpperCase();
     const queue = loadPersistedQueue(comp);
@@ -253,20 +254,29 @@ export const FastActionAgent = {
     }
 
     const comp = activeCompany;
-    const queue = loadPersistedQueue(comp);
-    if (queue.length === 0) return;
+    const initialQueue = loadPersistedQueue(comp);
+    if (initialQueue.length === 0) return;
 
     isProcessing = true;
 
     try {
-      const remaining: QueuedAction[] = [];
+      // Push ve mola zamanlama görevlerini yavaş veritabanı senkronizasyonunun önüne al
+      // Böylece kullanıcı uygulamayı hemen kapatsa bile bildirim zamanlaması milisaniyeler içinde tamamlanır!
+      const sortedQueue = [...initialQueue].sort((a, b) => {
+        const priority = (t: ActionType) =>
+          t === 'SCHEDULE_BREAK' || t === 'CANCEL_PUSH' ? 0 : t === 'SEND_PUSH' ? 1 : 2;
+        return priority(a.type) - priority(b.type);
+      });
 
-      for (const action of queue) {
+      const completedIds = new Set<string>();
+      const updatedMap = new Map<string, QueuedAction>();
+
+      for (const action of sortedQueue) {
         // Exponential backoff: Eğer daha önce hata almışsa bekleme süresini kontrol et
         if (action.attempts > 0 && action.lastAttemptAt) {
           const waitTime = Math.min(60000, 1500 * Math.pow(2, action.attempts));
           if (Date.now() - action.lastAttemptAt < waitTime) {
-            remaining.push(action);
+            updatedMap.set(action.id, action);
             continue;
           }
         }
@@ -282,21 +292,35 @@ export const FastActionAgent = {
             await OneSignalService.cancelNotification(action.payload.notificationId);
           }
 
-          // Başarılı: Görev tamamlandı, kuyruktan silinir (remaining'e eklenmez)
+          // Başarılı: Görev tamamlandı
+          completedIds.add(action.id);
         } catch (err: any) {
           console.warn(`[Ön Hazırlık & Kuyruk Ajanı] Görev ${action.type} başarısız oldu:`, err);
           action.attempts += 1;
           action.lastAttemptAt = Date.now();
 
           if (action.attempts < MAX_ATTEMPTS) {
-            remaining.push(action);
+            updatedMap.set(action.id, action);
           } else {
+            completedIds.add(action.id);
             console.error(`[Ön Hazırlık & Kuyruk Ajanı] Görev ${action.type} ${MAX_ATTEMPTS} denemede tamamlanamadı, kuyruktan düşürüldü.`);
           }
         }
       }
 
-      savePersistedQueue(comp, remaining);
+      // İşlem sürerken kuyruğa yeni eklenen görevleri ASLA ezme!
+      const latestQueue = loadPersistedQueue(comp);
+      const mergedRemaining: QueuedAction[] = [];
+      for (const item of latestQueue) {
+        if (completedIds.has(item.id)) continue;
+        if (updatedMap.has(item.id)) {
+          mergedRemaining.push(updatedMap.get(item.id)!);
+        } else {
+          mergedRemaining.push(item);
+        }
+      }
+
+      savePersistedQueue(comp, mergedRemaining);
     } finally {
       isProcessing = false;
     }

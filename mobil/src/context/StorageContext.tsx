@@ -713,6 +713,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('Background startBreak save error:', err);
     });
 
+    if (record.currentBreakNotificationId) {
+      MobilePushService.cancelScheduledPush(record.currentBreakNotificationId).catch(() => {});
+    }
+
     // Schedule hardware push notification via OneSignal cloud server
     // Fires at targetIsoDate even if the phone is locked or app is killed!
     MobilePushService.scheduleBreakOverPush({
@@ -721,6 +725,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetIsoDate,
       breakMinutes: allowedMinutes,
       companyCode: (user.companyCode || 'POLATLAR').toUpperCase(),
+      breakId: newBreak.id,
     }).then((scheduledId) => {
       if (scheduledId) {
         newBreak.scheduledNotificationId = scheduledId;
