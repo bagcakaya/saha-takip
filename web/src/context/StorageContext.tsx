@@ -742,13 +742,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setReturnWarrantyItems(returns || []);
         setAllServices(srvs || []);
         if (wpLoc) {
-          const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 20) ? 30 : wpLoc.radiusMeters };
+          const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 30) ? 20 : wpLoc.radiusMeters };
           setWorkplaceLocation(finalWp);
         } else {
           setWorkplaceLocation(null);
         }
         const upgradedBranches = (branchList || []).map((b) =>
-          !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+          !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
         );
         setBranches(upgradedBranches);
         setAttendanceRecords(attRecs || []);
@@ -843,7 +843,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (wpLoc) {
                   const finalWp = {
                     ...wpLoc,
-                    radiusMeters: !wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 20 ? 30 : wpLoc.radiusMeters,
+                    radiusMeters: !wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 30 ? 20 : wpLoc.radiusMeters,
                   };
                   setWorkplaceLocation(finalWp);
                 } else {
@@ -856,7 +856,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const branchList = await StorageService.getBranches();
               if (isMounted) {
                 const upgradedBranches = (branchList || []).map((b) =>
-                  !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+                  !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
                 );
                 setBranches(upgradedBranches);
               }
@@ -3462,7 +3462,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     address: string,
     latitude: number,
     longitude: number,
-    radiusMeters = 30
+    radiusMeters = 20
   ) => {
     const loc: WorkplaceLocation = {
       address: address.trim(),
@@ -3496,7 +3496,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       address: branchData.address.trim(),
       latitude: branchData.latitude,
       longitude: branchData.longitude,
-      radiusMeters: branchData.radiusMeters || 30,
+      radiusMeters: branchData.radiusMeters || 20,
       phone: branchData.phone?.trim() || undefined,
       assignedUserIds: branchData.assignedUserIds || [],
       createdAt: Date.now(),
@@ -3639,7 +3639,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       address: 'Genel Merkez / İş Yeri',
       latitude: 0,
       longitude: 0,
-      radiusMeters: 30,
+      radiusMeters: 20,
       updatedAt: Date.now(),
     };
     const updated: WorkplaceLocation = {
@@ -4526,9 +4526,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           assignedBranch.latitude,
           assignedBranch.longitude
         );
-        const allowedRadius = assignedBranch.radiusMeters || 30;
+        const allowedRadius = assignedBranch.radiusMeters || 20;
 
-        // 1. If inside assigned branch's 30m radius -> Direct on-site check-in!
+        // 1. If inside assigned branch's 20m radius -> Direct on-site check-in!
         if (distToAssigned <= allowedRadius) {
           const newRecord: AttendanceRecord = {
             id: generateId(),
@@ -4570,7 +4570,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
         }
 
-        // 2. Outside assigned branch -> Check if located at another company branch within 30m
+        // 2. Outside assigned branch -> Check if located at another company branch within 20m
         const otherBranch = branches.find((b) => {
           if (b.id === assignedBranch.id) return false;
           const d = LocationService.calculateDistance(
@@ -4579,7 +4579,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             b.latitude,
             b.longitude
           );
-          return d <= (b.radiusMeters || 30);
+          return d <= (b.radiusMeters || 20);
         });
 
         if (otherBranch) {
@@ -4655,7 +4655,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             confirmationType: 'checkin',
             distance: distToAssigned,
             address: userPos.address,
-            message: `Bağlı olduğunuz "${assignedBranch.name}" şubesinin 30 metre dışında bulunuyorsunuz (${LocationService.formatDistance(distToAssigned)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
+            message: `Bağlı olduğunuz "${assignedBranch.name}" şubesinin 20 metre dışında bulunuyorsunuz (${LocationService.formatDistance(distToAssigned)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
           };
         }
 
@@ -4687,7 +4687,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
-          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (30m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
@@ -4701,9 +4701,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: `${assignedBranch.name} şubesi dışında mesainiz başlatıldı (${LocationService.formatDistance(distToAssigned)}). Yönetici onayına iletildi.`,
         };
       } else {
-        // Staff has no assigned branch yet -> Check if within 30m of any branch
+        // Staff has no assigned branch yet -> Check if within 20m of any branch
         const nearBranch = branches.find(
-          (b) => LocationService.calculateDistance(userPos.latitude, userPos.longitude, b.latitude, b.longitude) <= (b.radiusMeters || 30)
+          (b) => LocationService.calculateDistance(userPos.latitude, userPos.longitude, b.latitude, b.longitude) <= (b.radiusMeters || 20)
         );
 
         if (nearBranch) {
@@ -4767,7 +4767,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             confirmationType: 'checkin',
             distance: minDist,
             address: userPos.address,
-            message: `Herhangi bir şubenin 30 metre yakınında bulunmuyorsunuz (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
+            message: `Herhangi bir şubenin 20 metre yakınında bulunmuyorsunuz (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Mesainiz başlatılsın ve yönetici onayına gönderilsin mi?`,
           };
         }
 
@@ -4799,7 +4799,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         FastActionAgent.enqueuePushNotification({
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
-          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (30m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
+          message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
@@ -4822,9 +4822,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       workplaceLocation!.latitude,
       workplaceLocation!.longitude
     );
-    const allowedRadius = (workplaceLocation!.radiusMeters && workplaceLocation!.radiusMeters !== 10 && workplaceLocation!.radiusMeters !== 20)
+    const allowedRadius = (workplaceLocation!.radiusMeters && workplaceLocation!.radiusMeters !== 10 && workplaceLocation!.radiusMeters !== 30)
       ? workplaceLocation!.radiusMeters
-      : 30;
+      : 20;
 
     if (distance > allowedRadius) {
       if (!options?.allowOutside) {
@@ -5078,7 +5078,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Determine target location to measure checkout against:
     let targetLat = workplaceLocation?.latitude;
     let targetLon = workplaceLocation?.longitude;
-    let targetRadius = (workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 20) ? workplaceLocation.radiusMeters : 30;
+    let targetRadius = (workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30) ? workplaceLocation.radiusMeters : 20;
     let targetName = 'İş yeri';
 
     if (record.branchId && activeBranches.length > 0) {
@@ -5086,7 +5086,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (b) {
         targetLat = b.latitude;
         targetLon = b.longitude;
-        targetRadius = b.radiusMeters || 30;
+        targetRadius = b.radiusMeters || 20;
         targetName = b.name;
       }
     }
@@ -5097,7 +5097,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (b) {
         targetLat = b.latitude;
         targetLon = b.longitude;
-        targetRadius = b.radiusMeters || 30;
+        targetRadius = b.radiusMeters || 20;
         targetName = b.name;
       }
     }
@@ -5109,7 +5109,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (assignedBranch) {
         targetLat = assignedBranch.latitude;
         targetLon = assignedBranch.longitude;
-        targetRadius = assignedBranch.radiusMeters || 30;
+        targetRadius = assignedBranch.radiusMeters || 20;
         targetName = assignedBranch.name;
       }
     }
@@ -5119,7 +5119,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if ((!targetLat || !targetLon) && record.checkInLat && record.checkInLon) {
       targetLat = record.checkInLat;
       targetLon = record.checkInLon;
-      targetRadius = 30;
+      targetRadius = 20;
       targetName = record.branchName || 'Mesai Şubesi';
     }
 

@@ -172,7 +172,7 @@ export const StaffTrackingView: React.FC = () => {
             address: checkedInBranch.address,
             latitude: checkedInBranch.latitude,
             longitude: checkedInBranch.longitude,
-            radius: checkedInBranch.radiusMeters || 30,
+            radius: checkedInBranch.radiusMeters || 20,
             isBranch: true,
           };
         }
@@ -187,7 +187,7 @@ export const StaffTrackingView: React.FC = () => {
             address: checkedInBranch.address,
             latitude: checkedInBranch.latitude,
             longitude: checkedInBranch.longitude,
-            radius: checkedInBranch.radiusMeters || 30,
+            radius: checkedInBranch.radiusMeters || 20,
             isBranch: true,
           };
         }
@@ -199,7 +199,7 @@ export const StaffTrackingView: React.FC = () => {
           address: currentUserTodayRecord.checkInAddress || '',
           latitude: currentUserTodayRecord.checkInLat,
           longitude: currentUserTodayRecord.checkInLon,
-          radius: 30,
+          radius: 20,
           isBranch: true,
         };
       }
@@ -212,7 +212,7 @@ export const StaffTrackingView: React.FC = () => {
         address: userAssignedBranch.address,
         latitude: userAssignedBranch.latitude,
         longitude: userAssignedBranch.longitude,
-        radius: userAssignedBranch.radiusMeters || 30,
+        radius: userAssignedBranch.radiusMeters || 20,
         isBranch: true,
       };
     }
@@ -225,9 +225,9 @@ export const StaffTrackingView: React.FC = () => {
         latitude: workplaceLocation.latitude,
         longitude: workplaceLocation.longitude,
         radius:
-          workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 20
+          workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
             ? workplaceLocation.radiusMeters
-            : 30,
+            : 20,
         isBranch: false,
       };
     }
@@ -239,23 +239,23 @@ export const StaffTrackingView: React.FC = () => {
         address: branches[0].address,
         latitude: branches[0].latitude,
         longitude: branches[0].longitude,
-        radius: branches[0].radiusMeters || 30,
+        radius: branches[0].radiusMeters || 20,
         isBranch: true,
       };
     }
     return null;
   }, [isAdmin, currentUserTodayRecord, userAssignedBranch, workplaceLocation, branches]);
 
-  const allowedRadius = targetLocation?.radius || 30;
+  const allowedRadius = targetLocation?.radius || 20;
 
   // --- 1. Admin Workplace Location State ---
   const [addressText, setAddressText] = useState(workplaceLocation?.address || '');
   const [lat, setLat] = useState<number | undefined>(workplaceLocation?.latitude);
   const [lon, setLon] = useState<number | undefined>(workplaceLocation?.longitude);
   const [radius, setRadius] = useState<number>(
-    workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 20
+    workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
       ? workplaceLocation.radiusMeters
-      : 30
+      : 20
   );
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -268,9 +268,9 @@ export const StaffTrackingView: React.FC = () => {
       setLat(workplaceLocation.latitude);
       setLon(workplaceLocation.longitude);
       setRadius(
-        workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 20
+        workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
           ? workplaceLocation.radiusMeters
-          : 30
+          : 20
       );
     }
   }, [workplaceLocation]);
@@ -333,12 +333,12 @@ export const StaffTrackingView: React.FC = () => {
         latitude: pos.latitude,
         longitude: pos.longitude,
         address: updatedAddress,
-        radiusMeters: 30,
+        radiusMeters: 20,
       });
 
       setBranchSuccessMsg({
         branchId: branch.id,
-        text: `"${branch.name}" şubesinin 30m konumu bulunduğunuz yer olarak kaydedildi! (${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)})`,
+        text: `"${branch.name}" şubesinin 20m konumu bulunduğunuz yer olarak kaydedildi! (${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)})`,
       });
       setTimeout(() => setBranchSuccessMsg(null), 5000);
     } catch (err: any) {
@@ -1578,7 +1578,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     },
     workplace: {
       title: 'Merkez İş Yeri Lokasyonu',
-      subtitle: '30 metre toleranslı merkez GPS koordinatları',
+      subtitle: '20 metre toleranslı merkez GPS koordinatları',
       icon: Store,
       color: 'text-teal-500',
       bg: 'bg-teal-500/15',
@@ -2316,7 +2316,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       glowColor: 'text-teal-500',
                       borderColor: 'border-teal-500',
                       bgGlow: 'bg-teal-500/15',
-                      badgeText: '30m',
+                      badgeText: '20m',
                     },
                   ]
                 : []),
@@ -2696,7 +2696,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <span>Şubeleri Yenile</span>
                 </button>
                 <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black">
-                  30 Metre Sabit Sınır
+                  20 Metre Sabit Sınır
                 </span>
               </div>
             </div>
@@ -2708,7 +2708,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   Bu kurum için henüz kayıtlı şube bulunamadı.
                 </h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  Aşağıdaki Genel Merkez Lokasyonu bölümünden iş yerinizin 30 metrelik GPS konumunu belirleyebilirsiniz.
+                  Aşağıdaki Genel Merkez Lokasyonu bölümünden iş yerinizin 20 metrelik GPS konumunu belirleyebilirsiniz.
                 </p>
               </div>
             ) : (
@@ -2739,7 +2739,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                             </div>
                           </div>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
-                            30m Sınırı
+                            20m Sınırı
                           </span>
                         </div>
 
@@ -2785,7 +2785,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                           onClick={() => handleUpdateBranchGPS(branch)}
                           disabled={isUpdatingThis}
                           className="flex-1 py-2 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white text-xs font-black shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
-                          title="Şu an bulunduğunuz yerin GPS koordinatlarını bu şubenin 30m merkezi olarak kaydeder"
+                          title="Şu an bulunduğunuz yerin GPS koordinatlarını bu şubenin 20m merkezi olarak kaydeder"
                         >
                           {isUpdatingThis ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2828,7 +2828,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Şube haricinde kurumun ana merkez binası için geçerli 30 metre çapındaki konumu belirleyin.
+                    Şube haricinde kurumun ana merkez binası için geçerli 20 metre çapındaki konumu belirleyin.
                   </p>
                 </div>
               </div>

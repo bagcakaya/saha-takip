@@ -1914,8 +1914,8 @@ export const StorageService = {
     const slotId = this.getSlotId(5);
     const { data: cloudData, notFound } = await loadChunkedSlot<WorkplaceLocation>(slotId);
     if (cloudData && typeof cloudData.latitude === 'number' && typeof cloudData.longitude === 'number') {
-      if (!cloudData.radiusMeters || cloudData.radiusMeters === 10 || cloudData.radiusMeters === 20) {
-        cloudData.radiusMeters = 30;
+      if (!cloudData.radiusMeters || cloudData.radiusMeters === 10 || cloudData.radiusMeters === 30) {
+        cloudData.radiusMeters = 20;
       }
       await saveItem(localKey, cloudData);
       return cloudData;
@@ -1927,8 +1927,8 @@ export const StorageService = {
     }
 
     const localData = await loadItem<WorkplaceLocation>(localKey);
-    if (localData && (!localData.radiusMeters || localData.radiusMeters === 10 || localData.radiusMeters === 20)) {
-      localData.radiusMeters = 30;
+    if (localData && (!localData.radiusMeters || localData.radiusMeters === 10 || localData.radiusMeters === 30)) {
+      localData.radiusMeters = 20;
     }
     return localData;
   },
@@ -2503,7 +2503,7 @@ export const StorageService = {
     const { data: cloudData, notFound } = await loadChunkedSlot<Branch[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
       const upgraded = cloudData.map((b) =>
-        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
       );
       await saveItem(localKey, upgraded);
       return upgraded;
@@ -2517,7 +2517,7 @@ export const StorageService = {
     const localBranches = await loadItem<Branch[]>(localKey);
     if (localBranches && Array.isArray(localBranches)) {
       return localBranches.map((b) =>
-        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
       );
     }
     return [];
@@ -2547,7 +2547,7 @@ export const StorageService = {
         : cloudData.filter((b) => !b.companyCode || b.companyCode.toUpperCase() === cleanCode);
 
       const toReturn = (filtered.length > 0 ? filtered : cloudData).map((b) =>
-        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
       );
       await saveItem(localKey, toReturn);
       return toReturn;
@@ -2559,7 +2559,7 @@ export const StorageService = {
     const localBranches = await loadItem<Branch[]>(localKey);
     if (localBranches && Array.isArray(localBranches)) {
       return localBranches.map((b) =>
-        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 20 ? { ...b, radiusMeters: 30 } : b
+        !b.radiusMeters || b.radiusMeters === 10 || b.radiusMeters === 30 ? { ...b, radiusMeters: 20 } : b
       );
     }
     return [];

@@ -656,7 +656,7 @@ export const BranchesView: React.FC = () => {
                               );
                             }
                             const isUserInside30m =
-                              distanceToUser !== null && distanceToUser <= (branch.radiusMeters || 30);
+                              distanceToUser !== null && distanceToUser <= (branch.radiusMeters || 20);
 
                             return (
                               <div
@@ -669,7 +669,7 @@ export const BranchesView: React.FC = () => {
                                     <h5 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                                       <span>{branch.name}</span>
                                       <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                                        {branch.radiusMeters || 30}m
+                                        {branch.radiusMeters || 20}m
                                       </span>
                                     </h5>
                                     <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
