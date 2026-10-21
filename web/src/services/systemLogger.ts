@@ -56,6 +56,14 @@ class SystemLoggerService {
     window.addEventListener('unhandledrejection', (event) => {
       const reason = event.reason;
       const msg = reason?.message || String(reason || 'Unhandled Promise Rejection');
+      // iOS Safari WebKit / OneSignal IndexedDB arka plan iç uyarısını yoksay
+      if (msg.includes('Attempt to delete range from database without an in-progress transaction')) {
+        return;
+      }
+      if (msg.includes('User denied Geolocation')) {
+        this.warn('GPS_KONUM', 'Cihazda konum (GPS) izni reddedildi veya kapalı.');
+        return;
+      }
       const stack = reason?.stack || '';
       this.error('SISTEM_GENEL', `Beklenmeyen Asenkron Hata: ${msg}`, stack);
     });

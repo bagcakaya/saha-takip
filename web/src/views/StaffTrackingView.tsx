@@ -131,9 +131,11 @@ export const StaffTrackingView: React.FC = () => {
       .filter((r) => r.userId === user.id && r.date === todayStr)
       .sort((a, b) => (b.checkInTime || 0) - (a.checkInTime || 0));
 
-    if (userTodayRecords.length === 0) return null;
+    // 1. Öncelikle bugün molada olan kaydı baz al
+    const onBreakToday = userTodayRecords.find((r) => r.isOnBreak);
+    if (onBreakToday) return onBreakToday;
 
-    // Aktif mesai (onay bekleyen veya mesaiye başlanmış) varsa öncelikle onu baz al
+    // 2. Aktif mesai (onay bekleyen veya mesaiye başlanmış) varsa onu baz al
     const active = userTodayRecords.find(
       (r) =>
         r.status === 'pending_checkin_approval' ||
@@ -141,6 +143,14 @@ export const StaffTrackingView: React.FC = () => {
         r.status === 'pending_checkout_approval'
     );
     if (active) return active;
+
+    // 3. Gece vardiyası veya önceki günden açık kalmış mola/mesai kaydı varsa onu yakala
+    const anyOpenBreakRecord = attendanceRecords.find(
+      (r) => r.userId === user.id && r.isOnBreak && r.status !== 'completed'
+    );
+    if (anyOpenBreakRecord) return anyOpenBreakRecord;
+
+    if (userTodayRecords.length === 0) return null;
 
     // Yoksa günün en son tamamlanan mesai kaydını döndür
     return userTodayRecords[0];
@@ -1402,17 +1412,33 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     });
   };
 
+  const effectiveBreakStartTime = useMemo(() => {
+    if (!isOnBreak || !currentUserTodayRecord) return undefined;
+    if (currentUserTodayRecord.currentBreakStartTime) {
+      return currentUserTodayRecord.currentBreakStartTime;
+    }
+    if (Array.isArray(currentUserTodayRecord.breaks) && currentUserTodayRecord.breaks.length > 0) {
+      const openBreak =
+        [...currentUserTodayRecord.breaks].reverse().find((b) => !b.endTime) ||
+        currentUserTodayRecord.breaks[currentUserTodayRecord.breaks.length - 1];
+      if (openBreak?.startTime) return openBreak.startTime;
+    }
+    return currentUserTodayRecord.checkInTime || Date.now();
+  }, [isOnBreak, currentUserTodayRecord]);
+
   useEffect(() => {
-    if (!isOnBreak || !currentUserTodayRecord?.currentBreakStartTime) {
+    if (!isOnBreak || !effectiveBreakStartTime) {
       setLiveBreakTimerText('');
       setBreakAlarmActive(false);
       setBreakAlarmDismissed(false);
-      NotificationService.stopAlarmSound();
+      try {
+        NotificationService.stopAlarmSound();
+      } catch {}
       return;
     }
 
     const updateBreakTimer = () => {
-      const start = currentUserTodayRecord.currentBreakStartTime || Date.now();
+      const start = effectiveBreakStartTime || Date.now();
       const diffMs = Math.max(0, Date.now() - start);
       const totalSecs = Math.floor(diffMs / 1000);
       const hours = Math.floor(totalSecs / 3600);
@@ -1430,7 +1456,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       const breakLimitMs = currentUserMaxBreakMinutes * 60 * 1000;
       if (diffMs >= breakLimitMs && !breakAlarmActive && !breakAlarmDismissed) {
         setBreakAlarmActive(true);
-        NotificationService.playAlarmSound();
+        try {
+          NotificationService.playAlarmSound();
+        } catch {}
         NotificationService.sendNotification(
           '☕ Mola Süreniz Doldu!',
           `Mola süreniz (${currentUserMaxBreakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
@@ -1443,7 +1471,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
     updateBreakTimer();
     const interval = setInterval(updateBreakTimer, 1000);
     return () => clearInterval(interval);
-  }, [isOnBreak, currentUserTodayRecord?.currentBreakStartTime, currentUserMaxBreakMinutes, breakAlarmActive, breakAlarmDismissed]);
+  }, [isOnBreak, effectiveBreakStartTime, currentUserMaxBreakMinutes, breakAlarmActive, breakAlarmDismissed]);
 
   const handleStartBreak = async (note?: string) => {
     if (isProcessingBreak) return;
@@ -1465,13 +1493,17 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const handleEndBreak = async () => {
     if (isProcessingBreak) return;
     setIsProcessingBreak(true);
-    NotificationService.stopAlarmSound();
-    setBreakAlarmActive(false);
     try {
+      try {
+        NotificationService.stopAlarmSound();
+      } catch {}
+      setBreakAlarmActive(false);
+      setBreakAlarmDismissed(true);
       const res = await endBreak();
       if (!res.success) {
         setActionFeedback({ type: 'error', text: res.message });
       } else {
+        setLiveBreakTimerText('');
         setActionFeedback({ type: 'success', text: res.message || 'Molanız başarıyla sonlandırıldı, mesaiye dönüldü!' });
       }
     } catch (err: any) {
@@ -2038,7 +2070,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
   // Canlı moladaki personeller (Yönetici için)
   const activeStaffOnBreak = useMemo(() => {
-    return attendanceRecords.filter((r) => r.date === todayStr && r.isOnBreak && r.status === 'checked_in');
+    return attendanceRecords.filter(
+      (r) => r.date === todayStr && r.isOnBreak && r.status !== 'completed' && r.status !== 'on_leave'
+    );
   }, [attendanceRecords, todayStr]);
 
   const SHIFT_COLORS: Record<string, { bg: string; text: string; border: string; dot: string; glow: string }> = {
@@ -3594,8 +3628,28 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'breaks' && isSubModulePermitted('staff_tracking', 'breaks', user, viewingCompany || company) && (
         <div className="space-y-5">
+          {/* Mola Aksiyon Bildirimi (Başarı / Hata) */}
+          {actionFeedback && (
+            <div
+              className={"p-3.5 rounded-2xl text-xs font-bold flex items-start gap-2.5 animate-in zoom-in-95 " + (
+                actionFeedback.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
+                  : 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
+              )}
+            >
+              {actionFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <span>{actionFeedback.text}</span>
+              </div>
+            </div>
+          )}
+
           {/* Personel Mola Kartı */}
-          {isCheckedIn ? (
+          {(isCheckedIn || isOnBreak || isPendingCheckIn) ? (
             <div className={`p-5 rounded-3xl border-2 transition-all duration-200 ${
               isOnBreak
                 ? 'bg-amber-500/10 dark:bg-amber-950/40 border-amber-500 shadow-xl shadow-amber-500/15'
@@ -4144,10 +4198,24 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
                                   <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
                                     {rec.isOnBreak ? (
-                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-white animate-pulse shadow-xs">
-                                        <Coffee className="w-3.5 h-3.5" />
-                                        <span>Şu Anda Canlı Molada</span>
-                                      </span>
+                                      <>
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-white animate-pulse shadow-xs">
+                                          <Coffee className="w-3.5 h-3.5" />
+                                          <span>Şu Anda Canlı Molada</span>
+                                        </span>
+                                        {isAdmin && (
+                                          <button
+                                            type="button"
+                                            disabled={isProcessingBreak}
+                                            onClick={() => handleForceEndBreak(rec)}
+                                            className={`px-3 py-1 rounded-full text-xs font-black bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white shadow-xs transition-all active:scale-95 cursor-pointer inline-flex items-center gap-1 ${isProcessingBreak ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                                            title="Bu personelin molasını sonlandır ve mesaiye döndür"
+                                          >
+                                            <Play className="w-3 h-3 fill-white" />
+                                            <span>{isProcessingBreak ? 'İşleniyor...' : 'Molayı Bitir'}</span>
+                                          </button>
+                                        )}
+                                      </>
                                     ) : rec.status === 'checked_in' ? (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500" />

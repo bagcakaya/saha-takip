@@ -5033,6 +5033,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updatedRecords = [...attendanceRecords];
       updatedRecords[recordIndex] = updatedRecord;
+      ApprovalShield.recordAttendance(updatedRecord);
+      ApprovalShield.recordBreakState(updatedRecord);
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
       await StorageService.saveAttendanceRecords(updatedRecords);
@@ -5193,6 +5195,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updatedRecords = [...attendanceRecords];
       updatedRecords[recordIndex] = updatedRecord;
+      ApprovalShield.recordAttendance(updatedRecord);
+      ApprovalShield.recordBreakState(updatedRecord);
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
       await StorageService.saveAttendanceRecords(updatedRecords);
@@ -5256,6 +5260,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updatedRecords = [...attendanceRecords];
     updatedRecords[recordIndex] = updatedRecord;
 
+    ApprovalShield.recordAttendance(updatedRecord);
+    ApprovalShield.recordBreakState(updatedRecord);
     setAttendanceRecords(updatedRecords);
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
     await StorageService.saveAttendanceRecords(updatedRecords);
@@ -5287,11 +5293,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const recordIndex = attendanceRecords.findIndex(
+    // Önce aktif checked_in kaydını, yoksa onay bekleyen bugünkü kaydı ara
+    let recordIndex = attendanceRecords.findIndex(
       (r) => r.userId === user.id && r.date === todayStr && r.status === 'checked_in'
     );
+    if (recordIndex === -1) {
+      recordIndex = attendanceRecords.findIndex(
+        (r) => r.userId === user.id && r.date === todayStr && r.status === 'pending_checkin_approval'
+      );
+    }
 
     if (recordIndex === -1) {
+      SystemLogger.warn('MOLA', `${user.name} molaya çıkmak istedi ancak aktif mesai kaydı bulunamadı.`);
       return { success: false, message: 'Aktif bir mesai kaydınız bulunmuyor. Önce işe giriş yapmalısınız.' };
     }
 
@@ -5336,10 +5349,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [...attendanceRecords];
     updated[recordIndex] = updatedRecord;
 
-    // Optimistic instant state update (0ms UI latency!)
+    // Zırh koruması ve anında UI güncellemesi (0ms gecikme)
+    ApprovalShield.recordBreakState(updatedRecord);
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
     StorageService.saveAttendanceRecords(updated).catch(() => {});
+
+    SystemLogger.info(
+      'MOLA',
+      `${user.name}, ${record.branchName || 'Merkez'} şubesinde molaya çıktı.${note ? ` (Not: ${note})` : ''}`
+    );
 
     // Cancel any previous scheduled break push for this user to avoid ghost alerts
     if (record.currentBreakNotificationId) {
@@ -5372,85 +5391,128 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
-  // Staff break tracking: endBreak (0ms instant optimistic UI reflex)
+  // Staff break tracking: endBreak (0ms instant optimistic UI reflex + Zırh Korumalı)
   const endBreak = async (): Promise<{ success: boolean; message: string }> => {
     if (!user) {
       return { success: false, message: 'Oturum açmış kullanıcı bulunamadı.' };
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const recordIndex = attendanceRecords.findIndex(
-      (r) => r.userId === user.id && (r.isOnBreak || (r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')))
-    );
 
-    if (recordIndex === -1) {
-      return { success: false, message: 'Aktif bir mesai kaydınız bulunmuyor.' };
-    }
+    // 1. Öncelikle kullanıcının gerçekten molada olan (isOnBreak === true veya kapanmamış break öğesi bulunan) kayıtlarını bul
+    const openBreakIndices: number[] = [];
+    attendanceRecords.forEach((r, idx) => {
+      if (
+        r.userId === user.id &&
+        (r.isOnBreak || (Array.isArray(r.breaks) && r.breaks.some((b) => !b.endTime)))
+      ) {
+        openBreakIndices.push(idx);
+      }
+    });
 
-    const record = attendanceRecords[recordIndex];
-    if (!record.isOnBreak) {
+    if (openBreakIndices.length === 0) {
+      const hasAnyActiveRecordToday = attendanceRecords.some(
+        (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
+      );
+      SystemLogger.warn(
+        'MOLA',
+        `${user.name} "Molayı Bitir" butonuna bastı ancak açık mola kaydı bulunamadı (Bugün aktif mesai: ${hasAnyActiveRecordToday ? 'Var' : 'Yok'}).`
+      );
+      if (!hasAnyActiveRecordToday) {
+        return { success: false, message: 'Aktif bir mesai kaydınız bulunmuyor.' };
+      }
       return { success: false, message: 'Aktif bir molanız bulunmuyor.' };
     }
 
     const now = Date.now();
-    const startTime =
-      record.currentBreakStartTime ||
-      (record.breaks && record.breaks.length > 0
-        ? record.breaks[record.breaks.length - 1].startTime
-        : now);
-    const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
-
-    // Cancel scheduled break-over cloud notification since break ended earlier
-    const notifIdToCancel =
-      record.currentBreakNotificationId ||
-      (record.breaks && record.breaks.length > 0
-        ? record.breaks[record.breaks.length - 1].scheduledNotificationId
-        : undefined);
-
-    if (notifIdToCancel) {
-      FastActionAgent.enqueueCancelNotification(notifIdToCancel, compCode);
-    }
-
-    const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
-    if (existingBreaks.length > 0) {
-      const lastIndex = existingBreaks.length - 1;
-      existingBreaks[lastIndex] = {
-        ...existingBreaks[lastIndex],
-        endTime: now,
-        durationMinutes,
-      };
-    } else {
-      existingBreaks.push({
-        id: generateId(),
-        startTime,
-        endTime: now,
-        durationMinutes,
-      });
-    }
-
-    const totalBreakMinutes = existingBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
-
-    const updatedRecord: AttendanceRecord = {
-      ...record,
-      isOnBreak: false,
-      currentBreakStartTime: undefined,
-      currentBreakNotificationId: undefined,
-      breaks: existingBreaks,
-      totalBreakMinutes,
-    };
-
     const updated = [...attendanceRecords];
-    updated[recordIndex] = updatedRecord;
+    let primaryDurationMinutes = 1;
+
+    // Kullanıcının açık kalmış tüm mola kayıtlarını tek seferde kapat ve zırha al (takılı kalma ihtimalini %100 sıfırlar)
+    for (const idx of openBreakIndices) {
+      const record = updated[idx];
+      const startTime =
+        record.currentBreakStartTime ||
+        (record.breaks && record.breaks.length > 0
+          ? ([...record.breaks].reverse().find((b) => !b.endTime)?.startTime || record.breaks[record.breaks.length - 1].startTime)
+          : now);
+      const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
+      if (record.date === todayStr || primaryDurationMinutes === 1) {
+        primaryDurationMinutes = durationMinutes;
+      }
+
+      // Cancel scheduled break-over cloud notification since break ended earlier
+      const notifIdToCancel =
+        record.currentBreakNotificationId ||
+        (record.breaks && record.breaks.length > 0
+          ? record.breaks[record.breaks.length - 1].scheduledNotificationId
+          : undefined);
+
+      if (notifIdToCancel) {
+        FastActionAgent.enqueueCancelNotification(notifIdToCancel, compCode);
+      }
+
+      let existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+      if (existingBreaks.length > 0) {
+        let closedAny = false;
+        existingBreaks = existingBreaks.map((b) => {
+          if (!b.endTime) {
+            closedAny = true;
+            const bDur = Math.max(1, Math.round((now - (b.startTime || startTime)) / (1000 * 60)));
+            return {
+              ...b,
+              endTime: now,
+              durationMinutes: bDur,
+            };
+          }
+          return b;
+        });
+        if (!closedAny) {
+          const lastIndex = existingBreaks.length - 1;
+          existingBreaks[lastIndex] = {
+            ...existingBreaks[lastIndex],
+            endTime: now,
+            durationMinutes,
+          };
+        }
+      } else {
+        existingBreaks.push({
+          id: generateId(),
+          startTime,
+          endTime: now,
+          durationMinutes,
+        });
+      }
+
+      const totalBreakMinutes = existingBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+
+      const updatedRecord: AttendanceRecord = {
+        ...record,
+        isOnBreak: false,
+        currentBreakStartTime: undefined,
+        currentBreakNotificationId: undefined,
+        breaks: existingBreaks,
+        totalBreakMinutes,
+      };
+
+      updated[idx] = updatedRecord;
+      ApprovalShield.recordBreakState(updatedRecord);
+    }
 
     // Optimistic instant state update (0ms UI latency!)
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
     StorageService.saveAttendanceRecords(updated).catch(() => {});
 
+    SystemLogger.info(
+      'MOLA',
+      `${user.name} molasını tamamlayıp mesaiye döndü (Mola Süresi: ${primaryDurationMinutes} dk).`
+    );
+
     // Push notification to admins about break end
     FastActionAgent.enqueuePushNotification({
       title: '🔄 Personel Moladan Döndü',
-      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${durationMinutes} dk)`,
+      message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${primaryDurationMinutes} dk)`,
       targetMode: 'admin',
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
@@ -5459,7 +5521,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return {
       success: true,
-      message: `Molanız sonlandırıldı (${durationMinutes} dakika). Mesainize başarıyla döndünüz!`,
+      message: `Molanız sonlandırıldı (${primaryDurationMinutes} dakika). Mesainize başarıyla döndünüz!`,
     };
   };
 
@@ -5471,7 +5533,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const record = attendanceRecords[recordIndex];
-    if (!record.isOnBreak) {
+    const hasOpenBreak = record.isOnBreak || (Array.isArray(record.breaks) && record.breaks.some((b) => !b.endTime));
+    if (!hasOpenBreak) {
       return { success: false, message: 'Bu personel şu anda molada görünmüyor.' };
     }
 
@@ -5479,7 +5542,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const startTime =
       record.currentBreakStartTime ||
       (record.breaks && record.breaks.length > 0
-        ? record.breaks[record.breaks.length - 1].startTime
+        ? ([...record.breaks].reverse().find((b) => !b.endTime)?.startTime || record.breaks[record.breaks.length - 1].startTime)
         : now);
     const durationMinutes = Math.max(1, Math.round((now - startTime) / (1000 * 60)));
 
@@ -5494,14 +5557,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       FastActionAgent.enqueueCancelNotification(notifIdToCancel, record.companyCode || compCode);
     }
 
-    const existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
+    let existingBreaks = Array.isArray(record.breaks) ? [...record.breaks] : [];
     if (existingBreaks.length > 0) {
-      const lastIndex = existingBreaks.length - 1;
-      existingBreaks[lastIndex] = {
-        ...existingBreaks[lastIndex],
-        endTime: now,
-        durationMinutes,
-      };
+      let closedAny = false;
+      existingBreaks = existingBreaks.map((b) => {
+        if (!b.endTime) {
+          closedAny = true;
+          const bDur = Math.max(1, Math.round((now - (b.startTime || startTime)) / (1000 * 60)));
+          return {
+            ...b,
+            endTime: now,
+            durationMinutes: bDur,
+          };
+        }
+        return b;
+      });
+      if (!closedAny) {
+        const lastIndex = existingBreaks.length - 1;
+        existingBreaks[lastIndex] = {
+          ...existingBreaks[lastIndex],
+          endTime: now,
+          durationMinutes,
+        };
+      }
     } else {
       existingBreaks.push({
         id: generateId(),
@@ -5525,9 +5603,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = [...attendanceRecords];
     updated[recordIndex] = updatedRecord;
 
+    ApprovalShield.recordBreakState(updatedRecord);
     setAttendanceRecords(updated);
     FastActionAgent.enqueueAttendanceSync(record.companyCode || compCode, updated);
     StorageService.saveAttendanceRecords(updated).catch(() => {});
+
+    SystemLogger.info(
+      'MOLA',
+      `Yönetici ${user?.name || 'Admin'}, ${record.userName} personelinin molasını uzaktan sonlandırdı (${durationMinutes} dk).`
+    );
 
     // Personele yöneticinin molayı sonlandırdığını anında OneSignal bildirimiyle ilet
     if (record.userId) {

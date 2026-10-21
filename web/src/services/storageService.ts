@@ -2005,7 +2005,7 @@ export const StorageService = {
           localHasNewerData = true;
         }
 
-        // 2. Mola bilgileri senkronizasyonu (Hassas Mola Çatışma Çözücü / Conflict Resolution)
+        // 2. Mola bilgileri senkronizasyonu (Tek Yönlü Kapanış & ID Tabanlı Çatışma Çözücü)
         const localBreaks = Array.isArray(localRec.breaks) ? localRec.breaks : [];
         const cloudBreaks = Array.isArray(cloudRec.breaks) ? cloudRec.breaks : [];
         const localLastBreak = localBreaks[localBreaks.length - 1];
@@ -2016,81 +2016,171 @@ export const StorageService = {
         const localBreakEnd = localLastBreak?.endTime || 0;
         const cloudBreakEnd = cloudLastBreak?.endTime || 0;
 
-        // Durum A: Bulutta mola sonlandırılmış (Yönetici uzaktan bitirdi veya başka cihazdan bitirildi)
-        // Eğer bulutta mola kapalıysa (!cloudRec.isOnBreak) ve yerelde açık görünüyorsa (localRec.isOnBreak):
-        // Yerel mola, bulutun bitirdiği mola ile aynıysa veya bulut bitişinden önce/sırasında başlamışsa:
-        // Bulutun sonlandırma kararı KESİNLİKLE kabul edilir; yerel cihaz bu molayı tekrar canlandırmaz (ping-pong zırhı).
-        const isSameBreakEndedByCloud = Boolean(
-          localLastBreak &&
-          cloudLastBreak &&
-          localLastBreak.id === cloudLastBreak.id &&
-          cloudBreakEnd > 0 &&
-          !cloudRec.isOnBreak
-        );
-        const isLocalBreakStartedBeforeOrDuringCloudBreak = Boolean(
-          cloudBreakEnd > 0 &&
-          !cloudRec.isOnBreak &&
-          localBreakStart > 0 &&
-          localBreakStart <= cloudBreakEnd &&
-          (!localLastBreak?.id || !cloudLastBreak?.id || localLastBreak.id === cloudLastBreak.id)
-        );
-        const isCloudBreakClosure = Boolean(
-          !cloudRec.isOnBreak &&
-          localRec.isOnBreak &&
-          (isSameBreakEndedByCloud || isLocalBreakStartedBeforeOrDuringCloudBreak)
-        );
+        // Tüm molaları ID veya başlangıç zamanına göre birleştir:
+        // KURAL: Bir mola herhangi bir cihazda bitirildiyse (endTime > 0), ASLA tekrar açık (endTime: undefined) hale gelemez!
+        const mergedBreaksMap = new Map<string, any>();
+        const getBreakKey = (b: any, idx: number) => b?.id || `brk_${b?.startTime || idx}`;
 
-        if (isCloudBreakClosure) {
-          // Bulut molayı sonlandırmış: Yerel cihaz bulutun kapalı mola durumunu benimsemelidir
+        cloudBreaks.forEach((cb, idx) => {
+          if (!cb) return;
+          mergedBreaksMap.set(getBreakKey(cb, idx), { ...cb });
+        });
+
+        let localClosedAnOpenCloudBreak = false;
+        let cloudClosedAnOpenLocalBreak = false;
+
+        localBreaks.forEach((lb, idx) => {
+          if (!lb) return;
+          const key = getBreakKey(lb, idx);
+          let existing = mergedBreaksMap.get(key);
+
+          // Eğer ID farklıysa ama aynı mola başlangıç zamanına sahipse (eski kayıt uyumluluğu)
+          if (!existing && lb.startTime) {
+            for (const [, val] of mergedBreaksMap.entries()) {
+              if (val.startTime && Math.abs(val.startTime - lb.startTime) < 60000) {
+                existing = val;
+                break;
+              }
+            }
+          }
+
+          if (!existing) {
+            mergedBreaksMap.set(key, { ...lb });
+          } else {
+            if (!existing.endTime && lb.endTime) {
+              localClosedAnOpenCloudBreak = true;
+            } else if (existing.endTime && !lb.endTime) {
+              cloudClosedAnOpenLocalBreak = true;
+            }
+            const resolvedEnd = existing.endTime || lb.endTime;
+            const resolvedStart = existing.startTime || lb.startTime;
+            const resolvedDur =
+              existing.durationMinutes ||
+              lb.durationMinutes ||
+              (resolvedEnd && resolvedStart ? Math.max(1, Math.round((resolvedEnd - resolvedStart) / 60000)) : undefined);
+            Object.assign(existing, {
+              ...existing,
+              ...lb,
+              id: existing.id || lb.id,
+              startTime: resolvedStart,
+              endTime: resolvedEnd,
+              durationMinutes: resolvedDur,
+              note: lb.note || existing.note,
+            });
+          }
+        });
+
+        const mergedBreaks = Array.from(mergedBreaksMap.values()).sort(
+          (a, b) => (a.startTime || 0) - (b.startTime || 0)
+        );
+        const mergedTotalBreakMinutes = mergedBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+        const hasOpenBreakInMerged = mergedBreaks.some((b) => !b.endTime);
+
+        const isShieldedLocally = ApprovalShield.isBreakShielded(localRec.id);
+
+        if (isShieldedLocally && !localRec.isOnBreak) {
+          // Bu cihazda "Molayı Bitir" tuşuna basılmış (Zırh aktif): Buluttaki eski açık mola kesinlikle kapatılır!
+          const closedBreaks = mergedBreaks.map((b) =>
+            b.endTime
+              ? b
+              : {
+                  ...b,
+                  endTime: localBreakEnd || Date.now(),
+                  durationMinutes: Math.max(1, Math.round(((localBreakEnd || Date.now()) - (b.startTime || Date.now())) / 60000)),
+                }
+          );
           updated.isOnBreak = false;
           updated.currentBreakStartTime = undefined;
           updated.currentBreakNotificationId = undefined;
-          updated.breaks = cloudBreaks;
-          updated.totalBreakMinutes = cloudRec.totalBreakMinutes || 0;
-          // ÖNEMLİ: localHasNewerData KESİNLİKLE FALSE kalır, buluta sahte canlandırma yazılmaz!
-        }
-        // Durum B: Bulutta mola BAŞLATILMIŞ (cloudRec.isOnBreak) ama yerel henüz açık görmüyor (!localRec.isOnBreak)
-        else if (
+          updated.breaks = closedBreaks;
+          updated.totalBreakMinutes = closedBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+          if (cloudRec.isOnBreak || cloudBreaks.length !== closedBreaks.length) {
+            localHasNewerData = true;
+          }
+        } else if (
+          !cloudRec.isOnBreak &&
+          localRec.isOnBreak &&
+          (cloudClosedAnOpenLocalBreak ||
+            (cloudBreakEnd > 0 && localBreakStart <= cloudBreakEnd && (!localLastBreak?.id || localLastBreak?.id === cloudLastBreak?.id)))
+        ) {
+          // Bulutta mola sonlandırılmış (Yönetici veya personel başka cihazdan bitirdi): Yerel cihaz kapalı durumu benimser
+          updated.isOnBreak = false;
+          updated.currentBreakStartTime = undefined;
+          updated.currentBreakNotificationId = undefined;
+          updated.breaks = mergedBreaks.map((b) =>
+            b.endTime
+              ? b
+              : {
+                  ...b,
+                  endTime: cloudBreakEnd || Date.now(),
+                  durationMinutes: Math.max(1, Math.round(((cloudBreakEnd || Date.now()) - (b.startTime || Date.now())) / 60000)),
+                }
+          );
+          updated.totalBreakMinutes = updated.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+        } else if (
           cloudRec.isOnBreak &&
           !localRec.isOnBreak &&
-          cloudBreakStart >= localBreakEnd
+          (localClosedAnOpenCloudBreak || (localBreakEnd > 0 && localBreakEnd >= cloudBreakStart))
         ) {
-          // Bulutta yeni mola başlamış: Yerel cihaz bulutun açık mola durumunu benimsemelidir
+          // Yerelde mola sonlandırılmış ama bulutta hala açık görünüyor: Yerelin sonlandırma kararını buluta yaz!
+          const closedBreaks = mergedBreaks.map((b) =>
+            b.endTime
+              ? b
+              : {
+                  ...b,
+                  endTime: localBreakEnd || Date.now(),
+                  durationMinutes: Math.max(1, Math.round(((localBreakEnd || Date.now()) - (b.startTime || Date.now())) / 60000)),
+                }
+          );
+          updated.isOnBreak = false;
+          updated.currentBreakStartTime = undefined;
+          updated.currentBreakNotificationId = undefined;
+          updated.breaks = closedBreaks;
+          updated.totalBreakMinutes = closedBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+          localHasNewerData = true;
+        } else if (cloudRec.isOnBreak && !localRec.isOnBreak && hasOpenBreakInMerged) {
+          // Bulutta yeni mola başlatılmış ve yerelde henüz görülmemiş
           updated.isOnBreak = true;
           updated.currentBreakStartTime = cloudRec.currentBreakStartTime || cloudBreakStart;
           updated.currentBreakNotificationId = cloudRec.currentBreakNotificationId;
-          updated.breaks = cloudBreaks;
-          updated.totalBreakMinutes = cloudRec.totalBreakMinutes || 0;
-          // localHasNewerData FALSE kalır, buluttaki açık mola ezilmez
-        }
-        // Durum C: Yerelde GERÇEKTEN daha yeni bir mola işlemi yapılmışsa (Çevrimdışıyken başlatma veya bitirme)
-        else {
-          // 1. Yerelde çevrimdışıyken mola bitirilmiş:
-          const localLegitimatelyEndedBreak = Boolean(
-            localBreakEnd > 0 &&
-            (!cloudBreakEnd || localBreakEnd > cloudBreakEnd) &&
-            (!cloudRec.isOnBreak || localBreakEnd >= cloudBreakStart)
-          );
-
-          // 2. Yerelde bulut mola bitirdikten SONRA yepyeni bir molaya çıkılmış:
-          const localLegitimatelyStartedNewBreak = Boolean(
-            localRec.isOnBreak &&
-            !cloudRec.isOnBreak &&
-            localBreakStart >= cloudBreakEnd &&
-            localBreaks.length >= cloudBreaks.length
-          );
-
-          // 3. Yerelde daha fazla tamamlanmış mola kaydı var:
-          const localHasMoreBreaks = localBreaks.length > cloudBreaks.length;
-
-          if (localLegitimatelyEndedBreak || localLegitimatelyStartedNewBreak || localHasMoreBreaks) {
-            updated.breaks = localBreaks.length > 0 ? localBreaks : (cloudBreaks.length > 0 ? cloudBreaks : []);
-            updated.isOnBreak = Boolean(localRec.isOnBreak);
-            updated.currentBreakStartTime = localRec.currentBreakStartTime;
-            updated.currentBreakNotificationId = localRec.currentBreakNotificationId;
-            updated.totalBreakMinutes = localRec.totalBreakMinutes || 0;
+          updated.breaks = mergedBreaks;
+          updated.totalBreakMinutes = mergedTotalBreakMinutes;
+        } else if (localRec.isOnBreak && !cloudRec.isOnBreak && hasOpenBreakInMerged && !cloudClosedAnOpenLocalBreak) {
+          // Yerelde yepyeni bir mola başlatılmış
+          updated.isOnBreak = true;
+          updated.currentBreakStartTime = localRec.currentBreakStartTime || localBreakStart;
+          updated.currentBreakNotificationId = localRec.currentBreakNotificationId;
+          updated.breaks = mergedBreaks;
+          updated.totalBreakMinutes = mergedTotalBreakMinutes;
+          localHasNewerData = true;
+        } else {
+          // Diğer durumlar: Birleştirilmiş mola geçmişini koru; açık mola yoksa isOnBreak kesinlikle false olsun
+          updated.breaks = mergedBreaks;
+          updated.totalBreakMinutes = mergedTotalBreakMinutes || updated.totalBreakMinutes || 0;
+          if (!hasOpenBreakInMerged && updated.isOnBreak && (!localRec.isOnBreak || !cloudRec.isOnBreak)) {
+            updated.isOnBreak = false;
+            updated.currentBreakStartTime = undefined;
+            updated.currentBreakNotificationId = undefined;
+            if (cloudRec.isOnBreak) localHasNewerData = true;
+          }
+          if (mergedBreaks.length > cloudBreaks.length) {
             localHasNewerData = true;
           }
+        }
+
+        // Otomatik İyileştirme (Self-Healing): Çıkış yapılmışsa veya tüm molalar kapanmışsa mola açık kalamaz
+        if (updated.status === 'completed' || updated.checkOutTime) {
+          if (updated.isOnBreak) {
+            updated.isOnBreak = false;
+            updated.currentBreakStartTime = undefined;
+            updated.currentBreakNotificationId = undefined;
+            localHasNewerData = true;
+          }
+        } else if (updated.isOnBreak && Array.isArray(updated.breaks) && updated.breaks.length > 0 && !updated.breaks.some((b) => !b.endTime)) {
+          updated.isOnBreak = false;
+          updated.currentBreakStartTime = undefined;
+          updated.currentBreakNotificationId = undefined;
+          if (cloudRec.isOnBreak) localHasNewerData = true;
         }
 
         // 3. Onay notu varsa koru

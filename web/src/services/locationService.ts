@@ -100,6 +100,7 @@ export const LocationService = {
 
     let position: GeolocationPosition | null = null;
     let lastError: any = null;
+    let permissionDeniedError: any = null;
 
     // Paralel Başlatma:
     // A. Hızlı Ağ / Önbellek Konumu (Wi-Fi, Hücresel, OS Önbelleği)
@@ -108,7 +109,11 @@ export const LocationService = {
       timeout: 3000,
       maximumAge: 180000,
     }).catch((err) => {
-      if (err?.code === 1) throw err;
+      if (err?.code === 1) {
+        permissionDeniedError = err;
+      } else {
+        lastError = err;
+      }
       return null;
     });
 
@@ -122,8 +127,11 @@ export const LocationService = {
       },
       6000
     ).catch((err) => {
-      if (err?.code === 1) throw err;
-      lastError = err;
+      if (err?.code === 1) {
+        permissionDeniedError = err;
+      } else {
+        lastError = err;
+      }
       return null;
     });
 
@@ -133,6 +141,10 @@ export const LocationService = {
         fastPromise,
         new Promise<null>((res) => setTimeout(() => res(null), 1200)),
       ]);
+
+      if (permissionDeniedError) {
+        throw permissionDeniedError;
+      }
 
       if (fastResult && fastResult.coords.accuracy !== null && fastResult.coords.accuracy <= 35) {
         // Hızlı konum çok net (<= 35m), hemen kabul et!
@@ -144,16 +156,26 @@ export const LocationService = {
           new Promise<null>((res) => setTimeout(() => res(null), 2500)),
         ]);
 
+        if (permissionDeniedError) {
+          throw permissionDeniedError;
+        }
+
         if (gpsResult) {
           position = gpsResult;
         } else {
           // GPS 2.5 saniyede kilitlenemediyse (depo/iç mekan), hızlı adayı kontrol et
           const fullFast = await fastPromise;
+          if (permissionDeniedError) {
+            throw permissionDeniedError;
+          }
           if (fullFast) {
             position = fullFast;
           } else {
             // Son çare GPS'in kalan 3.5 saniyesini bekle
             position = await gpsPromise;
+            if (permissionDeniedError) {
+              throw permissionDeniedError;
+            }
           }
         }
       }

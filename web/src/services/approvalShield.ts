@@ -11,6 +11,11 @@ export interface ShieldedAttendanceApproval {
   checkOutApprovedAt?: number;
   checkOutTime?: number;
   workDurationMinutes?: number;
+  isOnBreak?: boolean;
+  currentBreakStartTime?: number;
+  breaks?: AttendanceRecord['breaks'];
+  totalBreakMinutes?: number;
+  hasBreakShield?: boolean;
   isDeleted?: boolean;
   resolvedAt: number;
 }
@@ -82,6 +87,7 @@ class ApprovalShieldService {
 
   recordAttendance(record: AttendanceRecord): void {
     if (!record || !record.id) return;
+    const prev = this.attMap.get(record.id);
     const item: ShieldedAttendanceApproval = {
       recordId: record.id,
       status: record.status,
@@ -93,11 +99,52 @@ class ApprovalShieldService {
       checkOutApprovedAt: record.checkOutApprovedAt,
       checkOutTime: record.checkOutTime,
       workDurationMinutes: record.workDurationMinutes,
+      isOnBreak: record.isOnBreak ?? prev?.isOnBreak,
+      currentBreakStartTime: record.currentBreakStartTime ?? prev?.currentBreakStartTime,
+      breaks: record.breaks ?? prev?.breaks,
+      totalBreakMinutes: record.totalBreakMinutes ?? prev?.totalBreakMinutes,
+      hasBreakShield: prev?.hasBreakShield,
       isDeleted: false,
       resolvedAt: Date.now(),
     };
     this.attMap.set(record.id, item);
     this.persistToStorage();
+  }
+
+  recordBreakState(record: AttendanceRecord): void {
+    if (!record || !record.id) return;
+    const prev = this.attMap.get(record.id);
+    const item: ShieldedAttendanceApproval = {
+      recordId: record.id,
+      status: record.status ?? prev?.status ?? 'checked_in',
+      checkInApprovalStatus: record.checkInApprovalStatus ?? prev?.checkInApprovalStatus,
+      checkOutApprovalStatus: record.checkOutApprovalStatus ?? prev?.checkOutApprovalStatus,
+      checkInApprovedBy: record.checkInApprovedBy ?? prev?.checkInApprovedBy,
+      checkInApprovedAt: record.checkInApprovedAt ?? prev?.checkInApprovedAt,
+      checkOutApprovedBy: record.checkOutApprovedBy ?? prev?.checkOutApprovedBy,
+      checkOutApprovedAt: record.checkOutApprovedAt ?? prev?.checkOutApprovedAt,
+      checkOutTime: record.checkOutTime ?? prev?.checkOutTime,
+      workDurationMinutes: record.workDurationMinutes ?? prev?.workDurationMinutes,
+      isOnBreak: Boolean(record.isOnBreak),
+      currentBreakStartTime: record.isOnBreak ? record.currentBreakStartTime : undefined,
+      breaks: Array.isArray(record.breaks) ? [...record.breaks] : prev?.breaks,
+      totalBreakMinutes: record.totalBreakMinutes ?? prev?.totalBreakMinutes ?? 0,
+      hasBreakShield: true,
+      isDeleted: false,
+      resolvedAt: Date.now(),
+    };
+    this.attMap.set(record.id, item);
+    this.persistToStorage();
+  }
+
+  isBreakShielded(recordId: string): boolean {
+    if (!recordId) return false;
+    const item = this.attMap.get(recordId);
+    if (!item || !item.hasBreakShield) return false;
+    if (Date.now() - item.resolvedAt > SHIELD_TTL_MS) {
+      return false;
+    }
+    return true;
   }
 
   recordAttendanceDeleted(recordId: string): void {
@@ -161,7 +208,7 @@ class ApprovalShieldService {
         }
 
         // Zırh koruması: Pending veya eski veri gelirse zırhtaki kararı koru
-        return {
+        const result: AttendanceRecord = {
           ...rec,
           status: shielded.status ?? rec.status,
           checkInApprovalStatus: shielded.checkInApprovalStatus ?? rec.checkInApprovalStatus,
@@ -173,6 +220,62 @@ class ApprovalShieldService {
           checkOutTime: shielded.checkOutTime ?? rec.checkOutTime,
           workDurationMinutes: shielded.workDurationMinutes ?? rec.workDurationMinutes,
         };
+
+        if (shielded.hasBreakShield) {
+          if (!shielded.isOnBreak) {
+            // Bu cihazda mola sonlandırıldı: Buluttan eski 'isOnBreak: true' gelse bile KESİNLİKLE kapalı tut!
+            result.isOnBreak = false;
+            result.currentBreakStartTime = undefined;
+            result.currentBreakNotificationId = undefined;
+            if (Array.isArray(shielded.breaks) && shielded.breaks.length >= (rec.breaks?.length || 0)) {
+              result.breaks = shielded.breaks;
+              result.totalBreakMinutes = shielded.totalBreakMinutes ?? result.totalBreakMinutes;
+            } else if (Array.isArray(result.breaks) && result.breaks.length > 0) {
+              result.breaks = result.breaks.map((b) =>
+                b.endTime
+                  ? b
+                  : {
+                      ...b,
+                      endTime: shielded.resolvedAt,
+                      durationMinutes: Math.max(1, Math.round((shielded.resolvedAt - b.startTime) / 60000)),
+                    }
+              );
+              result.totalBreakMinutes = result.breaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
+            }
+          } else {
+            // Bu cihazda mola başlatıldı: Eğer yönetici uzaktan bu molayı kapatmadıysa açık tut
+            const shieldedLastBrk = Array.isArray(shielded.breaks) ? shielded.breaks[shielded.breaks.length - 1] : undefined;
+            const closedRemotely =
+              !rec.isOnBreak &&
+              Array.isArray(rec.breaks) &&
+              rec.breaks.some(
+                (b) =>
+                  Boolean(b.endTime && b.endTime > 0) &&
+                  ((shieldedLastBrk?.id && b.id === shieldedLastBrk.id) ||
+                    (shielded.currentBreakStartTime && Math.abs(b.startTime - shielded.currentBreakStartTime) < 60000))
+              );
+            if (closedRemotely) {
+              // Yönetici uzaktan molayı bitirmiş, zırhı da kapalıya güncelle
+              shielded.isOnBreak = false;
+              shielded.currentBreakStartTime = undefined;
+              shielded.breaks = rec.breaks;
+              shielded.totalBreakMinutes = rec.totalBreakMinutes;
+              this.persistToStorage();
+              result.isOnBreak = false;
+              result.currentBreakStartTime = undefined;
+              result.currentBreakNotificationId = undefined;
+            } else {
+              result.isOnBreak = true;
+              result.currentBreakStartTime = shielded.currentBreakStartTime ?? rec.currentBreakStartTime;
+              if (Array.isArray(shielded.breaks) && shielded.breaks.length >= (rec.breaks?.length || 0)) {
+                result.breaks = shielded.breaks;
+                result.totalBreakMinutes = shielded.totalBreakMinutes ?? result.totalBreakMinutes;
+              }
+            }
+          }
+        }
+
+        return result;
       });
   }
 
