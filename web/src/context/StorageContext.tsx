@@ -513,6 +513,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setDataCompanyCode('');
 
     StorageService.setCompany(compCode, compId);
+    FastActionAgent.start(compCode);
 
     let isMounted = true;
     const isPolatlar = compCode === 'POLATLAR';

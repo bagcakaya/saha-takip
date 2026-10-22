@@ -551,6 +551,7 @@ app.post('/api/send-notification', async (req, res) => {
       : [];
 
     delete payload.multiChannelGuarantee;
+    delete payload.bypassServerDedup;
     delete payload.targetUserIds;
     delete payload.targetSubscriptionIds;
     delete payload.excludeUserIds;

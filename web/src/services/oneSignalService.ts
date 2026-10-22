@@ -868,12 +868,15 @@ export const OneSignalService = {
     const targetUrl = canonicalUrl.toString();
 
     // Format APNs/FCM-compliant collapse_id (max 60 chars, alphanumeric + underscores)
-    // Ensures iOS APNs and Android FCM collapse identical notifications into 1 on the lock screen
+    // Ensures iOS APNs and Android FCM collapse identical multi-channel dispatches into 1 on the lock screen,
+    // while distinct events (different message or >30s apart) never overwrite each other.
     let collapseId = rawCollapseId;
     if (!collapseId) {
-      const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 25);
-      const targetHash = (cleanIds.join('_') || targetMode).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15);
-      collapseId = `st_${safeTitle}_${targetHash}`.slice(0, 55);
+      const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 18);
+      const safeMsg = message.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 12);
+      const targetHash = (cleanIds.join('_') || targetMode).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 10);
+      const timeBucket = Math.floor(Date.now() / 30000).toString(36).slice(-4);
+      collapseId = `st_${safeTitle}_${safeMsg}_${targetHash}_${timeBucket}`.slice(0, 58);
     } else {
       collapseId = collapseId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
     }
@@ -1043,23 +1046,9 @@ export const OneSignalService = {
           registryAdminSubIds = registryAdminSubIds.filter((sub) => !cleanExcludeSubIds.includes(sub));
         }
 
-        // If direct devices found, send directly and return
-        if (registryAdminSubIds.length > 0) {
-          try {
-            const directPayload = {
-              ...basePayload,
-              include_player_ids: Array.from(new Set(registryAdminSubIds)),
-            };
-            const directRes = await this._postNotification(directPayload);
-            if (directRes && directRes.id) {
-              return { success: true, data: directRes };
-            }
-          } catch (directErr) {
-            console.warn('Direct admin player ID notification failed, falling back:', directErr);
-          }
-        }
-
-        // Strategy B: Tag filter with strict company targeting and mutual exclusion
+        // Multi-Channel Admin Delivery:
+        // Simultaneously dispatches to (A) Device Registry Player IDs, (B) Admin Role Tag Filter, and (C) Admin External ID Aliases
+        // using the exact same collapse_id so every admin device (desktop + mobile) receives the push without duplicates!
         const adminFilters: any[] = [
           { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
           { field: 'tag', key: 'role', relation: '=', value: 'admin' },
@@ -1075,31 +1064,54 @@ export const OneSignalService = {
           });
         }
 
-        try {
-          const res = await this._postNotification({
-            ...basePayload,
-            filters: adminFilters,
-          });
-          if (res && res.id) {
-            return { success: true, data: res };
-          }
-        } catch (filterErr) {
-          console.warn('Admin tag filter push failed, trying alias fallback:', filterErr);
+        const adminSentIds: string[] = [];
+        const adminTasks: Promise<void>[] = [];
+
+        if (registryAdminSubIds.length > 0) {
+          adminTasks.push(
+            this._postNotification({
+              ...basePayload,
+              include_player_ids: Array.from(new Set(registryAdminSubIds)),
+              bypassServerDedup: true,
+            })
+              .then((r) => {
+                if (r?.id && r.id !== 'deduped') adminSentIds.push(r.id);
+              })
+              .catch(() => {})
+          );
         }
 
-        // Strategy C: OneSignal external_id alias fallback (for target company admins only)
+        adminTasks.push(
+          this._postNotification({
+            ...basePayload,
+            filters: adminFilters,
+            bypassServerDedup: true,
+          })
+            .then((r) => {
+              if (r?.id && r.id !== 'deduped') adminSentIds.push(r.id);
+            })
+            .catch(() => {})
+        );
+
         if (adminUserIds.length > 0) {
-          try {
-            const aliasPayload = {
+          adminTasks.push(
+            this._postNotification({
               ...basePayload,
               include_aliases: { external_id: adminUserIds },
               target_channel: 'push',
-            };
-            const aliasRes = await this._postNotification(aliasPayload);
-            return { success: true, data: aliasRes };
-          } catch (aliasErr) {
-            console.warn('Admin alias fallback push failed:', aliasErr);
-          }
+              bypassServerDedup: true,
+            })
+              .then((r) => {
+                if (r?.id && r.id !== 'deduped') adminSentIds.push(r.id);
+              })
+              .catch(() => {})
+          );
+        }
+
+        await Promise.all(adminTasks);
+        if (adminSentIds.length > 0) {
+          const joined = Array.from(new Set(adminSentIds.join(',').split(',').filter(Boolean))).join(',');
+          return { success: true, data: { id: joined, ids: adminSentIds } };
         }
 
         return { success: false, error: 'Yönetici bildirimi iletilemedi.' };
@@ -1178,111 +1190,71 @@ export const OneSignalService = {
           return filterArr;
         };
 
-        // MULTI-CHANNEL GUARANTEE FOR SCHEDULED ALARMS (e.g. Break End Notification when app is killed):
-        // OneSignal's scheduled API returns an ID immediately without validating if external_id or player_id is active.
-        // Dispatching across Player IDs + User Tag + External ID with the same collapse_id guarantees delivery when killed!
-        if (isScheduled) {
-          const scheduledIds: string[] = [];
+        // MULTI-CHANNEL GUARANTEE FOR ALL TARGETED USER NOTIFICATIONS (Both Immediate & Scheduled):
+        // Dispatches across Player IDs + User Tag + External ID with the same collapse_id so if any single channel
+        // is stale or delayed, the other channels wake up the device, while FCM/APNs deduplicates them into 1 alert!
+        const deliveredIds: string[] = [];
 
-          // 1. First try proxy multi-channel endpoint in a single call
-          try {
-            const multiRes = await this._postNotification({
-              ...basePayload,
-              targetUserIds: validTenantUserIds,
-              targetSubscriptionIds: allHardwareSubIds,
-              multiChannelGuarantee: true,
-            });
-            if (multiRes && multiRes.id) {
-              return { success: true, data: multiRes };
-            }
-          } catch {
-            // Fallback to parallel direct channel calls below
+        // 1. First try proxy multi-channel endpoint in a single call
+        try {
+          const multiRes = await this._postNotification({
+            ...basePayload,
+            targetUserIds: validTenantUserIds,
+            targetSubscriptionIds: allHardwareSubIds,
+            multiChannelGuarantee: true,
+            bypassServerDedup: true,
+          });
+          if (multiRes && multiRes.id && multiRes.id !== 'deduped') {
+            return { success: true, data: multiRes };
           }
-
-          const tasks: Promise<void>[] = [];
-          if (allHardwareSubIds.length > 0) {
-            tasks.push(
-              this._postNotification({
-                ...basePayload,
-                include_player_ids: allHardwareSubIds,
-              })
-                .then((r) => {
-                  if (r?.id) scheduledIds.push(r.id);
-                })
-                .catch(() => {})
-            );
-          }
-
-          tasks.push(
-            this._postNotification({
-              ...basePayload,
-              filters: buildUserTagFilters(),
-            })
-              .then((r) => {
-                if (r?.id) scheduledIds.push(r.id);
-              })
-              .catch(() => {})
-          );
-
-          tasks.push(
-            this._postNotification({
-              ...basePayload,
-              include_aliases: { external_id: validTenantUserIds },
-              target_channel: 'push',
-            })
-              .then((r) => {
-                if (r?.id) scheduledIds.push(r.id);
-              })
-              .catch(() => {})
-          );
-
-          await Promise.all(tasks);
-          if (scheduledIds.length > 0) {
-            const joined = Array.from(new Set(scheduledIds.join(',').split(',').filter(Boolean))).join(',');
-            return { success: true, data: { id: joined, ids: scheduledIds } };
-          }
+        } catch {
+          // Fallback to parallel direct channel calls below
         }
 
-        // Direct Hardware Delivery for valid users only
+        const tasks: Promise<void>[] = [];
         if (allHardwareSubIds.length > 0) {
-          try {
-            const subPayload = {
+          tasks.push(
+            this._postNotification({
               ...basePayload,
               include_player_ids: allHardwareSubIds,
-            };
-            const subRes = await this._postNotification(subPayload);
-            if (subRes && subRes.id) {
-              return { success: true, data: subRes };
-            }
-          } catch (subErr) {
-            console.warn('Direct hardware push failed, falling back to alias/tag:', subErr);
-          }
+              bypassServerDedup: true,
+            })
+              .then((r) => {
+                if (r?.id && r.id !== 'deduped') deliveredIds.push(r.id);
+              })
+              .catch(() => {})
+          );
         }
 
-        // Step 4A: Tag filter by userId (Always stamped on OneSignal subscriptions)
-        try {
-          const tagPayload = { ...basePayload, filters: buildUserTagFilters() };
-          const tagRes = await this._postNotification(tagPayload);
-          if (tagRes && tagRes.id) {
-            return { success: true, data: tagRes };
-          }
-        } catch (tagErr) {
-          console.warn('OneSignal tag push failed, falling back to alias:', tagErr);
-        }
+        tasks.push(
+          this._postNotification({
+            ...basePayload,
+            filters: buildUserTagFilters(),
+            bypassServerDedup: true,
+          })
+            .then((r) => {
+              if (r?.id && r.id !== 'deduped') deliveredIds.push(r.id);
+            })
+            .catch(() => {})
+        );
 
-        // Step 4B: OneSignal external_id alias (for validated tenant user IDs only)
-        try {
-          const aliasPayload = {
+        tasks.push(
+          this._postNotification({
             ...basePayload,
             include_aliases: { external_id: validTenantUserIds },
             target_channel: 'push',
-          };
-          const aliasRes = await this._postNotification(aliasPayload);
-          if (aliasRes && aliasRes.id) {
-            return { success: true, data: aliasRes };
-          }
-        } catch (aliasErr) {
-          console.warn('OneSignal alias push failed:', aliasErr);
+            bypassServerDedup: true,
+          })
+            .then((r) => {
+              if (r?.id && r.id !== 'deduped') deliveredIds.push(r.id);
+            })
+            .catch(() => {})
+        );
+
+        await Promise.all(tasks);
+        if (deliveredIds.length > 0) {
+          const joined = Array.from(new Set(deliveredIds.join(',').split(',').filter(Boolean))).join(',');
+          return { success: true, data: { id: joined, ids: deliveredIds } };
         }
 
         return { success: false, error: 'Kullanıcıya bildirim iletilemedi.' };
@@ -1363,6 +1335,7 @@ export const OneSignalService = {
       delete directPayload.targetUserIds;
       delete directPayload.targetSubscriptionIds;
       delete directPayload.multiChannelGuarantee;
+      delete directPayload.bypassServerDedup;
       const response = await fetch('https://onesignal.com/api/v1/notifications', {
         method: 'POST',
         headers: {

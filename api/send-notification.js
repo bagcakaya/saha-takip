@@ -243,18 +243,31 @@ export default async function handler(req, res) {
       payload.web_push_topic = cleanCollapse;
     }
 
-    // Server-side deduplication check (30-second debounce window, test & scheduled notifications exempt)
-    const isExempt = payload.collapse_id?.startsWith('test_') || Boolean(payload.send_after);
+    // Server-side deduplication check (15-second channel-aware debounce window, test/scheduled/multi-channel exempt)
+    const isExempt =
+      Boolean(payload.bypassServerDedup) ||
+      Boolean(payload.multiChannelGuarantee) ||
+      payload.collapse_id?.startsWith('test_') ||
+      Boolean(payload.send_after);
+    delete payload.bypassServerDedup;
+
+    const channelType = payload.include_player_ids
+      ? `player:${(payload.include_player_ids || []).join(',')}`
+      : payload.filters
+      ? `filter:${JSON.stringify(payload.filters)}`
+      : payload.include_aliases
+      ? `alias:${(payload.include_aliases?.external_id || []).join(',')}`
+      : 'default';
+
+    const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${channelType}`;
     if (!isExempt) {
-      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
       const now = Date.now();
       const lastTime = recentNotificationsCache.get(dedupKey);
-      if (lastTime && now - lastTime < 30000) {
+      if (lastTime && now - lastTime < 15000) {
         console.log('Skipping duplicate push notification on serverless:', dedupKey);
         res.status(200).json({ id: 'deduped', deduped: true });
         return;
       }
-      recentNotificationsCache.set(dedupKey, now);
       if (recentNotificationsCache.size > 100) {
         for (const [k, v] of recentNotificationsCache.entries()) {
           if (now - v > 60000) recentNotificationsCache.delete(k);
@@ -430,6 +443,9 @@ export default async function handler(req, res) {
     }
 
     if (data && data.id) {
+      if (!isExempt) {
+        recentNotificationsCache.set(dedupKey, Date.now());
+      }
       delete data.errors;
       res.status(200).json(data);
       return;
