@@ -226,8 +226,9 @@ export interface WorkplaceLocation {
   address: string;
   latitude: number;
   longitude: number;
-  radiusMeters: number; // default: 30 meters
+  radiusMeters: number; // default: 20 meters
   maxBreakMinutes?: number; // Günlük maksimum mola süresi (dakika)
+  blockOutsideCheckIn?: boolean; // Firma bazlı: true ise 20m dışında "İşe Geldim" butonu deaktif (kilitli) olur
   updatedAt: number;
   updatedBy?: string;
   updatedByName?: string;

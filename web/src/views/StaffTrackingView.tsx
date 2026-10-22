@@ -40,6 +40,8 @@ import {
   Volume2,
   VolumeX,
   Banknote,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin, isSuperAdmin, isSubModulePermitted } from '../types/auth';
@@ -94,6 +96,7 @@ export const StaffTrackingView: React.FC = () => {
     removeUserShift,
     updateBranchBreakMinutes,
     updateWorkplaceBreakMinutes,
+    updateWorkplaceOutsideCheckInPolicy,
     refreshAttendance,
   } = useStorage();
 
@@ -325,6 +328,29 @@ export const StaffTrackingView: React.FC = () => {
     LocationService.openInGoogleMaps(addressText, lat, lon);
   };
 
+  // --- Firma Bazlı: 20m Dışında "İşe Geldim" Butonunu Kilitleme (Deaktif Etme) Kuralı ---
+  const isOutsideCheckInBlocked = Boolean(workplaceLocation?.blockOutsideCheckIn);
+  const [isUpdatingOutsidePolicy, setIsUpdatingOutsidePolicy] = useState(false);
+  const [outsidePolicyMsg, setOutsidePolicyMsg] = useState('');
+
+  const handleToggleOutsideCheckInPolicy = async () => {
+    try {
+      setIsUpdatingOutsidePolicy(true);
+      const nextVal = !isOutsideCheckInBlocked;
+      await updateWorkplaceOutsideCheckInPolicy(nextVal);
+      setOutsidePolicyMsg(
+        nextVal
+          ? '🔒 20m dışında "İşe Geldim" butonu kilitleme kuralı bu firma için AKTİF edildi!'
+          : '🔓 20m dışında "İşe Geldim" butonu kilidi kaldırıldı (Yönetici onaylı giriş aktif).'
+      );
+      setTimeout(() => setOutsidePolicyMsg(''), 4500);
+    } catch {
+      alert('Ayar güncellenirken bir hata oluştu.');
+    } finally {
+      setIsUpdatingOutsidePolicy(false);
+    }
+  };
+
   // Handle Admin On-Site Branch GPS Calibration (Görsel-3)
   const [updatingBranchId, setUpdatingBranchId] = useState<string | null>(null);
   const [branchSuccessMsg, setBranchSuccessMsg] = useState<{ branchId: string; text: string } | null>(null);
@@ -463,6 +489,19 @@ export const StaffTrackingView: React.FC = () => {
       checkLiveDistance();
     }
   }, [targetLocation]);
+
+  // Firma "20m Dışında İşe Giriş Kilitli" kuralını açmışsa ve personel 20m dışındaysa,
+  // personel şubeye yaklaştığında butonun otomatik aktifleşmesi için mesafeyi periyodik güncelle
+  useEffect(() => {
+    if (isAdmin || !isOutsideCheckInBlocked) return;
+    if (!targetLocation?.latitude || !targetLocation?.longitude) return;
+    if (currentDistance !== null && currentDistance <= allowedRadius) return;
+
+    const timer = setInterval(() => {
+      checkLiveDistance(false);
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [isAdmin, isOutsideCheckInBlocked, targetLocation, currentDistance, allowedRadius]);
 
   // --- 3. Check-in / Check-out Actions & Approval Flow ---
   const [actionLoadingType, setActionLoadingType] = useState<'checkin' | 'checkout' | 'break' | null>(null);
@@ -2952,6 +2991,68 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               )}
             </div>
           </div>
+
+          {/* 3. Firma Bazlı Kural: 20 Metre Dışında "İşe Geldim" Butonunu Kilitleme (Deaktif Etme) */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border-2 border-indigo-200 dark:border-indigo-900/60 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400'
+                    : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {isOutsideCheckInBlocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">
+                      Mesafe Dışında (20m+) "İşe Geldim" Butonunu Deaktif Et
+                    </h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                      isOutsideCheckInBlocked
+                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {isOutsideCheckInBlocked ? '🔒 Kilit Aktif (20m Dışı Giriş Kapalı)' : '🔓 Esnek Mod (Yönetici Onaylı Giriş Açık)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Bu ayar <strong>sadece aktif firmanız ({(viewingCompany || company)?.name || 'Kurumunuz'})</strong> için geçerlidir. Aktif edildiğinde, personel iş yeri veya şubenin <strong>20 metre dışında</strong> ise <strong>"İşe Geldim"</strong> butonu otomatik olarak <strong>deaktif (kilitli)</strong> olur ve 20m alanına girene kadar mesai başlatamaz.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={isUpdatingOutsidePolicy}
+                onClick={handleToggleOutsideCheckInPolicy}
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
+                    : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900'
+                }`}
+              >
+                {isUpdatingOutsidePolicy ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isOutsideCheckInBlocked ? (
+                  <Unlock className="w-4 h-4" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                <span>
+                  {isOutsideCheckInBlocked
+                    ? 'Kilidi Kaldır (Onaylı Girişe İzin Ver)'
+                    : '20m Dışında Butonu Deaktif Et (Kilitle)'}
+                </span>
+              </button>
+            </div>
+
+            {outsidePolicyMsg && (
+              <div className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 animate-in fade-in">
+                {outsidePolicyMsg}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3192,6 +3293,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   className={"p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 " + (
                     currentDistance <= allowedRadius
                       ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                      : isOutsideCheckInBlocked
+                      ? "bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800"
                       : "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
                   )}
                 >
@@ -3200,6 +3303,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
                       <span>
                         {targetLocation?.isBranch ? `${targetLocation.name} Şubesindesiniz` : 'İş Yerindesiniz'} ({allowedRadius}m Alanı İçindesiniz) ✅
+                      </span>
+                    </>
+                  ) : isOutsideCheckInBlocked ? (
+                    <>
+                      <Lock className="w-4 h-4 shrink-0 text-rose-600" />
+                      <span>
+                        {targetLocation?.isBranch ? `${targetLocation.name} Şubesi` : 'İş Yeri'} {allowedRadius}m Alanı Dışındasınız ({LocationService.formatDistance(currentDistance)}) — İşe Giriş Deaktif
                       </span>
                     </>
                   ) : (
@@ -3418,56 +3528,101 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
           {/* Büyük Butonlar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Buton 1: İşe Geldim (Yeşil) */}
-            <button
-              type="button"
-              onClick={() => {
-                if (isAdmin) {
-                  handleCheckIn(true);
-                } else if (isLocationDisabled) {
-                  setLocationModalIntent('checkin');
-                  setIsLocationModalOpen(true);
-                } else {
-                  handleCheckIn(false);
-                }
-              }}
-              disabled={isProcessingAction || isCheckedIn || isPendingCheckIn || isPendingCheckOut}
-              className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
-                isCheckedIn || isPendingCheckIn || isPendingCheckOut
-                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
-                  : !isAdmin && isLocationDisabled
-                  ? 'bg-gradient-to-br from-emerald-700/60 to-teal-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
-                  : 'bg-gradient-to-br from-emerald-500 to-teal-700 hover:from-emerald-600 hover:to-teal-800 text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
-              )}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center font-black">
-                  {actionLoadingType === 'checkin' ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <UserCheck className="w-5 h-5" />
+            {/* Buton 1: İşe Geldim (Yeşil veya 20m Dışında Kilitli/Deaktif) */}
+            {(() => {
+              const isLockedOutside20m =
+                !isAdmin &&
+                isOutsideCheckInBlocked &&
+                !isCheckedIn &&
+                !isPendingCheckIn &&
+                !isPendingCheckOut &&
+                !isLocationDisabled &&
+                currentDistance !== null &&
+                currentDistance > allowedRadius;
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isLockedOutside20m) return;
+                    if (isAdmin) {
+                      handleCheckIn(true);
+                    } else if (isLocationDisabled) {
+                      setLocationModalIntent('checkin');
+                      setIsLocationModalOpen(true);
+                    } else {
+                      handleCheckIn(false);
+                    }
+                  }}
+                  disabled={
+                    isProcessingAction ||
+                    isCheckedIn ||
+                    isPendingCheckIn ||
+                    isPendingCheckOut ||
+                    isLockedOutside20m
+                  }
+                  className={"relative overflow-hidden rounded-2xl p-5 text-left flex flex-col justify-between transition-all duration-200 " + (
+                    isCheckedIn || isPendingCheckIn || isPendingCheckOut
+                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
+                      : isLockedOutside20m
+                      ? 'bg-slate-200/90 dark:bg-slate-800/90 text-slate-500 dark:text-slate-400 cursor-not-allowed border-2 border-dashed border-slate-300 dark:border-slate-700 opacity-85'
+                      : !isAdmin && isLocationDisabled
+                      ? 'bg-gradient-to-br from-emerald-700/60 to-teal-800/60 text-white/80 border-2 border-dashed border-rose-400 hover:scale-[1.01] cursor-pointer ring-2 ring-rose-500/40'
+                      : 'bg-gradient-to-br from-emerald-500 to-teal-700 hover:from-emerald-600 hover:to-teal-800 text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
                   )}
-                </div>
-                <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
-                  !isAdmin && isLocationDisabled ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/20'
-                )}>
-                  {isAdmin ? 'Yönetici Girişi' : isLocationDisabled ? '📍 Konumu Etkinleştir' : isPendingCheckIn ? 'Onay Bekliyor' : 'Giriş Yap'}
-                </span>
-              </div>
-              <div>
-                <h4 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
-                  <span>🟢 İşe Geldim</span>
-                  {!isAdmin && isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
-                </h4>
-                <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
-                  {isAdmin
-                    ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan başlatın (30m kuralından muaf).'
-                    : isLocationDisabled
-                    ? '⚠️ Konumunuz kapalı. Mesaiye başlamak için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
-                    : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.'}
-                </p>
-              </div>
-            </button>
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${
+                      isLockedOutside20m
+                        ? 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        : 'bg-white/20 backdrop-blur-md'
+                    }`}>
+                      {actionLoadingType === 'checkin' ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : isLockedOutside20m ? (
+                        <Lock className="w-5 h-5" />
+                      ) : (
+                        <UserCheck className="w-5 h-5" />
+                      )}
+                    </div>
+                    <span className={"text-[10px] font-black uppercase px-2 py-0.5 rounded-full " + (
+                      !isAdmin && isLocationDisabled
+                        ? 'bg-rose-500 text-white animate-pulse'
+                        : isLockedOutside20m
+                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                        : 'bg-white/20'
+                    )}>
+                      {isAdmin
+                        ? 'Yönetici Girişi'
+                        : isLocationDisabled
+                        ? '📍 Konumu Etkinleştir'
+                        : isLockedOutside20m
+                        ? `🔒 ${allowedRadius}m Alan Dışı (Deaktif)`
+                        : isPendingCheckIn
+                        ? 'Onay Bekliyor'
+                        : 'Giriş Yap'}
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
+                      <span>{isLockedOutside20m ? '🔒 İşe Geldim (Deaktif)' : '🟢 İşe Geldim'}</span>
+                      {!isAdmin && isLocationDisabled && <MapPinOff className="w-4 h-4 text-rose-300" />}
+                    </h4>
+                    <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
+                      {isAdmin
+                        ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan başlatın (30m kuralından muaf).'
+                        : isLocationDisabled
+                        ? '⚠️ Konumunuz kapalı. Mesaiye başlamak için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
+                        : isLockedOutside20m
+                        ? `🚫 Şu an ${LocationService.formatDistance(currentDistance!)} uzaktasınız. Kurum kuralı gereği "İşe Geldim" butonunun aktifleşmesi için ${allowedRadius}m şube/iş yeri alanına girmeniz gerekmektedir.`
+                        : isOutsideCheckInBlocked
+                        ? `${allowedRadius}m şube/iş yeri alanı içindeyken mesainizi anında başlatın.`
+                        : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesainizi başlatın.'}
+                    </p>
+                  </div>
+                </button>
+              );
+            })()}
 
             {/* Buton 2: İşten Çıkış Yaptım (Kırmızı) */}
             <button
@@ -5642,6 +5797,68 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* ============================================================ */}
       {activeSection === 'definitions' && isAdmin && isSubModulePermitted('staff_tracking', 'definitions', user, viewingCompany || company) && (
         <div className="space-y-6">
+          {/* Firma Bazlı Kural: 20m Dışı İşe Giriş Buton Kilidi */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border-2 border-indigo-200 dark:border-indigo-900/60 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400'
+                    : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {isOutsideCheckInBlocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                      20m Dışında "İşe Geldim" Butonunu Deaktif Et (Firma Kuralı)
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                      isOutsideCheckInBlocked
+                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {isOutsideCheckInBlocked ? '🔒 Kilit Aktif (Buton Deaktif Olur)' : '🔓 Esnek Mod (Yönetici Onaylı Giriş)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                    Aktif edildiğinde, yalnızca bu firma ({(viewingCompany || company)?.name || 'Kurumunuz'}) personelleri 20 metre şube/iş yeri alanı dışındayken "İşe Geldim" butonu deaktif (kilitli) olur.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={isUpdatingOutsidePolicy}
+                onClick={handleToggleOutsideCheckInPolicy}
+                className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
+                    : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900'
+                }`}
+              >
+                {isUpdatingOutsidePolicy ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isOutsideCheckInBlocked ? (
+                  <Unlock className="w-4 h-4" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                <span>
+                  {isOutsideCheckInBlocked
+                    ? 'Kilidi Kaldır'
+                    : '20m Dışında Deaktif Et'}
+                </span>
+              </button>
+            </div>
+
+            {outsidePolicyMsg && (
+              <div className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 animate-in fade-in">
+                {outsidePolicyMsg}
+              </div>
+            )}
+          </div>
+
           {/* Üst Sekmeler: Vardiya Saatleri | Şube Mola Süreleri */}
           <div className="flex items-center gap-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 max-w-md">
             <button

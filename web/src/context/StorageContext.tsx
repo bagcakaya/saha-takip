@@ -228,6 +228,7 @@ interface StorageContextType {
   removeUserShift: (userId: string) => Promise<void>;
   updateBranchBreakMinutes: (branchId: string, maxBreakMinutes: number) => Promise<void>;
   updateWorkplaceBreakMinutes: (maxBreakMinutes: number) => Promise<void>;
+  updateWorkplaceOutsideCheckInPolicy: (blockOutsideCheckIn: boolean) => Promise<void>;
   refreshShifts: () => Promise<void>;
   jobApplications: JobApplication[];
   addJobApplication: (data: Omit<JobApplication, 'id' | 'createdAt' | 'companyCode'>) => Promise<JobApplication>;
@@ -3466,6 +3467,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     radiusMeters = 20
   ) => {
     const loc: WorkplaceLocation = {
+      ...(workplaceLocation || {}),
       address: address.trim(),
       latitude,
       longitude,
@@ -3646,6 +3648,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated: WorkplaceLocation = {
       ...currentLoc,
       maxBreakMinutes,
+      updatedAt: Date.now(),
+      updatedBy: user?.id,
+      updatedByName: user?.name,
+    };
+    setWorkplaceLocation(updated);
+    await StorageService.saveWorkplaceLocation(updated);
+  };
+
+  const updateWorkplaceOutsideCheckInPolicy = async (blockOutsideCheckIn: boolean) => {
+    const currentLoc = workplaceLocation || {
+      address: 'Genel Merkez / İş Yeri',
+      latitude: 0,
+      longitude: 0,
+      radiusMeters: 20,
+      updatedAt: Date.now(),
+    };
+    const updated: WorkplaceLocation = {
+      ...currentLoc,
+      blockOutsideCheckIn,
       updatedAt: Date.now(),
       updatedBy: user?.id,
       updatedByName: user?.name,
@@ -4649,6 +4670,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         // 3. Outside all company branches
+        if (workplaceLocation?.blockOutsideCheckIn) {
+          return {
+            success: false,
+            distance: distToAssigned,
+            message: `🔒 Firmamız kuralları gereği 20 metre alan dışında işe giriş yapılamamaktadır. Bağlı olduğunuz "${assignedBranch.name}" şubesine mesafeniz: ${LocationService.formatDistance(distToAssigned)}. Lütfen 20 metre şube alanına yaklaşınız.`,
+          };
+        }
+
         if (!options?.allowOutside) {
           return {
             success: false,
@@ -4761,6 +4790,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
 
+        if (workplaceLocation?.blockOutsideCheckIn) {
+          return {
+            success: false,
+            distance: minDist,
+            message: `🔒 Firmamız kuralları gereği 20 metre alan dışında işe giriş yapılamamaktadır (En yakın şube: ${closestBranch.name}, Mesafe: ${LocationService.formatDistance(minDist)}). Lütfen 20 metre şube alanına yaklaşınız.`,
+          };
+        }
+
         if (!options?.allowOutside) {
           return {
             success: false,
@@ -4828,6 +4865,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       : 20;
 
     if (distance > allowedRadius) {
+      if (workplaceLocation?.blockOutsideCheckIn) {
+        return {
+          success: false,
+          distance,
+          message: `🔒 Firmamız kuralları gereği ${allowedRadius} metre alan dışında işe giriş yapılamamaktadır (İş yerine mesafeniz: ${LocationService.formatDistance(distance)}). Lütfen iş yeri alanına yaklaşınız.`,
+        };
+      }
+
       if (!options?.allowOutside) {
         return {
           success: false,
@@ -7280,6 +7325,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         assignStaffToBranch,
         updateBranchBreakMinutes,
         updateWorkplaceBreakMinutes,
+        updateWorkplaceOutsideCheckInPolicy,
         shifts,
         shiftAssignments,
         createShift,
