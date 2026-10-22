@@ -57,15 +57,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Built-in default user accounts
+// Built-in default user accounts (only root super-admins)
 export const DEFAULT_ACCOUNTS: UserAccount[] = [
   { id: 'admin-root', username: 'admin', password: '1234', name: 'Sistem Yöneticisi', role: 'admin', companyCode: 'POLATLAR', createdAt: 1700000000000, canChangePassword: true },
   { id: 'mtjsnufrp8pfa', username: 'murat', password: '4412', name: 'Murat POLAT', role: 'admin', companyCode: 'POLATLAR', createdAt: 1788335296983, canChangePassword: true },
-  { id: 'mtjso6drpactx', username: 'burak', password: '1234', name: 'Burak AĞCAKAYA', role: 'staff', companyCode: 'POLATLAR', createdAt: 1788335296990, canChangePassword: true },
-  { id: 'mtjsoob6so4wi', username: 'azizcan', password: '1234', name: 'Azizcan ISIYEL', role: 'staff', companyCode: 'POLATLAR', createdAt: 1788335296991, canChangePassword: false },
-  { id: 'mu3wz17wbkq2t', username: 'mertagcakaya', password: '1234', name: 'Mert Agcakaya', role: 'staff', companyCode: 'POLATLAR', createdAt: 1788335296992, canChangePassword: false },
-  { id: 'mu42age5lqmew', username: 'omerbugracaglar', password: '1234', name: 'Ömer Buğra Çağlar', role: 'staff', companyCode: 'POLATLAR', createdAt: 1788335296993, canChangePassword: false },
-  { id: 'mu42b1kqff54r', username: 'mehmetemirpolat', password: '1234', name: 'Mehmet Emir Polat', role: 'staff', companyCode: 'POLATLAR', createdAt: 1788335296994, canChangePassword: false },
 ];
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -314,22 +309,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let merged: UserAccount[] = [];
 
       if (cloudUsers.length > 0) {
-        // Map by companyCode:username
+        // Map by companyCode:username (Cloud is authoritative — do not re-inject deleted local accounts)
         const map = new Map<string, UserAccount>();
         cloudUsers.forEach((u) => {
           const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
           map.set(key, u);
         });
 
-        // Preserve any accounts in local storage not yet in cloud or customized
-        currentLocal.forEach((lu) => {
-          const key = `${(lu.companyCode || 'POLATLAR').toUpperCase()}:${(lu.username || '').toLowerCase()}`;
-          if (!map.has(key)) {
-            map.set(key, lu);
-          }
-        });
-
-        // Ensure default accounts exist if missing
+        // Ensure default super-admin accounts exist if missing
         DEFAULT_ACCOUNTS.forEach((def) => {
           const key = `${(def.companyCode || 'POLATLAR').toUpperCase()}:${def.username.toLowerCase()}`;
           if (!map.has(key)) {
@@ -835,6 +822,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUsers(updated);
       await AsyncStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
       await saveUsersToCloud(updated);
+      try {
+        await supabase.from('app_users').delete().eq('id', id);
+      } catch {}
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Kullanıcı silinemedi.' };

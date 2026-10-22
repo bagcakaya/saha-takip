@@ -177,9 +177,6 @@ export default async function handler(req, res) {
         'mtjsnufrp8pfa',
         'mtjso6drpactx',
         'mtjsoob6so4wi',
-        'mu3wz17wbkq2t',
-        'mu42age5lqmew',
-        'mu42b1kqff54r',
         'mtjsoxbaslaty',
       ];
 

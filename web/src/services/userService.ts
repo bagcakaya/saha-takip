@@ -8,7 +8,44 @@ import { SanitizeService } from './sanitizeService';
 import { ServerConfigService } from './serverConfigService';
 
 const USERS_STORAGE_KEY = '@gorev_tamamlama_users_list';
+const DELETED_USERS_STORAGE_KEY = '@gorev_tamamlama_deleted_user_ids';
 const USERS_SLOT_ID = 101;
+
+// Permanently retired legacy ghost accounts so stale browser caches can never re-upload them
+const PERMANENTLY_DELETED_LEGACY_IDS = [
+  'mu3wz17wbkq2t', // mertagcakaya
+  'mu42age5lqmew', // omerbugracaglar
+  'mu42b1kqff54r', // mehmetemirpolat
+];
+
+function getDeletedUserIds(): Set<string> {
+  const set = new Set<string>(PERMANENTLY_DELETED_LEGACY_IDS);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(DELETED_USERS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id) => {
+            if (id) set.add(String(id));
+          });
+        }
+      }
+    }
+  } catch {}
+  return set;
+}
+
+function recordDeletedUserId(id: string): void {
+  if (!id) return;
+  try {
+    const set = getDeletedUserIds();
+    set.add(id);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(DELETED_USERS_STORAGE_KEY, JSON.stringify(Array.from(set)));
+    }
+  } catch {}
+}
 
 const DEFAULT_ADMIN: UserAccount = {
   id: 'admin-root',
@@ -37,27 +74,36 @@ export const UserService = {
    * Retrieves all user accounts from local storage / cache
    */
   getUsers(): UserAccount[] {
+    const deletedIds = getDeletedUserIds();
     try {
       const data = localStorage.getItem(USERS_STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((u) => {
-            let comp = (u.companyCode || u.company_code || '').trim().toUpperCase();
-            if (!comp && u.username && u.username.includes(':')) {
-              comp = u.username.split(':')[0].trim().toUpperCase();
-            }
-            if (comp === 'MAYAPASTANELERİ' || comp === 'MAYAPASTANELERI') {
-              comp = 'MAYAPASTANE';
-            }
-            if (!comp) comp = 'POLATLAR';
-            const isAdmin = isUserAdmin(u);
-            return {
-              ...u,
-              companyCode: comp,
-              role: isAdmin ? ('admin' as UserRole) : u.role,
-            };
-          });
+          const filtered = parsed.filter((u) => u && !deletedIds.has(u.id));
+          if (filtered.length !== parsed.length) {
+            try {
+              localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(filtered));
+            } catch {}
+          }
+          if (filtered.length > 0) {
+            return filtered.map((u) => {
+              let comp = (u.companyCode || u.company_code || '').trim().toUpperCase();
+              if (!comp && u.username && u.username.includes(':')) {
+                comp = u.username.split(':')[0].trim().toUpperCase();
+              }
+              if (comp === 'MAYAPASTANELERİ' || comp === 'MAYAPASTANELERI') {
+                comp = 'MAYAPASTANE';
+              }
+              if (!comp) comp = 'POLATLAR';
+              const isAdmin = isUserAdmin(u);
+              return {
+                ...u,
+                companyCode: comp,
+                role: isAdmin ? ('admin' as UserRole) : u.role,
+              };
+            });
+          }
         }
       }
     } catch (e) {
@@ -208,7 +254,9 @@ export const UserService = {
    */
   saveUsers(users: UserAccount[]): void {
     try {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+      const deletedIds = getDeletedUserIds();
+      const clean = users.filter((u) => u && !deletedIds.has(u.id));
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(clean));
     } catch (e) {
       console.error('Kullanıcılar kaydedilemedi:', e);
     }
@@ -219,6 +267,11 @@ export const UserService = {
    */
   async syncToSlot101(userList: UserAccount[]): Promise<void> {
     try {
+      const deletedIds = getDeletedUserIds();
+      const cleanUserList = userList.filter((u) => u && !deletedIds.has(u.id));
+      const companiesInUserList = new Set(
+        cleanUserList.map((u) => (u.companyCode || 'POLATLAR').toUpperCase())
+      );
       let existingList: UserAccount[] = [];
 
       // 1. Yerel Sunucu (Local Mode)
@@ -232,10 +285,15 @@ export const UserService = {
 
         const userMap = new Map<string, UserAccount>();
         existingList.forEach((u) => {
-          const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-          userMap.set(key, u);
+          if (!u || deletedIds.has(u.id)) return;
+          const comp = (u.companyCode || 'POLATLAR').toUpperCase();
+          // Only preserve existing users from companies NOT included in cleanUserList
+          if (!companiesInUserList.has(comp)) {
+            const key = `${comp}:${(u.username || '').toLowerCase()}`;
+            userMap.set(key, u);
+          }
         });
-        userList.forEach((u) => {
+        cleanUserList.forEach((u) => {
           const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
           userMap.set(key, u);
         });
@@ -293,13 +351,17 @@ export const UserService = {
         }
       }
 
-      // Merge existing with userList (keyed by companyCode:username)
       const userMap = new Map<string, UserAccount>();
       existingList.forEach((u) => {
-        const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-        userMap.set(key, u);
+        if (!u || deletedIds.has(u.id)) return;
+        const comp = (u.companyCode || 'POLATLAR').toUpperCase();
+        // Only preserve existing users from companies NOT included in cleanUserList
+        if (!companiesInUserList.has(comp)) {
+          const key = `${comp}:${(u.username || '').toLowerCase()}`;
+          userMap.set(key, u);
+        }
       });
-      userList.forEach((u) => {
+      cleanUserList.forEach((u) => {
         const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
         userMap.set(key, u);
       });
@@ -645,7 +707,8 @@ export const UserService = {
         }
       } catch {}
 
-      const all = Array.from(userMap.values());
+      const deletedIds = getDeletedUserIds();
+      const all = Array.from(userMap.values()).filter((u) => u && !deletedIds.has(u.id));
       if (companyCodeFilter) {
         const clean = companyCodeFilter.trim().toUpperCase();
         return all.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === clean);
@@ -662,6 +725,7 @@ export const UserService = {
    */
   async fetchUsersFromCloud(companyCodeFilter?: string): Promise<UserAccount[]> {
     const localUsers = this.getUsers();
+    const deletedIds = getDeletedUserIds();
 
     // 0. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
     if (ServerConfigService.isLocalMode()) {
@@ -674,7 +738,7 @@ export const UserService = {
           const rawJson = slotRes.data.tasks.join('');
           const parsed = JSON.parse(rawJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            localFoundUsers = parsed;
+            localFoundUsers = parsed.filter((u: UserAccount) => u && !deletedIds.has(u.id));
           }
         }
       } catch (err) {
@@ -685,36 +749,38 @@ export const UserService = {
         try {
           const tableRes = await ServerConfigService.apiGet<any[]>('/api/tables/app_users');
           if (tableRes.data && Array.isArray(tableRes.data) && tableRes.data.length > 0) {
-            localFoundUsers = tableRes.data.map((row) => {
-              let companyCode = 'POLATLAR';
-              let username = row.username;
-              let email: string | undefined = undefined;
+            localFoundUsers = tableRes.data
+              .filter((row) => row && !deletedIds.has(row.id))
+              .map((row) => {
+                let companyCode = 'POLATLAR';
+                let username = row.username;
+                let email: string | undefined = undefined;
 
-              if (row.username && row.username.includes('#')) {
-                const hashParts = row.username.split('#');
-                username = hashParts[0];
-                email = hashParts[1]?.toLowerCase();
-              }
+                if (row.username && row.username.includes('#')) {
+                  const hashParts = row.username.split('#');
+                  username = hashParts[0];
+                  email = hashParts[1]?.toLowerCase();
+                }
 
-              if (username && username.includes(':')) {
-                const parts = username.split(':');
-                companyCode = parts[0].toUpperCase();
-                username = parts.slice(1).join(':');
-              }
+                if (username && username.includes(':')) {
+                  const parts = username.split(':');
+                  companyCode = parts[0].toUpperCase();
+                  username = parts.slice(1).join(':');
+                }
 
-              const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+                const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
 
-              return {
-                id: row.id,
-                username,
-                password: row.password,
-                name: row.name,
-                role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
-                createdAt: Number(row.created_at) || Date.now(),
-                companyCode,
-                email,
-              };
-            });
+                return {
+                  id: row.id,
+                  username,
+                  password: row.password,
+                  name: row.name,
+                  role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
+                  createdAt: Number(row.created_at) || Date.now(),
+                  companyCode,
+                  email,
+                };
+              });
           }
         } catch (err) {
           console.warn('Yerel sunucu app_users tablosu okunurken hata:', err);
@@ -738,15 +804,20 @@ export const UserService = {
           const cloudUsers = await this.fetchUsersDirectFromSupabase(companyCodeFilter);
           if (cloudUsers && cloudUsers.length > 0) {
             const userMap = new Map<string, UserAccount>();
+            const cleanFilter = companyCodeFilter ? companyCodeFilter.trim().toUpperCase() : null;
             (localFoundUsers || []).forEach((u) => {
-              userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
+              if (!u || deletedIds.has(u.id)) return;
+              const uComp = (u.companyCode || 'POLATLAR').toUpperCase();
+              if (!cleanFilter || uComp !== cleanFilter) {
+                userMap.set(`${uComp}:${(u.username || '').toLowerCase()}`, u);
+              }
             });
             cloudUsers.forEach((u) => {
+              if (!u || deletedIds.has(u.id)) return;
               userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
             });
             const merged = Array.from(userMap.values());
             this.saveUsers(merged);
-            this.syncToSlot101(merged).catch(() => {});
             return companyCodeFilter
               ? merged.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === companyCodeFilter.trim().toUpperCase())
               : merged;
@@ -770,16 +841,32 @@ export const UserService = {
       return localUsers;
     }
 
-    // 1. Supabase Cloud Mode
+    // 1. Supabase Cloud Mode (Authoritative: never re-inject deleted localUsers back into cloudUsers!)
     try {
       const cloudUsers = await this.fetchUsersDirectFromSupabase(companyCodeFilter);
       if (cloudUsers && cloudUsers.length > 0) {
         const userMap = new Map<string, UserAccount>();
-        localUsers.forEach((u) => {
+        if (companyCodeFilter) {
+          // Only preserve localUsers belonging to OTHER companies when a single company was queried
+          const cleanFilter = companyCodeFilter.trim().toUpperCase();
+          localUsers.forEach((u) => {
+            if (!u || deletedIds.has(u.id)) return;
+            const uComp = (u.companyCode || 'POLATLAR').toUpperCase();
+            if (uComp !== cleanFilter) {
+              userMap.set(`${uComp}:${(u.username || '').toLowerCase()}`, u);
+            }
+          });
+        }
+        cloudUsers.forEach((u) => {
+          if (!u || deletedIds.has(u.id)) return;
           userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
         });
-        cloudUsers.forEach((u) => {
-          userMap.set(`${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`, u);
+        // Guarantee root super-admins exist
+        [DEFAULT_ADMIN, DEFAULT_MURAT].forEach((def) => {
+          const key = `POLATLAR:${def.username.toLowerCase()}`;
+          if (!userMap.has(key)) {
+            userMap.set(key, def);
+          }
         });
         const merged = Array.from(userMap.values());
         this.saveUsers(merged);
@@ -1149,28 +1236,55 @@ export const UserService = {
       }
     }
 
-    const filtered = users.filter((u) => u.id !== id);
+    recordDeletedUserId(id);
+    const filtered = users.filter(
+      (u) =>
+        u.id !== id &&
+        !(
+          (u.companyCode || 'POLATLAR').trim().toUpperCase() === targetComp &&
+          (u.username || '').trim().toLowerCase() === targetUname
+        )
+    );
     this.saveUsers(filtered);
 
-    // 1. Yerel Sunucu (Local Mode)
-    if (ServerConfigService.isLocalMode()) {
-      await ServerConfigService.apiPost('/api/tables/app_users/delete', { ids: [id] });
-      await this.removeFromSlot101(id, target.username, target.companyCode);
-      return { success: true };
-    }
-
-    // 2. Supabase Cloud Fallback
-    try {
-      await supabase.from('app_users').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase kullanıcı silme hatası:', err);
-    }
-
-    // Also remove from Slot 101 for mobile app parity
+    // IMPORTANT: Remove from Slot 101 FIRST before deleting from app_users!
+    // Why? Deleting from app_users triggers Supabase Realtime 'postgres_changes', which calls fetchUsersFromCloud().
+    // If Slot 101 still had the user when Realtime fired, fetchUsersFromCloud() would resurrect the user!
     try {
       await this.removeFromSlot101(id, target.username, target.companyCode);
     } catch (err) {
       console.warn('Slot 101 removeFromSlot101 error:', err);
+    }
+
+    // 1. Yerel Sunucu (Local Mode)
+    if (ServerConfigService.isLocalMode()) {
+      await ServerConfigService.apiPost('/api/tables/app_users/delete', { ids: [id] });
+    } else {
+      // Also mirror delete to Dual-Write Local Server in background if reachable
+      void (async () => {
+        try {
+          const dualUrl = ServerConfigService.getDualWriteApiUrl();
+          if (dualUrl) {
+            await fetch(`${dualUrl}/api/tables/app_users/delete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: [id] }),
+            });
+          }
+        } catch {}
+      })();
+    }
+
+    // 2. Supabase Cloud Delete (by ID and by username variations so no orphan row remains in app_users)
+    try {
+      await supabase.from('app_users').delete().eq('id', id);
+      const possibleUsernames =
+        targetComp === 'POLATLAR'
+          ? [targetUname, `POLATLAR:${targetUname}`]
+          : [`${targetComp}:${targetUname}`];
+      await supabase.from('app_users').delete().in('username', possibleUsernames);
+    } catch (err) {
+      console.warn('Supabase kullanıcı silme hatası:', err);
     }
 
     return { success: true };
