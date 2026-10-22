@@ -1760,7 +1760,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
             {yearlyMonthlyStats.grandTotalRemaining.toLocaleString('tr-TR')} ₺
           </p>
           <div className="flex flex-col gap-0.5 mt-1">
-            <span className="text-[10px] text-slate-400 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 flex flex-col xl:flex-row xl:items-center justify-between gap-0.5">
               <span>Belirlenen: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{yearlyMonthlyStats.grandTotalAgreed.toLocaleString('tr-TR')} ₺</strong></span>
               <span>Ödenen: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{yearlyMonthlyStats.grandTotalPaid.toLocaleString('tr-TR')} ₺</strong></span>
             </span>
@@ -2450,15 +2450,15 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   }
                   className="p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors select-none"
                 >
-                  <div className="flex items-center gap-3.5">
+                  <div className="flex items-center gap-3.5 min-w-0">
                     {/* Profil Resmi / Avatar */}
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white font-black flex items-center justify-center text-base shadow-md shadow-emerald-500/20 shrink-0">
                       {staff.name ? staff.name.substring(0, 2).toUpperCase() : 'PE'}
                     </div>
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
                           {staff.name || staff.username}
                         </h3>
                         {staff.role === 'admin' && (
@@ -2491,7 +2491,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           </span>
                         )}
                         {staff.iban && (
-                          <span className="inline-flex items-center gap-1 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200/60 dark:border-amber-900/50" title="Banka IBAN Numarası">
+                          <span className="inline-flex items-center gap-1 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200/60 dark:border-amber-900/50 break-all sm:break-normal" title="Banka IBAN Numarası">
                             IBAN: {staff.iban}
                           </span>
                         )}
@@ -2511,7 +2511,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                   </div>
 
                   {/* Özet ve Çekmece Butonu */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
                     <div className="text-left sm:text-right">
                       {/* Başlık: Belirlenen Tutar */}
                       <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-start sm:justify-end gap-1.5">
@@ -2568,7 +2568,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                     {/* Çekmece Aç/Kapa Butonu */}
                     <button
                       type="button"
-                      className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                         isExpanded
                           ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400'
                           : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100'
@@ -3055,7 +3055,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                         </span>
                       )}
                       {activeModalData.staff.iban && (
-                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-200/60 dark:border-amber-900/50" title="Banka IBAN Numarası">
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-200/60 dark:border-amber-900/50 break-all sm:break-normal" title="Banka IBAN Numarası">
                           IBAN: {activeModalData.staff.iban}
                         </span>
                       )}
@@ -3203,7 +3203,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
                           className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={handleSaveAgreedAmount}
@@ -3653,7 +3653,7 @@ export const StaffSalaryModule: React.FC<StaffSalaryModuleProps> = ({ onBack }) 
 
                 {/* 2. Kalan Maaşı Kapat Butonu (Kalan varsa) */}
                 {currentMonthCalc.remaining !== null && currentMonthCalc.remaining > 0 && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     <button
                       type="button"
                       onClick={() => handleSettleRemaining('bank')}

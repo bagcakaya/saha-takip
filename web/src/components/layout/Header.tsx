@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, Building2, ClipboardList, ListTodo, LogOut, User, Users, ShieldCheck, ShieldAlert, RotateCcw, Home, Wrench, UserCheck, Megaphone, Store, Server, Settings, StickyNote, UserPlus, Sparkles } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { isUserAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
+import { isUserAdmin, canUserManageServerConfig, isModulePermitted } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
-import { useStorage } from '../../context/StorageContext';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
 
@@ -30,12 +29,8 @@ export const Header: React.FC<HeaderProps> = ({
   actionButton,
 }) => {
   const { user, company, logout } = useAuth();
-  const {
-    unreadLogsCount,
-  } = useStorage();
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
-  const canManageBranches = canUserManageInstitutionsAndBranches(user);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -48,181 +43,15 @@ export const Header: React.FC<HeaderProps> = ({
     return 'default';
   });
 
-
-
-  const desktopNavTabs = (
-    <div className="hidden md:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
-      <button
-        onClick={() => setActiveTab('home')}
-        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-          activeTab === 'home'
-            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-        }`}
-      >
-        <Home className="w-4 h-4" />
-        <span>Ana Menü</span>
-      </button>
-      {canManageBranches && (!company || company.code === 'POLATLAR') && (
-        <button
-          onClick={() => setActiveTab('branches')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'branches'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <Store className="w-4 h-4" />
-          <span>Kurum ve Şubeler</span>
-        </button>
-      )}
-      {isModulePermitted('installations', user, company) && (
-        <button
-          onClick={() => setActiveTab('installations')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'installations'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Kurulumlar</span>
-        </button>
-      )}
-      {isModulePermitted('services', user, company) && (
-        <button
-          onClick={() => setActiveTab('services')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'services'
-              ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <Wrench className="w-4 h-4" />
-          <span>Servisler</span>
-        </button>
-      )}
-      {isModulePermitted('notes', user, company) && (
-        <button
-          onClick={() => setActiveTab('notes')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'notes'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <ClipboardList className="w-4 h-4" />
-          <span>İş Emirleri</span>
-        </button>
-      )}
-      {isModulePermitted('personal_notes', user, company) && (
-        <button
-          onClick={() => setActiveTab('personal_notes')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'personal_notes'
-              ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <StickyNote className="w-4 h-4" />
-          <span>Notlarım</span>
-        </button>
-      )}
-      {isModulePermitted('staff_tracking', user, company) && (
-        <button
-          onClick={() => setActiveTab('staff_tracking')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'staff_tracking'
-              ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <UserCheck className="w-4 h-4" />
-          <span>Personel Takibi</span>
-        </button>
-      )}
-      {isModulePermitted('reminders', user, company) && (
-        <button
-          onClick={() => setActiveTab('reminders')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'reminders'
-              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <Megaphone className="w-4 h-4" />
-          <span>Hatırlatmalar</span>
-        </button>
-      )}
-      {isModulePermitted('returns', user, company) && (
-        <button
-          onClick={() => setActiveTab('returns')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'returns'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <RotateCcw className="w-4 h-4" />
-          <span>İade / Garanti</span>
-        </button>
-      )}
-      {isModulePermitted('logs', user, company) && (
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'logs'
-              ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <ShieldAlert className="w-4 h-4 text-amber-500" />
-          <span>Log Kayıtları</span>
-          {unreadLogsCount > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
-              {unreadLogsCount}
-            </span>
-          )}
-        </button>
-      )}
-      {isModulePermitted('template', user, company) && (
-        <button
-          onClick={() => setActiveTab('template')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'template'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <ListTodo className="w-4 h-4" />
-          <span>Şablon Yönetimi</span>
-        </button>
-      )}
-      {isModulePermitted('job_applications', user, company) && (
-        <button
-          onClick={() => setActiveTab('job_applications')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'job_applications'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-          }`}
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>İş Başvuruları</span>
-        </button>
-      )}
-    </div>
-  );
-
   const rightActionButtons = (
-    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+    <div className="flex items-center gap-1 sm:gap-2 shrink-0 flex-wrap justify-end">
       {actionButton}
 
       {/* Admin-only User Management Button */}
       {isAdmin && (
         <button
           onClick={() => setIsUserModalOpen(true)}
-          className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold transition-all active:scale-95 shadow-xs"
+          className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold transition-all active:scale-95 shadow-xs"
           title="Kullanıcı ve Yetki Yönetimi"
         >
           <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
@@ -235,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => setIsServerModalOpen(true)}
-          className={`p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer ${
+          className={`p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer ${
             isLocalServer
               ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
               : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -271,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
       <button
         type="button"
         onClick={() => setIsNotificationSettingsOpen(true)}
-        className="p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+        className="p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
         title="Bildirim ve Cihaz Ayarları"
         aria-label="Bildirim ve Cihaz Ayarları"
       >
@@ -286,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
-          className="p-2 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
+          className="p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
           title="Yapay Zekâ Asistanı (Sesli veya Yazılı)"
           aria-label="Yapay Zekâ Asistanı"
         >
@@ -305,7 +134,7 @@ export const Header: React.FC<HeaderProps> = ({
               logout();
             }
           }}
-          className="p-2 sm:p-2.5 rounded-xl text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
+          className="p-1.5 sm:p-2.5 rounded-xl text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
           title="Çıkış Yap"
           aria-label="Çıkış Yap"
         >
@@ -318,7 +147,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3.5 sm:px-6 transition-colors shadow-xs w-full max-w-full overflow-hidden"
+        className="lg:hidden sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-3 sm:px-6 transition-colors shadow-xs w-full max-w-full overflow-hidden"
         style={{
           paddingTop: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 56px)',
           paddingBottom: '12px',
@@ -338,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Alt Satır: [ ← Ana Menü ] Butonu ve Sağ Taraf İkon Butonları */}
-            <div className="flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full min-w-0">
               <button
                 type="button"
                 onClick={() => {
@@ -351,20 +180,19 @@ export const Header: React.FC<HeaderProps> = ({
                     window.scrollTo(0, 0);
                   }
                 }}
-                className="flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm sm:text-base font-black shadow-lg shadow-blue-600/30 transition-all active:scale-95 shrink-0 cursor-pointer min-h-[44px]"
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs sm:text-sm font-black shadow-lg shadow-blue-600/30 transition-all active:scale-95 shrink-0 cursor-pointer min-h-[38px] sm:min-h-[44px]"
                 title="Ana Menüye Dön"
               >
-                <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
                 <span>Ana Menü</span>
               </button>
 
-              {desktopNavTabs}
               {rightActionButtons}
             </div>
           </div>
         ) : (
           /* Diğer hallerde (Ana Menü): İkonun (Logo) sağında başlık ve alt başlık */
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <img
                 src="/icon.png"
@@ -385,7 +213,6 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {desktopNavTabs}
             {rightActionButtons}
           </div>
         )}

@@ -2983,13 +2983,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                 Merkez Adresi / Koordinatı
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <input
                   type="text"
                   value={addressText}
                   onChange={(e) => setAddressText(e.target.value)}
                   placeholder="Firma / Genel Merkez adresi veya koordinatı..."
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm font-medium"
+                  className="flex-1 min-w-0 px-3 sm:px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm font-medium"
                 />
 
                 {/* GPS Button */}
@@ -4208,7 +4208,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       const startTime = rec.currentBreakStartTime ? new Date(rec.currentBreakStartTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '-';
                       const durMins = rec.currentBreakStartTime ? Math.max(1, Math.round((Date.now() - rec.currentBreakStartTime) / 60000)) : 1;
                       return (
-                        <div key={rec.id} className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700 flex items-center justify-between shadow-xs gap-2">
+                        <div key={rec.id} className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700 flex flex-wrap items-center justify-between shadow-xs gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="font-black text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5 truncate">
                               <Coffee className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -5447,7 +5447,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between gap-2 flex-wrap pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">İzin Durumu:</span>
-              <div className="flex items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1 p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setLeaveStatusFilter('all')}
@@ -5832,7 +5832,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 type="button"
                 disabled={isUpdatingOutsidePolicy}
                 onClick={handleToggleOutsideCheckInPolicy}
-                className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
+                className={`w-full sm:w-auto justify-center px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
                   isOutsideCheckInBlocked
                     ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
                     : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900'
@@ -5861,34 +5861,34 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
           </div>
 
           {/* Üst Sekmeler: Vardiya Saatleri | Şube Mola Süreleri */}
-          <div className="flex items-center gap-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 max-w-md">
+          <div className="flex items-center gap-1.5 sm:gap-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 max-w-md">
             <button
               type="button"
               onClick={() => setDefinitionsTab('shifts')}
-              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              className={`flex-1 py-2.5 px-2.5 sm:px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer min-w-0 ${
                 definitionsTab === 'shifts'
                   ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>Vardiya Saatleri</span>
-              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-bold">
+              <Clock className="w-4 h-4 shrink-0" />
+              <span className="truncate">Vardiya Saatleri</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-bold shrink-0">
                 {shifts.length}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setDefinitionsTab('breaks')}
-              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              className={`flex-1 py-2.5 px-2.5 sm:px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer min-w-0 ${
                 definitionsTab === 'breaks'
                   ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Coffee className="w-4 h-4" />
-              <span>Mola Süreleri</span>
-              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold">
+              <Coffee className="w-4 h-4 shrink-0" />
+              <span className="truncate">Mola Süreleri</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold shrink-0">
                 {branches.length > 0 ? branches.length + 1 : 1}
               </span>
             </button>
@@ -5984,9 +5984,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                                 {shift.earlyCheckInMinutes !== undefined ? shift.earlyCheckInMinutes : 30} dk önce
                               </span>
                             </div>
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap items-center justify-between gap-1.5">
                               <span className="text-[11px] font-semibold text-slate-500">Çalışma Günleri:</span>
-                              <div className="flex items-center gap-1">
+                              <div className="flex flex-wrap items-center gap-1">
                                 {dayLabels.map((lbl, idx) => (
                                   <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-700 dark:text-slate-300">
                                     {lbl}
@@ -6489,9 +6489,9 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
                       <span className="text-slate-600 dark:text-slate-400 font-semibold">Çalışma Günleri:</span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         {(userActiveShift.daysOfWeek || [1, 2, 3, 4, 5, 6]).map((d) => {
                           const dayObj = DAYS_OF_WEEK.find((item) => item.id === d);
                           return (

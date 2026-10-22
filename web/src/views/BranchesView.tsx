@@ -403,7 +403,7 @@ export const BranchesView: React.FC = () => {
                 Kurum & Şube Yönetimi
               </span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-slate-300">
-                30m Mesai Yarıçapı
+                20m Mesai Yarıçapı
               </span>
             </div>
             <h1 className="text-lg sm:text-xl font-black tracking-tight">
@@ -699,7 +699,7 @@ export const BranchesView: React.FC = () => {
                                 </div>
 
                                 {/* Branch Actions Bar */}
-                                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5">
                                     <button
                                       type="button"

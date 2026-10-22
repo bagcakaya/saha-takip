@@ -25,12 +25,12 @@ export const TemplateView: React.FC = () => {
   return (
     <div className="space-y-5 pb-10 animate-in fade-in duration-200">
       {/* Top Header Controls */}
-      <div className="flex items-center justify-between bg-white dark:bg-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200/80 dark:border-slate-700/80">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200/80 dark:border-slate-700/80">
+        <div className="min-w-0">
           <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100">
             Standart Şablon Yönetimi
           </h2>
-          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium block">
             Yeni açılacak kurulumlar için toplam {standardTasks.length} adet otomatik tanımlı görev
           </span>
         </div>
@@ -38,7 +38,7 @@ export const TemplateView: React.FC = () => {
         {isPolatlar && standardTasks.length > 0 && (
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shrink-0"
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shrink-0 self-start sm:self-auto"
             title="Varsayılan 12 Göreve Sıfırla"
           >
             <RotateCcw className="w-3.5 h-3.5" />

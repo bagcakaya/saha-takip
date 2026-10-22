@@ -720,7 +720,7 @@ export const AccountingView: React.FC = () => {
             {/* Hızlı Filtre Butonları */}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {/* Tür Filtresi */}
-              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+              <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
                 <button
                   type="button"
                   onClick={() => setFilterType('all')}
@@ -757,7 +757,7 @@ export const AccountingView: React.FC = () => {
               </div>
 
               {/* Dönem Filtresi */}
-              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+              <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
                 <button
                   type="button"
                   onClick={() => setFilterPeriod('today')}
@@ -828,7 +828,7 @@ export const AccountingView: React.FC = () => {
 
               {/* Özel Tarih Aralığı */}
               {filterPeriod === 'custom' && (
-                <div className="flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                   <Calendar className="w-3.5 h-3.5 text-slate-400 ml-1" />
                   <input
                     type="date"
@@ -1204,7 +1204,7 @@ export const AccountingView: React.FC = () => {
                   <div className="text-2xl font-black font-mono">
                     {liveCashTotal.toLocaleString('tr-TR')} ₺
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-blue-100 pt-1 border-t border-white/20">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-blue-100 pt-1 border-t border-white/20">
                     <span>Nakit: {liveCashNakit.toLocaleString('tr-TR')} ₺</span>
                     <span>Havale: {liveCashHavale.toLocaleString('tr-TR')} ₺</span>
                     <span>POS: {liveCashKrediKarti.toLocaleString('tr-TR')} ₺</span>
@@ -1391,7 +1391,7 @@ export const AccountingView: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => openNewCategoryModal('expense')}

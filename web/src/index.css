@@ -17,6 +17,12 @@
     overflow-x: hidden;
   }
 
+  /* Prevent inputs, selects, textareas, and buttons from forcing horizontal flex/grid overflow on iPhone, Android, and narrow PC viewports */
+  input, select, textarea {
+    max-width: 100%;
+    min-width: 0;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #F8FAFC;
