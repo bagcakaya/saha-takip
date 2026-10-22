@@ -2457,29 +2457,29 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* SEÇİLEN MODÜL İÇİNDE ÜST KART (activeSection !== 'menu') */}
       {/* ============================================================ */}
       {activeSection !== 'menu' && activeSection !== 'salary' && (
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mb-2">
-          <div className="flex items-center gap-3">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${SECTION_INFO_WEB[activeSection]?.bg || 'bg-emerald-500/15'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mb-2 overflow-hidden">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl shrink-0 flex items-center justify-center ${SECTION_INFO_WEB[activeSection]?.bg || 'bg-emerald-500/15'}`}>
               {React.createElement(SECTION_INFO_WEB[activeSection]?.icon || UserCheck, {
-                className: `w-6 h-6 ${SECTION_INFO_WEB[activeSection]?.color || 'text-emerald-500'}`,
+                className: `w-5 h-5 sm:w-6 sm:h-6 ${SECTION_INFO_WEB[activeSection]?.color || 'text-emerald-500'}`,
               })}
             </div>
-            <div>
-              <div className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 truncate">
                 <span>{SECTION_INFO_WEB[activeSection]?.title}</span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                 {SECTION_INFO_WEB[activeSection]?.subtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setIsSystemLogsOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
+                className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all cursor-pointer min-h-[38px] sm:min-h-[44px] shadow-xs active:scale-95 shrink-0"
                 title="İş Takip Sistemi Hata ve Olay Günlüğü"
               >
                 <FileText className="w-4 h-4 text-rose-500" />
@@ -2490,10 +2490,11 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
             <button
               type="button"
               onClick={handleBackToSectionMenu}
-              className="inline-flex items-center gap-2 px-4 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] shadow-xs active:scale-95 shrink-0"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[38px] sm:min-h-[44px] shadow-xs active:scale-95 shrink-0"
             >
-              <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
-              <span>Personel Takibi Menüsü</span>
+              <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5] shrink-0" />
+              <span className="sm:hidden">Menüye Dön</span>
+              <span className="hidden sm:inline">Personel Takibi Menüsü</span>
             </button>
           </div>
         </div>
@@ -2738,6 +2739,68 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {/* --- SECTION 1: YÖNETİCİ LOKASYON & ŞUBE YÖNETİMİ (Görsel-3) --- */}
       {activeSection === 'workplace' && isAdmin && isSubModulePermitted('staff_tracking', 'workplace', user, viewingCompany || company) && (
         <div className="space-y-6">
+          {/* 0. Firma Bazlı Kural: 20 Metre Dışında "İşe Geldim" Butonunu Kilitleme (Deaktif Etme) - EN ÜSTTE */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border-2 border-indigo-400/80 dark:border-indigo-500/70 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400'
+                    : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {isOutsideCheckInBlocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">
+                      Mesafe Dışında (20m+) "İşe Geldim" Butonunu Deaktif Et
+                    </h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                      isOutsideCheckInBlocked
+                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {isOutsideCheckInBlocked ? '🔒 Kilit Aktif (20m Dışı Giriş Kapalı)' : '🔓 Esnek Mod (Yönetici Onaylı Giriş Açık)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Bu ayar <strong>sadece aktif firmanız ({(viewingCompany || company)?.name || 'Kurumunuz'})</strong> için geçerlidir. Aktif edildiğinde, personel iş yeri veya şubenin <strong>20 metre dışında</strong> ise <strong>"İşe Geldim"</strong> butonu otomatik olarak <strong>deaktif (kilitli)</strong> olur ve 20m alanına girene kadar mesai başlatamaz.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={isUpdatingOutsidePolicy}
+                onClick={handleToggleOutsideCheckInPolicy}
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
+                  isOutsideCheckInBlocked
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20'
+                }`}
+              >
+                {isUpdatingOutsidePolicy ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isOutsideCheckInBlocked ? (
+                  <Unlock className="w-4 h-4" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                <span>
+                  {isOutsideCheckInBlocked
+                    ? 'Kilidi Kaldır (Onaylı Girişe İzin Ver)'
+                    : '20m Dışında Butonu Deaktif Et (Kilitle)'}
+                </span>
+              </button>
+            </div>
+
+            {outsidePolicyMsg && (
+              <div className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 animate-in fade-in">
+                {outsidePolicyMsg}
+              </div>
+            )}
+          </div>
+
           {/* 1. Kurum Şubeleri & Yerinde 20m GPS Konum İşaretleme Kartı */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -2746,14 +2809,14 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <Store className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    <span>Kurum Şubeleri (30 Metre Konum Yönetimi)</span>
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+                    <span>Kurum Şubeleri (20 Metre Konum Yönetimi)</span>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
                       {companyBranches.length} Şube
                     </span>
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                    Personellerin işe giriş-çıkış yapacağı şubeleri görüntüleyin. Şube konumunda sorun olursa şubede bulunurken <strong>Yerinde Konumu Güncelle (GPS)</strong> butonuna basarak 30 metrelik alanı anında kaydedebilirsiniz.
+                    Personellerin işe giriş-çıkış yapacağı şubeleri görüntüleyin. Şube konumunda sorun olursa şubede bulunurken <strong>Yerinde Konumu Güncelle (GPS)</strong> butonuna basarak 20 metrelik alanı anında kaydedebilirsiniz.
                   </p>
                 </div>
               </div>
@@ -2991,68 +3054,6 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
               )}
             </div>
           </div>
-
-          {/* 3. Firma Bazlı Kural: 20 Metre Dışında "İşe Geldim" Butonunu Kilitleme (Deaktif Etme) */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border-2 border-indigo-200 dark:border-indigo-900/60 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
-                  isOutsideCheckInBlocked
-                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400'
-                    : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
-                }`}>
-                  {isOutsideCheckInBlocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">
-                      Mesafe Dışında (20m+) "İşe Geldim" Butonunu Deaktif Et
-                    </h3>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
-                      isOutsideCheckInBlocked
-                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                    }`}>
-                      {isOutsideCheckInBlocked ? '🔒 Kilit Aktif (20m Dışı Giriş Kapalı)' : '🔓 Esnek Mod (Yönetici Onaylı Giriş Açık)'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                    Bu ayar <strong>sadece aktif firmanız ({(viewingCompany || company)?.name || 'Kurumunuz'})</strong> için geçerlidir. Aktif edildiğinde, personel iş yeri veya şubenin <strong>20 metre dışında</strong> ise <strong>"İşe Geldim"</strong> butonu otomatik olarak <strong>deaktif (kilitli)</strong> olur ve 20m alanına girene kadar mesai başlatamaz.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                disabled={isUpdatingOutsidePolicy}
-                onClick={handleToggleOutsideCheckInPolicy}
-                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${
-                  isOutsideCheckInBlocked
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
-                    : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900'
-                }`}
-              >
-                {isUpdatingOutsidePolicy ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isOutsideCheckInBlocked ? (
-                  <Unlock className="w-4 h-4" />
-                ) : (
-                  <Lock className="w-4 h-4" />
-                )}
-                <span>
-                  {isOutsideCheckInBlocked
-                    ? 'Kilidi Kaldır (Onaylı Girişe İzin Ver)'
-                    : '20m Dışında Butonu Deaktif Et (Kilitle)'}
-                </span>
-              </button>
-            </div>
-
-            {outsidePolicyMsg && (
-              <div className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 animate-in fade-in">
-                {outsidePolicyMsg}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -3200,7 +3201,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   <span>Yönetici Mesai Modu</span>
                 </h3>
                 <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  30m Sınırından Muaf
+                  20m Sınırından Muaf
                 </span>
               </div>
 
@@ -3209,7 +3210,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                   Yönetici Konum ve Mesai Yetkisi
                 </p>
                 <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
-                  Yönetici hesabınız herhangi bir şubeye bağlı değildir ve 30 metre yarıçap kuralından tamamen muaftır. Dilediğiniz lokasyondan tek tıkla mesai başlatabilir ve mesaiyi bitirebilirsiniz.
+                  Yönetici hesabınız herhangi bir şubeye bağlı değildir ve 20 metre yarıçap kuralından tamamen muaftır. Dilediğiniz lokasyondan tek tıkla mesai başlatabilir ve mesaiyi bitirebilirsiniz.
                 </p>
               </div>
             </div>
@@ -3610,7 +3611,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                     </h4>
                     <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
                       {isAdmin
-                        ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan başlatın (30m kuralından muaf).'
+                        ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan başlatın (20m kuralından muaf).'
                         : isLocationDisabled
                         ? '⚠️ Konumunuz kapalı. Mesaiye başlamak için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                         : isLockedOutside20m
@@ -3667,7 +3668,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                 </h4>
                 <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-medium">
                   {isAdmin
-                    ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan sonlandırın (30m kuralından muaf).'
+                    ? 'Yönetici mesainizi dilediğiniz konumdan tek tıkla doğrudan sonlandırın (20m kuralından muaf).'
                     : isLocationDisabled
                     ? '⚠️ Konumunuz kapalı. Çıkış yapabilmek için konumu etkinleştirmeniz zorunludur. Dokunup etkinleştirin.'
                     : 'İş yerinde veya konum dışındaysanız yönetici onayıyla mesaiyi bitirin.'}
