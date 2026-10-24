@@ -362,10 +362,16 @@ export const StorageService = {
 
   /**
    * Calculates cloud standard_tasks slot ID for given module.
-   * POLATLAR (company 1) uses standard slots 1..10.
-   * Other companies use: (companyId - 1) * 20 + moduleId
+   * POLATLAR (company 1) uses standard slots 1..20.
+   * Other companies use: (companyId - 1) * 20 + moduleId for moduleId <= 20.
+   * Modules > 20 use dedicated range: moduleId * 1000 + companyId (e.g. 21001, 22001) to prevent any slot collision.
    */
   getSlotId(moduleId: number): number {
+    if (moduleId > 20) {
+      const resolvedId =
+        activeCompanyCode === 'POLATLAR' ? 1 : resolveCompanyId(activeCompanyCode, activeCompanyId);
+      return moduleId * 1000 + resolvedId;
+    }
     if (activeCompanyCode === 'POLATLAR') {
       return moduleId;
     }
@@ -378,6 +384,13 @@ export const StorageService = {
    */
   getSlotIdForCompany(moduleId: number, companyCode: string, companyId?: number): number {
     const cleanCode = (companyCode || 'POLATLAR').trim().toUpperCase();
+    if (moduleId > 20) {
+      const resolvedId =
+        cleanCode === 'POLATLAR'
+          ? 1
+          : resolveCompanyId(cleanCode, companyId && companyId > 1 ? companyId : 0);
+      return moduleId * 1000 + resolvedId;
+    }
     if (cleanCode === 'POLATLAR') {
       return moduleId;
     }
@@ -3081,17 +3094,27 @@ export const StorageService = {
   },
 
   /**
-   * Retrieves department salary configurations for current company (cloud slot 13 + local storage cache)
-   * Guaranteed company isolation: POLATLAR slot 13, other companies slot (companyId - 1) * 20 + 13
+   * Retrieves department salary configurations for current company (cloud slot 22 + local storage cache)
+   * Guaranteed company isolation: 22000 + companyId (22001 for POLATLAR)
    */
   async getDepartmentSalaries(): Promise<DepartmentSalaryConfig[]> {
     const localKey = this.getStorageKey(DEPARTMENT_SALARIES_KEY);
-    const slotId = this.getSlotId(13);
+    const slotId = this.getSlotId(22);
+    const cached = await loadItem<DepartmentSalaryConfig[]>(localKey);
 
     const { data: cloudData, notFound } = await loadChunkedSlot<DepartmentSalaryConfig[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
+      if (cloudData.length === 0 && Array.isArray(cached) && cached.length > 0) {
+        saveChunkedSlot(slotId, cached).catch(() => {});
+        return cached;
+      }
       await saveItem(localKey, cloudData);
       return cloudData;
+    }
+
+    if (Array.isArray(cached) && cached.length > 0) {
+      saveChunkedSlot(slotId, cached).catch(() => {});
+      return cached;
     }
 
     if (activeCompanyCode !== 'POLATLAR' && notFound) {
@@ -3099,18 +3122,18 @@ export const StorageService = {
       return [];
     }
 
-    return (await loadItem<DepartmentSalaryConfig[]>(localKey)) || [];
+    return [];
   },
 
   /**
-   * Saves department salary configurations for current company to cloud slot 13 and local storage
+   * Saves department salary configurations for current company to cloud slot 22 and local storage
    */
   async saveDepartmentSalaries(items: DepartmentSalaryConfig[]): Promise<void> {
     const localKey = this.getStorageKey(DEPARTMENT_SALARIES_KEY);
     await saveItem(localKey, items);
 
     try {
-      const slotId = this.getSlotId(13);
+      const slotId = this.getSlotId(22);
       await saveChunkedSlot(slotId, items);
     } catch (e) {
       console.warn('Department salaries cloud save error:', e);
@@ -3119,28 +3142,69 @@ export const StorageService = {
 
   /**
    * Retrieves accounting data (transactions, categories, cash registers, daily balances)
-   * Slot 8 in cloud chunked slot storage + IndexedDB/localStorage cache
+   * Dedicated Slot 21 (21001 for POLATLAR, 21000 + companyId for others) + IndexedDB/localStorage cache
    */
   async getAccountingData(): Promise<AccountingDataPayload> {
     const localKey = this.getStorageKey(ACCOUNTING_DATA_KEY);
-    const slotId = this.getSlotId(8);
+    const slotId = this.getSlotId(21);
+    const cached = await loadItem<AccountingDataPayload>(localKey);
+    const validCached =
+      cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : null;
 
     const { data: cloudData, notFound } = await loadChunkedSlot<AccountingDataPayload>(slotId);
-    if (cloudData && typeof cloudData === 'object') {
+    if (cloudData && typeof cloudData === 'object' && !Array.isArray(cloudData)) {
+      const cloudTxs = Array.isArray(cloudData.transactions) ? cloudData.transactions : [];
+      const cachedTxs =
+        validCached && Array.isArray(validCached.transactions) ? validCached.transactions : [];
+
+      // If cloud slot is empty but local cache still holds transactions, recover and sync to cloud
+      const finalTxs = cloudTxs.length === 0 && cachedTxs.length > 0 ? cachedTxs : cloudTxs;
+
       const merged: AccountingDataPayload = {
-        transactions: Array.isArray(cloudData.transactions) ? cloudData.transactions : [],
+        transactions: finalTxs,
         categories:
           Array.isArray(cloudData.categories) && cloudData.categories.length > 0
             ? cloudData.categories
+            : validCached && Array.isArray(validCached.categories) && validCached.categories.length > 0
+            ? validCached.categories
             : DEFAULT_ACCOUNTING_CATEGORIES,
         cashRegisters:
           Array.isArray(cloudData.cashRegisters) && cloudData.cashRegisters.length > 0
             ? cloudData.cashRegisters
+            : validCached && Array.isArray(validCached.cashRegisters) && validCached.cashRegisters.length > 0
+            ? validCached.cashRegisters
             : DEFAULT_CASH_REGISTERS,
-        dailyBalances: Array.isArray(cloudData.dailyBalances) ? cloudData.dailyBalances : [],
+        dailyBalances:
+          Array.isArray(cloudData.dailyBalances) && cloudData.dailyBalances.length > 0
+            ? cloudData.dailyBalances
+            : validCached && Array.isArray(validCached.dailyBalances)
+            ? validCached.dailyBalances
+            : [],
       };
       await saveItem(localKey, merged);
+      if (cloudTxs.length === 0 && finalTxs.length > 0) {
+        saveChunkedSlot(slotId, merged).catch(() => {});
+      }
       return merged;
+    }
+
+    if (validCached) {
+      const recovered: AccountingDataPayload = {
+        transactions: Array.isArray(validCached.transactions) ? validCached.transactions : [],
+        categories:
+          Array.isArray(validCached.categories) && validCached.categories.length > 0
+            ? validCached.categories
+            : DEFAULT_ACCOUNTING_CATEGORIES,
+        cashRegisters:
+          Array.isArray(validCached.cashRegisters) && validCached.cashRegisters.length > 0
+            ? validCached.cashRegisters
+            : DEFAULT_CASH_REGISTERS,
+        dailyBalances: Array.isArray(validCached.dailyBalances) ? validCached.dailyBalances : [],
+      };
+      if (recovered.transactions.length > 0 || recovered.dailyBalances.length > 0) {
+        saveChunkedSlot(slotId, recovered).catch(() => {});
+      }
+      return recovered;
     }
 
     if (activeCompanyCode !== 'POLATLAR' && notFound) {
@@ -3154,22 +3218,6 @@ export const StorageService = {
       return initial;
     }
 
-    const cached = await loadItem<AccountingDataPayload>(localKey);
-    if (cached && typeof cached === 'object') {
-      return {
-        transactions: Array.isArray(cached.transactions) ? cached.transactions : [],
-        categories:
-          Array.isArray(cached.categories) && cached.categories.length > 0
-            ? cached.categories
-            : DEFAULT_ACCOUNTING_CATEGORIES,
-        cashRegisters:
-          Array.isArray(cached.cashRegisters) && cached.cashRegisters.length > 0
-            ? cached.cashRegisters
-            : DEFAULT_CASH_REGISTERS,
-        dailyBalances: Array.isArray(cached.dailyBalances) ? cached.dailyBalances : [],
-      };
-    }
-
     return {
       transactions: [],
       categories: DEFAULT_ACCOUNTING_CATEGORIES,
@@ -3179,14 +3227,14 @@ export const StorageService = {
   },
 
   /**
-   * Saves accounting data to cloud slot 8 and local cache
+   * Saves accounting data to dedicated cloud slot 21 and local cache
    */
   async saveAccountingData(data: AccountingDataPayload): Promise<void> {
     const localKey = this.getStorageKey(ACCOUNTING_DATA_KEY);
     await saveItem(localKey, data);
 
     try {
-      const slotId = this.getSlotId(8);
+      const slotId = this.getSlotId(21);
       await saveChunkedSlot(slotId, data);
     } catch (e) {
       console.warn('Accounting data cloud save error:', e);

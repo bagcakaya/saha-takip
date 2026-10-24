@@ -912,7 +912,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (isMounted) setSalaryRecords(records || []);
               return;
             }
-            if (changedSlotId === StorageService.getSlotId(13)) {
+            if (changedSlotId === StorageService.getSlotId(21)) {
+              const accData = await StorageService.getAccountingData();
+              if (isMounted && accData) setAccountingData(accData);
+              return;
+            }
+            if (changedSlotId === StorageService.getSlotId(22)) {
               const deptSalaries = await StorageService.getDepartmentSalaries();
               if (isMounted) setDepartmentSalaries(deptSalaries || []);
               return;
@@ -4213,6 +4218,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     setAccountingData(updatedPayload);
     await StorageService.saveAccountingData(updatedPayload);
+    SystemLogger.info(
+      'SISTEM_GENEL',
+      `Muhasebe ${newTx.type === 'income' ? 'Gelir' : 'Gider'} kaydı eklendi: ${newTx.amount} ₺ (${newTx.categoryName})`,
+      { id: newTx.id, date: newTx.date, description: newTx.description, categoryCode: newTx.categoryCode }
+    );
   };
 
   const updateAccountingTransaction = async (
