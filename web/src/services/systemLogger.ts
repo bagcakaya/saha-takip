@@ -258,7 +258,7 @@ class SystemLoggerService {
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
     this.syncTimeout = setTimeout(() => {
       this.syncCloudLogs().catch(() => {});
-    }, 1500);
+    }, 150);
   }
 
   /**

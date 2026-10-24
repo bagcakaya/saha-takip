@@ -5337,6 +5337,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       let totalBreakMinutes = record.totalBreakMinutes || 0;
       if (record.isOnBreak && finalBreaks.length > 0) {
         const lastIndex = finalBreaks.length - 1;
+        const notifIdToCancel = record.currentBreakNotificationId || finalBreaks[lastIndex].scheduledNotificationId;
+        if (notifIdToCancel) {
+          FastActionAgent.enqueueCancelNotification(notifIdToCancel, compCode);
+        }
         const bStart = record.currentBreakStartTime || finalBreaks[lastIndex].startTime;
         const bDuration = Math.max(1, Math.round((checkOutTime - bStart) / 60000));
         finalBreaks[lastIndex] = {
@@ -5403,6 +5407,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let totalBreakMinutes = record.totalBreakMinutes || 0;
     if (record.isOnBreak && finalBreaks.length > 0) {
       const lastIndex = finalBreaks.length - 1;
+      const notifIdToCancel = record.currentBreakNotificationId || finalBreaks[lastIndex].scheduledNotificationId;
+      if (notifIdToCancel) {
+        FastActionAgent.enqueueCancelNotification(notifIdToCancel, compCode);
+      }
       const bStart = record.currentBreakStartTime || finalBreaks[lastIndex].startTime;
       const bDuration = Math.max(1, Math.round((checkOutTime - bStart) / 60000));
       finalBreaks[lastIndex] = {
@@ -6441,6 +6449,127 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearInterval(timer);
     };
   }, [timedFollowUps, user, activeRingingAlarm]);
+
+  // Mola Süresi Aşım Takipçisi (Yönetici Uyarısı):
+  // Mola süresi dolduğu halde (örn. 60 dk veya şube kotası bittiğinde) moladan dönmeyen personeller için
+  // Yöneticiye otomatik "⚠️ Xxxxx XXXXXXX'in mola süresi doldu (X dk), henüz molayı bitirmedi!" bildirimi gönderir.
+  useEffect(() => {
+    if (!user || !isUserAdmin(user)) return;
+    const activeComp = (user.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+    if (dataCompanyCode.toUpperCase() !== activeComp) return;
+
+    const storageKey = `@saha_takip_seen_break_overtime_${user.id}_${activeComp}`;
+
+    const checkBreakOvertimes = () => {
+      const now = Date.now();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const seenSet = getStoredSet(storageKey);
+      let seenChanged = false;
+      let recordsMutated = false;
+
+      const nextRecords = attendanceRecords.map((rec) => {
+        if (!rec || rec.date !== todayStr || !rec.isOnBreak || rec.status !== 'checked_in') {
+          return rec;
+        }
+        const recComp = (rec.companyCode || activeComp).trim().toUpperCase();
+        if (recComp !== activeComp) return rec;
+
+        const existingBreaks = Array.isArray(rec.breaks) ? rec.breaks : [];
+        const openBreakIdx = existingBreaks.findIndex((b) => !b.endTime);
+        const openBreak = openBreakIdx !== -1 ? existingBreaks[openBreakIdx] : existingBreaks[existingBreaks.length - 1];
+        const breakStart = rec.currentBreakStartTime || openBreak?.startTime;
+        if (!breakStart) return rec;
+
+        const breakKey = openBreak?.id || `${rec.id}_${breakStart}`;
+        if (seenSet.has(breakKey) || openBreak?.overtimeNotified) {
+          if (!seenSet.has(breakKey)) {
+            seenSet.add(breakKey);
+            seenChanged = true;
+          }
+          return rec;
+        }
+
+        // Personelin şube veya merkez mola kotasını belirle
+        let branchBreakMins: number | undefined;
+        if (rec.branchId && branches.length > 0) {
+          const b = branches.find((item) => item.id === rec.branchId);
+          if (b?.maxBreakMinutes) branchBreakMins = b.maxBreakMinutes;
+        }
+        if (!branchBreakMins && rec.branchName && branches.length > 0) {
+          const b = branches.find((item) => item.name === rec.branchName);
+          if (b?.maxBreakMinutes) branchBreakMins = b.maxBreakMinutes;
+        }
+        if (!branchBreakMins && branches.length > 0) {
+          const assignedB = branches.find((b) => b.assignedUserIds && b.assignedUserIds.includes(rec.userId));
+          if (assignedB?.maxBreakMinutes) branchBreakMins = assignedB.maxBreakMinutes;
+        }
+
+        const quotaMinutes = branchBreakMins || workplaceLocation?.maxBreakMinutes || 60;
+        const alreadyUsedMinutes = existingBreaks.reduce(
+          (sum, b) => sum + (b.endTime && b.durationMinutes ? b.durationMinutes : 0),
+          0
+        );
+        const allowedMinutes = quotaMinutes > alreadyUsedMinutes ? quotaMinutes - alreadyUsedMinutes : quotaMinutes;
+        const elapsedMs = now - breakStart;
+
+        if (elapsedMs >= allowedMinutes * 60 * 1000) {
+          seenSet.add(breakKey);
+          seenChanged = true;
+          recordsMutated = true;
+
+          const title = '⚠️ Personel Mola Süresi Doldu!';
+          const body = `⚠️ ${rec.userName}'in mola süresi doldu (${allowedMinutes} dk), henüz molayı bitirmedi!`;
+          const targetUrl = 'https://saha-takip-beige.vercel.app/?tab=staff_tracking&section=breaks';
+
+          NotificationService.sendNotification(title, body, targetUrl, {
+            tag: `break_over_adm_${breakKey}`,
+            skipIfVisible: false,
+          });
+          setActiveToast({ title, body, tab: 'staff_tracking' });
+
+          SystemLogger.warn('MOLA', body);
+
+          // Eğer mola başlarken bulut bildirimi zamanlanmamışsa (veya eski mola kaydıysa), anında OneSignal üzerinden de ilet
+          const uniqueSuffix = String(breakKey).replace(/[^a-zA-Z0-9]/g, '').slice(-12);
+          FastActionAgent.enqueuePushNotification({
+            title,
+            message: body,
+            targetMode: 'admin',
+            excludeUserIds: [rec.userId],
+            companyCode: activeComp,
+            url: targetUrl,
+            collapseId: `break_over_adm_${rec.userId}_${uniqueSuffix}`,
+          });
+
+          const updatedBreaks = existingBreaks.map((b, i) =>
+            (openBreakIdx !== -1 ? i === openBreakIdx : i === existingBreaks.length - 1)
+              ? { ...b, overtimeNotified: true }
+              : b
+          );
+
+          return {
+            ...rec,
+            breaks: updatedBreaks,
+          };
+        }
+
+        return rec;
+      });
+
+      if (seenChanged) {
+        saveStoredSet(storageKey, seenSet);
+      }
+
+      if (recordsMutated) {
+        setAttendanceRecords(nextRecords);
+        StorageService.saveAttendanceRecords(nextRecords).catch(() => {});
+      }
+    };
+
+    checkBreakOvertimes();
+    const interval = setInterval(checkBreakOvertimes, 15000);
+    return () => clearInterval(interval);
+  }, [attendanceRecords, branches, workplaceLocation, user, compCode, dataCompanyCode]);
 
   const addTimedFollowUp = async (data: {
     cariName: string;

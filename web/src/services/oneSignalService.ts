@@ -1427,8 +1427,9 @@ export const OneSignalService = {
   },
 
   /**
-   * Schedules a hardware push notification for staff when break duration expires.
-   * Delivered by OneSignal APNs/FCM directly to the locked/killed phone at targetIsoDate.
+   * Schedules hardware push notifications for BOTH staff and company admins when break duration expires.
+   * Delivered by OneSignal APNs/FCM directly to locked/killed phones at targetIsoDate.
+   * If the staff member finishes their break before targetIsoDate, both scheduled IDs are cancelled automatically.
    */
   async scheduleBreakOverPush(params: {
     userId: string;
@@ -1476,19 +1477,47 @@ export const OneSignalService = {
         ? String(params.breakId).replace(/[^a-zA-Z0-9]/g, '').slice(-12)
         : String(Date.now()).slice(-8);
 
-      const res = await this.sendPushNotification({
+      const staffName = params.userName || 'Personel';
+      const targetCompany = (params.companyCode || 'POLATLAR').toUpperCase();
+
+      // 1. Personele gidecek mola bitiş bildirimi
+      const staffPushPromise = this.sendPushNotification({
         title: '☕ Mola Süreniz Doldu!',
         message: `Mola süreniz (${params.breakMinutes} dk) doldu, lütfen mesaiye dönünüz!`,
         targetMode: 'custom',
         targetUserIds: [params.userId],
         targetSubscriptionIds: directSubs,
         sendAfter: params.targetIsoDate,
-        companyCode: params.companyCode || 'POLATLAR',
+        companyCode: targetCompany,
         collapseId: `break_over_${params.userId}_${uniqueSuffix}`,
-        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      });
-      if (res?.success && res.data?.id) {
-        return res.data.id;
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking&section=breaks',
+      }).catch(() => null);
+
+      // 2. Yöneticiye gidecek mola aşım bildirimi (Personel süresinde molayı bitirirse bu ID otomatik iptal edilir)
+      const adminPushPromise = this.sendPushNotification({
+        title: '⚠️ Personel Mola Süresi Doldu!',
+        message: `⚠️ ${staffName}'in mola süresi doldu (${params.breakMinutes} dk), henüz molayı bitirmedi!`,
+        targetMode: 'admin',
+        excludeUserIds: [params.userId],
+        sendAfter: params.targetIsoDate,
+        companyCode: targetCompany,
+        collapseId: `break_over_adm_${params.userId}_${uniqueSuffix}`,
+        url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking&section=breaks',
+      }).catch(() => null);
+
+      const [staffRes, adminRes] = await Promise.all([staffPushPromise, adminPushPromise]);
+
+      const scheduledIds: string[] = [];
+      if (staffRes?.success && staffRes.data?.id) {
+        scheduledIds.push(staffRes.data.id);
+      }
+      if (adminRes?.success && adminRes.data?.id) {
+        scheduledIds.push(adminRes.data.id);
+      }
+
+      if (scheduledIds.length > 0) {
+        const joined = Array.from(new Set(scheduledIds.join(',').split(',').filter(Boolean))).join(',');
+        return joined;
       }
     } catch (e) {
       console.warn('scheduleBreakOverPush error in web:', e);
