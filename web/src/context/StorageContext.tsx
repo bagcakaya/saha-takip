@@ -351,8 +351,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const compCode = activeCompCode;
 
   useEffect(() => {
-    SystemLogger.setUserContext(user);
-  }, [user]);
+    SystemLogger.setUserContext(
+      user
+        ? {
+            ...user,
+            companyCode: activeCompCode,
+          }
+        : null
+    );
+  }, [user, activeCompCode]);
 
   const [allLocations, setAllLocations] = useState<LocationItem[]>([]);
   const [standardTasks, setStandardTasks] = useState<string[]>([]);

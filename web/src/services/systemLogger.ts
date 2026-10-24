@@ -356,8 +356,12 @@ class SystemLoggerService {
   /**
    * Trigger browser file download for the logs
    */
-  public async downloadLogFile(filenamePrefix: string = 'is_takip_hatalari'): Promise<void> {
-    const logs = await this.fetchAllLogs();
+  public async downloadLogFile(filenamePrefix: string = 'is_takip_hatalari', companyCode?: string): Promise<void> {
+    let logs = await this.fetchAllLogs();
+    if (companyCode) {
+      const targetComp = companyCode.trim().toUpperCase();
+      logs = logs.filter((item) => (item.companyCode || 'POLATLAR').trim().toUpperCase() === targetComp);
+    }
     const content = this.formatLogsAsText(logs);
     const dateStamp = new Date().toISOString().split('T')[0];
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -372,14 +376,40 @@ class SystemLoggerService {
   }
 
   /**
-   * Clear all logs (local and cloud)
+   * Clear all logs or only logs belonging to a specific company (local and cloud)
    */
-  public async clearLogs(): Promise<void> {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(SYSTEM_LOGS_LOCAL_KEY);
+  public async clearLogs(companyCode?: string): Promise<void> {
+    if (!companyCode) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(SYSTEM_LOGS_LOCAL_KEY);
+      }
+      try {
+        await supabase.from('standard_tasks').upsert({ id: SLOT_ID, tasks: ['[]'] });
+      } catch {}
+      return;
     }
+
+    const targetComp = companyCode.trim().toUpperCase();
     try {
-      await supabase.from('standard_tasks').upsert({ id: SLOT_ID, tasks: ['[]'] });
+      const allLogs = await this.fetchAllLogs();
+      const remaining = allLogs.filter(
+        (item) => (item.companyCode || 'POLATLAR').trim().toUpperCase() !== targetComp
+      );
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(
+          SYSTEM_LOGS_LOCAL_KEY,
+          JSON.stringify(remaining.slice(0, MAX_LOCAL_LOGS))
+        );
+      }
+      const jsonStr = JSON.stringify(remaining.slice(0, MAX_CLOUD_LOGS));
+      const CHUNK_SIZE = 100000;
+      const chunks: string[] = [];
+      for (let i = 0; i < jsonStr.length; i += CHUNK_SIZE) {
+        chunks.push(jsonStr.substring(i, i + CHUNK_SIZE));
+      }
+      await supabase
+        .from('standard_tasks')
+        .upsert({ id: SLOT_ID, tasks: chunks.length > 0 ? chunks : ['[]'] });
     } catch {}
   }
 }

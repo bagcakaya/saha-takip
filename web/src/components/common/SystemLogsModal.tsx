@@ -11,9 +11,13 @@ import {
   Info,
   Laptop,
   CheckCircle2,
+  Building2,
 } from 'lucide-react';
 import { SystemLogger } from '../../services/systemLogger';
 import { SystemLogItem } from '../../types/storage';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin } from '../../types/auth';
+import { UserService } from '../../services/userService';
 
 interface SystemLogsModalProps {
   isOpen: boolean;
@@ -21,6 +25,21 @@ interface SystemLogsModalProps {
 }
 
 export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClose }) => {
+  const { user, company, viewingCompany } = useAuth();
+  const isSuper = isSuperAdmin(user);
+  const activeCompCode = (
+    (isSuper ? viewingCompany?.code : null) ||
+    company?.code ||
+    user?.companyCode ||
+    'POLATLAR'
+  )
+    .trim()
+    .toUpperCase();
+  const activeCompName =
+    (isSuper ? viewingCompany?.name : null) ||
+    company?.name ||
+    (activeCompCode === 'POLATLAR' ? 'Polatlar' : activeCompCode);
+
   const [logs, setLogs] = useState<SystemLogItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -45,10 +64,20 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
     if (isOpen) {
       loadLogs();
     }
-  }, [isOpen]);
+  }, [isOpen, activeCompCode]);
+
+  const getLogCompanyCode = (item: SystemLogItem): string => {
+    const rawComp = item.companyCode || UserService.getUserCompanyCode(item.userId) || 'POLATLAR';
+    return rawComp.trim().toUpperCase();
+  };
+
+  const companyLogsCount = useMemo(() => {
+    return logs.filter((item) => getLogCompanyCode(item) === activeCompCode).length;
+  }, [logs, activeCompCode]);
 
   const filteredLogs = useMemo(() => {
     return logs.filter((item) => {
+      if (getLogCompanyCode(item) !== activeCompCode) return false;
       if (selectedCategory !== 'ALL' && item.category !== selectedCategory) return false;
       if (selectedLevel !== 'ALL' && item.level !== selectedLevel) return false;
       if (searchQuery.trim()) {
@@ -61,12 +90,15 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
       }
       return true;
     });
-  }, [logs, selectedCategory, selectedLevel, searchQuery]);
+  }, [logs, activeCompCode, selectedCategory, selectedLevel, searchQuery]);
 
   const handleDownload = async () => {
     try {
-      await SystemLogger.downloadLogFile('is_takip_hatalari');
-      setToastMsg('Log dosyası başarıyla indirildi!');
+      await SystemLogger.downloadLogFile(
+        `is_takip_hatalari_${activeCompCode.toLowerCase()}`,
+        activeCompCode
+      );
+      setToastMsg(`${activeCompName} (${activeCompCode}) log dosyası başarıyla indirildi!`);
       setTimeout(() => setToastMsg(null), 3000);
     } catch {
       alert('Log dosyası indirilirken bir hata oluştu.');
@@ -74,10 +106,15 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
   };
 
   const handleClear = async () => {
-    if (!window.confirm('Tüm sistem ve hata loglarını silmek istediğinize emin misiniz?')) return;
-    await SystemLogger.clearLogs();
-    setLogs([]);
-    setToastMsg('Tüm loglar temizlendi.');
+    if (
+      !window.confirm(
+        `${activeCompName} (${activeCompCode}) kurumuna ait sistem ve hata loglarını silmek istediğinize emin misiniz?`
+      )
+    )
+      return;
+    await SystemLogger.clearLogs(activeCompCode);
+    setLogs((prev) => prev.filter((item) => getLogCompanyCode(item) !== activeCompCode));
+    setToastMsg(`${activeCompName} (${activeCompCode}) logları temizlendi.`);
     setTimeout(() => setToastMsg(null), 3000);
   };
 
@@ -93,8 +130,12 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center flex-wrap gap-2">
                 <span>İş Takip Sistemi - Hata ve Sistem Günlüğü</span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 flex items-center gap-1">
+                  <Building2 className="w-3 h-3" />
+                  <span>{activeCompName} ({activeCompCode})</span>
+                </span>
                 <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
                   {filteredLogs.length} Kayıt
                 </span>
@@ -124,7 +165,7 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
 
-            {logs.length > 0 && (
+            {companyLogsCount > 0 && (
               <button
                 onClick={handleClear}
                 title="Logları Temizle"
