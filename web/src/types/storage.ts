@@ -180,7 +180,9 @@ export interface Branch {
   address: string;            // Açık adres
   latitude: number;           // Coğrafi Enlem
   longitude: number;          // Coğrafi Boylam
-  radiusMeters: number;       // Varsayılan: 30 metre
+  altLatitude?: number;       // İç mekan / Wi-Fi / İkincil cihaz kalibrasyon enlemi (aynı bina <=65m)
+  altLongitude?: number;      // İç mekan / Wi-Fi / İkincil cihaz kalibrasyon boylamı (aynı bina <=65m)
+  radiusMeters: number;       // Varsayılan: 20 metre
   phone?: string;             // Şube telefonu (opsiyonel)
   assignedUserIds: string[];  // Şubeye atanmış personellerin ID listesi
   maxBreakMinutes?: number;   // Şube için belirlenen günlük maksimum mola süresi (dakika)
@@ -226,6 +228,8 @@ export interface WorkplaceLocation {
   address: string;
   latitude: number;
   longitude: number;
+  altLatitude?: number; // İç mekan / Wi-Fi / İkincil cihaz kalibrasyon enlemi (aynı bina <=65m)
+  altLongitude?: number; // İç mekan / Wi-Fi / İkincil cihaz kalibrasyon boylamı (aynı bina <=65m)
   radiusMeters: number; // default: 20 meters
   maxBreakMinutes?: number; // Günlük maksimum mola süresi (dakika)
   blockOutsideCheckIn?: boolean; // Firma bazlı: true ise 20m dışında "İşe Geldim" butonu deaktif (kilitli) olur

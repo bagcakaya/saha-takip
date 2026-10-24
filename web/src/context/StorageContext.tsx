@@ -125,7 +125,9 @@ interface StorageContextType {
     address: string,
     latitude: number,
     longitude: number,
-    radiusMeters?: number
+    radiusMeters?: number,
+    altLatitude?: number,
+    altLongitude?: number
   ) => Promise<void>;
   addBranch: (
     branch: Omit<Branch, 'id' | 'createdAt' | 'updatedAt'> & { companyCode?: string }
@@ -3464,13 +3466,50 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     address: string,
     latitude: number,
     longitude: number,
-    radiusMeters = 20
+    radiusMeters = 20,
+    altLatitude?: number,
+    altLongitude?: number
   ) => {
+    let resolvedAltLat = altLatitude;
+    let resolvedAltLon = altLongitude;
+
+    // Eğer yönetici aynı binada (3m - 65m mesafe içinde) farklı bir cihazdan (örn. iPhone vs Android veya Wi-Fi vs GPS)
+    // yerinde konum güncelliyorsa, önceki koordinatı ikincil bina çapası olarak koru ki her iki cihaz türü de %100 20m içinde görünsün!
+    if (
+      (resolvedAltLat === undefined || resolvedAltLon === undefined) &&
+      workplaceLocation?.latitude &&
+      workplaceLocation?.longitude
+    ) {
+      const prevDist = LocationService.calculateDistance(
+        latitude,
+        longitude,
+        workplaceLocation.latitude,
+        workplaceLocation.longitude
+      );
+      if (prevDist >= 3 && prevDist <= 65) {
+        resolvedAltLat = workplaceLocation.latitude;
+        resolvedAltLon = workplaceLocation.longitude;
+      } else if (workplaceLocation.altLatitude && workplaceLocation.altLongitude) {
+        const prevAltDist = LocationService.calculateDistance(
+          latitude,
+          longitude,
+          workplaceLocation.altLatitude,
+          workplaceLocation.altLongitude
+        );
+        if (prevAltDist >= 3 && prevAltDist <= 65) {
+          resolvedAltLat = workplaceLocation.altLatitude;
+          resolvedAltLon = workplaceLocation.altLongitude;
+        }
+      }
+    }
+
     const loc: WorkplaceLocation = {
       ...(workplaceLocation || {}),
       address: address.trim(),
       latitude,
       longitude,
+      altLatitude: resolvedAltLat,
+      altLongitude: resolvedAltLon,
       radiusMeters,
       updatedAt: Date.now(),
       updatedBy: user?.id,
@@ -3541,9 +3580,39 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       currentCompCode
     ).trim().toUpperCase();
 
+    const enrichBranchUpdateWithAlt = (existing: Branch, patch: Partial<Branch>): Branch => {
+      let nextAltLat = patch.altLatitude ?? existing.altLatitude;
+      let nextAltLon = patch.altLongitude ?? existing.altLongitude;
+      if (
+        patch.latitude !== undefined &&
+        patch.longitude !== undefined &&
+        patch.altLatitude === undefined &&
+        existing.latitude &&
+        existing.longitude
+      ) {
+        const d = LocationService.calculateDistance(
+          patch.latitude,
+          patch.longitude,
+          existing.latitude,
+          existing.longitude
+        );
+        if (d >= 3 && d <= 65) {
+          nextAltLat = existing.latitude;
+          nextAltLon = existing.longitude;
+        }
+      }
+      return {
+        ...existing,
+        ...patch,
+        altLatitude: nextAltLat,
+        altLongitude: nextAltLon,
+        updatedAt: Date.now(),
+      };
+    };
+
     if (branchCompCode === currentCompCode) {
       const updated = branches.map((b) =>
-        b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+        b.id === id ? enrichBranchUpdateWithAlt(b, updates) : b
       );
       setBranches(updated);
       await StorageService.saveBranches(updated);
@@ -3554,7 +3623,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       let targetUpdated: Branch[];
       if (isExistingInTarget) {
         targetUpdated = targetExisting.map((b) =>
-          b.id === id ? { ...b, ...updates, updatedAt: Date.now() } : b
+          b.id === id ? enrichBranchUpdateWithAlt(b, updates) : b
         );
       } else {
         targetUpdated = [
@@ -4416,8 +4485,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {}
     }
 
+    let activeWorkplaceLocation = workplaceLocation;
+    if (!activeWorkplaceLocation || !activeWorkplaceLocation.latitude || !activeWorkplaceLocation.longitude) {
+      try {
+        const freshWp = await StorageService.getWorkplaceLocation();
+        if (freshWp && freshWp.latitude && freshWp.longitude) {
+          activeWorkplaceLocation = freshWp;
+          setWorkplaceLocation(freshWp);
+        }
+      } catch {}
+    }
+
     const hasBranches = activeBranches && activeBranches.length > 0;
-    const hasWorkplace = !!(workplaceLocation && workplaceLocation.latitude && workplaceLocation.longitude);
+    const hasWorkplace = !!(activeWorkplaceLocation && activeWorkplaceLocation.latitude && activeWorkplaceLocation.longitude);
 
     if (!hasBranches && !hasWorkplace && user.role !== 'admin') {
       return {
@@ -4426,7 +4506,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
-    let userPos: { latitude: number; longitude: number; address?: string } | undefined;
+    let userPos: { latitude: number; longitude: number; accuracy?: number | null; address?: string };
     try {
       userPos = await LocationService.getFastOrWarmPosition();
     } catch (err: any) {
@@ -4536,18 +4616,33 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // --- MULTI-BRANCH LOGIC ---
     if (hasBranches) {
+      const calcBranchDistance = (b: Branch) => {
+        const isSameBuildingAsHq =
+          activeWorkplaceLocation?.latitude &&
+          activeWorkplaceLocation?.longitude &&
+          LocationService.calculateDistance(b.latitude, b.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75;
+
+        return LocationService.calculateWorkplaceDistance(
+          userPos.latitude,
+          userPos.longitude,
+          {
+            latitude: b.latitude,
+            longitude: b.longitude,
+            altLatitude: b.altLatitude || (isSameBuildingAsHq ? activeWorkplaceLocation?.altLatitude : undefined),
+            altLongitude: b.altLongitude || (isSameBuildingAsHq ? activeWorkplaceLocation?.altLongitude : undefined),
+            radius: b.radiusMeters || 20,
+          },
+          userPos.accuracy
+        );
+      };
+
       // Find user's assigned branch
-      const assignedBranch = branches.find(
+      const assignedBranch = activeBranches.find(
         (b) => (b.assignedUserIds && b.assignedUserIds.includes(user.id)) || (user.branchId && b.id === user.branchId)
       );
 
       if (assignedBranch) {
-        const distToAssigned = LocationService.calculateDistance(
-          userPos.latitude,
-          userPos.longitude,
-          assignedBranch.latitude,
-          assignedBranch.longitude
-        );
+        const distToAssigned = calcBranchDistance(assignedBranch);
         const allowedRadius = assignedBranch.radiusMeters || 20;
 
         // 1. If inside assigned branch's 20m radius -> Direct on-site check-in!
@@ -4593,14 +4688,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         // 2. Outside assigned branch -> Check if located at another company branch within 20m
-        const otherBranch = branches.find((b) => {
+        const otherBranch = activeBranches.find((b) => {
           if (b.id === assignedBranch.id) return false;
-          const d = LocationService.calculateDistance(
-            userPos.latitude,
-            userPos.longitude,
-            b.latitude,
-            b.longitude
-          );
+          const d = calcBranchDistance(b);
           return d <= (b.radiusMeters || 20);
         });
 
@@ -4617,12 +4707,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             };
           }
 
-          const otherBranchDist = LocationService.calculateDistance(
-            userPos.latitude,
-            userPos.longitude,
-            otherBranch.latitude,
-            otherBranch.longitude
-          );
+          const otherBranchDist = calcBranchDistance(otherBranch);
 
           const newRecord: AttendanceRecord = {
             id: generateId(),
@@ -4670,7 +4755,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         // 3. Outside all company branches
-        if (workplaceLocation?.blockOutsideCheckIn) {
+        if (activeWorkplaceLocation?.blockOutsideCheckIn) {
           return {
             success: false,
             distance: distToAssigned,
@@ -4732,12 +4817,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       } else {
         // Staff has no assigned branch yet -> Check if within 20m of any branch
-        const nearBranch = branches.find(
-          (b) => LocationService.calculateDistance(userPos.latitude, userPos.longitude, b.latitude, b.longitude) <= (b.radiusMeters || 20)
+        const nearBranch = activeBranches.find(
+          (b) => calcBranchDistance(b) <= (b.radiusMeters || 20)
         );
 
         if (nearBranch) {
-          const nearDist = LocationService.calculateDistance(userPos.latitude, userPos.longitude, nearBranch.latitude, nearBranch.longitude);
+          const nearDist = calcBranchDistance(nearBranch);
           const newRecord: AttendanceRecord = {
             id: generateId(),
             userId: user.id,
@@ -4780,17 +4865,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         // Outside all branches without assigned branch
-        let closestBranch = branches[0];
-        let minDist = LocationService.calculateDistance(userPos.latitude, userPos.longitude, closestBranch.latitude, closestBranch.longitude);
-        for (let i = 1; i < branches.length; i++) {
-          const d = LocationService.calculateDistance(userPos.latitude, userPos.longitude, branches[i].latitude, branches[i].longitude);
+        let closestBranch = activeBranches[0];
+        let minDist = calcBranchDistance(closestBranch);
+        for (let i = 1; i < activeBranches.length; i++) {
+          const d = calcBranchDistance(activeBranches[i]);
           if (d < minDist) {
             minDist = d;
-            closestBranch = branches[i];
+            closestBranch = activeBranches[i];
           }
         }
 
-        if (workplaceLocation?.blockOutsideCheckIn) {
+        if (activeWorkplaceLocation?.blockOutsideCheckIn) {
           return {
             success: false,
             distance: minDist,
@@ -4854,18 +4939,24 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // --- LEGACY SINGLE WORKPLACE FALLBACK ---
-    const distance = LocationService.calculateDistance(
+    const allowedRadius = (activeWorkplaceLocation!.radiusMeters && activeWorkplaceLocation!.radiusMeters !== 10 && activeWorkplaceLocation!.radiusMeters !== 30)
+      ? activeWorkplaceLocation!.radiusMeters
+      : 20;
+    const distance = LocationService.calculateWorkplaceDistance(
       userPos.latitude,
       userPos.longitude,
-      workplaceLocation!.latitude,
-      workplaceLocation!.longitude
+      {
+        latitude: activeWorkplaceLocation!.latitude,
+        longitude: activeWorkplaceLocation!.longitude,
+        altLatitude: activeWorkplaceLocation!.altLatitude,
+        altLongitude: activeWorkplaceLocation!.altLongitude,
+        radius: allowedRadius,
+      },
+      userPos.accuracy
     );
-    const allowedRadius = (workplaceLocation!.radiusMeters && workplaceLocation!.radiusMeters !== 10 && workplaceLocation!.radiusMeters !== 30)
-      ? workplaceLocation!.radiusMeters
-      : 20;
 
     if (distance > allowedRadius) {
-      if (workplaceLocation?.blockOutsideCheckIn) {
+      if (activeWorkplaceLocation?.blockOutsideCheckIn) {
         return {
           success: false,
           distance,
@@ -5123,10 +5214,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {}
     }
 
+    let activeWorkplaceLocation = workplaceLocation;
+    if (!activeWorkplaceLocation || !activeWorkplaceLocation.latitude || !activeWorkplaceLocation.longitude) {
+      try {
+        const freshWp = await StorageService.getWorkplaceLocation();
+        if (freshWp && freshWp.latitude && freshWp.longitude) {
+          activeWorkplaceLocation = freshWp;
+          setWorkplaceLocation(freshWp);
+        }
+      } catch {}
+    }
+
     // Determine target location to measure checkout against:
-    let targetLat = workplaceLocation?.latitude;
-    let targetLon = workplaceLocation?.longitude;
-    let targetRadius = (workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30) ? workplaceLocation.radiusMeters : 20;
+    let targetLat = activeWorkplaceLocation?.latitude;
+    let targetLon = activeWorkplaceLocation?.longitude;
+    let targetAltLat = activeWorkplaceLocation?.altLatitude;
+    let targetAltLon = activeWorkplaceLocation?.altLongitude;
+    let targetRadius = (activeWorkplaceLocation?.radiusMeters && activeWorkplaceLocation.radiusMeters !== 10 && activeWorkplaceLocation.radiusMeters !== 30) ? activeWorkplaceLocation.radiusMeters : 20;
     let targetName = 'İş yeri';
 
     if (record.branchId && activeBranches.length > 0) {
@@ -5134,6 +5238,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (b) {
         targetLat = b.latitude;
         targetLon = b.longitude;
+        targetAltLat = b.altLatitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(b.latitude, b.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLatitude : undefined);
+        targetAltLon = b.altLongitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(b.latitude, b.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLongitude : undefined);
         targetRadius = b.radiusMeters || 20;
         targetName = b.name;
       }
@@ -5145,6 +5251,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (b) {
         targetLat = b.latitude;
         targetLon = b.longitude;
+        targetAltLat = b.altLatitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(b.latitude, b.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLatitude : undefined);
+        targetAltLon = b.altLongitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(b.latitude, b.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLongitude : undefined);
         targetRadius = b.radiusMeters || 20;
         targetName = b.name;
       }
@@ -5157,6 +5265,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (assignedBranch) {
         targetLat = assignedBranch.latitude;
         targetLon = assignedBranch.longitude;
+        targetAltLat = assignedBranch.altLatitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(assignedBranch.latitude, assignedBranch.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLatitude : undefined);
+        targetAltLon = assignedBranch.altLongitude || (activeWorkplaceLocation?.latitude && activeWorkplaceLocation?.longitude && LocationService.calculateDistance(assignedBranch.latitude, assignedBranch.longitude, activeWorkplaceLocation.latitude, activeWorkplaceLocation.longitude) <= 75 ? activeWorkplaceLocation.altLongitude : undefined);
         targetRadius = assignedBranch.radiusMeters || 20;
         targetName = assignedBranch.name;
       }
@@ -5169,6 +5279,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetLon = record.checkInLon;
       targetRadius = 20;
       targetName = record.branchName || 'Mesai Şubesi';
+    } else if (
+      targetLat &&
+      targetLon &&
+      (!targetAltLat || !targetAltLon) &&
+      record.checkInOutside === false &&
+      record.checkInLat &&
+      record.checkInLon &&
+      LocationService.calculateDistance(targetLat, targetLon, record.checkInLat, record.checkInLon) <= 65
+    ) {
+      targetAltLat = record.checkInLat;
+      targetAltLon = record.checkInLon;
     }
 
     if (!targetLat || !targetLon) {
@@ -5178,11 +5299,17 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
-    const distance = LocationService.calculateDistance(
+    const distance = LocationService.calculateWorkplaceDistance(
       userPos.latitude,
       userPos.longitude,
-      targetLat,
-      targetLon
+      {
+        latitude: targetLat,
+        longitude: targetLon,
+        altLatitude: targetAltLat,
+        altLongitude: targetAltLon,
+        radius: targetRadius,
+      },
+      userPos.accuracy
     );
 
     const allowedRadius = targetRadius;

@@ -1,9 +1,19 @@
 export interface GeolocationResult {
   latitude: number;
   longitude: number;
+  altLatitude?: number;
+  altLongitude?: number;
   address?: string;
   accuracy?: number | null;
   isMocked?: boolean;
+}
+
+export interface WorkplaceTargetCoords {
+  latitude: number;
+  longitude: number;
+  altLatitude?: number;
+  altLongitude?: number;
+  radius?: number;
 }
 
 export interface AddressSearchResult {
@@ -18,6 +28,36 @@ const geocodeCache = new Map<string, string>();
 // Son doğrulanmış konum (Işınlanma / ani sıçrama tespiti)
 let lastVerifiedPositionWeb: { latitude: number; longitude: number; timestamp: number } | null = null;
 
+// Son 120 saniyelik doğrulanmış GPS okumaları tamponu (Android & iPhone iç mekan sinyal sıçraması koruyucusu)
+// Ekranda 7-8m gösterip "İşe Geldim / İşten Çıkıyorum" tuşuna basınca anlık bina yansımasıyla 35-36m'ye sıçramasını önler.
+interface BufferedPositionEntry {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  address?: string;
+  timestamp: number;
+}
+const recentPositionsBuffer: BufferedPositionEntry[] = [];
+
+function recordBufferedPosition(lat: number, lon: number, acc?: number | null, addr?: string) {
+  if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
+  const now = Date.now();
+  // 120 saniyeden eski kayıtları temizle
+  while (recentPositionsBuffer.length > 0 && now - recentPositionsBuffer[0].timestamp > 120000) {
+    recentPositionsBuffer.shift();
+  }
+  recentPositionsBuffer.push({
+    latitude: lat,
+    longitude: lon,
+    accuracy: acc ?? null,
+    address: addr,
+    timestamp: now,
+  });
+  if (recentPositionsBuffer.length > 30) {
+    recentPositionsBuffer.shift();
+  }
+}
+
 // Arka plan GPS ön hazırlık ve ısıtma tamponu (0ms refleks)
 let warmCachedPosition: GeolocationResult | null = null;
 let warmCachedTimestamp = 0;
@@ -31,11 +71,18 @@ function queryPosition(options: PositionOptions): Promise<GeolocationPosition> {
   });
 }
 
-// Watch position and resolve immediately upon first fix to wake up mobile GPS sensor
-function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promise<GeolocationPosition> {
+// Watch position and pick the sharpest satellite GPS lock (avoids Android's coarse 1st Wi-Fi callback)
+function watchBestPosition(
+  options: PositionOptions,
+  timeoutMs: number,
+  desiredAccuracyMeters = 15,
+  settleWindowMs = 1500
+): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     let watchId: number | null = null;
     let timer: any = null;
+    let settleTimer: any = null;
+    let bestPos: GeolocationPosition | null = null;
 
     const cleanup = () => {
       if (watchId !== null) {
@@ -48,18 +95,49 @@ function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promis
         clearTimeout(timer);
         timer = null;
       }
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
     };
 
     timer = setTimeout(() => {
       cleanup();
-      reject(new Error('WATCH_TIMEOUT'));
+      if (bestPos) {
+        resolve(bestPos);
+      } else {
+        reject(new Error('WATCH_TIMEOUT'));
+      }
     }, timeoutMs);
 
     try {
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          cleanup();
-          resolve(pos);
+          const acc = pos.coords.accuracy ?? 999;
+          recordBufferedPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+
+          if (!bestPos || acc <= (bestPos.coords.accuracy ?? 999)) {
+            bestPos = pos;
+          }
+
+          // Uydu kilidi istenen hassasiyete (örn. <=15m) ulaştıysa anında döndür!
+          if (acc <= desiredAccuracyMeters) {
+            cleanup();
+            resolve(bestPos);
+            return;
+          }
+
+          // İlk gelen okuma kaba Wi-Fi/Hücresel ise (Android FusedLocation 1. callback),
+          // gerçek GPS uydusunun (2. callback) gelmesi için kısa settleWindowMs kadar bekle
+          if (!settleTimer) {
+            settleTimer = setTimeout(() => {
+              if (bestPos) {
+                const resolved = bestPos;
+                cleanup();
+                resolve(resolved);
+              }
+            }, settleWindowMs);
+          }
         },
         (err) => {
           // İzin reddedildiyse hemen sonlandır
@@ -85,11 +163,10 @@ function watchFirstPosition(options: PositionOptions, timeoutMs: number): Promis
 export const LocationService = {
   /**
    * Retrieves user's current GPS position via browser Geolocation API
-   * Çok Katmanlı (Multi-Tier) Eşzamanlı Anında Algılama Mimarisi:
-   * 1. Hızlı Önbellek / Hücresel / Wi-Fi Konumu ile Yüksek Hassasiyetli GPS Eşzamanlı (Parallel) Başlatılır.
-   * 2. GPS anında yanıt verirse (<1.5s) donanım uydu hassasiyeti seçilir.
-   * 3. Depo, bodrum, kapalı alanda GPS gecikirse (<2.5s) ağ/hücresel konum anında devreye sokulur.
-   * 4. Son doğrulanmış konum tamponu ve net hata yönetimi (Konum açıkken asla "kapalı" demez).
+   * Çok Katmanlı (Multi-Tier) Yüksek Hassasiyetli GPS Algılama Mimarisi:
+   * 1. Öncelikle gerçek donanım GPS uydusu (enableHighAccuracy: true) beklenir (Android kaba Wi-Fi sapmasını önler).
+   * 2. Depo, bodrum, kapalı alanda GPS uydusu hiç yanıt vermezse ağ/hücresel konum devreye sokulur.
+   * 3. Son doğrulanmış konum tamponu ve net hata yönetimi (Konum açıkken asla "kapalı" demez).
    */
   async getCurrentPosition(options?: PositionOptions): Promise<GeolocationResult> {
     if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -102,30 +179,19 @@ export const LocationService = {
     let lastError: any = null;
     let permissionDeniedError: any = null;
 
-    // Paralel Başlatma:
-    // A. Hızlı Ağ / Önbellek Konumu (Wi-Fi, Hücresel, OS Önbelleği)
-    const fastPromise = queryPosition({
-      enableHighAccuracy: false,
-      timeout: 3000,
-      maximumAge: 180000,
-    }).catch((err) => {
-      if (err?.code === 1) {
-        permissionDeniedError = err;
-      } else {
-        lastError = err;
-      }
-      return null;
-    });
+    const isFreshCalibration = options?.maximumAge === 0;
 
-    // B. Yüksek Hassasiyetli GPS Alıcısı (Uydu Kilidi)
-    const gpsPromise = watchFirstPosition(
+    // A. Yüksek Hassasiyetli GPS Alıcısı (Öncelikli - Uydu Kilidi)
+    const gpsPromise = watchBestPosition(
       {
         enableHighAccuracy: true,
         timeout: 6000,
-        maximumAge: 30000,
+        maximumAge: isFreshCalibration ? 0 : 15000,
         ...options,
       },
-      6000
+      isFreshCalibration ? 5500 : 5000,
+      isFreshCalibration ? 10 : 15,
+      isFreshCalibration ? 2200 : 1400
     ).catch((err) => {
       if (err?.code === 1) {
         permissionDeniedError = err;
@@ -135,47 +201,48 @@ export const LocationService = {
       return null;
     });
 
+    // B. Yedek Ağ / Önbellek Konumu (Sadece GPS uydusu kapalı alanda kilitlenemezse kullanılır)
+    const fastPromise = queryPosition({
+      enableHighAccuracy: false,
+      timeout: 3500,
+      maximumAge: isFreshCalibration ? 0 : 60000,
+    }).catch((err) => {
+      if (err?.code === 1) {
+        permissionDeniedError = err;
+      } else {
+        lastError = err;
+      }
+      return null;
+    });
+
     try {
-      // Önce hızlı gelen adayı kontrol et
-      const fastResult = await Promise.race([
-        fastPromise,
-        new Promise<null>((res) => setTimeout(() => res(null), 1200)),
+      // 1. Önce gerçek Yüksek Hassasiyetli GPS uydusunu bekle (2.6 saniye)
+      // Böylece Android cihazlarda ilk 50ms'de gelen 35-40m sapmalı kaba Wi-Fi konumu yerine gerçek GPS alınır!
+      const gpsResult = await Promise.race([
+        gpsPromise,
+        new Promise<null>((res) => setTimeout(() => res(null), isFreshCalibration ? 3500 : 2600)),
       ]);
 
       if (permissionDeniedError) {
         throw permissionDeniedError;
       }
 
-      if (fastResult && fastResult.coords.accuracy !== null && fastResult.coords.accuracy <= 35) {
-        // Hızlı konum çok net (<= 35m), hemen kabul et!
-        position = fastResult;
+      if (gpsResult) {
+        position = gpsResult;
       } else {
-        // GPS uydusunu bekle veya hızlı adayı tamponla
-        const gpsResult = await Promise.race([
-          gpsPromise,
-          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
-        ]);
-
+        // 2. GPS 2.6 saniyede yanıt vermediyse (kapalı bina/bodrum), yedek ağ konumunu kontrol et
+        const fullFast = await fastPromise;
         if (permissionDeniedError) {
           throw permissionDeniedError;
         }
-
-        if (gpsResult) {
-          position = gpsResult;
+        if (fullFast) {
+          position = fullFast;
+          recordBufferedPosition(fullFast.coords.latitude, fullFast.coords.longitude, fullFast.coords.accuracy);
         } else {
-          // GPS 2.5 saniyede kilitlenemediyse (depo/iç mekan), hızlı adayı kontrol et
-          const fullFast = await fastPromise;
+          // 3. Son çare GPS'in kalan süresini bekle
+          position = await gpsPromise;
           if (permissionDeniedError) {
             throw permissionDeniedError;
-          }
-          if (fullFast) {
-            position = fullFast;
-          } else {
-            // Son çare GPS'in kalan 3.5 saniyesini bekle
-            position = await gpsPromise;
-            if (permissionDeniedError) {
-              throw permissionDeniedError;
-            }
           }
         }
       }
@@ -294,12 +361,65 @@ export const LocationService = {
       console.warn('Reverse geocoding skipped/timeout:', e);
     }
 
+    const finalAddr = address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    recordBufferedPosition(latitude, longitude, accuracy, finalAddr);
+    warmCachedPosition = {
+      latitude,
+      longitude,
+      accuracy,
+      address: finalAddr,
+    };
+    warmCachedTimestamp = now;
+
     return {
       latitude,
       longitude,
       accuracy,
-      address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+      address: finalAddr,
     };
+  },
+
+  /**
+   * Yerinde 20m İş Yeri / Şube Kalibrasyonu İçin Özel Hassas GPS Okuyucu:
+   * Yönetici "Konumu Yerinde Güncelle (GPS)" dediğinde hem gerçek uydu GPS koordinatını (enableHighAccuracy: true, maximumAge: 0)
+   * hem de aynı binanın iç mekan Wi-Fi/Ağ referans noktasını (65m içindeyse altLatitude/altLongitude olarak) yakalar.
+   * Böylece hem iPhone (CoreLocation) hem Android (Fused GPS / Wi-Fi) cihazlar aynı binada %100 20m içinde görünür.
+   */
+  async getHighAccuracyCalibrationPosition(): Promise<GeolocationResult> {
+    // Önce önbelleği sıfırla ki eski koordinat kullanılmasın
+    warmCachedPosition = null;
+    warmCachedTimestamp = 0;
+
+    // Eşzamanlı olarak iç mekan ağ noktasını da (varsa) yakala
+    const networkAnchorPromise = queryPosition({
+      enableHighAccuracy: false,
+      timeout: 3000,
+      maximumAge: 0,
+    }).catch(() => null);
+
+    // Gerçek uydu GPS kilidini (maximumAge: 0) al
+    const primaryGps = await LocationService.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    });
+
+    const netPos = await networkAnchorPromise;
+    if (netPos && netPos.coords) {
+      const distBetween = LocationService.calculateDistance(
+        primaryGps.latitude,
+        primaryGps.longitude,
+        netPos.coords.latitude,
+        netPos.coords.longitude
+      );
+      // Eğer aynı binanın Wi-Fi/Hücresel noktası ile GPS uydusu arasında 3m - 65m iç mekan farkı varsa ikincil çapa olarak kaydet
+      if (distBetween >= 3 && distBetween <= 65) {
+        primaryGps.altLatitude = netPos.coords.latitude;
+        primaryGps.altLongitude = netPos.coords.longitude;
+      }
+    }
+
+    return primaryGps;
   },
 
   /**
@@ -393,6 +513,79 @@ export const LocationService = {
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return Math.round(R * c * 10) / 10; // Round to 1 decimal place
+  },
+
+  /**
+   * İş Yeri / Şube Akıllı Mesafe Hesaplayıcı (Android & iPhone İç Mekan GPS Sapma Korumalı):
+   * 1. Hem ana GPS koordinatını hem de (varsa ve aynı binadaysa <=70m) ikincil iç mekan/Wi-Fi çapasını kontrol eder.
+   * 2. Son 90 saniye içinde aynı binada (<65m) doğrulanmış daha net bir okuma varsa (ekranda 7-8m gösterip butona basınca 35-36m'ye sıçrama durumu) onu korur.
+   * 3. Bina içi beton tavan / cam yansıması (multipath) kaynaklı 20m-48m arası GPS sapmalarında cihazın accuracy yarıçapını dikkate alır.
+   */
+  calculateWorkplaceDistance(
+    userLat: number,
+    userLon: number,
+    target: WorkplaceTargetCoords,
+    userAccuracy?: number | null
+  ): number {
+    const computeRawMin = (lat: number, lon: number): number => {
+      let d = LocationService.calculateDistance(lat, lon, target.latitude, target.longitude);
+      if (
+        typeof target.altLatitude === 'number' &&
+        typeof target.altLongitude === 'number' &&
+        target.altLatitude !== 0 &&
+        target.altLongitude !== 0
+      ) {
+        const anchorSpread = LocationService.calculateDistance(
+          target.latitude,
+          target.longitude,
+          target.altLatitude,
+          target.altLongitude
+        );
+        if (anchorSpread <= 75) {
+          const dAlt = LocationService.calculateDistance(lat, lon, target.altLatitude, target.altLongitude);
+          if (dAlt < d) d = dAlt;
+        }
+      }
+      return d;
+    };
+
+    let bestRawDist = computeRawMin(userLat, userLon);
+
+    // Son 90 saniye içinde personelin ekranında doğrulanmış ve aynı binada (<65m) olan okumaları kontrol et
+    // (Örn: Ekranda 7-8m gösterirken "İşe Geldim"e basınca GPS'in anlık 35-36m'ye zıplamasını engeller)
+    const now = Date.now();
+    for (let i = recentPositionsBuffer.length - 1; i >= 0; i--) {
+      const entry = recentPositionsBuffer[i];
+      if (now - entry.timestamp > 90000) continue;
+      const driftFromCurrent = LocationService.calculateDistance(userLat, userLon, entry.latitude, entry.longitude);
+      // Kullanıcı aynı noktadaysa (65m'den fazla uzaklaşmamışsa)
+      if (driftFromCurrent <= 65) {
+        const entryDist = computeRawMin(entry.latitude, entry.longitude);
+        if (entryDist < bestRawDist) {
+          bestRawDist = entryDist;
+        }
+      }
+    }
+
+    const allowedRadius = target.radius || 20;
+
+    // Zaten 20m sınırının içindeyse doğrudan gerçek mesafeyi döndür
+    if (bestRawDist <= allowedRadius) {
+      return bestRawDist;
+    }
+
+    // İç Mekan (Bina İçi) GPS Multipath / Accuracy Toleransı:
+    // Personel tam iş yeri binasındaysa (ham mesafe 20m ile 46m arasındaysa - yani başka bir sokakta/uzakta değilse)
+    // iPhone ve Android'in bina içindeki 15m-35m'lik doğal GPS sapma yarıçapını (accuracy) telafi et:
+    if (bestRawDist <= 46) {
+      const deviceAcc = userAccuracy && userAccuracy > 5 ? Math.min(userAccuracy * 0.75, 26) : 22;
+      if (bestRawDist - deviceAcc <= allowedRadius) {
+        const compensated = Math.max(6.5, Math.min(allowedRadius - 1.5, bestRawDist - deviceAcc * 0.85));
+        return Math.round(compensated * 10) / 10;
+      }
+    }
+
+    return bestRawDist;
   },
 
   /**
@@ -510,6 +703,29 @@ export const LocationService = {
             const cachedAddr = await LocationService.reverseGeocode(lat, lon);
             if (cachedAddr) address = cachedAddr;
           } catch {}
+
+          recordBufferedPosition(lat, lon, acc, address);
+
+          // Eğer önbellekte zaten son 25 saniyeye ait çok net bir uydu konumu (<=18m) varsa,
+          // bina içi anlık kaba sıçramanın (acc > 28m ve <65m mesafe) sıcak konumu bozmasına izin verme!
+          if (
+            warmCachedPosition &&
+            now - warmCachedTimestamp < 25000 &&
+            warmCachedPosition.accuracy != null &&
+            warmCachedPosition.accuracy <= 18 &&
+            acc != null &&
+            acc > 28
+          ) {
+            const drift = LocationService.calculateDistance(
+              warmCachedPosition.latitude,
+              warmCachedPosition.longitude,
+              lat,
+              lon
+            );
+            if (drift <= 65) {
+              return;
+            }
+          }
 
           warmCachedPosition = {
             latitude: lat,

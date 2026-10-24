@@ -175,16 +175,30 @@ export const StaffTrackingView: React.FC = () => {
   const targetLocation = useMemo(() => {
     if (isAdmin) return null;
 
+    const getBranchAltCoords = (b: Branch) => {
+      const isSameAsHq =
+        workplaceLocation?.latitude &&
+        workplaceLocation?.longitude &&
+        LocationService.calculateDistance(b.latitude, b.longitude, workplaceLocation.latitude, workplaceLocation.longitude) <= 75;
+      return {
+        altLatitude: b.altLatitude || (isSameAsHq ? workplaceLocation?.altLatitude : undefined),
+        altLongitude: b.altLongitude || (isSameAsHq ? workplaceLocation?.altLongitude : undefined),
+      };
+    };
+
     // 1. Personel bugün zaten bir şubede mesaiye başlamışsa çıkış ve canlı mesafe o şubeyi referans alır
     if (currentUserTodayRecord) {
       if (currentUserTodayRecord.branchId && branches && branches.length > 0) {
         const checkedInBranch = branches.find((b) => b.id === currentUserTodayRecord.branchId);
         if (checkedInBranch) {
+          const alt = getBranchAltCoords(checkedInBranch);
           return {
             name: checkedInBranch.name,
             address: checkedInBranch.address,
             latitude: checkedInBranch.latitude,
             longitude: checkedInBranch.longitude,
+            altLatitude: alt.altLatitude,
+            altLongitude: alt.altLongitude,
             radius: checkedInBranch.radiusMeters || 20,
             isBranch: true,
           };
@@ -195,23 +209,28 @@ export const StaffTrackingView: React.FC = () => {
           (b) => (b?.name || '').trim().toLowerCase() === (currentUserTodayRecord.branchName || '').trim().toLowerCase()
         );
         if (checkedInBranch) {
+          const alt = getBranchAltCoords(checkedInBranch);
           return {
             name: checkedInBranch.name,
             address: checkedInBranch.address,
             latitude: checkedInBranch.latitude,
             longitude: checkedInBranch.longitude,
+            altLatitude: alt.altLatitude,
+            altLongitude: alt.altLongitude,
             radius: checkedInBranch.radiusMeters || 20,
             isBranch: true,
           };
         }
       }
       // Fail-safe: Şube henüz belleğe yüklenmemiş olsa bile personelin sabah giriş yaptığı koordinatlar
-      if (currentUserTodayRecord.checkInLat && currentUserTodayRecord.checkInLon) {
+      if (currentUserTodayRecord.checkInLat && currentUserTodayRecord.checkInLon && currentUserTodayRecord.branchId) {
         return {
           name: currentUserTodayRecord.branchName || 'Mesai Şubesi',
           address: currentUserTodayRecord.checkInAddress || '',
           latitude: currentUserTodayRecord.checkInLat,
           longitude: currentUserTodayRecord.checkInLon,
+          altLatitude: workplaceLocation?.altLatitude,
+          altLongitude: workplaceLocation?.altLongitude,
           radius: 20,
           isBranch: true,
         };
@@ -220,11 +239,14 @@ export const StaffTrackingView: React.FC = () => {
 
     // 2. Personelin atanmış olduğu şube
     if (userAssignedBranch) {
+      const alt = getBranchAltCoords(userAssignedBranch);
       return {
         name: userAssignedBranch.name,
         address: userAssignedBranch.address,
         latitude: userAssignedBranch.latitude,
         longitude: userAssignedBranch.longitude,
+        altLatitude: alt.altLatitude,
+        altLongitude: alt.altLongitude,
         radius: userAssignedBranch.radiusMeters || 20,
         isBranch: true,
       };
@@ -237,6 +259,8 @@ export const StaffTrackingView: React.FC = () => {
         address: workplaceLocation.address,
         latitude: workplaceLocation.latitude,
         longitude: workplaceLocation.longitude,
+        altLatitude: workplaceLocation.altLatitude,
+        altLongitude: workplaceLocation.altLongitude,
         radius:
           workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
             ? workplaceLocation.radiusMeters
@@ -247,11 +271,14 @@ export const StaffTrackingView: React.FC = () => {
 
     // 4. İlk aktif şube
     if (branches && branches.length > 0) {
+      const alt = getBranchAltCoords(branches[0]);
       return {
         name: branches[0].name,
         address: branches[0].address,
         latitude: branches[0].latitude,
         longitude: branches[0].longitude,
+        altLatitude: alt.altLatitude,
+        altLongitude: alt.altLongitude,
         radius: branches[0].radiusMeters || 20,
         isBranch: true,
       };
@@ -265,6 +292,8 @@ export const StaffTrackingView: React.FC = () => {
   const [addressText, setAddressText] = useState(workplaceLocation?.address || '');
   const [lat, setLat] = useState<number | undefined>(workplaceLocation?.latitude);
   const [lon, setLon] = useState<number | undefined>(workplaceLocation?.longitude);
+  const [altLat, setAltLat] = useState<number | undefined>(workplaceLocation?.altLatitude);
+  const [altLon, setAltLon] = useState<number | undefined>(workplaceLocation?.altLongitude);
   const [radius, setRadius] = useState<number>(
     workplaceLocation?.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
       ? workplaceLocation.radiusMeters
@@ -280,6 +309,8 @@ export const StaffTrackingView: React.FC = () => {
       setAddressText(workplaceLocation.address || '');
       setLat(workplaceLocation.latitude);
       setLon(workplaceLocation.longitude);
+      setAltLat(workplaceLocation.altLatitude);
+      setAltLon(workplaceLocation.altLongitude);
       setRadius(
         workplaceLocation.radiusMeters && workplaceLocation.radiusMeters !== 10 && workplaceLocation.radiusMeters !== 30
           ? workplaceLocation.radiusMeters
@@ -292,12 +323,29 @@ export const StaffTrackingView: React.FC = () => {
   const handleGetWorkplaceGPS = async () => {
     try {
       setIsFetchingLocation(true);
-      const pos = await LocationService.getCurrentPosition();
+      const pos = await LocationService.getHighAccuracyCalibrationPosition();
       setLat(pos.latitude);
       setLon(pos.longitude);
+      if (pos.altLatitude && pos.altLongitude) {
+        setAltLat(pos.altLatitude);
+        setAltLon(pos.altLongitude);
+      }
+      const nextAddress = pos.address || addressText;
       if (pos.address) {
         setAddressText(pos.address);
       }
+      await updateWorkplaceLocation(
+        nextAddress,
+        pos.latitude,
+        pos.longitude,
+        radius,
+        pos.altLatitude,
+        pos.altLongitude
+      );
+      setLocationSuccessMsg(
+        `İş yeri 20m GPS konumu bulunduğunuz yer olarak alındı ve kaydedildi! (${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)})`
+      );
+      setTimeout(() => setLocationSuccessMsg(''), 5000);
     } catch (err: any) {
       alert(err?.message || 'GPS konumu alınamadı.');
     } finally {
@@ -313,7 +361,7 @@ export const StaffTrackingView: React.FC = () => {
     }
     try {
       setIsSavingLocation(true);
-      await updateWorkplaceLocation(addressText, lat, lon, radius);
+      await updateWorkplaceLocation(addressText, lat, lon, radius, altLat, altLon);
       setLocationSuccessMsg('İş yeri lokasyonu başarıyla kaydedildi!');
       setTimeout(() => setLocationSuccessMsg(''), 4000);
     } catch (err: any) {
@@ -358,16 +406,14 @@ export const StaffTrackingView: React.FC = () => {
   const handleUpdateBranchGPS = async (branch: Branch) => {
     try {
       setUpdatingBranchId(branch.id);
-      const pos = await LocationService.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      });
+      const pos = await LocationService.getHighAccuracyCalibrationPosition();
 
       const updatedAddress = pos.address || branch.address;
       await updateBranch(branch.id, {
         latitude: pos.latitude,
         longitude: pos.longitude,
+        altLatitude: pos.altLatitude,
+        altLongitude: pos.altLongitude,
         address: updatedAddress,
         radiusMeters: 20,
       });
@@ -408,11 +454,11 @@ export const StaffTrackingView: React.FC = () => {
       setIsCheckingDistance(true);
       setDistanceError('');
       const pos = await LocationService.getFastOrWarmPosition();
-      const dist = LocationService.calculateDistance(
+      const dist = LocationService.calculateWorkplaceDistance(
         pos.latitude,
         pos.longitude,
-        targetLocation.latitude,
-        targetLocation.longitude
+        targetLocation,
+        pos.accuracy
       );
       setCurrentDistance(dist);
       setIsLocationDisabled(false);
@@ -449,11 +495,11 @@ export const StaffTrackingView: React.FC = () => {
       setDistanceError('');
       // Çok katmanlı hızlı algılama servisi ile anında konum tespiti (0ms refleks)
       const pos = await LocationService.getFastOrWarmPosition();
-      const dist = LocationService.calculateDistance(
+      const dist = LocationService.calculateWorkplaceDistance(
         pos.latitude,
         pos.longitude,
-        targetLocation.latitude,
-        targetLocation.longitude
+        targetLocation,
+        pos.accuracy
       );
       setCurrentDistance(dist);
       setIsLocationDisabled(false);
@@ -490,18 +536,18 @@ export const StaffTrackingView: React.FC = () => {
     }
   }, [targetLocation]);
 
-  // Firma "20m Dışında İşe Giriş Kilitli" kuralını açmışsa ve personel 20m dışındaysa,
-  // personel şubeye yaklaştığında butonun otomatik aktifleşmesi için mesafeyi periyodik güncelle
+  // Personel 20m dışındaysa veya GPS uydusu henüz tam kilitlenmemişse,
+  // şubeye yaklaştığında / uydu kilidi tamamlandığında mesafenin otomatik güncellenmesi için periyodik kontrol et
   useEffect(() => {
-    if (isAdmin || !isOutsideCheckInBlocked) return;
+    if (isAdmin) return;
     if (!targetLocation?.latitude || !targetLocation?.longitude) return;
     if (currentDistance !== null && currentDistance <= allowedRadius) return;
 
     const timer = setInterval(() => {
       checkLiveDistance(false);
-    }, 8000);
+    }, 6000);
     return () => clearInterval(timer);
-  }, [isAdmin, isOutsideCheckInBlocked, targetLocation, currentDistance, allowedRadius]);
+  }, [isAdmin, targetLocation, currentDistance, allowedRadius]);
 
   // --- 3. Check-in / Check-out Actions & Approval Flow ---
   const [actionLoadingType, setActionLoadingType] = useState<'checkin' | 'checkout' | 'break' | null>(null);
