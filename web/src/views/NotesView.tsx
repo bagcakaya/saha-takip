@@ -243,7 +243,7 @@ export const NotesView: React.FC = () => {
         return filteredNotes.filter((n) => n.status === 'processed');
       }
       const approvable = filteredNotes.filter(
-        (n) => n.status === 'pending_approval' || n.status === 'rejected'
+        (n) => !n.status || n.status === 'pending' || n.status === 'pending_approval' || n.status === 'rejected'
       );
       return approvable.length > 0 ? approvable : filteredNotes;
     }

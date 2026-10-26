@@ -763,6 +763,24 @@ export const NoteCard: React.FC<NoteCardProps> = ({
       {/* 1. Admin Actions */}
       {isAdmin ? (
         <>
+          {(!note.status || note.status === 'pending') && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={handleApprove}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>{isProcessing ? 'Tamamlanıyor...' : '✓ İşi Tamamla'}</span>
+              </button>
+            </div>
+          )}
+
           {note.status === 'pending_approval' && (
             <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-2">
               <button

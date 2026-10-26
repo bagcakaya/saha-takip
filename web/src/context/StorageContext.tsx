@@ -2628,15 +2628,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const completedAt = Date.now();
     const staffName = user?.name || user?.username || 'Saha Personeli';
     const trimmedNote = completionNote?.trim() || undefined;
+    const isAdminCompleting = isUserAdmin(user);
 
     const updatedNote: GeneralNote = {
       ...targetNote,
-      status: 'pending_approval' as const,
+      status: isAdminCompleting ? ('approved' as const) : ('pending_approval' as const),
       completedAt,
       completedBy: user?.id,
       completedByName: staffName,
       completionNote: trimmedNote,
       completionPhotos: completionPhotos !== undefined ? completionPhotos : targetNote.completionPhotos || [],
+      ...(isAdminCompleting
+        ? {
+            approvedAt: completedAt,
+            approvedBy: user?.id,
+            approvedByName: staffName,
+          }
+        : {}),
       // Reset previous rejection if resubmitted
       rejectedAt: undefined,
       rejectedBy: undefined,
@@ -2701,9 +2709,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     })();
   };
 
-  // Admin approves completed work order
+  // Admin approves completed work order (or directly completes a pending work order)
   const approveNote = async (id: string) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler iş emirlerini onaylayabilir.');
       return;
     }
@@ -2718,6 +2726,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updatedNote: GeneralNote = {
       ...targetNote,
       status: 'approved' as const,
+      completedAt: targetNote.completedAt || approvedAt,
+      completedBy: targetNote.completedBy || user?.id,
+      completedByName: targetNote.completedByName || adminName,
       approvedAt,
       approvedBy: user?.id,
       approvedByName: adminName,
@@ -2853,7 +2864,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Bulk: Admin approves multiple work orders in one atomic batch
   const approveMultipleNotes = async (ids: string[]) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler iş emirlerini onaylayabilir.');
       return;
     }
@@ -2870,6 +2881,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated: GeneralNote = {
           ...n,
           status: 'approved' as const,
+          completedAt: n.completedAt || approvedAt,
+          completedBy: n.completedBy || user?.id,
+          completedByName: n.completedByName || adminName,
           approvedAt,
           approvedBy: user?.id,
           approvedByName: adminName,
