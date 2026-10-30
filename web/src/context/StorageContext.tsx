@@ -3433,7 +3433,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Update service record (guarded: admin or creator only)
   const updateService = async (id: string, updates: Partial<ServiceItem>) => {
     const target = allServices.find((s) => s.id === id);
-    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+    if (target && !isUserAdmin(user) && target.createdBy !== user?.id) {
       alert('Bu servis kaydını düzenleme yetkiniz bulunmuyor.');
       return;
     }
@@ -3447,12 +3447,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Delete service record
   const deleteService = async (id: string) => {
     const target = allServices.find((s) => s.id === id);
-    if (target && user?.role !== 'admin' && target.createdBy !== user?.id) {
+    if (target && !isUserAdmin(user) && target.createdBy !== user?.id) {
       alert('Bu servis kaydını silme yetkiniz bulunmuyor.');
       return;
     }
     const updated = allServices.filter((s) => s.id !== id);
-    await saveServices(updated);
+    setAllServices(updated);
+    await StorageService.deleteService(id);
   };
 
   const completeService = async (_id: string, _completionNote?: string, _completionPhotos?: string[]) => {};

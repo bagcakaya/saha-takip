@@ -506,10 +506,10 @@ export const StorageService = {
             return {
               id: row.id,
               name: row.name,
-              cariName: row.cari_name || undefined,
+              cariName: (row as any).cari_name || fb?.cariName || undefined,
               address: row.address || '',
               notes: row.notes || '',
-              photos: Array.isArray(row.photos) ? row.photos : [],
+              photos: Array.isArray(row.photos) && row.photos.length > 0 ? row.photos : fb?.photos || [],
               latitude: row.latitude || undefined,
               longitude: row.longitude || undefined,
               createdAt: Number(row.created_at) || Date.now(),
@@ -559,9 +559,10 @@ export const StorageService = {
             return {
               id: row.id,
               name: row.name,
+              cariName: (row as any).cari_name || fb?.cariName || undefined,
               address: row.address || '',
               notes: row.notes || '',
-              photos: Array.isArray(row.photos) ? row.photos : [],
+              photos: Array.isArray(row.photos) && row.photos.length > 0 ? row.photos : fb?.photos || [],
               latitude: row.latitude || undefined,
               longitude: row.longitude || undefined,
               createdAt: Number(row.created_at) || Date.now(),
@@ -1690,48 +1691,63 @@ export const StorageService = {
    */
   async getServices(): Promise<ServiceItem[]> {
     const localKey = this.getStorageKey(SERVICES_KEY);
+    const localCached = (await loadItem<ServiceItem[]>(localKey)) || [];
+    const localCachedMap = new Map(localCached.map((s) => [s.id, s]));
+
+    const pickPhotos = (...candidates: (string[] | undefined | null)[]): string[] => {
+      for (const c of candidates) {
+        if (Array.isArray(c) && c.length > 0) return c;
+      }
+      return [];
+    };
 
     if (activeCompanyCode === 'POLATLAR') {
       const fallbackServices = (await loadChunkedSlot<ServiceItem[]>(3)).data || [];
       const fallbackMap = new Map(fallbackServices.map((s) => [s.id, s]));
 
+      const mapRowToService = (row: any): ServiceItem => {
+        const fb = fallbackMap.get(row.id);
+        const lc = localCachedMap.get(row.id);
+        return {
+          id: row.id,
+          companyName: row.company_name || fb?.companyName || lc?.companyName || '',
+          cariName: row.cari_name || fb?.cariName || lc?.cariName || undefined,
+          location: row.location || fb?.location || lc?.location || undefined,
+          latitude: row.latitude != null ? Number(row.latitude) : fb?.latitude ?? lc?.latitude,
+          longitude: row.longitude != null ? Number(row.longitude) : fb?.longitude ?? lc?.longitude,
+          workDone: row.work_done || fb?.workDone || lc?.workDone || '',
+          date: row.date || fb?.date || lc?.date || undefined,
+          photos: pickPhotos(row.photos, fb?.photos, lc?.photos),
+          createdAt: Number(row.created_at) || fb?.createdAt || lc?.createdAt || Date.now(),
+          createdBy: row.created_by || fb?.createdBy || lc?.createdBy || undefined,
+          createdByName: row.created_by_name || fb?.createdByName || lc?.createdByName || undefined,
+          status: row.status || fb?.status || lc?.status || 'approved',
+          completedAt: row.completed_at || fb?.completedAt || lc?.completedAt,
+          completedBy: row.completed_by || fb?.completedBy || lc?.completedBy,
+          completedByName: row.completed_by_name || fb?.completedByName || lc?.completedByName,
+          completionNote: row.completion_note || fb?.completionNote || lc?.completionNote,
+          completionPhotos: pickPhotos(row.completion_photos, fb?.completionPhotos, lc?.completionPhotos),
+          approvedAt: row.approved_at || fb?.approvedAt || lc?.approvedAt,
+          approvedBy: row.approved_by || fb?.approvedBy || lc?.approvedBy,
+          approvedByName: row.approved_by_name || fb?.approvedByName || lc?.approvedByName,
+          rejectedAt: row.rejected_at || fb?.rejectedAt || lc?.rejectedAt,
+          rejectedBy: row.rejected_by || fb?.rejectedBy || lc?.rejectedBy,
+          rejectedByName: row.rejected_by_name || fb?.rejectedByName || lc?.rejectedByName,
+          rejectionReason: row.rejection_reason || fb?.rejectionReason || lc?.rejectionReason,
+        };
+      };
+
       // 1. Yerel Sunucu (Local Mode)
       if (ServerConfigService.isLocalMode()) {
         const res = await localApiGet<any[]>('/api/tables/services');
         if (res && Array.isArray(res) && res.length > 0) {
-          const cloudServices: ServiceItem[] = res.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            return {
-              id: row.id,
-              companyName: row.company_name,
-              location: row.location || undefined,
-              latitude: row.latitude != null ? Number(row.latitude) : undefined,
-              longitude: row.longitude != null ? Number(row.longitude) : undefined,
-              workDone: row.work_done,
-              date: row.date || undefined,
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              status: (row as any).status || fb?.status || 'pending',
-              completedAt: (row as any).completed_at || fb?.completedAt,
-              completedBy: (row as any).completed_by || fb?.completedBy,
-              completedByName: (row as any).completed_by_name || fb?.completedByName,
-              completionNote: (row as any).completion_note || fb?.completionNote,
-              completionPhotos: Array.isArray((row as any).completion_photos)
-                ? (row as any).completion_photos
-                : fb?.completionPhotos || [],
-              approvedAt: (row as any).approved_at || fb?.approvedAt,
-              approvedBy: (row as any).approved_by || fb?.approvedBy,
-              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
-              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
-              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
-              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
-              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
-            };
-          });
+          const cloudServices: ServiceItem[] = res.map(mapRowToService);
+          const rowIds = new Set(cloudServices.map((s) => s.id));
+          const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
+          const merged = [...cloudServices, ...missingFromSlot];
 
-          await saveItem(localKey, cloudServices);
-          return cloudServices;
+          await saveItem(localKey, merged);
+          return merged;
         }
 
         if (fallbackServices.length > 0) {
@@ -1739,7 +1755,7 @@ export const StorageService = {
           return fallbackServices;
         }
 
-        return (await loadItem<ServiceItem[]>(localKey)) || [];
+        return localCached;
       }
 
       // 2. Primary POLATLAR table in Supabase
@@ -1750,39 +1766,13 @@ export const StorageService = {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          const cloudServices: ServiceItem[] = data.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            return {
-              id: row.id,
-              companyName: row.company_name,
-              location: row.location || undefined,
-              latitude: row.latitude != null ? Number(row.latitude) : undefined,
-              longitude: row.longitude != null ? Number(row.longitude) : undefined,
-              workDone: row.work_done,
-              date: row.date || undefined,
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              status: (row as any).status || fb?.status || 'pending',
-              completedAt: (row as any).completed_at || fb?.completedAt,
-              completedBy: (row as any).completed_by || fb?.completedBy,
-              completedByName: (row as any).completed_by_name || fb?.completedByName,
-              completionNote: (row as any).completion_note || fb?.completionNote,
-              completionPhotos: Array.isArray((row as any).completion_photos)
-                ? (row as any).completion_photos
-                : fb?.completionPhotos || [],
-              approvedAt: (row as any).approved_at || fb?.approvedAt,
-              approvedBy: (row as any).approved_by || fb?.approvedBy,
-              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
-              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
-              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
-              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
-              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
-            };
-          });
+          const cloudServices: ServiceItem[] = data.map(mapRowToService);
+          const rowIds = new Set(cloudServices.map((s) => s.id));
+          const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
+          const merged = [...cloudServices, ...missingFromSlot];
 
-          await saveItem(localKey, cloudServices);
-          return cloudServices;
+          await saveItem(localKey, merged);
+          return merged;
         }
       } catch {
         // ignore
@@ -1793,7 +1783,7 @@ export const StorageService = {
         return fallbackServices;
       }
 
-      return (await loadItem<ServiceItem[]>(localKey)) || [];
+      return localCached;
     }
 
     // Isolated slot 3 for other companies
@@ -1809,8 +1799,7 @@ export const StorageService = {
       return [];
     }
 
-    const localData = await loadItem<ServiceItem[]>(localKey);
-    return Array.isArray(localData) ? localData : [];
+    return Array.isArray(localCached) ? localCached : [];
   },
 
   /**
@@ -1821,18 +1810,25 @@ export const StorageService = {
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
+      // Save to Slot 3 FIRST and AWAIT IT so any immediate Realtime re-fetch gets full photos & cariName
+      await saveChunkedSlot(3, items).catch((err) => {
+        console.warn('saveChunkedSlot 3 in saveServices error:', err);
+      });
+
       const fullRows = items.map((item) => ({
         id: item.id,
         company_name: item.companyName,
+        cari_name: item.cariName || null,
         location: item.location || null,
         latitude: item.latitude || null,
         longitude: item.longitude || null,
         work_done: item.workDone,
         date: item.date || null,
+        photos: item.photos || [],
         created_at: item.createdAt,
         created_by: item.createdBy || null,
         created_by_name: item.createdByName || null,
-        status: item.status || 'pending',
+        status: item.status || 'approved',
         completed_at: item.completedAt || null,
         completed_by: item.completedBy || null,
         completed_by_name: item.completedByName || null,
@@ -1854,33 +1850,42 @@ export const StorageService = {
         );
       }
 
-      // 2. Supabase Bulut & Slot 3 eşzamanlı kaydet
-      const cloudWrites: Promise<any>[] = [];
+      // 2. Supabase Bulut tablosuna kaydet
       if (fullRows.length > 0) {
-        cloudWrites.push(
-          (async () => {
-            try {
-              const basicRows = items.map((item) => ({
-                id: item.id,
-                company_name: item.companyName,
-                location: item.location || null,
-                latitude: item.latitude || null,
-                longitude: item.longitude || null,
-                work_done: item.workDone,
-                date: item.date || null,
-                created_at: item.createdAt,
-                created_by: item.createdBy || null,
-                created_by_name: item.createdByName || null,
-              }));
-              await supabase.from('services').upsert(basicRows);
-            } catch (err) {
-              console.warn('[Dual-Write Supabase] save services error:', err);
+        try {
+          const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
+          if (upsertErr) {
+            const basicRows = items.map((item) => ({
+              id: item.id,
+              company_name: item.companyName,
+              location: item.location || null,
+              latitude: item.latitude || null,
+              longitude: item.longitude || null,
+              work_done: item.workDone,
+              date: item.date || null,
+              created_at: item.createdAt,
+              created_by: item.createdBy || null,
+              created_by_name: item.createdByName || null,
+            }));
+            await supabase.from('services').upsert(basicRows);
+          }
+
+          const currentIds = items.map((i) => i.id);
+          const { data: cloudData } = await supabase.from('services').select('id');
+          if (cloudData) {
+            const idsToDelete = cloudData
+              .map((c) => c.id)
+              .filter((id) => !currentIds.includes(id));
+            if (idsToDelete.length > 0) {
+              await supabase.from('services').delete().in('id', idsToDelete);
             }
-          })()
-        );
+          }
+        } catch (err) {
+          console.warn('[Dual-Write Supabase] save services error:', err);
+        }
+      } else {
+        await supabase.from('services').delete().neq('id', '___');
       }
-      cloudWrites.push(saveChunkedSlot(3, items));
-      await Promise.allSettled(cloudWrites);
     } else {
       await saveChunkedSlot(this.getSlotId(3), items);
     }
