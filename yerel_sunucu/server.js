@@ -9,6 +9,28 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const errorLogPath = path.join(__dirname, 'sunucu_hata.log');
+
+function appendServerErrorLog(tag, err) {
+  try {
+    const detail = err && err.stack ? err.stack : String(err);
+    const line = `[${new Date().toISOString()}] [${tag}] ${detail}\n`;
+    fs.appendFileSync(errorLogPath, line, 'utf8');
+  } catch {
+    // ignore file logging errors
+  }
+}
+
+// Beklenmeyen hatalarda Node.js servisinin kapanmasını önleyen koruma kalkanı
+process.on('uncaughtException', (err) => {
+  console.error('>> [KRİTİK KORUMA] Yakalanmamış Hata (Servis çalışmaya devam ediyor):', err);
+  appendServerErrorLog('uncaughtException', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('>> [KRİTİK KORUMA] İşlenmemiş Promise Hatası (Servis çalışmaya devam ediyor):', reason);
+  appendServerErrorLog('unhandledRejection', reason);
+});
 
 // Middleware
 app.use(cors());
@@ -783,7 +805,7 @@ if (webDistPath && fs.existsSync(webDistPath)) {
 }
 
 // Başlat
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('================================================================');
   console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
   console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
@@ -800,4 +822,10 @@ app.listen(PORT, '0.0.0.0', () => {
   setInterval(() => {
     runCloudSync(PORT, true).catch(() => {});
   }, 30 * 60 * 1000);
+});
+
+server.on('error', (err) => {
+  console.error(`>> [SUNUCU PORT HATASI] Port ${PORT} başlatılamadı:`, err.message);
+  appendServerErrorLog('serverListenError', err);
+  process.exit(1);
 });

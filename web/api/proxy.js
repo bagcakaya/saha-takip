@@ -1,5 +1,5 @@
 // Vercel Serverless Function: HTTPS -> HTTP Proxy Köprüsü
-// Web sitesi HTTPS (https://saha-takip-beige.vercel.app) iken tarayıcının 
+// Web sitesi HTTPS (https://saha-takip-beige.vercel.app) iken tarayıcının
 // Mixed-Content (Güvenli olmayan içerik) engelini tamamen ortadan kaldırır.
 
 export default async function handler(req, res) {
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const fetchOptions = {
       method: req.method,
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
     };
 
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000); // 9sn timeout
+    const timeout = setTimeout(() => controller.abort(), 8500);
     fetchOptions.signal = controller.signal;
 
     const backendRes = await fetch(targetUrl, fetchOptions);
@@ -50,10 +50,25 @@ export default async function handler(req, res) {
       res.status(backendRes.status).send(text);
     }
   } catch (err) {
+    const rawErr = String(err?.cause?.code || err?.message || '');
+    const isTimeout = err?.name === 'AbortError' || /aborted|timeout|ETIMEDOUT/i.test(rawErr);
+    const isRefused = /ECONNREFUSED/i.test(rawErr);
+
+    let friendlyMessage = `Yerel sunucuya (${baseUrl}) ulaşılamadı.`;
+    if (isRefused) {
+      friendlyMessage = `Sunucuya ulaşıldı ancak Port 3001 kapalı (ECONNREFUSED). Windows Server üzerinde 'yerel_sunucu\\Baslat.bat' servisini başlatın.`;
+    } else if (isTimeout) {
+      friendlyMessage = `Yerel sunucu (${baseUrl}) yanıt vermedi (Zaman aşımı). Windows Server'da 'yerel_sunucu\\Baslat.bat' servisinin açık olduğundan ve 3001 port yönlendirmesinin aktif olduğundan emin olun.`;
+    } else if (rawErr) {
+      friendlyMessage = `Yerel sunucuya ulaşılamadı (${rawErr}). Sunucu servisini ve 3001 portunu kontrol edin.`;
+    }
+
     console.error('Proxy Error to', targetUrl, err);
     res.status(502).json({
       status: 'error',
-      message: `Yerel sunucuya ulaşılamadı (${err.message}). IP ve 3001 portunu kontrol edin.`,
+      proxyError: true,
+      reason: isRefused ? 'refused' : isTimeout ? 'timeout' : 'unreachable',
+      message: friendlyMessage,
     });
   }
 }

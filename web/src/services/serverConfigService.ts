@@ -166,9 +166,30 @@ export const ServerConfigService = {
       clearTimeout(timer);
 
       if (!res.ok) {
+        let serverDetail = '';
+        try {
+          const errJson = await res.json();
+          if (errJson && typeof errJson.message === 'string') {
+            serverDetail = errJson.message;
+          }
+        } catch {
+          // ignore non-json error body
+        }
+
+        if (res.status === 502) {
+          return {
+            success: false,
+            message:
+              serverDetail ||
+              `Yerel sunucuya (${rawUrl}) ulaşılamadı (502). Windows Server üzerinde 'yerel_sunucu\\Baslat.bat' servisinin açık olduğundan ve 3001 portunun açık olduğundan emin olun.`,
+          };
+        }
+
         return {
           success: false,
-          message: `Sunucu yanıt verdi ancak HTTP hatası oluştu (${res.status} ${res.statusText}).`,
+          message: serverDetail
+            ? `Sunucu hatası (${res.status}): ${serverDetail}`
+            : `Sunucu yanıt verdi ancak HTTP hatası oluştu (${res.status} ${res.statusText}).`,
         };
       }
 

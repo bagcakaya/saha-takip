@@ -226,12 +226,28 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
   return null;
 }
 
+// Supabase tablolarında genişletilmiş sütunların varlığını önbelleğe alır (her kayıtta çift istek / 400 hatasını önler)
+const supabaseExtendedCols = {
+  locations: true,
+  notes: true,
+  return_warranty: true,
+  services: true,
+};
+
+// Yerel Sunucu kapalıyken Bulut modunda gereksiz 502 spam'ini önleyen devre kesici (3 dk)
+let localDualWriteOfflineUntil = 0;
+
 async function localApiPost(endpoint: string, body: any): Promise<boolean> {
+  const isLocal = ServerConfigService.isLocalMode();
+  if (!isLocal && Date.now() < localDualWriteOfflineUntil) {
+    return false;
+  }
+
   const apiUrl = ServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return false;
   try {
     const controller = new AbortController();
-    const timeoutMs = ServerConfigService.isLocalMode() ? 5000 : 3500;
+    const timeoutMs = isLocal ? 5000 : 3500;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
@@ -241,8 +257,16 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
       signal: controller.signal,
     });
     clearTimeout(timer);
+    if (!res.ok && !isLocal && (res.status === 502 || res.status === 504)) {
+      localDualWriteOfflineUntil = Date.now() + 3 * 60 * 1000;
+    } else if (res.ok) {
+      localDualWriteOfflineUntil = 0;
+    }
     return res.ok;
   } catch (err) {
+    if (!isLocal) {
+      localDualWriteOfflineUntil = Date.now() + 3 * 60 * 1000;
+    }
     console.warn(`[Yerel Sunucu Dual-Write] POST ${endpoint} atlandı/hata:`, err);
   }
   return false;
@@ -667,8 +691,17 @@ export const StorageService = {
         writeOps.push(
           (async () => {
             try {
-              const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
-              if (upsertErr) {
+              let useBasic = !supabaseExtendedCols.locations;
+              if (!useBasic) {
+                const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
+                if (upsertErr) {
+                  if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                    supabaseExtendedCols.locations = false;
+                  }
+                  useBasic = true;
+                }
+              }
+              if (useBasic) {
                 const basicRows = locations.map((loc) => ({
                   id: loc.id,
                   name: loc.name,
@@ -1318,9 +1351,17 @@ export const StorageService = {
 
       // 2. Supabase Cloud
       try {
-        const { error: singleErr } = await supabase.from('notes').upsert([row]);
-        if (singleErr) {
-          console.warn('saveSingleNote primary upsert error, falling back to basic columns:', singleErr);
+        let useBasic = !supabaseExtendedCols.notes;
+        if (!useBasic) {
+          const { error: singleErr } = await supabase.from('notes').upsert([row]);
+          if (singleErr) {
+            if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
+              supabaseExtendedCols.notes = false;
+            }
+            useBasic = true;
+          }
+        }
+        if (useBasic) {
           const basicRow: any = {
             id: note.id,
             content: note.content,
@@ -1387,9 +1428,17 @@ export const StorageService = {
 
       // 2. Supabase Cloud
       try {
-        const { error: batchErr } = await supabase.from('notes').upsert(rows);
-        if (batchErr) {
-          console.warn('saveMultipleNotes primary upsert error, falling back to basic columns:', batchErr);
+        let useBasic = !supabaseExtendedCols.notes;
+        if (!useBasic) {
+          const { error: batchErr } = await supabase.from('notes').upsert(rows);
+          if (batchErr) {
+            if (batchErr.code === 'PGRST204' || /column/i.test(batchErr.message || '')) {
+              supabaseExtendedCols.notes = false;
+            }
+            useBasic = true;
+          }
+        }
+        if (useBasic) {
           const basicRows = notesToSave.map((n) => ({
             id: n.id,
             content: n.content,
@@ -1605,8 +1654,17 @@ export const StorageService = {
         writeOps.push(
           (async () => {
             try {
-              const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
-              if (upsertErr) {
+              let useBasic = !supabaseExtendedCols.return_warranty;
+              if (!useBasic) {
+                const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
+                if (upsertErr) {
+                  if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                    supabaseExtendedCols.return_warranty = false;
+                  }
+                  useBasic = true;
+                }
+              }
+              if (useBasic) {
                 const basicRows = items.map((item) => ({
                   id: item.id,
                   type: item.type,
@@ -1853,8 +1911,17 @@ export const StorageService = {
       // 2. Supabase Bulut tablosuna kaydet
       if (fullRows.length > 0) {
         try {
-          const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
-          if (upsertErr) {
+          let useBasic = !supabaseExtendedCols.services;
+          if (!useBasic) {
+            const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
+            if (upsertErr) {
+              if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                supabaseExtendedCols.services = false;
+              }
+              useBasic = true;
+            }
+          }
+          if (useBasic) {
             const basicRows = items.map((item) => ({
               id: item.id,
               company_name: item.companyName,
