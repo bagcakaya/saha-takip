@@ -2788,7 +2788,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Admin rejects completed work order with reason
   const rejectNote = async (id: string, reason?: string) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler iş emirlerini reddedebilir.');
       return;
     }
@@ -3024,7 +3024,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Admin marks approved work order as processed into the company system (Sisteme İşlendi)
   const processNote = async (id: string) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler iş emirlerini sisteme işlendi olarak işaretleyebilir.');
       return;
     }
@@ -3056,7 +3056,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Revert back from processed to approved
   const unprocessNote = async (id: string) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler bu işlemi yapabilir.');
       return;
     }
@@ -3084,7 +3084,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Bulk: Admin marks multiple approved work orders as processed in one batch
   const processMultipleNotes = async (ids: string[]) => {
-    if (user?.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       alert('Yalnızca yöneticiler iş emirlerini sisteme işlendi olarak işaretleyebilir.');
       return;
     }
@@ -3114,7 +3114,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
 
-    Promise.all(updatedNotesList.map((n) => StorageService.saveSingleNote(n))).catch((err) => {
+    StorageService.saveMultipleNotes(updatedNotesList).catch((err) => {
       console.warn('processMultipleNotes error:', err);
     });
   };
@@ -3138,8 +3138,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
 
-    StorageService.saveSingleNote(updatedNote).catch((err) => {
-      console.warn('saveSingleNote markNoteAsRead error:', err);
+    StorageService.appendNoteReadBy(id, user.id).catch((err) => {
+      console.warn('appendNoteReadBy error:', err);
     });
   };
 
@@ -3150,17 +3150,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!targetNote) return;
 
     const trimmed = usedMaterials.trim();
+    const nextMaterials = trimmed.length > 0 ? trimmed : undefined;
     const updatedNote: GeneralNote = {
       ...targetNote,
-      usedMaterials: trimmed.length > 0 ? trimmed : undefined,
+      usedMaterials: nextMaterials,
     };
 
     const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
 
-    StorageService.saveSingleNote(updatedNote).catch((err) => {
-      console.warn('saveSingleNote updateNoteMaterials error:', err);
+    StorageService.saveNoteMaterials(id, nextMaterials).catch((err) => {
+      console.warn('saveNoteMaterials error:', err);
     });
   };
 

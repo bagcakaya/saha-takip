@@ -237,6 +237,14 @@ const supabaseExtendedCols = {
 // Yerel Sunucu kapalıyken Bulut modunda gereksiz 502 spam'ini önleyen devre kesici (3 dk)
 let localDualWriteOfflineUntil = 0;
 
+// Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
+let slot4WriteChain: Promise<void> = Promise.resolve();
+function enqueueSlot4Write(task: () => Promise<void>): Promise<void> {
+  const next = slot4WriteChain.then(task, task);
+  slot4WriteChain = next.catch(() => {});
+  return next;
+}
+
 async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   const isLocal = ServerConfigService.isLocalMode();
   if (!isLocal && Date.now() < localDualWriteOfflineUntil) {
@@ -878,6 +886,115 @@ export const StorageService = {
     }
   },
 
+  mergeNoteRowWithFallback(row: any, fb?: GeneralNote, lc?: GeneralNote): GeneralNote {
+    const mergedReadBy = Array.from(
+      new Set([
+        ...(Array.isArray(row?.read_by) ? row.read_by : []),
+        ...(Array.isArray(row?.readBy) ? row.readBy : []),
+        ...(Array.isArray(fb?.readBy) ? fb.readBy : []),
+        ...(Array.isArray(lc?.readBy) ? lc.readBy : []),
+      ])
+    );
+
+    const completedAt = row?.completed_at
+      ? Number(row.completed_at)
+      : fb?.completedAt || undefined;
+    const completedBy = row?.completed_by || fb?.completedBy || undefined;
+    const completedByName = row?.completed_by_name || fb?.completedByName || undefined;
+    const completionNote = row?.completion_note || fb?.completionNote || undefined;
+
+    const approvedAt = row?.approved_at
+      ? Number(row.approved_at)
+      : fb?.approvedAt || undefined;
+    const approvedBy = row?.approved_by || fb?.approvedBy || undefined;
+    const approvedByName = row?.approved_by_name || fb?.approvedByName || undefined;
+
+    const rejectedAt = row?.rejected_at
+      ? Number(row.rejected_at)
+      : fb?.rejectedAt || undefined;
+    const rejectedBy = row?.rejected_by || fb?.rejectedBy || undefined;
+    const rejectedByName = row?.rejected_by_name || fb?.rejectedByName || undefined;
+    const rejectionReason = row?.rejection_reason || fb?.rejectionReason || undefined;
+
+    const processedAt = row?.processed_at
+      ? Number(row.processed_at)
+      : fb?.processedAt || lc?.processedAt || undefined;
+    const processedBy = row?.processed_by || fb?.processedBy || lc?.processedBy || undefined;
+    const processedByName = row?.processed_by_name || fb?.processedByName || lc?.processedByName || undefined;
+
+    // Atomik satır tablosu (notes.status) birincil gerçeklik kaynağıdır; eski Slot 4 veya yerel önbellek onu ezemez
+    let resolvedStatus: GeneralNote['status'] =
+      row?.status || fb?.status || 'pending';
+
+    // Eğer satır approved iken Slot 4'te daha güncel Sisteme İşlendi (processed) bilgisi varsa koru
+    if (
+      resolvedStatus === 'approved' &&
+      fb?.status === 'processed' &&
+      processedAt &&
+      (!approvedAt || processedAt >= approvedAt)
+    ) {
+      resolvedStatus = 'processed';
+    }
+
+    // Güvenlik ağı: Personel tamamlama detayı varken durum kazara 'pending' kalmışsa 'pending_approval' olarak düzelt
+    if (
+      (!resolvedStatus || resolvedStatus === 'pending') &&
+      (completedAt || completedByName || completionNote) &&
+      !approvedAt &&
+      !rejectedAt
+    ) {
+      resolvedStatus = 'pending_approval';
+    }
+
+    const pickArr = (...arrs: (string[] | undefined | null)[]): string[] => {
+      for (const a of arrs) {
+        if (Array.isArray(a) && a.length > 0) return a;
+      }
+      return [];
+    };
+
+    return {
+      id: row.id,
+      content: row.content,
+      createdAt: Number(row.created_at) || Date.now(),
+      createdBy: row.created_by || undefined,
+      createdByName: row.created_by_name || undefined,
+      targetMode: row.target_mode || 'self',
+      targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
+      targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
+      targetUserId: row.target_user_id || undefined,
+      targetUserName: row.target_user_name || undefined,
+      reminderActive: Boolean(row.reminder_active),
+      reminderDate: row.reminder_date || undefined,
+      notified: Boolean(row.notified),
+      cariName: row?.cari_name || fb?.cariName || lc?.cariName || undefined,
+      photos: pickArr(row?.photos, fb?.photos, lc?.photos),
+      completionPhotos: pickArr(row?.completion_photos, fb?.completionPhotos, lc?.completionPhotos),
+      status: resolvedStatus,
+      completedAt,
+      completedBy,
+      completedByName,
+      completionNote,
+      approvedAt,
+      approvedBy,
+      approvedByName,
+      rejectedAt,
+      rejectedBy,
+      rejectedByName,
+      rejectionReason,
+      processedAt,
+      processedBy,
+      processedByName,
+      readBy: mergedReadBy,
+      usedMaterials:
+        row?.used_materials ||
+        row?.usedMaterials ||
+        fb?.usedMaterials ||
+        lc?.usedMaterials ||
+        undefined,
+    };
+  },
+
   /**
    * Retrieves notes (Supabase cloud + local cache)
    */
@@ -901,52 +1018,9 @@ export const StorageService = {
         if (serverRows && Array.isArray(serverRows)) {
           const validRows = serverRows.filter((r) => !deletedIds.has(r.id));
           const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
-          const mergedNotes: GeneralNote[] = validRows.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            const lc = localCachedMap.get(row.id);
-            const mergedReadBy = Array.from(
-              new Set([
-                ...(Array.isArray((row as any).read_by) ? (row as any).read_by : []),
-                ...(Array.isArray((row as any).readBy) ? (row as any).readBy : []),
-                ...(Array.isArray(fb?.readBy) ? fb.readBy : []),
-                ...(Array.isArray(lc?.readBy) ? lc.readBy : []),
-              ])
-            );
-            return {
-              id: row.id,
-              content: row.content,
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              targetMode: row.target_mode || 'self',
-              targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
-              targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
-              targetUserId: row.target_user_id || undefined,
-              targetUserName: row.target_user_name || undefined,
-              reminderActive: Boolean(row.reminder_active),
-              reminderDate: row.reminder_date || undefined,
-              notified: Boolean(row.notified),
-              cariName: fb?.cariName || lc?.cariName || (row as any).cari_name || undefined,
-              photos: fb?.photos || lc?.photos || (row as any).photos || [],
-              completionPhotos: fb?.completionPhotos || lc?.completionPhotos || (row as any).completion_photos || [],
-              status: fb?.status || lc?.status || (row as any).status || 'pending',
-              completedAt: fb?.completedAt || lc?.completedAt || (row.completed_at ? Number(row.completed_at) : undefined),
-              completedBy: fb?.completedBy || lc?.completedBy || row.completed_by || undefined,
-              completedByName: fb?.completedByName || lc?.completedByName || row.completed_by_name || undefined,
-              completionNote: fb?.completionNote || lc?.completionNote || row.completion_note || undefined,
-              approvedAt: fb?.approvedAt || lc?.approvedAt || (row.approved_at ? Number(row.approved_at) : undefined),
-              approvedBy: fb?.approvedBy || lc?.approvedBy || row.approved_by || undefined,
-              approvedByName: fb?.approvedByName || lc?.approvedByName || row.approved_by_name || undefined,
-              rejectedAt: fb?.rejectedAt || lc?.rejectedAt || (row.rejected_at ? Number(row.rejected_at) : undefined),
-              rejectedBy: fb?.rejectedBy || lc?.rejectedBy || row.rejected_by || undefined,
-              rejectedByName: fb?.rejectedByName || lc?.rejectedByName || row.rejected_by_name || undefined,
-              rejectionReason: fb?.rejectionReason || lc?.rejectionReason || row.rejection_reason || undefined,
-              processedAt: fb?.processedAt || lc?.processedAt || (row.processed_at ? Number(row.processed_at) : undefined),
-              processedBy: fb?.processedBy || lc?.processedBy || (row as any).processed_by || undefined,
-              processedByName: fb?.processedByName || lc?.processedByName || (row as any).processed_by_name || undefined,
-              readBy: mergedReadBy,
-            };
-          });
+          const mergedNotes: GeneralNote[] = validRows.map((row) =>
+            this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
+          );
 
           const dataIds = new Set(validRows.map((r) => r.id));
           const missingFromTable = fallbackNotes
@@ -956,6 +1030,7 @@ export const StorageService = {
               return {
                 ...fb,
                 readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
               };
             });
           const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
@@ -972,6 +1047,7 @@ export const StorageService = {
               return {
                 ...fb,
                 readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
               };
             });
           await saveItem(localKey, filtered);
@@ -998,53 +1074,9 @@ export const StorageService = {
 
           const validRows = data.filter((r) => !deletedIds.has(r.id));
           const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
-          const mergedNotes: GeneralNote[] = validRows.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            const lc = localCachedMap.get(row.id);
-            const mergedReadBy = Array.from(
-              new Set([
-                ...(Array.isArray((row as any).read_by) ? (row as any).read_by : []),
-                ...(Array.isArray((row as any).readBy) ? (row as any).readBy : []),
-                ...(Array.isArray(fb?.readBy) ? fb.readBy : []),
-                ...(Array.isArray(lc?.readBy) ? lc.readBy : []),
-              ])
-            );
-            return {
-              id: row.id,
-              content: row.content,
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              targetMode: row.target_mode || 'self',
-              targetUserIds: Array.isArray(row.target_user_ids) ? row.target_user_ids : [],
-              targetUserNames: Array.isArray(row.target_user_names) ? row.target_user_names : [],
-              targetUserId: row.target_user_id || undefined,
-              targetUserName: row.target_user_name || undefined,
-              reminderActive: Boolean(row.reminder_active),
-              reminderDate: row.reminder_date || undefined,
-              notified: Boolean(row.notified),
-              cariName: fb?.cariName || lc?.cariName || (row as any).cari_name || undefined,
-              photos: fb?.photos || lc?.photos || (row as any).photos || [],
-              completionPhotos: fb?.completionPhotos || lc?.completionPhotos || (row as any).completion_photos || [],
-              status: fb?.status || lc?.status || (row as any).status || 'pending',
-              completedAt: fb?.completedAt || lc?.completedAt || (row.completed_at ? Number(row.completed_at) : undefined),
-              completedBy: fb?.completedBy || lc?.completedBy || row.completed_by || undefined,
-              completedByName: fb?.completedByName || lc?.completedByName || row.completed_by_name || undefined,
-              completionNote: fb?.completionNote || lc?.completionNote || row.completion_note || undefined,
-              approvedAt: fb?.approvedAt || lc?.approvedAt || (row.approved_at ? Number(row.approved_at) : undefined),
-              approvedBy: fb?.approvedBy || lc?.approvedBy || row.approved_by || undefined,
-              approvedByName: fb?.approvedByName || lc?.approvedByName || row.approved_by_name || undefined,
-              rejectedAt: fb?.rejectedAt || lc?.rejectedAt || (row.rejected_at ? Number(row.rejected_at) : undefined),
-              rejectedBy: fb?.rejectedBy || lc?.rejectedBy || row.rejected_by || undefined,
-              rejectedByName: fb?.rejectedByName || lc?.rejectedByName || row.rejected_by_name || undefined,
-              rejectionReason: fb?.rejectionReason || lc?.rejectionReason || row.rejection_reason || undefined,
-              processedAt: fb?.processedAt || lc?.processedAt || (row.processed_at ? Number(row.processed_at) : undefined),
-              processedBy: fb?.processedBy || lc?.processedBy || (row as any).processed_by || undefined,
-              processedByName: fb?.processedByName || lc?.processedByName || (row as any).processed_by_name || undefined,
-              readBy: mergedReadBy,
-              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || (row as any).used_materials || (row as any).usedMaterials || undefined,
-            };
-          });
+          const mergedNotes: GeneralNote[] = validRows.map((row) =>
+            this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
+          );
 
           // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table,
           // ensuring we NEVER restore deleted ones!
@@ -1323,33 +1355,27 @@ export const StorageService = {
     const localKey = this.getStorageKey(NOTES_KEY);
     const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
     const idx = existing.findIndex((n) => n.id === note.id);
-    let updated: GeneralNote[];
+    let localUpdated: GeneralNote[];
     if (idx >= 0) {
       const mergedReadBy = Array.from(
         new Set([...(existing[idx].readBy || []), ...(note.readBy || [])])
       );
       const noteToSave = { ...note, readBy: mergedReadBy };
-      updated = [...existing];
-      updated[idx] = noteToSave;
+      localUpdated = [...existing];
+      localUpdated[idx] = noteToSave;
     } else {
-      updated = [note, ...existing];
+      localUpdated = [note, ...existing];
     }
-    await saveItem(localKey, updated);
+    await saveItem(localKey, localUpdated);
 
-    // Save to Slot 4 FIRST and AWAIT IT, so that any immediate realtime re-fetch has the latest slot data!
-    await saveChunkedSlot(this.getSlotId(4), updated).catch((err) => {
-      console.warn('saveChunkedSlot 4 in saveSingleNote error:', err);
-    });
-
+    // 1. Önce atomik satır tablosuna (Supabase notes + Yerel MSSQL) yaz
     if (activeCompanyCode === 'POLATLAR') {
       const row = this.mapNoteToRow(note);
 
-      // 1. Yerel Sunucu (Dual-Write)
       localApiPost('/api/tables/notes/upsert', { rows: [row] }).catch((err) =>
         console.warn('[Dual-Write Yerel] saveSingleNote hata:', err)
       );
 
-      // 2. Supabase Cloud
       try {
         let useBasic = !supabaseExtendedCols.notes;
         if (!useBasic) {
@@ -1395,6 +1421,117 @@ export const StorageService = {
         console.warn('saveSingleNote Supabase error:', err);
       }
     }
+
+    // 2. Canlı bulut Slot 4 dizisini çekip SADECE bu iş emrini birleştir (diğer cihazların tamamladığı işleri ezmez!)
+    const slotId = this.getSlotId(4);
+    await enqueueSlot4Write(async () => {
+      const deletedIds = await this.getDeletedNoteIds();
+      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
+      const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+      const cIdx = cleanBase.findIndex((n) => n.id === note.id);
+
+      let slotMergedList: GeneralNote[];
+      if (cIdx >= 0) {
+        const prev = cleanBase[cIdx];
+        const mergedReadBy = Array.from(
+          new Set([...(prev.readBy || []), ...(note.readBy || [])])
+        );
+        const mergedItem: GeneralNote = {
+          ...prev,
+          ...note,
+          cariName: note.cariName !== undefined ? note.cariName : prev.cariName,
+          usedMaterials: note.usedMaterials !== undefined ? note.usedMaterials : prev.usedMaterials,
+          photos: note.photos && note.photos.length > 0 ? note.photos : prev.photos || [],
+          completionPhotos:
+            note.completionPhotos && note.completionPhotos.length > 0
+              ? note.completionPhotos
+              : prev.completionPhotos || [],
+          readBy: mergedReadBy,
+        };
+        slotMergedList = [...cleanBase];
+        slotMergedList[cIdx] = mergedItem;
+      } else {
+        slotMergedList = [note, ...cleanBase];
+      }
+
+      await saveItem(localKey, slotMergedList);
+      await saveChunkedSlot(slotId, slotMergedList);
+    }).catch((err) => {
+      console.warn('saveChunkedSlot 4 in saveSingleNote error:', err);
+    });
+  },
+
+  /**
+   * Atomically appends a userId to a note's readBy list WITHOUT touching status or completion fields
+   */
+  async appendNoteReadBy(noteId: string, userId: string): Promise<void> {
+    if (!noteId || !userId) return;
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const localNext = existing.map((n) =>
+      n.id === noteId
+        ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
+        : n
+    );
+    await saveItem(localKey, localNext);
+
+    const slotId = this.getSlotId(4);
+    await enqueueSlot4Write(async () => {
+      const deletedIds = await this.getDeletedNoteIds();
+      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
+      const updatedSlot = baseList
+        .filter((n) => !deletedIds.has(n.id))
+        .map((n) =>
+          n.id === noteId
+            ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
+            : n
+        );
+      await saveItem(localKey, updatedSlot);
+      await saveChunkedSlot(slotId, updatedSlot);
+    }).catch((err) => {
+      console.warn('appendNoteReadBy error:', err);
+    });
+  },
+
+  /**
+   * Atomically updates ONLY usedMaterials on a note WITHOUT touching status or completion fields
+   */
+  async saveNoteMaterials(noteId: string, usedMaterials: string | undefined): Promise<void> {
+    if (!noteId) return;
+    const localKey = this.getStorageKey(NOTES_KEY);
+    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const localNext = existing.map((n) =>
+      n.id === noteId ? { ...n, usedMaterials } : n
+    );
+    await saveItem(localKey, localNext);
+
+    if (activeCompanyCode === 'POLATLAR' && supabaseExtendedCols.notes) {
+      supabase
+        .from('notes')
+        .update({ used_materials: usedMaterials || null })
+        .eq('id', noteId)
+        .then(({ error }) => {
+          if (error && (error.code === 'PGRST204' || /column/i.test(error.message || ''))) {
+            supabaseExtendedCols.notes = false;
+          }
+        });
+    }
+
+    const slotId = this.getSlotId(4);
+    await enqueueSlot4Write(async () => {
+      const deletedIds = await this.getDeletedNoteIds();
+      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
+      const updatedSlot = baseList
+        .filter((n) => !deletedIds.has(n.id))
+        .map((n) => (n.id === noteId ? { ...n, usedMaterials } : n));
+      await saveItem(localKey, updatedSlot);
+      await saveChunkedSlot(slotId, updatedSlot);
+    }).catch((err) => {
+      console.warn('saveNoteMaterials error:', err);
+    });
   },
 
   /**
@@ -1405,18 +1542,13 @@ export const StorageService = {
     const localKey = this.getStorageKey(NOTES_KEY);
     const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
     const saveMap = new Map(notesToSave.map((n) => [n.id, n]));
-    const updated = existing.map((n) => saveMap.get(n.id) || n);
+    const localUpdated = existing.map((n) => saveMap.get(n.id) || n);
     for (const n of notesToSave) {
       if (!existing.some((e) => e.id === n.id)) {
-        updated.unshift(n);
+        localUpdated.unshift(n);
       }
     }
-    await saveItem(localKey, updated);
-
-    // Save to Slot 4 FIRST and AWAIT IT
-    await saveChunkedSlot(this.getSlotId(4), updated).catch((err) => {
-      console.warn('saveChunkedSlot 4 in saveMultipleNotes error:', err);
-    });
+    await saveItem(localKey, localUpdated);
 
     if (activeCompanyCode === 'POLATLAR') {
       const rows = notesToSave.map((n) => this.mapNoteToRow(n));
@@ -1472,6 +1604,40 @@ export const StorageService = {
         console.warn('saveMultipleNotes Supabase error:', err);
       }
     }
+
+    // 3. Canlı bulut Slot 4 dizisini çekip sadece güncellenen iş emirlerini birleştir
+    const slotId = this.getSlotId(4);
+    await enqueueSlot4Write(async () => {
+      const deletedIds = await this.getDeletedNoteIds();
+      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
+      const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+      const mergedList = cleanBase.map((prev) => {
+        const incoming = saveMap.get(prev.id);
+        if (!incoming) return prev;
+        return {
+          ...prev,
+          ...incoming,
+          cariName: incoming.cariName !== undefined ? incoming.cariName : prev.cariName,
+          usedMaterials: incoming.usedMaterials !== undefined ? incoming.usedMaterials : prev.usedMaterials,
+          photos: incoming.photos && incoming.photos.length > 0 ? incoming.photos : prev.photos || [],
+          completionPhotos:
+            incoming.completionPhotos && incoming.completionPhotos.length > 0
+              ? incoming.completionPhotos
+              : prev.completionPhotos || [],
+          readBy: Array.from(new Set([...(prev.readBy || []), ...(incoming.readBy || [])])),
+        };
+      });
+      for (const n of notesToSave) {
+        if (!cleanBase.some((e) => e.id === n.id)) {
+          mergedList.unshift(n);
+        }
+      }
+      await saveItem(localKey, mergedList);
+      await saveChunkedSlot(slotId, mergedList);
+    }).catch((err) => {
+      console.warn('saveChunkedSlot 4 in saveMultipleNotes error:', err);
+    });
   },
 
   /**
