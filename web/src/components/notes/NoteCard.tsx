@@ -522,12 +522,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                     title: `${note.cariName || 'İş Emri'} - Fotoğraflar`,
                   })
                 }
-                className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/img cursor-pointer hover:opacity-90 transition-all shadow-xs"
+                className="relative w-full block aspect-square min-h-[84px] rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 group/img cursor-pointer hover:opacity-90 transition-all shadow-xs"
               >
                 <img
                   src={photo}
                   alt={`İş Emri Fotoğrafı ${pIdx + 1}`}
-                  className="w-full h-full object-cover group-hover/img:scale-105 transition-transform"
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover group-hover/img:scale-105 transition-transform"
                 />
               </button>
             ))}
@@ -599,12 +600,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                         title: `${note.cariName || 'İş Emri'} - Tamamlama Fotoğrafları`,
                       })
                     }
-                    className="relative aspect-square rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
+                    className="relative w-full block aspect-square min-h-[84px] rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 bg-slate-100 dark:bg-slate-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
                   >
                     <img
                       src={photo}
                       alt={`Tamamlama Kanıtı ${cIdx + 1}`}
-                      className="w-full h-full object-cover group-hover/cimg:scale-105 transition-transform"
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover group-hover/cimg:scale-105 transition-transform"
                     />
                   </button>
                 ))}

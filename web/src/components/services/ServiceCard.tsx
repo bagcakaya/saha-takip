@@ -11,6 +11,7 @@ import {
   Trash2,
   Camera,
   CheckSquare,
+  ZoomIn,
 } from 'lucide-react';
 import { ServiceItem } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -39,6 +40,14 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     initialIndex: number;
     title: string;
   } | null>(null);
+
+  const validPhotos = Array.isArray(service.photos)
+    ? service.photos.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    : [];
+
+  const validCompletionPhotos = Array.isArray(service.completionPhotos)
+    ? service.completionPhotos.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    : [];
 
   // Format date
   const dateObj = service.date ? new Date(service.date) : new Date(service.createdAt);
@@ -141,39 +150,59 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         </div>
 
         {/* Servis Fotoğrafları Galerisi */}
-        {service.photos && service.photos.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-orange-600 dark:text-orange-400">
-              <Camera className="w-3 h-3" />
-              <span>Servis Fotoğrafları ({service.photos.length})</span>
+        {validPhotos.length > 0 && (
+          <div className="space-y-2 w-full">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                <Camera className="w-3.5 h-3.5" />
+                <span>Servis Fotoğrafları ({validPhotos.length})</span>
+              </div>
+              <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                Büyütmek için dokunun
+              </span>
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-              {service.photos.map((photo, pIdx) => (
-                <button
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 w-full">
+              {validPhotos.map((photo, pIdx) => (
+                <div
                   key={pIdx}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() =>
                     setLightboxData({
-                      images: service.photos!,
+                      images: validPhotos,
                       initialIndex: pIdx,
                       title: `${service.companyName || 'Servis'} Fotoğrafları`,
                     })
                   }
-                  className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 group/simg cursor-pointer hover:opacity-90 transition-all shadow-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setLightboxData({
+                        images: validPhotos,
+                        initialIndex: pIdx,
+                        title: `${service.companyName || 'Servis'} Fotoğrafları`,
+                      });
+                    }
+                  }}
+                  className="relative w-full aspect-square min-h-[88px] sm:min-h-[96px] rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 group/simg cursor-pointer hover:border-orange-400 dark:hover:border-orange-500 transition-all shadow-xs"
                 >
                   <img
                     src={photo}
                     alt={`Servis Görseli ${pIdx + 1}`}
-                    className="w-full h-full object-cover group-hover/simg:scale-105 transition-transform"
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-cover group-hover/simg:scale-105 transition-transform duration-200"
                   />
-                </button>
+                  <div className="absolute bottom-1.5 right-1.5 p-1 rounded-lg bg-black/55 text-white backdrop-blur-xs opacity-85 group-hover/simg:opacity-100 transition-opacity pointer-events-none">
+                    <ZoomIn className="w-3 h-3" />
+                  </div>
+                </div>
               ))}
             </div>
           </div>
         )}
 
         {/* Completion Proof & Note Box */}
-        {(service.completionNote || (service.completionPhotos && service.completionPhotos.length > 0)) && (
+        {(service.completionNote || validCompletionPhotos.length > 0) && (
           <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-800/60 space-y-2 text-xs">
             <div className="flex items-center justify-between gap-2">
               <span className="font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 text-[11px]">
@@ -197,31 +226,43 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
                 {service.completionNote}
               </div>
             )}
-            {service.completionPhotos && service.completionPhotos.length > 0 && (
-              <div className="space-y-1 pt-1">
+            {validCompletionPhotos.length > 0 && (
+              <div className="space-y-1.5 pt-1 w-full">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
-                  Tamamlama Fotoğrafları ({service.completionPhotos.length})
+                  Tamamlama Fotoğrafları ({validCompletionPhotos.length})
                 </span>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  {service.completionPhotos.map((photo, cIdx) => (
-                    <button
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 w-full">
+                  {validCompletionPhotos.map((photo, cIdx) => (
+                    <div
                       key={cIdx}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() =>
                         setLightboxData({
-                          images: service.completionPhotos!,
+                          images: validCompletionPhotos,
                           initialIndex: cIdx,
                           title: `${service.companyName || 'Servis'} - Tamamlama Fotoğrafları`,
                         })
                       }
-                      className="relative aspect-square rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setLightboxData({
+                            images: validCompletionPhotos,
+                            initialIndex: cIdx,
+                            title: `${service.companyName || 'Servis'} - Tamamlama Fotoğrafları`,
+                          });
+                        }
+                      }}
+                      className="relative w-full aspect-square min-h-[84px] rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800 bg-slate-100 dark:bg-slate-800 group/cimg cursor-pointer hover:opacity-90 transition-all shadow-xs"
                     >
                       <img
                         src={photo}
                         alt={`Tamamlama Kanıtı ${cIdx + 1}`}
-                        className="w-full h-full object-cover group-hover/cimg:scale-105 transition-transform"
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover group-hover/cimg:scale-105 transition-transform"
                       />
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>

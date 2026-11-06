@@ -280,30 +280,74 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               VALUES (@id, @content, @created_at, @created_by, @created_by_name, @target_mode, @target_user_ids, @target_user_names, @target_user_id, @target_user_name, @reminder_active, @reminder_date, @notified, @status, @completed_at, @completed_by, @completed_by_name, @completion_note, @approved_at, @approved_by, @approved_by_name, @rejected_at, @rejected_by, @rejected_by_name, @rejection_reason, SYSUTCDATETIME());
           `);
       } else if (tableName === 'services') {
-        await pool
-          .request()
-          .input('id', sql.NVarChar(100), String(row.id))
-          .input('company_name', sql.NVarChar(255), row.company_name || '')
-          .input('location', sql.NVarChar(255), row.location || null)
-          .input('latitude', sql.Float, row.latitude || null)
-          .input('longitude', sql.Float, row.longitude || null)
-          .input('work_done', sql.NVarChar(sql.MAX), row.work_done || '')
-          .input('date', sql.NVarChar(50), row.date || null)
-          .input('created_at', sql.BigInt, row.created_at || Date.now())
-          .input('created_by', sql.NVarChar(100), row.created_by || null)
-          .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
-          .query(`
-            MERGE dbo.services AS target
-            USING (SELECT @id AS id) AS source
-            ON (target.id = source.id)
-            WHEN MATCHED THEN
-              UPDATE SET company_name=@company_name, location=@location, latitude=@latitude, longitude=@longitude,
-                         work_done=@work_done, [date]=@date, created_at=@created_at, created_by=@created_by,
-                         created_by_name=@created_by_name, updated_at=SYSUTCDATETIME()
-            WHEN NOT MATCHED THEN
-              INSERT (id, company_name, location, latitude, longitude, work_done, [date], created_at, created_by, created_by_name, updated_at)
-              VALUES (@id, @company_name, @location, @latitude, @longitude, @work_done, @date, @created_at, @created_by, @created_by_name, SYSUTCDATETIME());
-          `);
+        try {
+          await pool
+            .request()
+            .input('id', sql.NVarChar(100), String(row.id))
+            .input('company_name', sql.NVarChar(255), row.company_name || '')
+            .input('cari_name', sql.NVarChar(255), row.cari_name || null)
+            .input('location', sql.NVarChar(255), row.location || null)
+            .input('latitude', sql.Float, row.latitude || null)
+            .input('longitude', sql.Float, row.longitude || null)
+            .input('work_done', sql.NVarChar(sql.MAX), row.work_done || '')
+            .input('date', sql.NVarChar(50), row.date || null)
+            .input('photos', sql.NVarChar(sql.MAX), JSON.stringify(row.photos || []))
+            .input('created_at', sql.BigInt, row.created_at || Date.now())
+            .input('created_by', sql.NVarChar(100), row.created_by || null)
+            .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
+            .input('status', sql.NVarChar(50), row.status || 'approved')
+            .input('completion_note', sql.NVarChar(sql.MAX), row.completion_note || null)
+            .input('completion_photos', sql.NVarChar(sql.MAX), JSON.stringify(row.completion_photos || []))
+            .query(`
+              IF COL_LENGTH('dbo.services', 'photos') IS NULL
+                ALTER TABLE dbo.services ADD photos NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.services', 'cari_name') IS NULL
+                ALTER TABLE dbo.services ADD cari_name NVARCHAR(255) NULL;
+              IF COL_LENGTH('dbo.services', 'status') IS NULL
+                ALTER TABLE dbo.services ADD status NVARCHAR(50) NULL;
+              IF COL_LENGTH('dbo.services', 'completion_note') IS NULL
+                ALTER TABLE dbo.services ADD completion_note NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.services', 'completion_photos') IS NULL
+                ALTER TABLE dbo.services ADD completion_photos NVARCHAR(MAX) NULL;
+
+              MERGE dbo.services AS target
+              USING (SELECT @id AS id) AS source
+              ON (target.id = source.id)
+              WHEN MATCHED THEN
+                UPDATE SET company_name=@company_name, cari_name=@cari_name, location=@location, latitude=@latitude, longitude=@longitude,
+                           work_done=@work_done, [date]=@date, photos=@photos, created_at=@created_at, created_by=@created_by,
+                           created_by_name=@created_by_name, status=@status, completion_note=@completion_note,
+                           completion_photos=@completion_photos, updated_at=SYSUTCDATETIME()
+              WHEN NOT MATCHED THEN
+                INSERT (id, company_name, cari_name, location, latitude, longitude, work_done, [date], photos, created_at, created_by, created_by_name, status, completion_note, completion_photos, updated_at)
+                VALUES (@id, @company_name, @cari_name, @location, @latitude, @longitude, @work_done, @date, @photos, @created_at, @created_by, @created_by_name, @status, @completion_note, @completion_photos, SYSUTCDATETIME());
+            `);
+        } catch {
+          await pool
+            .request()
+            .input('id', sql.NVarChar(100), String(row.id))
+            .input('company_name', sql.NVarChar(255), row.company_name || '')
+            .input('location', sql.NVarChar(255), row.location || null)
+            .input('latitude', sql.Float, row.latitude || null)
+            .input('longitude', sql.Float, row.longitude || null)
+            .input('work_done', sql.NVarChar(sql.MAX), row.work_done || '')
+            .input('date', sql.NVarChar(50), row.date || null)
+            .input('created_at', sql.BigInt, row.created_at || Date.now())
+            .input('created_by', sql.NVarChar(100), row.created_by || null)
+            .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
+            .query(`
+              MERGE dbo.services AS target
+              USING (SELECT @id AS id) AS source
+              ON (target.id = source.id)
+              WHEN MATCHED THEN
+                UPDATE SET company_name=@company_name, location=@location, latitude=@latitude, longitude=@longitude,
+                           work_done=@work_done, [date]=@date, created_at=@created_at, created_by=@created_by,
+                           created_by_name=@created_by_name, updated_at=SYSUTCDATETIME()
+              WHEN NOT MATCHED THEN
+                INSERT (id, company_name, location, latitude, longitude, work_done, [date], created_at, created_by, created_by_name, updated_at)
+                VALUES (@id, @company_name, @location, @latitude, @longitude, @work_done, @date, @created_at, @created_by, @created_by_name, SYSUTCDATETIME());
+            `);
+        }
       } else if (tableName === 'return_warranty') {
         await pool
           .request()

@@ -3,14 +3,19 @@
  * Resizes images to max dimension while preserving aspect ratio,
  * converts to JPEG base64 data URL at optimized quality.
  */
+export const isSupportedImageFile = (file: File): boolean => {
+  if (file.type && file.type.startsWith('image/')) return true;
+  return /\.(jpe?g|png|gif|webp|bmp|heic|heif|jfif|avif|svg)$/i.test(file.name || '');
+};
+
 export const compressImage = (
   file: File,
   maxDimension = 1200,
   quality = 0.78
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
+    // Validate file type (handles mobile browsers where file.type may be empty string)
+    if (!isSupportedImageFile(file)) {
       reject(new Error('Yalnızca resim dosyaları yüklenebilir.'));
       return;
     }

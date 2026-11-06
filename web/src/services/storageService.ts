@@ -212,7 +212,7 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
   if (!apiUrl) return null;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 15000);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
       headers: { 'Accept': 'application/json' },
@@ -237,7 +237,14 @@ const supabaseExtendedCols = {
 // Yerel Sunucu kapalıyken Bulut modunda gereksiz 502 spam'ini önleyen devre kesici (3 dk)
 let localDualWriteOfflineUntil = 0;
 
-// Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
+// Slot 3 ve Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
+let slot3WriteChain: Promise<void> = Promise.resolve();
+function enqueueSlot3Write(task: () => Promise<void>): Promise<void> {
+  const next = slot3WriteChain.then(task, task);
+  slot3WriteChain = next.catch(() => {});
+  return next;
+}
+
 let slot4WriteChain: Promise<void> = Promise.resolve();
 function enqueueSlot4Write(task: () => Promise<void>): Promise<void> {
   const next = slot4WriteChain.then(task, task);
@@ -255,7 +262,7 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   if (!apiUrl) return false;
   try {
     const controller = new AbortController();
-    const timeoutMs = isLocal ? 5000 : 3500;
+    const timeoutMs = isLocal ? 15000 : 12000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
@@ -2026,6 +2033,168 @@ export const StorageService = {
     return Array.isArray(localCached) ? localCached : [];
   },
 
+  mapServiceToRow(item: ServiceItem) {
+    return {
+      id: item.id,
+      company_name: item.companyName,
+      cari_name: item.cariName || null,
+      location: item.location || null,
+      latitude: item.latitude || null,
+      longitude: item.longitude || null,
+      work_done: item.workDone,
+      date: item.date || null,
+      photos: item.photos || [],
+      created_at: item.createdAt,
+      created_by: item.createdBy || null,
+      created_by_name: item.createdByName || null,
+      status: item.status || 'approved',
+      completed_at: item.completedAt || null,
+      completed_by: item.completedBy || null,
+      completed_by_name: item.completedByName || null,
+      completion_note: item.completionNote || null,
+      completion_photos: item.completionPhotos || [],
+      approved_at: item.approvedAt || null,
+      approved_by: item.approvedBy || null,
+      approved_by_name: item.approvedByName || null,
+      rejected_at: item.rejectedAt || null,
+      rejected_by: item.rejectedBy || null,
+      rejected_by_name: item.rejectedByName || null,
+      rejection_reason: item.rejectionReason || null,
+    };
+  },
+
+  mapServiceToBasicRow(item: ServiceItem) {
+    return {
+      id: item.id,
+      company_name: item.companyName,
+      location: item.location || null,
+      latitude: item.latitude || null,
+      longitude: item.longitude || null,
+      work_done: item.workDone,
+      date: item.date || null,
+      created_at: item.createdAt,
+      created_by: item.createdBy || null,
+      created_by_name: item.createdByName || null,
+    };
+  },
+
+  /**
+   * Atomically saves a single service to local cache, live Slot 3, and server tables
+   * without overwriting photos or cariName of other services created on other devices.
+   */
+  async saveSingleService(
+    service: ServiceItem,
+    options?: { allowEmptyPhotos?: boolean }
+  ): Promise<void> {
+    const allowEmptyPhotos = Boolean(options?.allowEmptyPhotos);
+    const localKey = this.getStorageKey(SERVICES_KEY);
+    const existing = (await loadItem<ServiceItem[]>(localKey)) || [];
+    const idx = existing.findIndex((s) => s.id === service.id);
+
+    let localUpdated: ServiceItem[];
+    if (idx >= 0) {
+      const prev = existing[idx];
+      const mergedLocal: ServiceItem = {
+        ...prev,
+        ...service,
+        photos: allowEmptyPhotos
+          ? service.photos || []
+          : service.photos && service.photos.length > 0
+          ? service.photos
+          : prev.photos || [],
+        completionPhotos:
+          service.completionPhotos && service.completionPhotos.length > 0
+            ? service.completionPhotos
+            : prev.completionPhotos || [],
+      };
+      localUpdated = [...existing];
+      localUpdated[idx] = mergedLocal;
+    } else {
+      localUpdated = [service, ...existing];
+    }
+    await saveItem(localKey, localUpdated);
+
+    // 1. ÖNCE canlı Slot 3'ü çekip SADECE bu servis kaydını birleştirerek kaydet
+    // (Böylece services tablosu Realtime tetiklendiğinde fotoğraflar bulutta %100 hazır olur!)
+    const slotId = this.getSlotId(3);
+    await enqueueSlot3Write(async () => {
+      const { data: cloudSlot } = await loadChunkedSlot<ServiceItem[]>(slotId);
+      const localMap = new Map(localUpdated.map((s) => [s.id, s]));
+      const baseList =
+        Array.isArray(cloudSlot) && cloudSlot.length > 0
+          ? cloudSlot.map((cs) => {
+              const lc = localMap.get(cs.id);
+              if (!lc || cs.id === service.id) return cs;
+              return {
+                ...cs,
+                cariName: cs.cariName || lc.cariName,
+                photos: cs.photos && cs.photos.length > 0 ? cs.photos : lc.photos || [],
+                completionPhotos:
+                  cs.completionPhotos && cs.completionPhotos.length > 0
+                    ? cs.completionPhotos
+                    : lc.completionPhotos || [],
+              };
+            })
+          : localUpdated;
+
+      const cIdx = baseList.findIndex((s) => s.id === service.id);
+      let slotMergedList: ServiceItem[];
+      if (cIdx >= 0) {
+        const prev = baseList[cIdx];
+        const mergedItem: ServiceItem = {
+          ...prev,
+          ...service,
+          cariName: service.cariName !== undefined ? service.cariName : prev.cariName,
+          photos: allowEmptyPhotos
+            ? service.photos || []
+            : service.photos && service.photos.length > 0
+            ? service.photos
+            : prev.photos || [],
+          completionPhotos:
+            service.completionPhotos && service.completionPhotos.length > 0
+              ? service.completionPhotos
+              : prev.completionPhotos || [],
+        };
+        slotMergedList = [...baseList];
+        slotMergedList[cIdx] = mergedItem;
+      } else {
+        slotMergedList = [service, ...baseList];
+      }
+
+      await saveItem(localKey, slotMergedList);
+      await saveChunkedSlot(slotId, slotMergedList);
+    }).catch((err) => {
+      console.warn('saveChunkedSlot 3 in saveSingleService error:', err);
+    });
+
+    // 2. Ardından POLATLAR için tekil satırı Yerel MSSQL ve Supabase services tablosuna yaz
+    if (activeCompanyCode === 'POLATLAR') {
+      const row = this.mapServiceToRow(service);
+
+      localApiPost('/api/tables/services/upsert', { rows: [row] }).catch((err) =>
+        console.warn('[Dual-Write Yerel] saveSingleService hata:', err)
+      );
+
+      try {
+        let useBasic = !supabaseExtendedCols.services;
+        if (!useBasic) {
+          const { error: singleErr } = await supabase.from('services').upsert([row]);
+          if (singleErr) {
+            if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
+              supabaseExtendedCols.services = false;
+            }
+            useBasic = true;
+          }
+        }
+        if (useBasic) {
+          await supabase.from('services').upsert([this.mapServiceToBasicRow(service)]);
+        }
+      } catch (err) {
+        console.warn('saveSingleService Supabase error:', err);
+      }
+    }
+  },
+
   /**
    * Saves services to local cache and syncs with server
    */
@@ -2034,38 +2203,29 @@ export const StorageService = {
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
-      // Save to Slot 3 FIRST and AWAIT IT so any immediate Realtime re-fetch gets full photos & cariName
-      await saveChunkedSlot(3, items).catch((err) => {
+      await enqueueSlot3Write(async () => {
+        const { data: cloudSlot } = await loadChunkedSlot<ServiceItem[]>(3);
+        const cloudMap = new Map((cloudSlot || []).map((s) => [s.id, s]));
+        const safeItems = items.map((item) => {
+          const cs = cloudMap.get(item.id);
+          if (!cs) return item;
+          return {
+            ...item,
+            cariName: item.cariName || cs.cariName,
+            photos: item.photos && item.photos.length > 0 ? item.photos : cs.photos || [],
+            completionPhotos:
+              item.completionPhotos && item.completionPhotos.length > 0
+                ? item.completionPhotos
+                : cs.completionPhotos || [],
+          };
+        });
+        await saveItem(localKey, safeItems);
+        await saveChunkedSlot(3, safeItems);
+      }).catch((err) => {
         console.warn('saveChunkedSlot 3 in saveServices error:', err);
       });
 
-      const fullRows = items.map((item) => ({
-        id: item.id,
-        company_name: item.companyName,
-        cari_name: item.cariName || null,
-        location: item.location || null,
-        latitude: item.latitude || null,
-        longitude: item.longitude || null,
-        work_done: item.workDone,
-        date: item.date || null,
-        photos: item.photos || [],
-        created_at: item.createdAt,
-        created_by: item.createdBy || null,
-        created_by_name: item.createdByName || null,
-        status: item.status || 'approved',
-        completed_at: item.completedAt || null,
-        completed_by: item.completedBy || null,
-        completed_by_name: item.completedByName || null,
-        completion_note: item.completionNote || null,
-        completion_photos: item.completionPhotos || [],
-        approved_at: item.approvedAt || null,
-        approved_by: item.approvedBy || null,
-        approved_by_name: item.approvedByName || null,
-        rejected_at: item.rejectedAt || null,
-        rejected_by: item.rejectedBy || null,
-        rejected_by_name: item.rejectedByName || null,
-        rejection_reason: item.rejectionReason || null,
-      }));
+      const fullRows = items.map((item) => this.mapServiceToRow(item));
 
       // 1. Yerel Sunucu (Dual-Write) - Arka planda güvenle yazar (UI'ı bekletmez)
       if (fullRows.length > 0) {
@@ -2088,18 +2248,7 @@ export const StorageService = {
             }
           }
           if (useBasic) {
-            const basicRows = items.map((item) => ({
-              id: item.id,
-              company_name: item.companyName,
-              location: item.location || null,
-              latitude: item.latitude || null,
-              longitude: item.longitude || null,
-              work_done: item.workDone,
-              date: item.date || null,
-              created_at: item.createdAt,
-              created_by: item.createdBy || null,
-              created_by_name: item.createdByName || null,
-            }));
+            const basicRows = items.map((item) => this.mapServiceToBasicRow(item));
             await supabase.from('services').upsert(basicRows);
           }
 
@@ -2120,12 +2269,15 @@ export const StorageService = {
         await supabase.from('services').delete().neq('id', '___');
       }
     } else {
-      await saveChunkedSlot(this.getSlotId(3), items);
+      const slotId = this.getSlotId(3);
+      await enqueueSlot3Write(async () => {
+        await saveChunkedSlot(slotId, items);
+      });
     }
   },
 
   /**
-   * Deletes a service item across local cache and server
+   * Deletes a service item across local cache and server without wiping other services' photos in Slot 3
    */
   async deleteService(id: string): Promise<void> {
     const localKey = this.getStorageKey(SERVICES_KEY);
@@ -2133,6 +2285,7 @@ export const StorageService = {
     const updated = current.filter((s) => s.id !== id);
     await saveItem(localKey, updated);
 
+    const slotId = this.getSlotId(3);
     if (activeCompanyCode === 'POLATLAR') {
       const deleteOps: Promise<any>[] = [];
       deleteOps.push(
@@ -2149,11 +2302,25 @@ export const StorageService = {
             .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
         )
       );
-      deleteOps.push(saveChunkedSlot(3, updated));
+      deleteOps.push(
+        enqueueSlot3Write(async () => {
+          const { data: slot3Data } = await loadChunkedSlot<ServiceItem[]>(3);
+          const base = Array.isArray(slot3Data) && slot3Data.length > 0 ? slot3Data : updated;
+          const cleaned = base.filter((s) => s.id !== id);
+          await saveItem(localKey, cleaned);
+          await saveChunkedSlot(3, cleaned);
+        })
+      );
       await Promise.allSettled(deleteOps);
       return;
     } else {
-      await saveChunkedSlot(this.getSlotId(3), updated);
+      await enqueueSlot3Write(async () => {
+        const { data: slotData } = await loadChunkedSlot<ServiceItem[]>(slotId);
+        const base = Array.isArray(slotData) && slotData.length > 0 ? slotData : updated;
+        const cleaned = base.filter((s) => s.id !== id);
+        await saveItem(localKey, cleaned);
+        await saveChunkedSlot(slotId, cleaned);
+      });
     }
   },
 

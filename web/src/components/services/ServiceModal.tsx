@@ -17,7 +17,7 @@ import { LocationService } from '../../services/locationService';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
 import { ServiceItem } from '../../types/storage';
-import { compressImage } from '../../utils/imageUtils';
+import { compressImage, isSupportedImageFile } from '../../utils/imageUtils';
 import { CariSelect } from '../common/CariSelect';
 
 interface ServiceModalProps {
@@ -118,12 +118,16 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file.type.startsWith('image/')) continue;
-        const compressed = await compressImage(file, 1200, 0.75);
-        compressedPhotos.push(compressed);
+        if (!isSupportedImageFile(file)) continue;
+        const compressed = await compressImage(file, 1024, 0.74);
+        if (compressed) {
+          compressedPhotos.push(compressed);
+        }
       }
 
-      setPhotos((prev) => [...prev, ...compressedPhotos]);
+      if (compressedPhotos.length > 0) {
+        setPhotos((prev) => [...prev, ...compressedPhotos]);
+      }
     } catch (err) {
       console.error('Fotoğraf işleme hatası:', err);
       alert('Fotoğraflar işlenirken bir hata oluştu.');
@@ -139,6 +143,8 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isProcessingPhoto) return;
+
     const cName = companyName.trim();
     const wDone = workDone.trim();
 
@@ -153,8 +159,9 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
 
     try {
       setIsSubmitting(true);
+      const currentPhotos = [...photos];
 
-      const savePromise = onSave({
+      await onSave({
         companyName: cName,
         cariName: cariName.trim() || undefined,
         location: location.trim() || undefined,
@@ -162,10 +169,12 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
         longitude,
         workDone: wDone,
         date: editingService?.date || new Date().toISOString(),
-        photos,
+        photos: currentPhotos,
       });
 
-      // Optional WhatsApp Share
+      onClose();
+
+      // Optional WhatsApp Share (runs after local & optimistic state commit so mobile browser never suspends mid-save)
       if (notifyWhatsapp && !editingService) {
         WhatsappService.shareService({
           companyName: cName,
@@ -176,11 +185,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
           staffName: user?.name || user?.username || 'Saha Personeli',
         });
       }
-
-      // Modalı anında kapatarak kullanıcıyı bekletme (Kayıt yerel ve bulutta anında tamamlanır)
-      onClose();
-
-      await savePromise;
     } catch (err) {
       console.error(err);
       alert('Servis kaydı kaydedilirken bir hata oluştu.');

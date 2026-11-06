@@ -378,6 +378,32 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
+  const allServicesRef = useRef<ServiceItem[]>([]);
+  allServicesRef.current = allServices;
+
+  const mergeServicesPreservingMedia = (fresh: ServiceItem[], current: ServiceItem[]): ServiceItem[] => {
+    const currentMap = new Map(current.map((s) => [s.id, s]));
+    const freshIds = new Set(fresh.map((s) => s.id));
+    const now = Date.now();
+    const merged = fresh.map((s) => {
+      const prev = currentMap.get(s.id);
+      if (!prev) return s;
+      return {
+        ...s,
+        cariName: s.cariName || prev.cariName,
+        photos: s.photos && s.photos.length > 0 ? s.photos : prev.photos || [],
+        completionPhotos:
+          s.completionPhotos && s.completionPhotos.length > 0
+            ? s.completionPhotos
+            : prev.completionPhotos || [],
+      };
+    });
+    // Preserve any optimistic service created in the last 30s whose background upload is still in flight
+    const inFlightNew = current.filter(
+      (c) => !freshIds.has(c.id) && now - (c.createdAt || 0) < 30000
+    );
+    return inFlightNew.length > 0 ? [...inFlightNew, ...merged] : merged;
+  };
   const [workplaceLocation, setWorkplaceLocation] = useState<WorkplaceLocation | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -751,7 +777,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setStandardTasks(tasks || []);
         setAllNotes(nts || []);
         setReturnWarrantyItems(returns || []);
-        setAllServices(srvs || []);
+        setAllServices((prev) => mergeServicesPreservingMedia(srvs || [], prev));
         if (wpLoc) {
           const finalWp = { ...wpLoc, radiusMeters: (!wpLoc.radiusMeters || wpLoc.radiusMeters === 10 || wpLoc.radiusMeters === 30) ? 20 : wpLoc.radiusMeters };
           setWorkplaceLocation(finalWp);
@@ -835,7 +861,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
             if (changedSlotId === StorageService.getSlotId(3)) {
               const srvs = await StorageService.getServices();
-              if (isMounted) setAllServices(srvs);
+              if (isMounted) setAllServices((prev) => mergeServicesPreservingMedia(srvs, prev));
               return;
             }
             if (changedSlotId === StorageService.getSlotId(11)) {
@@ -956,7 +982,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!isMounted) return;
           if (isPolatlar) {
             const srvs = await StorageService.getServices();
-            if (isMounted) setAllServices(srvs);
+            if (isMounted) setAllServices((prev) => mergeServicesPreservingMedia(srvs, prev));
           }
         }
       )
@@ -1031,7 +1057,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (isMounted) {
           if (freshNotes && freshNotes.length > 0) setAllNotes((prev) => mergeNotesPreservingReads(freshNotes, prev));
           if (freshLocs && freshLocs.length > 0) setAllLocations(freshLocs);
-          if (freshServices && freshServices.length > 0) setAllServices(freshServices);
+          if (freshServices && freshServices.length > 0) setAllServices((prev) => mergeServicesPreservingMedia(freshServices, prev));
           if (freshReturns && freshReturns.length > 0) setReturnWarrantyItems(freshReturns);
           if (freshAtt && freshAtt.length > 0) setAttendanceRecords(freshAtt);
         }
@@ -3372,6 +3398,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const newService: ServiceItem = {
       ...serviceData,
+      photos: Array.isArray(serviceData.photos) ? [...serviceData.photos] : [],
       id: generateId(),
       createdAt,
       createdBy: user?.id,
@@ -3387,8 +3414,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
     }
 
-    const updated = [newService, ...allServices];
-    await saveServices(updated);
+    // 1. Instant optimistic state update so ServiceCard renders photos immediately at 0ms
+    const updated = [newService, ...allServicesRef.current];
+    allServicesRef.current = updated;
+    setAllServices(updated);
+
+    // 2. Atomic background persistence (merges into live Slot 3 without clobbering other devices' photos)
+    StorageService.saveSingleService(newService, { allowEmptyPhotos: true }).catch((err) => {
+      console.warn('saveSingleService add error:', err);
+    });
 
     // Send push notification directly to all Admins if created by staff (non-blocking in background)
     if (!isUserAdmin(user)) {
@@ -3433,26 +3467,41 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Update service record (guarded: admin or creator only)
   const updateService = async (id: string, updates: Partial<ServiceItem>) => {
-    const target = allServices.find((s) => s.id === id);
-    if (target && !isUserAdmin(user) && target.createdBy !== user?.id) {
+    const currentServices = allServicesRef.current;
+    const target = currentServices.find((s) => s.id === id);
+    if (!target) return;
+    if (!isUserAdmin(user) && target.createdBy !== user?.id) {
       alert('Bu servis kaydını düzenleme yetkiniz bulunmuyor.');
       return;
     }
 
-    const updated = allServices.map((item) =>
-      item.id === id ? { ...item, ...updates } : item
-    );
-    await saveServices(updated);
+    const updatedItem: ServiceItem = {
+      ...target,
+      ...updates,
+      photos: updates.photos !== undefined ? [...updates.photos] : target.photos || [],
+    };
+
+    const updated = currentServices.map((item) => (item.id === id ? updatedItem : item));
+    allServicesRef.current = updated;
+    setAllServices(updated);
+
+    StorageService.saveSingleService(updatedItem, {
+      allowEmptyPhotos: updates.photos !== undefined,
+    }).catch((err) => {
+      console.warn('saveSingleService update error:', err);
+    });
   };
 
   // Delete service record
   const deleteService = async (id: string) => {
-    const target = allServices.find((s) => s.id === id);
+    const currentServices = allServicesRef.current;
+    const target = currentServices.find((s) => s.id === id);
     if (target && !isUserAdmin(user) && target.createdBy !== user?.id) {
       alert('Bu servis kaydını silme yetkiniz bulunmuyor.');
       return;
     }
-    const updated = allServices.filter((s) => s.id !== id);
+    const updated = currentServices.filter((s) => s.id !== id);
+    allServicesRef.current = updated;
     setAllServices(updated);
     await StorageService.deleteService(id);
   };
