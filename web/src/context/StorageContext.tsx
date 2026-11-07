@@ -4630,6 +4630,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const registerShiftRemindersOnCheckIn = (record: AttendanceRecord) => {
+      if (user) {
+        ShiftReminderService.cancelShiftCheckinReminders(user.id, record.date || todayStr, compCode);
+      }
       if (!user || user.role === 'admin' || isUserAdmin(user)) return;
       const assigned = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
       if (!assigned) return;
@@ -4686,6 +4689,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
+      ShiftReminderService.cancelShiftCheckinReminders(user.id, todayStr, compCode);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
       await StorageService.saveAttendanceRecords(updated);
 
@@ -5077,6 +5081,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
+      ShiftReminderService.cancelShiftCheckinReminders(user.id, todayStr, compCode);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
       await StorageService.saveAttendanceRecords(updated);
       registerShiftRemindersOnCheckIn(newRecord);
@@ -5972,6 +5977,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         checkInApprovedAt: Date.now(),
       };
 
+      ShiftReminderService.cancelShiftCheckinReminders(
+        record.userId,
+        record.date,
+        record.companyCode || compCode
+      );
       const assigned = ShiftReminderService.getAssignedShiftForToday(record.userId, shifts, shiftAssignments);
       if (assigned) {
         ShiftReminderService.scheduleShiftCheckoutReminders({
@@ -7094,38 +7104,51 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearInterval(interval);
   }, [personalNotes, user?.id]);
 
-  // --- VARDİYA ÇIKIŞ HATIRLATICI & ESCALATION SERVİSİ (Her 20 saniyede bir kontrol) ---
-  // Tam vardiya saatinde personele, 10 dk sonra çıkış yapmadıysa yöneticiye bildirim
-  // SADECE vardiya tahsis edilen personel için çalışır.
+  // --- VARDİYA GİRİŞ (+15dk) & ÇIKIŞ (+5dk / +10dk) HATIRLATICI SERVİSİ (Her 20 saniyede bir kontrol) ---
+  // SADECE vardiya tahsis edilen personel için canlı veritabanı doğrulamasıyla çalışır (Yöneticiye gitmez).
   useEffect(() => {
-    if (!attendanceRecords || attendanceRecords.length === 0 || !shiftAssignments || shiftAssignments.length === 0) {
+    if (!shiftAssignments || shiftAssignments.length === 0) {
       return;
     }
 
-    const runShiftCheckoutWatcher = () => {
-      ShiftReminderService.checkShiftCheckoutReminders({
+    const runShiftRemindersWatcher = () => {
+      // 1. Vardiya Başlangıç (+15. dakika) İşe Giriş Hatırlatıcısı
+      ShiftReminderService.checkShiftCheckinReminders({
         attendanceRecords,
         shifts,
         shiftAssignments,
+        leaveRequests,
         companyCode: compCode,
         currentUser: user || undefined,
-        onUpdateRecord: (updatedRecord) => {
-          setAttendanceRecords((prev) => {
-            const idx = prev.findIndex((r) => r.id === updatedRecord.id);
-            if (idx === -1) return prev;
-            const updated = [...prev];
-            updated[idx] = updatedRecord;
-            FastActionAgent.enqueueAttendanceSync(compCode, updated);
-            return updated;
-          });
-        },
       });
+
+      // 2. Vardiya Bitiş (+5. ve +10. dakika) İşten Çıkış Hatırlatıcısı
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        ShiftReminderService.checkShiftCheckoutReminders({
+          attendanceRecords,
+          shifts,
+          shiftAssignments,
+          leaveRequests,
+          companyCode: compCode,
+          currentUser: user || undefined,
+          onUpdateRecord: (updatedRecord) => {
+            setAttendanceRecords((prev) => {
+              const idx = prev.findIndex((r) => r.id === updatedRecord.id);
+              if (idx === -1) return prev;
+              const updated = [...prev];
+              updated[idx] = updatedRecord;
+              FastActionAgent.enqueueAttendanceSync(compCode, updated);
+              return updated;
+            });
+          },
+        });
+      }
     };
 
-    runShiftCheckoutWatcher();
-    const shiftInterval = setInterval(runShiftCheckoutWatcher, 20000);
+    runShiftRemindersWatcher();
+    const shiftInterval = setInterval(runShiftRemindersWatcher, 20000);
     return () => clearInterval(shiftInterval);
-  }, [attendanceRecords, shifts, shiftAssignments, compCode, user]);
+  }, [attendanceRecords, shifts, shiftAssignments, leaveRequests, compCode, user]);
 
   // --- MOLA BİTİŞ PUSH TETİKLEYİCİ (Uygulama Kill Edilmiş Personeli Uyandırma Garantisi) ---
   // Mola süresi dolan personelin cihazı kapalı/kill edilmiş olsa bile bulut zamanlayıcıya ek olarak

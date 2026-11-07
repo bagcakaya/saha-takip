@@ -2,7 +2,7 @@ export function registerServiceWorker() {
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker
-        .register('/OneSignalSDKWorker.js?v=7', { scope: '/' })
+        .register('/OneSignalSDKWorker.js?v=8', { scope: '/' })
         .then(async (reg) => {
           console.log('PWA Service Worker aktif:', reg.scope);
 

@@ -5,6 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { sql, getPool } = require('./db');
 const { runCloudSync } = require('./cloudSync');
+const { runShiftWatchdog } = require('./shiftWatchdog');
 require('dotenv').config();
 
 const app = express();
@@ -539,12 +540,13 @@ app.post('/api/send-notification', async (req, res) => {
       payload.contents = { en: cText, tr: cText };
     }
 
-    // KESİN KURAL: Yöneticiye vardiya çıkış gecikmesi bildirimi gönderilmesini sunucu seviyesinde de engelle
+    // KESİN KURAL: Yöneticiye vardiya gecikmesi bildirimi gönderilmesini sunucu seviyesinde de engelle
     const headingCheck = String(payload.headings?.tr || payload.headings?.en || payload.title || '');
     const collapseCheck = String(payload.collapse_id || payload.collapseId || '');
     if (
       collapseCheck.startsWith('shift_admin_') ||
-      headingCheck.includes('Vardiya Çıkış Gecikmesi')
+      headingCheck.includes('Vardiya Çıkış Gecikmesi') ||
+      headingCheck.includes('Vardiya Giriş Gecikmesi')
     ) {
       console.log('>> [Yerel Sunucu] Yönetici vardiya çıkış gecikmesi bildirimi kural gereği engellendi:', headingCheck);
       return res.json({ id: 'blocked_admin_shift_alert', blocked: true });
@@ -866,6 +868,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   setInterval(() => {
     runCloudSync(PORT, true).catch(() => {});
   }, 30 * 60 * 1000);
+
+  // 7/24 Otonom Vardiya Giriş (+15dk) ve Çıkış (+5dk/+10dk) Hatırlatıcı Kontrolü (Her 60 saniyede bir)
+  setTimeout(() => {
+    runShiftWatchdog(PORT).catch(() => {});
+  }, 10000);
+  setInterval(() => {
+    runShiftWatchdog(PORT).catch(() => {});
+  }, 60 * 1000);
 });
 
 server.on('error', (err) => {

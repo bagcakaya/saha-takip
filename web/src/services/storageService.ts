@@ -45,6 +45,7 @@ const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
 const SHIFT_DATA_KEY = '@saha_takip_shift_data';
+const SHIFT_ALERT_LOGS_KEY = '@saha_takip_shift_alert_logs';
 const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
 const SALARY_RECORDS_KEY = '@saha_takip_salary_records';
 const DEPARTMENT_SALARIES_KEY = '@saha_takip_department_salaries';
@@ -3424,6 +3425,66 @@ export const StorageService = {
   async saveShiftAssignments(assignments: ShiftAssignment[]): Promise<void> {
     const current = await this.getShiftData();
     await this.saveShiftData({ ...current, assignments });
+  },
+
+  /**
+   * Retrieves shared shift check-in / check-out reminder deduplication log (Slot 23 -> 23001/23002)
+   * Prevents duplicate push notifications across multiple open browsers/phones and local server.
+   */
+  async getShiftAlertLogs(companyCode?: string): Promise<Record<string, number>> {
+    const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = this.getStorageKeyForCompany(SHIFT_ALERT_LOGS_KEY, comp);
+    const slotId = this.getSlotIdForCompany(23, comp);
+
+    try {
+      const { data: cloudData } = await loadChunkedSlot<Record<string, number>>(slotId);
+      if (cloudData && typeof cloudData === 'object' && !Array.isArray(cloudData)) {
+        const localCached = (await loadItem<Record<string, number>>(localKey)) || {};
+        const merged: Record<string, number> = { ...localCached, ...cloudData };
+        await saveItem(localKey, merged);
+        return merged;
+      }
+    } catch (e) {
+      console.warn('Shift alert logs cloud read error:', e);
+    }
+
+    const cached = await loadItem<Record<string, number>>(localKey);
+    return cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : {};
+  },
+
+  /**
+   * Atomically marks a shift reminder key as sent in local cache + cloud Slot 23 (auto-pruned to 7 days)
+   */
+  async markShiftAlertSent(alertKey: string, companyCode?: string): Promise<void> {
+    if (!alertKey) return;
+    const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = this.getStorageKeyForCompany(SHIFT_ALERT_LOGS_KEY, comp);
+    const slotId = this.getSlotIdForCompany(23, comp);
+    const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    try {
+      const localCached = (await loadItem<Record<string, number>>(localKey)) || {};
+      localCached[alertKey] = now;
+      await saveItem(localKey, localCached);
+
+      const { data: cloudData } = await loadChunkedSlot<Record<string, number>>(slotId);
+      const base =
+        cloudData && typeof cloudData === 'object' && !Array.isArray(cloudData) ? cloudData : {};
+      const merged: Record<string, number> = { ...base, ...localCached, [alertKey]: now };
+
+      // Prune entries older than 7 days to keep Slot 23 tiny (< 1 KB)
+      for (const [k, ts] of Object.entries(merged)) {
+        if (typeof ts !== 'number' || now - ts > sevenDaysMs) {
+          delete merged[k];
+        }
+      }
+
+      await saveItem(localKey, merged);
+      await saveChunkedSlot(slotId, merged);
+    } catch (e) {
+      console.warn('Shift alert logs cloud save error:', e);
+    }
   },
 
   /**

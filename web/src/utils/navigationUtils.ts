@@ -51,6 +51,9 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
 
     staff_tracking: 'staff_tracking',
     stafftracking: 'staff_tracking',
+    attendance: 'staff_tracking',
+    mesai: 'staff_tracking',
+    vardiya: 'staff_tracking',
     personel: 'staff_tracking',
     personel_takibi: 'staff_tracking',
     takip: 'staff_tracking',
@@ -168,6 +171,9 @@ export function detectTabFromNotification(
     combined.includes('izin redd') ||
     combined.includes('işe başladı') ||
     combined.includes('işten ayrıldı') ||
+    combined.includes('işe giriş') ||
+    combined.includes('işten çıkış') ||
+    combined.includes('vardiya') ||
     combined.includes('mesai') ||
     combined.includes('mola') ||
     combined.includes('lokasyon dışı')
