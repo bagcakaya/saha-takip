@@ -68,17 +68,23 @@ async function runCloudSync(port = 3001, isQuiet = false) {
     let syncedSlots = 0;
     let syncedTables = 0;
 
-    // 1. standard_tasks slotları (Tüm modüller: mesai, maaş, izin, pano vb.)
+    // 1. standard_tasks slotları (Tüm modüller + parçalı medya slotları: tek tek çekerek statement_timeout riskini önler)
     try {
-      const slots = await fetchFromSupabase('standard_tasks', '?select=id,tasks&order=id.asc');
-      if (Array.isArray(slots)) {
-        for (const slot of slots) {
-          if (slot.tasks) {
-            await postLocal(port, `/api/standard_tasks/${slot.id}`, { tasks: slot.tasks });
-            syncedSlots++;
+      const slotRefs = await fetchFromSupabase('standard_tasks', '?select=id&order=id.asc');
+      if (Array.isArray(slotRefs)) {
+        for (const ref of slotRefs) {
+          try {
+            const rows = await fetchFromSupabase('standard_tasks', `?select=id,tasks&id=eq.${ref.id}`);
+            const slot = Array.isArray(rows) ? rows[0] : null;
+            if (slot && slot.tasks) {
+              await postLocal(port, `/api/standard_tasks/${slot.id}`, { tasks: slot.tasks });
+              syncedSlots++;
+            }
+          } catch (slotErr) {
+            console.warn(`   ⚠️ Slot ${ref.id} eşitleme uyarısı:`, slotErr.message);
           }
         }
-        if (!isQuiet) console.log(`   ✓ ${syncedSlots} adet veri slotu (mesai, izin, maaş vb.) eşitlendi.`);
+        if (!isQuiet) console.log(`   ✓ ${syncedSlots} adet veri slotu (mesai, izin, maaş, medya vb.) eşitlendi.`);
       }
     } catch (err) {
       console.warn('   ⚠️ standard_tasks eşitleme uyarısı:', err.message);

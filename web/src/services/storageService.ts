@@ -33,6 +33,7 @@ import defaultCarilerData from '../data/cariler.json';
 const LOCATIONS_KEY = '@gorev_tamamlama_locations';
 const STANDARD_TASKS_KEY = '@gorev_tamamlama_standard_tasks';
 const NOTES_KEY = '@gorev_tamamlama_general_notes';
+const NOTE_MEDIA_CACHE_KEY = '@gorev_tamamlama_note_media_cache';
 const RETURN_WARRANTY_KEY = '@gorev_tamamlama_return_warranty';
 const SERVICES_KEY = '@gorev_tamamlama_services';
 const WORKPLACE_LOCATION_KEY = '@saha_takip_workplace_location';
@@ -288,27 +289,43 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   return false;
 }
 
+function parseChunkedTasksValue<T>(rawTasks: any): T | null {
+  if (rawTasks == null) return null;
+  if (Array.isArray(rawTasks)) {
+    if (rawTasks.length === 0) return ([] as unknown) as T;
+    if (
+      typeof rawTasks[0] === 'string' &&
+      (rawTasks[0].startsWith('[') || rawTasks[0].startsWith('{'))
+    ) {
+      try {
+        return JSON.parse(rawTasks.join('')) as T;
+      } catch {
+        return (rawTasks as unknown) as T;
+      }
+    }
+    return (rawTasks as unknown) as T;
+  }
+  if (typeof rawTasks === 'string') {
+    try {
+      return JSON.parse(rawTasks) as T;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof rawTasks === 'object') {
+    return rawTasks as T;
+  }
+  return null;
+}
+
 // Helper to load chunked JSON from standard_tasks slot
 async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; notFound: boolean }> {
   // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
   if (ServerConfigService.isLocalMode()) {
     const json = await localApiGet<any>(`/api/standard_tasks/${slotId}`);
     if (json && !json.notFound && json.tasks) {
-      let parsed: any = json.tasks;
-      if (Array.isArray(json.tasks) && json.tasks.length > 0 && typeof json.tasks[0] === 'string' && json.tasks[0].startsWith('[')) {
-        try {
-          parsed = JSON.parse(json.tasks.join(''));
-        } catch {
-          parsed = json.tasks;
-        }
-      } else if (typeof json.tasks === 'string') {
-        try {
-          parsed = JSON.parse(json.tasks);
-        } catch {
-          parsed = json.tasks;
-        }
-      }
-      return { data: parsed as T, notFound: false };
+      const parsed = parseChunkedTasksValue<T>(json.tasks);
+      return { data: parsed, notFound: false };
     }
     if (json && json.notFound) {
       return { data: null, notFound: true };
@@ -338,7 +355,7 @@ async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; not
 }
 
 // Helper to save chunked JSON to standard_tasks slot
-async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
+async function saveChunkedSlot(slotId: number, data: any, throwOnError = false): Promise<void> {
   // GÜVENLİK ZIRHI: POLATLAR harici kurumların sistem kök slotlarına (1-10) yazması engellenir
   if (activeCompanyCode !== 'POLATLAR' && slotId <= 10) {
     console.warn(
@@ -356,26 +373,366 @@ async function saveChunkedSlot(slotId: number, data: any): Promise<void> {
 
   // DUAL-WRITE:
   // 1. Yerel Sunucu (Local MSSQL Server) - Arka planda güvenle yazar
-  const localPromise = localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) =>
-    console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err)
-  );
+  const localPromise = localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) => {
+    console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err);
+    return false;
+  });
 
   // 2. Supabase Bulut (Pro Plan) - Ana bulut veritabanına anında kaydet
-  const cloudPromise = (async () => {
+  // Büyük TOAST satırlarında PostgreSQL UPDATE 8sn statement_timeout (57014) verirse DELETE + INSERT ile aşılır
+  const cloudPromise = (async (): Promise<boolean> => {
     try {
       const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
-      if (error) console.warn(`[Dual-Write Supabase] Slot ${slotId} hata:`, error);
+      if (!error) return true;
+
+      console.warn(`[Dual-Write Supabase] Slot ${slotId} upsert hata (${error.code}), delete+insert deneniyor:`, error.message);
+      await supabase.from('standard_tasks').delete().eq('id', slotId);
+      const { error: insErr } = await supabase.from('standard_tasks').insert({ id: slotId, tasks: chunks });
+      if (!insErr) return true;
+
+      if (insErr.code === '23505') {
+        const { error: retryErr } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+        if (!retryErr) return true;
+      }
+      console.warn(`[Dual-Write Supabase] Slot ${slotId} delete+insert hata:`, insErr);
+      if (throwOnError && !ServerConfigService.isLocalMode()) throw insErr;
+      return false;
     } catch (err) {
       console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err);
+      if (throwOnError && !ServerConfigService.isLocalMode()) throw err;
+      return false;
     }
   })();
 
   if (ServerConfigService.isLocalMode()) {
-    await Promise.allSettled([localPromise, cloudPromise]);
+    const [localRes] = await Promise.all([localPromise, cloudPromise]);
+    if (!localRes && throwOnError) {
+      throw new Error(`Yerel sunucu slot ${slotId} yazılamadı.`);
+    }
   } else {
     // Bulut modda (varsayılan) anında Supabase'e yazıp döner, yerel sunucu arka planda eşitlenir (0ms gecikme)
     await cloudPromise;
   }
+}
+
+// ============================================================================
+// İŞ EMRİ (NOTES) PARÇALI FOTOĞRAF DEPOLAMA & OTOMATİK İYİLEŞTİRME (SHARDING)
+// Slot 4'ün birkaç MB'a ulaşıp PostgreSQL statement_timeout (57014) ve 413
+// sınırlarına takılmasını kalıcı olarak önler: her iş emrinin fotoğrafları kendi
+// özel medya slotunda (400,000,000..489,999,999) tutulur, Slot 4 daima hafif kalır.
+// ============================================================================
+const NOTE_MEDIA_SLOT_MIN = 400000000;
+const NOTE_MEDIA_SLOT_SPAN = 90000000;
+
+interface NoteMediaShardEntry {
+  photos: string[];
+  completionPhotos: string[];
+  updatedAt: number;
+}
+
+type NoteMediaShardMap = Record<string, NoteMediaShardEntry>;
+
+interface NoteMediaCacheEntry {
+  photos: string[];
+  completionPhotos: string[];
+  updatedAt: number;
+  sig: string;
+  uploaded?: boolean;
+}
+
+type NoteMediaCacheMap = Record<string, NoteMediaCacheEntry>;
+
+const noteMediaMemoryCaches = new Map<string, NoteMediaCacheMap>();
+const inFlightNoteSaves = new Set<string>();
+const selfHealedNoteSigs = new Map<string, string>();
+
+export function getNoteMediaSlotId(noteId: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < noteId.length; i++) {
+    h ^= noteId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return NOTE_MEDIA_SLOT_MIN + ((h >>> 0) % NOTE_MEDIA_SLOT_SPAN);
+}
+
+function computeNoteMediaSig(photos?: string[], completionPhotos?: string[]): string {
+  const p = Array.isArray(photos) ? photos.filter(Boolean) : [];
+  const cp = Array.isArray(completionPhotos) ? completionPhotos.filter(Boolean) : [];
+  return `${p.length}:${p.map((x) => `${x.length}_${x.slice(-16)}`).join(',')}|${cp.length}:${cp.map((x) => `${x.length}_${x.slice(-16)}`).join(',')}`;
+}
+
+async function loadNoteMediaCache(cacheKey: string): Promise<NoteMediaCacheMap> {
+  const mem = noteMediaMemoryCaches.get(cacheKey);
+  if (mem) return mem;
+  try {
+    const stored = await idbGet<NoteMediaCacheMap>(cacheKey);
+    if (stored && typeof stored === 'object') {
+      noteMediaMemoryCaches.set(cacheKey, stored);
+      return stored;
+    }
+  } catch {
+    // ignore
+  }
+  const empty: NoteMediaCacheMap = {};
+  noteMediaMemoryCaches.set(cacheKey, empty);
+  return empty;
+}
+
+async function saveNoteMediaCache(cacheKey: string, map: NoteMediaCacheMap): Promise<void> {
+  noteMediaMemoryCaches.set(cacheKey, map);
+  try {
+    await idbSet(cacheKey, map);
+  } catch (e) {
+    console.warn('saveNoteMediaCache IndexedDB error:', e);
+  }
+}
+
+function stripNoteForSlot4(
+  note: GeneralNote,
+  mediaMeta?: { mediaSlotId?: number; mediaUpdatedAt?: number }
+): GeneralNote {
+  const resolvedSlotId = mediaMeta !== undefined ? mediaMeta.mediaSlotId : note.mediaSlotId;
+  const resolvedUpdatedAt = mediaMeta !== undefined ? mediaMeta.mediaUpdatedAt : note.mediaUpdatedAt;
+  const copy: GeneralNote = {
+    ...note,
+    photos: [],
+    completionPhotos: [],
+  };
+  if (resolvedSlotId) {
+    copy.mediaSlotId = resolvedSlotId;
+    copy.mediaUpdatedAt = resolvedUpdatedAt || Date.now();
+  } else {
+    delete copy.mediaSlotId;
+    delete copy.mediaUpdatedAt;
+  }
+  return copy;
+}
+
+async function persistNoteMediaToShard(
+  note: GeneralNote,
+  cacheKey: string
+): Promise<{ mediaSlotId?: number; mediaUpdatedAt?: number }> {
+  const photos = Array.isArray(note.photos) ? note.photos.filter(Boolean) : [];
+  const completionPhotos = Array.isArray(note.completionPhotos)
+    ? note.completionPhotos.filter(Boolean)
+    : [];
+  const mediaCache = await loadNoteMediaCache(cacheKey);
+
+  if (photos.length === 0 && completionPhotos.length === 0) {
+    if (mediaCache[note.id]) {
+      delete mediaCache[note.id];
+      await saveNoteMediaCache(cacheKey, mediaCache);
+    }
+    if (note.mediaSlotId) {
+      removeNoteMediaFromShard(note.id, note.mediaSlotId).catch(() => {});
+    }
+    return { mediaSlotId: undefined, mediaUpdatedAt: undefined };
+  }
+
+  const slotId = getNoteMediaSlotId(note.id);
+  const sig = computeNoteMediaSig(photos, completionPhotos);
+  const existingCached = mediaCache[note.id];
+
+  // Eğer fotoğraflar değişmemişse ve bulut medya parçasına zaten yüklenmişse tekrar yükleme!
+  if (
+    existingCached &&
+    existingCached.uploaded &&
+    existingCached.sig === sig &&
+    note.mediaSlotId === slotId &&
+    note.mediaUpdatedAt
+  ) {
+    return { mediaSlotId: slotId, mediaUpdatedAt: note.mediaUpdatedAt };
+  }
+
+  const updatedAt = Date.now();
+  mediaCache[note.id] = {
+    photos,
+    completionPhotos,
+    updatedAt,
+    sig,
+    uploaded: false,
+  };
+  await saveNoteMediaCache(cacheKey, mediaCache);
+
+  const { data: existingShard } = await loadChunkedSlot<NoteMediaShardMap>(slotId);
+  const shardMap: NoteMediaShardMap =
+    existingShard && typeof existingShard === 'object' && !Array.isArray(existingShard)
+      ? { ...existingShard }
+      : {};
+
+  shardMap[note.id] = {
+    photos,
+    completionPhotos,
+    updatedAt,
+  };
+
+  await saveChunkedSlot(slotId, shardMap, true);
+
+  mediaCache[note.id] = {
+    photos,
+    completionPhotos,
+    updatedAt,
+    sig,
+    uploaded: true,
+  };
+  await saveNoteMediaCache(cacheKey, mediaCache);
+
+  return { mediaSlotId: slotId, mediaUpdatedAt: updatedAt };
+}
+
+async function removeNoteMediaFromShard(noteId: string, mediaSlotId?: number): Promise<void> {
+  const slotId = mediaSlotId || getNoteMediaSlotId(noteId);
+  try {
+    const { data: existingShard } = await loadChunkedSlot<NoteMediaShardMap>(slotId);
+    if (existingShard && typeof existingShard === 'object' && !Array.isArray(existingShard)) {
+      if (noteId in existingShard) {
+        const nextMap = { ...existingShard };
+        delete nextMap[noteId];
+        if (Object.keys(nextMap).length === 0) {
+          if (!ServerConfigService.isLocalMode()) {
+            await supabase.from('standard_tasks').delete().eq('id', slotId);
+          }
+          await saveChunkedSlot(slotId, []);
+        } else {
+          await saveChunkedSlot(slotId, nextMap);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('removeNoteMediaFromShard warning:', e);
+  }
+}
+
+async function hydrateNotesWithMediaShards(
+  notes: GeneralNote[],
+  cacheKey: string
+): Promise<GeneralNote[]> {
+  if (!notes || notes.length === 0) return notes;
+  const mediaCache = await loadNoteMediaCache(cacheKey);
+  let cacheDirty = false;
+
+  const missingSlotIds = new Set<number>();
+
+  for (const n of notes) {
+    const inlinePhotos = Array.isArray(n.photos) ? n.photos.filter(Boolean) : [];
+    const inlineComp = Array.isArray(n.completionPhotos) ? n.completionPhotos.filter(Boolean) : [];
+
+    // Geriye dönük uyumluluk: Slot 4 içinde hala gömülü fotoğraf varsa yerel önbelleğe al
+    if (inlinePhotos.length > 0 || inlineComp.length > 0) {
+      const sig = computeNoteMediaSig(inlinePhotos, inlineComp);
+      if (!mediaCache[n.id] || mediaCache[n.id].sig !== sig) {
+        mediaCache[n.id] = {
+          photos: inlinePhotos,
+          completionPhotos: inlineComp,
+          updatedAt: n.mediaUpdatedAt || Date.now(),
+          sig,
+          uploaded: Boolean(n.mediaSlotId),
+        };
+        cacheDirty = true;
+      }
+      continue;
+    }
+
+    if (n.mediaSlotId) {
+      const cached = mediaCache[n.id];
+      const hasCachedMedia =
+        cached &&
+        ((cached.photos && cached.photos.length > 0) ||
+          (cached.completionPhotos && cached.completionPhotos.length > 0));
+      const isFresh =
+        hasCachedMedia && (!n.mediaUpdatedAt || (cached.updatedAt || 0) >= n.mediaUpdatedAt);
+
+      if (!isFresh) {
+        missingSlotIds.add(n.mediaSlotId);
+      }
+    }
+  }
+
+  if (missingSlotIds.size > 0) {
+    const slotList = Array.from(missingSlotIds);
+    const batchSize = 6;
+    for (let i = 0; i < slotList.length; i += batchSize) {
+      const batch = slotList.slice(i, i + batchSize);
+      if (ServerConfigService.isLocalMode()) {
+        const results = await Promise.all(
+          batch.map(async (sid) => ({ sid, res: await loadChunkedSlot<NoteMediaShardMap>(sid) }))
+        );
+        for (const { res } of results) {
+          if (res.data && typeof res.data === 'object' && !Array.isArray(res.data)) {
+            for (const [nid, entry] of Object.entries(res.data)) {
+              if (entry && typeof entry === 'object') {
+                const p = Array.isArray(entry.photos) ? entry.photos.filter(Boolean) : [];
+                const cp = Array.isArray(entry.completionPhotos)
+                  ? entry.completionPhotos.filter(Boolean)
+                  : [];
+                mediaCache[nid] = {
+                  photos: p,
+                  completionPhotos: cp,
+                  updatedAt: entry.updatedAt || Date.now(),
+                  sig: computeNoteMediaSig(p, cp),
+                  uploaded: true,
+                };
+                cacheDirty = true;
+              }
+            }
+          }
+        }
+      } else {
+        try {
+          const { data: rows } = await supabase
+            .from('standard_tasks')
+            .select('id,tasks')
+            .in('id', batch);
+          if (Array.isArray(rows)) {
+            for (const row of rows) {
+              const parsed = parseChunkedTasksValue<NoteMediaShardMap>(row.tasks);
+              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                for (const [nid, entry] of Object.entries(parsed)) {
+                  if (entry && typeof entry === 'object') {
+                    const p = Array.isArray(entry.photos) ? entry.photos.filter(Boolean) : [];
+                    const cp = Array.isArray(entry.completionPhotos)
+                      ? entry.completionPhotos.filter(Boolean)
+                      : [];
+                    mediaCache[nid] = {
+                      photos: p,
+                      completionPhotos: cp,
+                      updatedAt: entry.updatedAt || Date.now(),
+                      sig: computeNoteMediaSig(p, cp),
+                      uploaded: true,
+                    };
+                    cacheDirty = true;
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('hydrateNotesWithMediaShards Supabase fetch warning:', err);
+        }
+      }
+    }
+  }
+
+  if (cacheDirty) {
+    await saveNoteMediaCache(cacheKey, mediaCache);
+  }
+
+  return notes.map((n) => {
+    const inlinePhotos = Array.isArray(n.photos) ? n.photos.filter(Boolean) : [];
+    const inlineComp = Array.isArray(n.completionPhotos) ? n.completionPhotos.filter(Boolean) : [];
+    if (inlinePhotos.length > 0 || inlineComp.length > 0) {
+      return n;
+    }
+    const cached = mediaCache[n.id];
+    if (cached && n.mediaSlotId) {
+      return {
+        ...n,
+        photos: cached.photos || [],
+        completionPhotos: cached.completionPhotos || [],
+      };
+    }
+    return n;
+  });
 }
 
 export const StorageService = {
@@ -978,6 +1335,8 @@ export const StorageService = {
       cariName: row?.cari_name || fb?.cariName || lc?.cariName || undefined,
       photos: pickArr(row?.photos, fb?.photos, lc?.photos),
       completionPhotos: pickArr(row?.completion_photos, fb?.completionPhotos, lc?.completionPhotos),
+      mediaSlotId: fb?.mediaSlotId || lc?.mediaSlotId || undefined,
+      mediaUpdatedAt: fb?.mediaUpdatedAt || lc?.mediaUpdatedAt || undefined,
       status: resolvedStatus,
       completedAt,
       completedBy,
@@ -1004,28 +1363,120 @@ export const StorageService = {
   },
 
   /**
-   * Retrieves notes (Supabase cloud + local cache)
+   * Cihazın yerel hafızasında (IndexedDB) olup bulut Slot 4'e zaman aşımı / çevrimdışı
+   * nedeniyle henüz gitmemiş fotoğraf, kullanılan malzeme ve okundu bilgilerini arka planda otomatik buluta tamamlar.
+   */
+  scheduleNotesCloudSelfHeal(
+    finalNotes: GeneralNote[],
+    fallbackMap: Map<string, GeneralNote>,
+    localCachedMap: Map<string, GeneralNote>,
+    cloudSlotReached: boolean
+  ): void {
+    if (!cloudSlotReached || finalNotes.length === 0) return;
+
+    const toHeal: GeneralNote[] = [];
+    for (const merged of finalNotes) {
+      if (!merged?.id || inFlightNoteSaves.has(merged.id)) continue;
+      const lc = localCachedMap.get(merged.id);
+      if (!lc) continue;
+      const fb = fallbackMap.get(merged.id);
+
+      const lcHasMaterials = Boolean(lc.usedMaterials && lc.usedMaterials.trim().length > 0);
+      const cloudMissingMaterials =
+        lcHasMaterials && (!fb?.usedMaterials || fb.usedMaterials.trim().length === 0);
+
+      const lcCompPhotos = Array.isArray(lc.completionPhotos)
+        ? lc.completionPhotos.filter(Boolean)
+        : [];
+      const fbCompPhotos = Array.isArray(fb?.completionPhotos)
+        ? fb!.completionPhotos!.filter(Boolean)
+        : [];
+      const cloudMissingCompPhotos = lcCompPhotos.length > fbCompPhotos.length;
+
+      const lcPhotos = Array.isArray(lc.photos) ? lc.photos.filter(Boolean) : [];
+      const fbPhotos = Array.isArray(fb?.photos) ? fb!.photos!.filter(Boolean) : [];
+      const cloudMissingPhotos = lcPhotos.length > fbPhotos.length;
+
+      const lcReads = Array.isArray(lc.readBy) ? lc.readBy.filter(Boolean) : [];
+      const fbReadSet = new Set(Array.isArray(fb?.readBy) ? fb!.readBy! : []);
+      const cloudMissingReads = lcReads.some((uid) => !fbReadSet.has(uid));
+
+      const lcHasCari = Boolean(lc.cariName && lc.cariName.trim().length > 0);
+      const cloudMissingCari = lcHasCari && !fb?.cariName;
+
+      if (
+        cloudMissingMaterials ||
+        cloudMissingCompPhotos ||
+        cloudMissingPhotos ||
+        cloudMissingReads ||
+        cloudMissingCari
+      ) {
+        const healSig = `${merged.usedMaterials || ''}|${computeNoteMediaSig(merged.photos, merged.completionPhotos)}|${(merged.readBy || []).slice().sort().join(',')}|${merged.cariName || ''}`;
+        if (selfHealedNoteSigs.get(merged.id) === healSig) continue;
+        selfHealedNoteSigs.set(merged.id, healSig);
+        toHeal.push(merged);
+      }
+    }
+
+    if (toHeal.length > 0) {
+      setTimeout(() => {
+        (async () => {
+          for (const noteToHeal of toHeal) {
+            if (inFlightNoteSaves.has(noteToHeal.id)) continue;
+            try {
+              await this.saveSingleNote(noteToHeal);
+            } catch {
+              selfHealedNoteSigs.delete(noteToHeal.id);
+            }
+          }
+        })();
+      }, 600);
+    }
+  },
+
+  /**
+   * Retrieves notes (Supabase cloud + local cache + sharded media slots)
    */
   async getNotes(): Promise<GeneralNote[]> {
     const localKey = this.getStorageKey(NOTES_KEY);
+    const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
     const deletedIds = await this.getDeletedNoteIds();
     const localCached = (await loadItem<GeneralNote[]>(localKey)) || [];
     const localCachedMap = new Map(localCached.map((n) => [n.id, n]));
 
+    const mergeFallbackWithLocal = (fb: GeneralNote): GeneralNote => {
+      const lc = localCachedMap.get(fb.id);
+      const fbPhotos = Array.isArray(fb.photos) && fb.photos.length > 0 ? fb.photos : lc?.photos || [];
+      const fbCompPhotos =
+        Array.isArray(fb.completionPhotos) && fb.completionPhotos.length > 0
+          ? fb.completionPhotos
+          : lc?.completionPhotos || [];
+      return {
+        ...fb,
+        cariName: fb.cariName || lc?.cariName || undefined,
+        photos: fbPhotos,
+        completionPhotos: fbCompPhotos,
+        readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
+        usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
+      };
+    };
+
     if (activeCompanyCode === 'POLATLAR') {
-      // 1. Fetch fallback cloud sync slot (standard_tasks id: 4)
+      // 1. Fetch fallback cloud sync slot (standard_tasks id: 4) + hydrate sharded photos
       let fallbackNotes: GeneralNote[] = [];
       const stFallback = await loadChunkedSlot<GeneralNote[]>(4);
+      const cloudSlotReached = Boolean(stFallback.data && Array.isArray(stFallback.data));
       if (stFallback.data && Array.isArray(stFallback.data)) {
-        fallbackNotes = stFallback.data.filter((n) => !deletedIds.has(n.id));
+        const rawSlotNotes = stFallback.data.filter((n) => !deletedIds.has(n.id));
+        fallbackNotes = await hydrateNotesWithMediaShards(rawSlotNotes, mediaCacheKey);
       }
+      const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
 
       // 2. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
       if (ServerConfigService.isLocalMode()) {
         const serverRows = await localApiGet<any[]>('/api/tables/notes');
         if (serverRows && Array.isArray(serverRows)) {
           const validRows = serverRows.filter((r) => !deletedIds.has(r.id));
-          const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
           const mergedNotes: GeneralNote[] = validRows.map((row) =>
             this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
           );
@@ -1033,32 +1484,20 @@ export const StorageService = {
           const dataIds = new Set(validRows.map((r) => r.id));
           const missingFromTable = fallbackNotes
             .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
-            .map((fb) => {
-              const lc = localCachedMap.get(fb.id);
-              return {
-                ...fb,
-                readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
-                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
-              };
-            });
+            .map(mergeFallbackWithLocal);
           const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
 
           await saveItem(localKey, finalNotes);
+          this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
           return finalNotes;
         }
 
         if (fallbackNotes.length > 0) {
           const filtered = fallbackNotes
             .filter((fb) => !deletedIds.has(fb.id))
-            .map((fb) => {
-              const lc = localCachedMap.get(fb.id);
-              return {
-                ...fb,
-                readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
-                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
-              };
-            });
+            .map(mergeFallbackWithLocal);
           await saveItem(localKey, filtered);
+          this.scheduleNotesCloudSelfHeal(filtered, fallbackMap, localCachedMap, cloudSlotReached);
           return filtered;
         }
 
@@ -1081,7 +1520,6 @@ export const StorageService = {
           }
 
           const validRows = data.filter((r) => !deletedIds.has(r.id));
-          const fallbackMap = new Map(fallbackNotes.map((n) => [n.id, n]));
           const mergedNotes: GeneralNote[] = validRows.map((row) =>
             this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
           );
@@ -1091,17 +1529,11 @@ export const StorageService = {
           const dataIds = new Set(validRows.map((r) => r.id));
           const missingFromTable = fallbackNotes
             .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
-            .map((fb) => {
-              const lc = localCachedMap.get(fb.id);
-              return {
-                ...fb,
-                readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
-                usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
-              };
-            });
+            .map(mergeFallbackWithLocal);
           const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
 
           await saveItem(localKey, finalNotes);
+          this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
           return finalNotes;
         }
       } catch (e) {
@@ -1111,15 +1543,9 @@ export const StorageService = {
       if (fallbackNotes.length > 0) {
         const filtered = fallbackNotes
           .filter((fb) => !deletedIds.has(fb.id))
-          .map((fb) => {
-            const lc = localCachedMap.get(fb.id);
-            return {
-              ...fb,
-              readBy: Array.from(new Set([...(fb.readBy || []), ...(lc?.readBy || [])])),
-              usedMaterials: fb?.usedMaterials || lc?.usedMaterials || undefined,
-            };
-          });
+          .map(mergeFallbackWithLocal);
         await saveItem(localKey, filtered);
+        this.scheduleNotesCloudSelfHeal(filtered, fallbackMap, localCachedMap, cloudSlotReached);
         return filtered;
       }
 
@@ -1130,9 +1556,13 @@ export const StorageService = {
     const slotId = this.getSlotId(4);
     const { data: cloudData, notFound } = await loadChunkedSlot<GeneralNote[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      const filtered = cloudData.filter((n) => !deletedIds.has(n.id));
-      await saveItem(localKey, filtered);
-      return filtered;
+      const rawCompanyNotes = cloudData.filter((n) => !deletedIds.has(n.id));
+      const hydratedCompanyNotes = await hydrateNotesWithMediaShards(rawCompanyNotes, mediaCacheKey);
+      const companyFallbackMap = new Map(hydratedCompanyNotes.map((n) => [n.id, n]));
+      const mergedCompanyNotes = hydratedCompanyNotes.map(mergeFallbackWithLocal);
+      await saveItem(localKey, mergedCompanyNotes);
+      this.scheduleNotesCloudSelfHeal(mergedCompanyNotes, companyFallbackMap, localCachedMap, true);
+      return mergedCompanyNotes;
     }
 
     if (notFound) {
@@ -1156,13 +1586,70 @@ export const StorageService = {
   },
 
   /**
+   * Slot 4 listesini kaydetmeden önce gömülü fotoğrafları medya parçalarına taşır ve hafifletir
+   */
+  async prepareSlot4AndLocalNotes(
+    mergedList: GeneralNote[],
+    localMap: Map<string, GeneralNote>,
+    mediaCacheKey: string
+  ): Promise<{ slot4List: GeneralNote[]; localHydratedList: GeneralNote[] }> {
+    const slot4List: GeneralNote[] = [];
+    for (const item of mergedList) {
+      const hasInline =
+        (Array.isArray(item.photos) && item.photos.length > 0) ||
+        (Array.isArray(item.completionPhotos) && item.completionPhotos.length > 0);
+
+      if (hasInline) {
+        try {
+          const meta = await persistNoteMediaToShard(item, mediaCacheKey);
+          slot4List.push(stripNoteForSlot4(item, meta));
+        } catch (err) {
+          console.warn(`persistNoteMediaToShard warning (${item.id}):`, err);
+          slot4List.push(stripNoteForSlot4(item));
+        }
+      } else {
+        slot4List.push(stripNoteForSlot4(item));
+      }
+    }
+
+    const mediaCache = await loadNoteMediaCache(mediaCacheKey);
+    const localHydratedList = slot4List.map((stripped) => {
+      const cached = mediaCache[stripped.id];
+      const localItem = localMap.get(stripped.id);
+      if (!stripped.mediaSlotId) {
+        return stripped;
+      }
+      return {
+        ...stripped,
+        photos:
+          (cached?.photos && cached.photos.length > 0 ? cached.photos : localItem?.photos) || [],
+        completionPhotos:
+          (cached?.completionPhotos && cached.completionPhotos.length > 0
+            ? cached.completionPhotos
+            : localItem?.completionPhotos) || [],
+      };
+    });
+
+    return { slot4List, localHydratedList };
+  },
+
+  /**
    * Saves notes to local cache and syncs with server
    */
   async saveNotes(notes: GeneralNote[]): Promise<void> {
     const deletedIds = await this.getDeletedNoteIds();
     const cleanNotes = notes.filter((n) => !deletedIds.has(n.id));
     const localKey = this.getStorageKey(NOTES_KEY);
+    const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
     await saveItem(localKey, cleanNotes);
+
+    const localMap = new Map(cleanNotes.map((n) => [n.id, n]));
+    const { slot4List, localHydratedList } = await this.prepareSlot4AndLocalNotes(
+      cleanNotes,
+      localMap,
+      mediaCacheKey
+    );
+    await saveItem(localKey, localHydratedList);
 
     if (activeCompanyCode === 'POLATLAR') {
       const fullRows = cleanNotes.map((n) => ({
@@ -1192,6 +1679,10 @@ export const StorageService = {
         rejected_by: n.rejectedBy || null,
         rejected_by_name: n.rejectedByName || null,
         rejection_reason: n.rejectionReason || null,
+        processed_at: n.processedAt || null,
+        processed_by: n.processedBy || null,
+        processed_by_name: n.processedByName || null,
+        read_by: n.readBy || [],
         used_materials: n.usedMaterials || null,
       }));
 
@@ -1259,10 +1750,10 @@ export const StorageService = {
       } else {
         writeOps.push(Promise.resolve(supabase.from('notes').delete().neq('id', '___')));
       }
-      writeOps.push(saveChunkedSlot(4, cleanNotes));
+      writeOps.push(saveChunkedSlot(4, slot4List));
       await Promise.allSettled(writeOps);
     } else {
-      await saveChunkedSlot(this.getSlotId(4), cleanNotes);
+      await saveChunkedSlot(this.getSlotId(4), slot4List);
     }
   },
 
@@ -1272,11 +1763,20 @@ export const StorageService = {
   async deleteNote(id: string): Promise<void> {
     await this.markNoteAsDeleted(id);
 
-    // 1. Immediately update local storage
+    // 1. Immediately update local storage & media cache
     const localKey = this.getStorageKey(NOTES_KEY);
+    const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
     const currentNotes = (await loadItem<GeneralNote[]>(localKey)) || [];
+    const targetDeleted = currentNotes.find((n) => n.id === id);
     const updatedNotes = currentNotes.filter((n) => n.id !== id);
     await saveItem(localKey, updatedNotes);
+
+    const mediaCache = await loadNoteMediaCache(mediaCacheKey);
+    if (mediaCache[id]) {
+      delete mediaCache[id];
+      await saveNoteMediaCache(mediaCacheKey, mediaCache);
+    }
+    removeNoteMediaFromShard(id, targetDeleted?.mediaSlotId).catch(() => {});
 
     // 2. Server / Cloud delete
     if (activeCompanyCode === 'POLATLAR') {
@@ -1296,28 +1796,40 @@ export const StorageService = {
         )
       );
       deleteOps.push(
-        (async () => {
+        enqueueSlot4Write(async () => {
           const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
           if (slot4Data && Array.isArray(slot4Data)) {
-            const cleaned = slot4Data.filter((n) => n.id !== id);
+            const cleaned = slot4Data.filter((n) => n.id !== id).map((n) => stripNoteForSlot4(n));
             await saveChunkedSlot(4, cleaned);
           }
-        })()
+        })
       );
       await Promise.allSettled(deleteOps);
       return;
     } else {
       try {
         const slotId = this.getSlotId(4);
-        const { data: slotData } = await loadChunkedSlot<GeneralNote[]>(slotId);
-        if (slotData && Array.isArray(slotData)) {
-          const cleaned = slotData.filter((n) => n.id !== id);
-          await saveChunkedSlot(slotId, cleaned);
-        }
+        await enqueueSlot4Write(async () => {
+          const { data: slotData } = await loadChunkedSlot<GeneralNote[]>(slotId);
+          if (slotData && Array.isArray(slotData)) {
+            const cleaned = slotData.filter((n) => n.id !== id).map((n) => stripNoteForSlot4(n));
+            await saveChunkedSlot(slotId, cleaned);
+          }
+        });
       } catch (e) {
         console.warn('Company slot deleteNote error:', e);
       }
     }
+  },
+
+  async clearNoteMediaShard(noteId: string, mediaSlotId?: number): Promise<void> {
+    const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
+    const mediaCache = await loadNoteMediaCache(mediaCacheKey);
+    if (mediaCache[noteId]) {
+      delete mediaCache[noteId];
+      await saveNoteMediaCache(mediaCacheKey, mediaCache);
+    }
+    await removeNoteMediaFromShard(noteId, mediaSlotId);
   },
 
   mapNoteToRow(n: GeneralNote) {
@@ -1356,118 +1868,167 @@ export const StorageService = {
   },
 
   /**
-   * Atomically saves a single note to local cache and server without overwriting other notes
+   * Atomically saves a single note to local cache, media shard, and server without overwriting other notes
    */
   async saveSingleNote(note: GeneralNote): Promise<void> {
-    await this.unmarkNoteAsDeleted(note.id);
-    const localKey = this.getStorageKey(NOTES_KEY);
-    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
-    const idx = existing.findIndex((n) => n.id === note.id);
-    let localUpdated: GeneralNote[];
-    if (idx >= 0) {
-      const mergedReadBy = Array.from(
-        new Set([...(existing[idx].readBy || []), ...(note.readBy || [])])
-      );
-      const noteToSave = { ...note, readBy: mergedReadBy };
-      localUpdated = [...existing];
-      localUpdated[idx] = noteToSave;
-    } else {
-      localUpdated = [note, ...existing];
-    }
-    await saveItem(localKey, localUpdated);
-
-    // 1. Önce atomik satır tablosuna (Supabase notes + Yerel MSSQL) yaz
-    if (activeCompanyCode === 'POLATLAR') {
-      const row = this.mapNoteToRow(note);
-
-      localApiPost('/api/tables/notes/upsert', { rows: [row] }).catch((err) =>
-        console.warn('[Dual-Write Yerel] saveSingleNote hata:', err)
-      );
-
-      try {
-        let useBasic = !supabaseExtendedCols.notes;
-        if (!useBasic) {
-          const { error: singleErr } = await supabase.from('notes').upsert([row]);
-          if (singleErr) {
-            if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
-              supabaseExtendedCols.notes = false;
-            }
-            useBasic = true;
-          }
-        }
-        if (useBasic) {
-          const basicRow: any = {
-            id: note.id,
-            content: note.content,
-            created_at: note.createdAt,
-            created_by: note.createdBy || null,
-            created_by_name: note.createdByName || null,
-            target_mode: note.targetMode || 'self',
-            target_user_ids: note.targetUserIds || [],
-            target_user_names: note.targetUserNames || [],
-            target_user_id: note.targetUserId || null,
-            target_user_name: note.targetUserName || null,
-            reminder_active: Boolean(note.reminderActive),
-            reminder_date: note.reminderDate || null,
-            notified: Boolean(note.notified),
-            status: note.status || 'pending',
-            completed_at: note.completedAt || null,
-            completed_by: note.completedBy || null,
-            completed_by_name: note.completedByName || null,
-            completion_note: note.completionNote || null,
-            approved_at: note.approvedAt || null,
-            approved_by: note.approvedBy || null,
-            approved_by_name: note.approvedByName || null,
-            rejected_at: note.rejectedAt || null,
-            rejected_by: note.rejectedBy || null,
-            rejected_by_name: note.rejectedByName || null,
-            rejection_reason: note.rejectionReason || null,
-          };
-          await supabase.from('notes').upsert([basicRow]);
-        }
-      } catch (err) {
-        console.warn('saveSingleNote Supabase error:', err);
-      }
-    }
-
-    // 2. Canlı bulut Slot 4 dizisini çekip SADECE bu iş emrini birleştir (diğer cihazların tamamladığı işleri ezmez!)
-    const slotId = this.getSlotId(4);
-    await enqueueSlot4Write(async () => {
-      const deletedIds = await this.getDeletedNoteIds();
-      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
-      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
-      const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
-      const cIdx = cleanBase.findIndex((n) => n.id === note.id);
-
-      let slotMergedList: GeneralNote[];
-      if (cIdx >= 0) {
-        const prev = cleanBase[cIdx];
+    inFlightNoteSaves.add(note.id);
+    try {
+      await this.unmarkNoteAsDeleted(note.id);
+      const localKey = this.getStorageKey(NOTES_KEY);
+      const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
+      const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+      const idx = existing.findIndex((n) => n.id === note.id);
+      let noteForLocal: GeneralNote = note;
+      let localUpdated: GeneralNote[];
+      if (idx >= 0) {
         const mergedReadBy = Array.from(
-          new Set([...(prev.readBy || []), ...(note.readBy || [])])
+          new Set([...(existing[idx].readBy || []), ...(note.readBy || [])])
         );
-        const mergedItem: GeneralNote = {
-          ...prev,
-          ...note,
-          cariName: note.cariName !== undefined ? note.cariName : prev.cariName,
-          usedMaterials: note.usedMaterials !== undefined ? note.usedMaterials : prev.usedMaterials,
-          photos: note.photos && note.photos.length > 0 ? note.photos : prev.photos || [],
-          completionPhotos:
-            note.completionPhotos && note.completionPhotos.length > 0
-              ? note.completionPhotos
-              : prev.completionPhotos || [],
-          readBy: mergedReadBy,
-        };
-        slotMergedList = [...cleanBase];
-        slotMergedList[cIdx] = mergedItem;
+        noteForLocal = { ...note, readBy: mergedReadBy };
+        localUpdated = [...existing];
+        localUpdated[idx] = noteForLocal;
       } else {
-        slotMergedList = [note, ...cleanBase];
+        localUpdated = [noteForLocal, ...existing];
+      }
+      await saveItem(localKey, localUpdated);
+
+      // 1. Önce atomik satır tablosuna (Supabase notes + Yerel MSSQL) yaz
+      if (activeCompanyCode === 'POLATLAR') {
+        const row = this.mapNoteToRow(noteForLocal);
+        const localSqlRow = {
+          ...row,
+          photos: noteForLocal.photos || [],
+          completion_photos: noteForLocal.completionPhotos || [],
+          read_by: noteForLocal.readBy || [],
+        };
+
+        localApiPost('/api/tables/notes/upsert', { rows: [localSqlRow] }).catch((err) =>
+          console.warn('[Dual-Write Yerel] saveSingleNote hata:', err)
+        );
+
+        try {
+          let useBasic = !supabaseExtendedCols.notes;
+          if (!useBasic) {
+            const { error: singleErr } = await supabase.from('notes').upsert([row]);
+            if (singleErr) {
+              if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
+                supabaseExtendedCols.notes = false;
+              }
+              useBasic = true;
+            }
+          }
+          if (useBasic) {
+            const basicRow: any = {
+              id: noteForLocal.id,
+              content: noteForLocal.content,
+              created_at: noteForLocal.createdAt,
+              created_by: noteForLocal.createdBy || null,
+              created_by_name: noteForLocal.createdByName || null,
+              target_mode: noteForLocal.targetMode || 'self',
+              target_user_ids: noteForLocal.targetUserIds || [],
+              target_user_names: noteForLocal.targetUserNames || [],
+              target_user_id: noteForLocal.targetUserId || null,
+              target_user_name: noteForLocal.targetUserName || null,
+              reminder_active: Boolean(noteForLocal.reminderActive),
+              reminder_date: noteForLocal.reminderDate || null,
+              notified: Boolean(noteForLocal.notified),
+              status: noteForLocal.status || 'pending',
+              completed_at: noteForLocal.completedAt || null,
+              completed_by: noteForLocal.completedBy || null,
+              completed_by_name: noteForLocal.completedByName || null,
+              completion_note: noteForLocal.completionNote || null,
+              approved_at: noteForLocal.approvedAt || null,
+              approved_by: noteForLocal.approvedBy || null,
+              approved_by_name: noteForLocal.approvedByName || null,
+              rejected_at: noteForLocal.rejectedAt || null,
+              rejected_by: noteForLocal.rejectedBy || null,
+              rejected_by_name: noteForLocal.rejectedByName || null,
+              rejection_reason: noteForLocal.rejectionReason || null,
+            };
+            await supabase.from('notes').upsert([basicRow]);
+          }
+        } catch (err) {
+          console.warn('saveSingleNote Supabase error:', err);
+        }
       }
 
-      await saveItem(localKey, slotMergedList);
-      await saveChunkedSlot(slotId, slotMergedList);
-    }).catch((err) => {
-      console.warn('saveChunkedSlot 4 in saveSingleNote error:', err);
-    });
+      // 2. Fotoğraf varsa önce bağımsız medya parçasına yükle (Slot 4'ü şişirmez!)
+      let mediaMeta: { mediaSlotId?: number; mediaUpdatedAt?: number } | undefined;
+      const hasPhotosToPersist =
+        (Array.isArray(noteForLocal.photos) && noteForLocal.photos.length > 0) ||
+        (Array.isArray(noteForLocal.completionPhotos) && noteForLocal.completionPhotos.length > 0);
+
+      if (hasPhotosToPersist) {
+        mediaMeta = await persistNoteMediaToShard(noteForLocal, mediaCacheKey);
+      } else if (!noteForLocal.mediaSlotId) {
+        mediaMeta = await persistNoteMediaToShard(noteForLocal, mediaCacheKey);
+      }
+
+      // 3. Canlı bulut Slot 4 dizisini çekip SADECE bu iş emrini hafif (fotoğrafsız) birleştir
+      const slotId = this.getSlotId(4);
+      await enqueueSlot4Write(async () => {
+        const deletedIds = await this.getDeletedNoteIds();
+        const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+        const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
+        const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+        const cIdx = cleanBase.findIndex((n) => n.id === noteForLocal.id);
+
+        let slotMergedList: GeneralNote[];
+        if (cIdx >= 0) {
+          const prev = cleanBase[cIdx];
+          const mergedReadBy = Array.from(
+            new Set([...(prev.readBy || []), ...(noteForLocal.readBy || [])])
+          );
+          const resolvedSlotId =
+            mediaMeta !== undefined
+              ? mediaMeta.mediaSlotId
+              : noteForLocal.mediaSlotId ?? prev.mediaSlotId;
+          const resolvedMediaUpdatedAt =
+            mediaMeta !== undefined
+              ? mediaMeta.mediaUpdatedAt
+              : noteForLocal.mediaUpdatedAt ?? prev.mediaUpdatedAt;
+
+          const mergedItem: GeneralNote = {
+            ...prev,
+            ...noteForLocal,
+            cariName: noteForLocal.cariName !== undefined ? noteForLocal.cariName : prev.cariName,
+            usedMaterials:
+              noteForLocal.usedMaterials !== undefined
+                ? noteForLocal.usedMaterials
+                : prev.usedMaterials,
+            photos: noteForLocal.photos || [],
+            completionPhotos: noteForLocal.completionPhotos || [],
+            mediaSlotId: resolvedSlotId,
+            mediaUpdatedAt: resolvedMediaUpdatedAt,
+            readBy: mergedReadBy,
+          };
+          slotMergedList = [...cleanBase];
+          slotMergedList[cIdx] = mergedItem;
+        } else {
+          const newItem: GeneralNote = {
+            ...noteForLocal,
+            mediaSlotId: mediaMeta !== undefined ? mediaMeta.mediaSlotId : noteForLocal.mediaSlotId,
+            mediaUpdatedAt:
+              mediaMeta !== undefined ? mediaMeta.mediaUpdatedAt : noteForLocal.mediaUpdatedAt,
+          };
+          slotMergedList = [newItem, ...cleanBase];
+        }
+
+        const localMap = new Map(localUpdated.map((n) => [n.id, n]));
+        const { slot4List, localHydratedList } = await this.prepareSlot4AndLocalNotes(
+          slotMergedList,
+          localMap,
+          mediaCacheKey
+        );
+        await saveItem(localKey, localHydratedList);
+        await saveChunkedSlot(slotId, slot4List);
+      });
+    } catch (err) {
+      console.warn('saveSingleNote error:', err);
+      throw err;
+    } finally {
+      inFlightNoteSaves.delete(note.id);
+    }
   },
 
   /**
@@ -1475,32 +2036,52 @@ export const StorageService = {
    */
   async appendNoteReadBy(noteId: string, userId: string): Promise<void> {
     if (!noteId || !userId) return;
-    const localKey = this.getStorageKey(NOTES_KEY);
-    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
-    const localNext = existing.map((n) =>
-      n.id === noteId
-        ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
-        : n
-    );
-    await saveItem(localKey, localNext);
+    inFlightNoteSaves.add(noteId);
+    try {
+      const localKey = this.getStorageKey(NOTES_KEY);
+      const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
+      const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+      const localNext = existing.map((n) =>
+        n.id === noteId
+          ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
+          : n
+      );
+      await saveItem(localKey, localNext);
 
-    const slotId = this.getSlotId(4);
-    await enqueueSlot4Write(async () => {
-      const deletedIds = await this.getDeletedNoteIds();
-      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
-      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
-      const updatedSlot = baseList
-        .filter((n) => !deletedIds.has(n.id))
-        .map((n) =>
-          n.id === noteId
-            ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
-            : n
+      const slotId = this.getSlotId(4);
+      await enqueueSlot4Write(async () => {
+        const deletedIds = await this.getDeletedNoteIds();
+        const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+        const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
+        const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+        const hasInCloud = cleanBase.some((n) => n.id === noteId);
+
+        let updatedSlot: GeneralNote[];
+        if (hasInCloud) {
+          updatedSlot = cleanBase.map((n) =>
+            n.id === noteId
+              ? { ...n, readBy: Array.from(new Set([...(n.readBy || []), userId])) }
+              : n
+          );
+        } else {
+          const localNote = localNext.find((n) => n.id === noteId);
+          updatedSlot = localNote ? [localNote, ...cleanBase] : cleanBase;
+        }
+
+        const localMap = new Map(localNext.map((n) => [n.id, n]));
+        const { slot4List, localHydratedList } = await this.prepareSlot4AndLocalNotes(
+          updatedSlot,
+          localMap,
+          mediaCacheKey
         );
-      await saveItem(localKey, updatedSlot);
-      await saveChunkedSlot(slotId, updatedSlot);
-    }).catch((err) => {
+        await saveItem(localKey, localHydratedList);
+        await saveChunkedSlot(slotId, slot4List);
+      });
+    } catch (err) {
       console.warn('appendNoteReadBy error:', err);
-    });
+    } finally {
+      inFlightNoteSaves.delete(noteId);
+    }
   },
 
   /**
@@ -1508,144 +2089,195 @@ export const StorageService = {
    */
   async saveNoteMaterials(noteId: string, usedMaterials: string | undefined): Promise<void> {
     if (!noteId) return;
-    const localKey = this.getStorageKey(NOTES_KEY);
-    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
-    const localNext = existing.map((n) =>
-      n.id === noteId ? { ...n, usedMaterials } : n
-    );
-    await saveItem(localKey, localNext);
+    inFlightNoteSaves.add(noteId);
+    try {
+      const localKey = this.getStorageKey(NOTES_KEY);
+      const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
+      const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+      const localNext = existing.map((n) =>
+        n.id === noteId ? { ...n, usedMaterials } : n
+      );
+      await saveItem(localKey, localNext);
 
-    if (activeCompanyCode === 'POLATLAR' && supabaseExtendedCols.notes) {
-      supabase
-        .from('notes')
-        .update({ used_materials: usedMaterials || null })
-        .eq('id', noteId)
-        .then(({ error }) => {
-          if (error && (error.code === 'PGRST204' || /column/i.test(error.message || ''))) {
-            supabaseExtendedCols.notes = false;
-          }
-        });
-    }
+      const updatedLocalNote = localNext.find((n) => n.id === noteId);
+      if (activeCompanyCode === 'POLATLAR' && updatedLocalNote) {
+        const localSqlRow = {
+          ...this.mapNoteToRow(updatedLocalNote),
+          photos: updatedLocalNote.photos || [],
+          completion_photos: updatedLocalNote.completionPhotos || [],
+          read_by: updatedLocalNote.readBy || [],
+        };
+        localApiPost('/api/tables/notes/upsert', { rows: [localSqlRow] }).catch(() => {});
+      }
 
-    const slotId = this.getSlotId(4);
-    await enqueueSlot4Write(async () => {
-      const deletedIds = await this.getDeletedNoteIds();
-      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
-      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
-      const updatedSlot = baseList
-        .filter((n) => !deletedIds.has(n.id))
-        .map((n) => (n.id === noteId ? { ...n, usedMaterials } : n));
-      await saveItem(localKey, updatedSlot);
-      await saveChunkedSlot(slotId, updatedSlot);
-    }).catch((err) => {
+      if (activeCompanyCode === 'POLATLAR' && supabaseExtendedCols.notes) {
+        supabase
+          .from('notes')
+          .update({ used_materials: usedMaterials || null })
+          .eq('id', noteId)
+          .then(({ error }) => {
+            if (error && (error.code === 'PGRST204' || /column/i.test(error.message || ''))) {
+              supabaseExtendedCols.notes = false;
+            }
+          });
+      }
+
+      const slotId = this.getSlotId(4);
+      await enqueueSlot4Write(async () => {
+        const deletedIds = await this.getDeletedNoteIds();
+        const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+        const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localNext;
+        const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+        const hasInCloud = cleanBase.some((n) => n.id === noteId);
+
+        let updatedSlot: GeneralNote[];
+        if (hasInCloud) {
+          updatedSlot = cleanBase.map((n) => (n.id === noteId ? { ...n, usedMaterials } : n));
+        } else {
+          updatedSlot = updatedLocalNote ? [updatedLocalNote, ...cleanBase] : cleanBase;
+        }
+
+        const localMap = new Map(localNext.map((n) => [n.id, n]));
+        const { slot4List, localHydratedList } = await this.prepareSlot4AndLocalNotes(
+          updatedSlot,
+          localMap,
+          mediaCacheKey
+        );
+        await saveItem(localKey, localHydratedList);
+        await saveChunkedSlot(slotId, slot4List);
+      });
+    } catch (err) {
       console.warn('saveNoteMaterials error:', err);
-    });
+    } finally {
+      inFlightNoteSaves.delete(noteId);
+    }
   },
 
   /**
-   * Atomically saves multiple notes to local cache and server in a single batch
+   * Atomically saves multiple notes to local cache, media shards, and server in a single batch
    */
   async saveMultipleNotes(notesToSave: GeneralNote[]): Promise<void> {
     if (!notesToSave || notesToSave.length === 0) return;
-    const localKey = this.getStorageKey(NOTES_KEY);
-    const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
-    const saveMap = new Map(notesToSave.map((n) => [n.id, n]));
-    const localUpdated = existing.map((n) => saveMap.get(n.id) || n);
-    for (const n of notesToSave) {
-      if (!existing.some((e) => e.id === n.id)) {
-        localUpdated.unshift(n);
+    notesToSave.forEach((n) => inFlightNoteSaves.add(n.id));
+    try {
+      const localKey = this.getStorageKey(NOTES_KEY);
+      const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
+      const existing = (await loadItem<GeneralNote[]>(localKey)) || [];
+      const saveMap = new Map(notesToSave.map((n) => [n.id, n]));
+      const localUpdated = existing.map((n) => saveMap.get(n.id) || n);
+      for (const n of notesToSave) {
+        if (!existing.some((e) => e.id === n.id)) {
+          localUpdated.unshift(n);
+        }
       }
-    }
-    await saveItem(localKey, localUpdated);
+      await saveItem(localKey, localUpdated);
 
-    if (activeCompanyCode === 'POLATLAR') {
-      const rows = notesToSave.map((n) => this.mapNoteToRow(n));
+      if (activeCompanyCode === 'POLATLAR') {
+        const rows = notesToSave.map((n) => this.mapNoteToRow(n));
+        const localSqlRows = notesToSave.map((n) => ({
+          ...this.mapNoteToRow(n),
+          photos: n.photos || [],
+          completion_photos: n.completionPhotos || [],
+          read_by: n.readBy || [],
+        }));
 
-      // 1. Yerel Sunucu (Dual-Write)
-      localApiPost('/api/tables/notes/upsert', { rows }).catch((err) =>
-        console.warn('[Dual-Write Yerel] saveMultipleNotes hata:', err)
-      );
+        // 1. Yerel Sunucu (Dual-Write)
+        localApiPost('/api/tables/notes/upsert', { rows: localSqlRows }).catch((err) =>
+          console.warn('[Dual-Write Yerel] saveMultipleNotes hata:', err)
+        );
 
-      // 2. Supabase Cloud
-      try {
-        let useBasic = !supabaseExtendedCols.notes;
-        if (!useBasic) {
-          const { error: batchErr } = await supabase.from('notes').upsert(rows);
-          if (batchErr) {
-            if (batchErr.code === 'PGRST204' || /column/i.test(batchErr.message || '')) {
-              supabaseExtendedCols.notes = false;
+        // 2. Supabase Cloud
+        try {
+          let useBasic = !supabaseExtendedCols.notes;
+          if (!useBasic) {
+            const { error: batchErr } = await supabase.from('notes').upsert(rows);
+            if (batchErr) {
+              if (batchErr.code === 'PGRST204' || /column/i.test(batchErr.message || '')) {
+                supabaseExtendedCols.notes = false;
+              }
+              useBasic = true;
             }
-            useBasic = true;
+          }
+          if (useBasic) {
+            const basicRows = notesToSave.map((n) => ({
+              id: n.id,
+              content: n.content,
+              created_at: n.createdAt,
+              created_by: n.createdBy || null,
+              created_by_name: n.createdByName || null,
+              target_mode: n.targetMode || 'self',
+              target_user_ids: n.targetUserIds || [],
+              target_user_names: n.targetUserNames || [],
+              target_user_id: n.targetUserId || null,
+              target_user_name: n.targetUserName || null,
+              reminder_active: Boolean(n.reminderActive),
+              reminder_date: n.reminderDate || null,
+              notified: Boolean(n.notified),
+              status: n.status || 'pending',
+              completed_at: n.completedAt || null,
+              completed_by: n.completedBy || null,
+              completed_by_name: n.completedByName || null,
+              completion_note: n.completionNote || null,
+              approved_at: n.approvedAt || null,
+              approved_by: n.approvedBy || null,
+              approved_by_name: n.approvedByName || null,
+              rejected_at: n.rejectedAt || null,
+              rejected_by: n.rejectedBy || null,
+              rejected_by_name: n.rejectedByName || null,
+              rejection_reason: n.rejectionReason || null,
+            }));
+            await supabase.from('notes').upsert(basicRows);
+          }
+        } catch (err) {
+          console.warn('saveMultipleNotes Supabase error:', err);
+        }
+      }
+
+      // 3. Canlı bulut Slot 4 dizisini çekip sadece güncellenen iş emirlerini hafif (fotoğrafsız) birleştir
+      const slotId = this.getSlotId(4);
+      await enqueueSlot4Write(async () => {
+        const deletedIds = await this.getDeletedNoteIds();
+        const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
+        const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
+        const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
+        const mergedList = cleanBase.map((prev) => {
+          const incoming = saveMap.get(prev.id);
+          if (!incoming) return prev;
+          return {
+            ...prev,
+            ...incoming,
+            cariName: incoming.cariName !== undefined ? incoming.cariName : prev.cariName,
+            usedMaterials:
+              incoming.usedMaterials !== undefined ? incoming.usedMaterials : prev.usedMaterials,
+            photos: incoming.photos && incoming.photos.length > 0 ? incoming.photos : prev.photos || [],
+            completionPhotos:
+              incoming.completionPhotos && incoming.completionPhotos.length > 0
+                ? incoming.completionPhotos
+                : prev.completionPhotos || [],
+            mediaSlotId: incoming.mediaSlotId ?? prev.mediaSlotId,
+            mediaUpdatedAt: incoming.mediaUpdatedAt ?? prev.mediaUpdatedAt,
+            readBy: Array.from(new Set([...(prev.readBy || []), ...(incoming.readBy || [])])),
+          };
+        });
+        for (const n of notesToSave) {
+          if (!cleanBase.some((e) => e.id === n.id)) {
+            mergedList.unshift(n);
           }
         }
-        if (useBasic) {
-          const basicRows = notesToSave.map((n) => ({
-            id: n.id,
-            content: n.content,
-            created_at: n.createdAt,
-            created_by: n.createdBy || null,
-            created_by_name: n.createdByName || null,
-            target_mode: n.targetMode || 'self',
-            target_user_ids: n.targetUserIds || [],
-            target_user_names: n.targetUserNames || [],
-            target_user_id: n.targetUserId || null,
-            target_user_name: n.targetUserName || null,
-            reminder_active: Boolean(n.reminderActive),
-            reminder_date: n.reminderDate || null,
-            notified: Boolean(n.notified),
-            status: n.status || 'pending',
-            completed_at: n.completedAt || null,
-            completed_by: n.completedBy || null,
-            completed_by_name: n.completedByName || null,
-            completion_note: n.completionNote || null,
-            approved_at: n.approvedAt || null,
-            approved_by: n.approvedBy || null,
-            approved_by_name: n.approvedByName || null,
-            rejected_at: n.rejectedAt || null,
-            rejected_by: n.rejectedBy || null,
-            rejected_by_name: n.rejectedByName || null,
-            rejection_reason: n.rejectionReason || null,
-          }));
-          await supabase.from('notes').upsert(basicRows);
-        }
-      } catch (err) {
-        console.warn('saveMultipleNotes Supabase error:', err);
-      }
-    }
-
-    // 3. Canlı bulut Slot 4 dizisini çekip sadece güncellenen iş emirlerini birleştir
-    const slotId = this.getSlotId(4);
-    await enqueueSlot4Write(async () => {
-      const deletedIds = await this.getDeletedNoteIds();
-      const { data: cloudSlot } = await loadChunkedSlot<GeneralNote[]>(slotId);
-      const baseList = Array.isArray(cloudSlot) && cloudSlot.length > 0 ? cloudSlot : localUpdated;
-      const cleanBase = baseList.filter((n) => !deletedIds.has(n.id));
-      const mergedList = cleanBase.map((prev) => {
-        const incoming = saveMap.get(prev.id);
-        if (!incoming) return prev;
-        return {
-          ...prev,
-          ...incoming,
-          cariName: incoming.cariName !== undefined ? incoming.cariName : prev.cariName,
-          usedMaterials: incoming.usedMaterials !== undefined ? incoming.usedMaterials : prev.usedMaterials,
-          photos: incoming.photos && incoming.photos.length > 0 ? incoming.photos : prev.photos || [],
-          completionPhotos:
-            incoming.completionPhotos && incoming.completionPhotos.length > 0
-              ? incoming.completionPhotos
-              : prev.completionPhotos || [],
-          readBy: Array.from(new Set([...(prev.readBy || []), ...(incoming.readBy || [])])),
-        };
+        const localMap = new Map(localUpdated.map((n) => [n.id, n]));
+        const { slot4List, localHydratedList } = await this.prepareSlot4AndLocalNotes(
+          mergedList,
+          localMap,
+          mediaCacheKey
+        );
+        await saveItem(localKey, localHydratedList);
+        await saveChunkedSlot(slotId, slot4List);
       });
-      for (const n of notesToSave) {
-        if (!cleanBase.some((e) => e.id === n.id)) {
-          mergedList.unshift(n);
-        }
-      }
-      await saveItem(localKey, mergedList);
-      await saveChunkedSlot(slotId, mergedList);
-    }).catch((err) => {
+    } catch (err) {
       console.warn('saveChunkedSlot 4 in saveMultipleNotes error:', err);
-    });
+    } finally {
+      notesToSave.forEach((n) => inFlightNoteSaves.delete(n.id));
+    }
   },
 
   /**

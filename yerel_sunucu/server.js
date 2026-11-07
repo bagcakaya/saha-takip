@@ -236,50 +236,127 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               VALUES (@id, @name, @address, @notes, @photos, @latitude, @longitude, @created_at, @created_by, @created_by_name, @tasks, @status, @completed_at, @completed_by, @completed_by_name, @completion_note, @completion_photos, @approved_at, @approved_by, @approved_by_name, @rejected_at, @rejected_by, @rejected_by_name, @rejection_reason, SYSUTCDATETIME());
           `);
       } else if (tableName === 'notes') {
-        await pool
-          .request()
-          .input('id', sql.NVarChar(100), String(row.id))
-          .input('content', sql.NVarChar(sql.MAX), row.content || '')
-          .input('created_at', sql.BigInt, row.created_at || Date.now())
-          .input('created_by', sql.NVarChar(100), row.created_by || null)
-          .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
-          .input('target_mode', sql.NVarChar(50), row.target_mode || 'self')
-          .input('target_user_ids', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_ids || []))
-          .input('target_user_names', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_names || []))
-          .input('target_user_id', sql.NVarChar(100), row.target_user_id || null)
-          .input('target_user_name', sql.NVarChar(255), row.target_user_name || null)
-          .input('reminder_active', sql.Bit, row.reminder_active ? 1 : 0)
-          .input('reminder_date', sql.NVarChar(50), row.reminder_date || null)
-          .input('notified', sql.Bit, row.notified ? 1 : 0)
-          .input('status', sql.NVarChar(50), row.status || 'pending')
-          .input('completed_at', sql.BigInt, row.completed_at || null)
-          .input('completed_by', sql.NVarChar(100), row.completed_by || null)
-          .input('completed_by_name', sql.NVarChar(255), row.completed_by_name || null)
-          .input('completion_note', sql.NVarChar(sql.MAX), row.completion_note || null)
-          .input('approved_at', sql.BigInt, row.approved_at || null)
-          .input('approved_by', sql.NVarChar(100), row.approved_by || null)
-          .input('approved_by_name', sql.NVarChar(255), row.approved_by_name || null)
-          .input('rejected_at', sql.BigInt, row.rejected_at || null)
-          .input('rejected_by', sql.NVarChar(100), row.rejected_by || null)
-          .input('rejected_by_name', sql.NVarChar(255), row.rejected_by_name || null)
-          .input('rejection_reason', sql.NVarChar(sql.MAX), row.rejection_reason || null)
-          .query(`
-            MERGE dbo.notes AS target
-            USING (SELECT @id AS id) AS source
-            ON (target.id = source.id)
-            WHEN MATCHED THEN
-              UPDATE SET content=@content, created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name,
-                         target_mode=@target_mode, target_user_ids=@target_user_ids, target_user_names=@target_user_names,
-                         target_user_id=@target_user_id, target_user_name=@target_user_name, reminder_active=@reminder_active,
-                         reminder_date=@reminder_date, notified=@notified, status=@status, completed_at=@completed_at,
-                         completed_by=@completed_by, completed_by_name=@completed_by_name, completion_note=@completion_note,
-                         approved_at=@approved_at, approved_by=@approved_by, approved_by_name=@approved_by_name,
-                         rejected_at=@rejected_at, rejected_by=@rejected_by, rejected_by_name=@rejected_by_name,
-                         rejection_reason=@rejection_reason, updated_at=SYSUTCDATETIME()
-            WHEN NOT MATCHED THEN
-              INSERT (id, content, created_at, created_by, created_by_name, target_mode, target_user_ids, target_user_names, target_user_id, target_user_name, reminder_active, reminder_date, notified, status, completed_at, completed_by, completed_by_name, completion_note, approved_at, approved_by, approved_by_name, rejected_at, rejected_by, rejected_by_name, rejection_reason, updated_at)
-              VALUES (@id, @content, @created_at, @created_by, @created_by_name, @target_mode, @target_user_ids, @target_user_names, @target_user_id, @target_user_name, @reminder_active, @reminder_date, @notified, @status, @completed_at, @completed_by, @completed_by_name, @completion_note, @approved_at, @approved_by, @approved_by_name, @rejected_at, @rejected_by, @rejected_by_name, @rejection_reason, SYSUTCDATETIME());
-          `);
+        try {
+          await pool
+            .request()
+            .input('id', sql.NVarChar(100), String(row.id))
+            .input('content', sql.NVarChar(sql.MAX), row.content || '')
+            .input('cari_name', sql.NVarChar(255), row.cari_name || null)
+            .input('created_at', sql.BigInt, row.created_at || Date.now())
+            .input('created_by', sql.NVarChar(100), row.created_by || null)
+            .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
+            .input('target_mode', sql.NVarChar(50), row.target_mode || 'self')
+            .input('target_user_ids', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_ids || []))
+            .input('target_user_names', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_names || []))
+            .input('target_user_id', sql.NVarChar(100), row.target_user_id || null)
+            .input('target_user_name', sql.NVarChar(255), row.target_user_name || null)
+            .input('reminder_active', sql.Bit, row.reminder_active ? 1 : 0)
+            .input('reminder_date', sql.NVarChar(50), row.reminder_date || null)
+            .input('notified', sql.Bit, row.notified ? 1 : 0)
+            .input('status', sql.NVarChar(50), row.status || 'pending')
+            .input('completed_at', sql.BigInt, row.completed_at || null)
+            .input('completed_by', sql.NVarChar(100), row.completed_by || null)
+            .input('completed_by_name', sql.NVarChar(255), row.completed_by_name || null)
+            .input('completion_note', sql.NVarChar(sql.MAX), row.completion_note || null)
+            .input('approved_at', sql.BigInt, row.approved_at || null)
+            .input('approved_by', sql.NVarChar(100), row.approved_by || null)
+            .input('approved_by_name', sql.NVarChar(255), row.approved_by_name || null)
+            .input('rejected_at', sql.BigInt, row.rejected_at || null)
+            .input('rejected_by', sql.NVarChar(100), row.rejected_by || null)
+            .input('rejected_by_name', sql.NVarChar(255), row.rejected_by_name || null)
+            .input('rejection_reason', sql.NVarChar(sql.MAX), row.rejection_reason || null)
+            .input('processed_at', sql.BigInt, row.processed_at || null)
+            .input('processed_by', sql.NVarChar(100), row.processed_by || null)
+            .input('processed_by_name', sql.NVarChar(255), row.processed_by_name || null)
+            .input('used_materials', sql.NVarChar(sql.MAX), row.used_materials || null)
+            .input('photos', sql.NVarChar(sql.MAX), JSON.stringify(row.photos || []))
+            .input('completion_photos', sql.NVarChar(sql.MAX), JSON.stringify(row.completion_photos || []))
+            .input('read_by', sql.NVarChar(sql.MAX), JSON.stringify(row.read_by || []))
+            .query(`
+              IF COL_LENGTH('dbo.notes', 'cari_name') IS NULL
+                ALTER TABLE dbo.notes ADD cari_name NVARCHAR(255) NULL;
+              IF COL_LENGTH('dbo.notes', 'used_materials') IS NULL
+                ALTER TABLE dbo.notes ADD used_materials NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.notes', 'photos') IS NULL
+                ALTER TABLE dbo.notes ADD photos NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.notes', 'completion_photos') IS NULL
+                ALTER TABLE dbo.notes ADD completion_photos NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.notes', 'read_by') IS NULL
+                ALTER TABLE dbo.notes ADD read_by NVARCHAR(MAX) NULL;
+              IF COL_LENGTH('dbo.notes', 'processed_at') IS NULL
+                ALTER TABLE dbo.notes ADD processed_at BIGINT NULL;
+              IF COL_LENGTH('dbo.notes', 'processed_by') IS NULL
+                ALTER TABLE dbo.notes ADD processed_by NVARCHAR(100) NULL;
+              IF COL_LENGTH('dbo.notes', 'processed_by_name') IS NULL
+                ALTER TABLE dbo.notes ADD processed_by_name NVARCHAR(255) NULL;
+
+              MERGE dbo.notes AS target
+              USING (SELECT @id AS id) AS source
+              ON (target.id = source.id)
+              WHEN MATCHED THEN
+                UPDATE SET content=@content, cari_name=COALESCE(@cari_name, target.cari_name), created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name,
+                           target_mode=@target_mode, target_user_ids=@target_user_ids, target_user_names=@target_user_names,
+                           target_user_id=@target_user_id, target_user_name=@target_user_name, reminder_active=@reminder_active,
+                           reminder_date=@reminder_date, notified=@notified, status=@status, completed_at=@completed_at,
+                           completed_by=@completed_by, completed_by_name=@completed_by_name, completion_note=@completion_note,
+                           approved_at=@approved_at, approved_by=@approved_by, approved_by_name=@approved_by_name,
+                           rejected_at=@rejected_at, rejected_by=@rejected_by, rejected_by_name=@rejected_by_name,
+                           rejection_reason=@rejection_reason, processed_at=@processed_at, processed_by=@processed_by,
+                           processed_by_name=@processed_by_name, used_materials=COALESCE(@used_materials, target.used_materials),
+                           photos=CASE WHEN @photos = '[]' AND target.photos IS NOT NULL THEN target.photos ELSE @photos END,
+                           completion_photos=CASE WHEN @completion_photos = '[]' AND target.completion_photos IS NOT NULL THEN target.completion_photos ELSE @completion_photos END,
+                           read_by=CASE WHEN @read_by = '[]' AND target.read_by IS NOT NULL THEN target.read_by ELSE @read_by END,
+                           updated_at=SYSUTCDATETIME()
+              WHEN NOT MATCHED THEN
+                INSERT (id, content, cari_name, created_at, created_by, created_by_name, target_mode, target_user_ids, target_user_names, target_user_id, target_user_name, reminder_active, reminder_date, notified, status, completed_at, completed_by, completed_by_name, completion_note, approved_at, approved_by, approved_by_name, rejected_at, rejected_by, rejected_by_name, rejection_reason, processed_at, processed_by, processed_by_name, used_materials, photos, completion_photos, read_by, updated_at)
+                VALUES (@id, @content, @cari_name, @created_at, @created_by, @created_by_name, @target_mode, @target_user_ids, @target_user_names, @target_user_id, @target_user_name, @reminder_active, @reminder_date, @notified, @status, @completed_at, @completed_by, @completed_by_name, @completion_note, @approved_at, @approved_by, @approved_by_name, @rejected_at, @rejected_by, @rejected_by_name, @rejection_reason, @processed_at, @processed_by, @processed_by_name, @used_materials, @photos, @completion_photos, @read_by, SYSUTCDATETIME());
+            `);
+        } catch {
+          await pool
+            .request()
+            .input('id', sql.NVarChar(100), String(row.id))
+            .input('content', sql.NVarChar(sql.MAX), row.content || '')
+            .input('created_at', sql.BigInt, row.created_at || Date.now())
+            .input('created_by', sql.NVarChar(100), row.created_by || null)
+            .input('created_by_name', sql.NVarChar(255), row.created_by_name || null)
+            .input('target_mode', sql.NVarChar(50), row.target_mode || 'self')
+            .input('target_user_ids', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_ids || []))
+            .input('target_user_names', sql.NVarChar(sql.MAX), JSON.stringify(row.target_user_names || []))
+            .input('target_user_id', sql.NVarChar(100), row.target_user_id || null)
+            .input('target_user_name', sql.NVarChar(255), row.target_user_name || null)
+            .input('reminder_active', sql.Bit, row.reminder_active ? 1 : 0)
+            .input('reminder_date', sql.NVarChar(50), row.reminder_date || null)
+            .input('notified', sql.Bit, row.notified ? 1 : 0)
+            .input('status', sql.NVarChar(50), row.status || 'pending')
+            .input('completed_at', sql.BigInt, row.completed_at || null)
+            .input('completed_by', sql.NVarChar(100), row.completed_by || null)
+            .input('completed_by_name', sql.NVarChar(255), row.completed_by_name || null)
+            .input('completion_note', sql.NVarChar(sql.MAX), row.completion_note || null)
+            .input('approved_at', sql.BigInt, row.approved_at || null)
+            .input('approved_by', sql.NVarChar(100), row.approved_by || null)
+            .input('approved_by_name', sql.NVarChar(255), row.approved_by_name || null)
+            .input('rejected_at', sql.BigInt, row.rejected_at || null)
+            .input('rejected_by', sql.NVarChar(100), row.rejected_by || null)
+            .input('rejected_by_name', sql.NVarChar(255), row.rejected_by_name || null)
+            .input('rejection_reason', sql.NVarChar(sql.MAX), row.rejection_reason || null)
+            .query(`
+              MERGE dbo.notes AS target
+              USING (SELECT @id AS id) AS source
+              ON (target.id = source.id)
+              WHEN MATCHED THEN
+                UPDATE SET content=@content, created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name,
+                           target_mode=@target_mode, target_user_ids=@target_user_ids, target_user_names=@target_user_names,
+                           target_user_id=@target_user_id, target_user_name=@target_user_name, reminder_active=@reminder_active,
+                           reminder_date=@reminder_date, notified=@notified, status=@status, completed_at=@completed_at,
+                           completed_by=@completed_by, completed_by_name=@completed_by_name, completion_note=@completion_note,
+                           approved_at=@approved_at, approved_by=@approved_by, approved_by_name=@approved_by_name,
+                           rejected_at=@rejected_at, rejected_by=@rejected_by, rejected_by_name=@rejected_by_name,
+                           rejection_reason=@rejection_reason, updated_at=SYSUTCDATETIME()
+              WHEN NOT MATCHED THEN
+                INSERT (id, content, created_at, created_by, created_by_name, target_mode, target_user_ids, target_user_names, target_user_id, target_user_name, reminder_active, reminder_date, notified, status, completed_at, completed_by, completed_by_name, completion_note, approved_at, approved_by, approved_by_name, rejected_at, rejected_by, rejected_by_name, rejection_reason, updated_at)
+                VALUES (@id, @content, @created_at, @created_by, @created_by_name, @target_mode, @target_user_ids, @target_user_names, @target_user_id, @target_user_name, @reminder_active, @reminder_date, @notified, @status, @completed_at, @completed_by, @completed_by_name, @completion_note, @approved_at, @approved_by, @approved_by_name, @rejected_at, @rejected_by, @rejected_by_name, @rejection_reason, SYSUTCDATETIME());
+            `);
+        }
       } else if (tableName === 'services') {
         try {
           await pool

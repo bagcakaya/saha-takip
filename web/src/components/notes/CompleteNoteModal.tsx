@@ -39,7 +39,7 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
     try {
       const newPhotos: string[] = [];
       for (let i = 0; i < files.length; i++) {
-        const compressed = await compressImage(files[i]);
+        const compressed = await compressImage(files[i], 1024, 0.74);
         newPhotos.push(compressed);
       }
       setCompletionPhotos((prev) => [...prev, ...newPhotos]);
@@ -57,6 +57,7 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || isProcessingPhoto) return;
     setIsSubmitting(true);
     onClose();
     try {
@@ -209,11 +210,11 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isProcessingPhoto}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-md transition-all disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              <span>{isSubmitting ? 'Gönderiliyor...' : 'Tamamla ve Onaya Gönder'}</span>
+              <span>{isProcessingPhoto ? 'Fotoğraf İşleniyor...' : isSubmitting ? 'Gönderiliyor...' : 'Tamamla ve Onaya Gönder'}</span>
             </button>
           </div>
         </form>

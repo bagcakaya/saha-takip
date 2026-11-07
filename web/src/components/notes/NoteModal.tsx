@@ -113,7 +113,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     try {
       const newPhotos: string[] = [];
       for (let i = 0; i < files.length; i++) {
-        const compressed = await compressImage(files[i]);
+        const compressed = await compressImage(files[i], 1024, 0.74);
         newPhotos.push(compressed);
       }
       setPhotos((prev) => [...prev, ...newPhotos]);
@@ -166,7 +166,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim()) return;
+    if (!content.trim() || isSubmitting || isProcessingPhoto) return;
 
     if (isAdmin && targetMode === 'custom' && selectedUserIds.length === 0) {
       alert('Lütfen iş emrinin iletileceği en az 1 kullanıcı seçin veya "Sadece Kendim" modunu belirleyin.');
@@ -561,10 +561,10 @@ export const NoteModal: React.FC<NoteModalProps> = ({
           </button>
           <button
             type="submit"
-            disabled={!content.trim() || isSubmitting}
+            disabled={!content.trim() || isSubmitting || isProcessingPhoto}
             className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-md disabled:opacity-50 transition-all"
           >
-            {isSubmitting ? 'Kaydediliyor...' : editingNote ? 'Güncelle' : 'Kaydet'}
+            {isProcessingPhoto ? 'Fotoğraf İşleniyor...' : isSubmitting ? 'Kaydediliyor...' : editingNote ? 'Güncelle' : 'Kaydet'}
           </button>
         </div>
       </form>

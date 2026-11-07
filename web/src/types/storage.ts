@@ -74,6 +74,8 @@ export interface GeneralNote {
   processedByName?: string; // Sisteme işleyen yönetici adı
   readBy?: string[]; // Array of user IDs who acknowledged/read this work order
   usedMaterials?: string; // Personelin iş emrinde kullandığı malzemeler
+  mediaSlotId?: number; // Fotoğrafların tutulduğu parçalı (sharded) bulut slot ID'si
+  mediaUpdatedAt?: number; // Fotoğraf parçasının son güncellenme zamanı
 }
 
 export type AdminReminderCategory = 'general' | 'procedure' | 'rule' | 'urgent';

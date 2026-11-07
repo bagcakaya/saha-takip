@@ -366,15 +366,46 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allNotes, setAllNotes] = useState<GeneralNote[]>([]);
   const allNotesRef = useRef<GeneralNote[]>([]);
   allNotesRef.current = allNotes;
+  const recentLocalNoteEditsRef = useRef<Map<string, number>>(new Map());
 
   const mergeNotesPreservingReads = (fresh: GeneralNote[], current: GeneralNote[]): GeneralNote[] => {
     const currentMap = new Map(current.map((n) => [n.id, n]));
-    return fresh.map((n) => {
+    const freshIds = new Set(fresh.map((n) => n.id));
+    const now = Date.now();
+    const merged = fresh.map((n) => {
       const prev = currentMap.get(n.id);
-      if (!prev?.readBy || prev.readBy.length === 0) return n;
-      const merged = Array.from(new Set([...prev.readBy, ...(n.readBy || [])]));
-      return { ...n, readBy: merged };
+      if (!prev) return n;
+      const localEditTs = recentLocalNoteEditsRef.current.get(n.id) || 0;
+      const isRecentLocalEdit = now - localEditTs < 45000;
+      const mergedReadBy = Array.from(new Set([...(prev.readBy || []), ...(n.readBy || [])]));
+      const keepPhotos =
+        n.photos && n.photos.length > 0
+          ? n.photos
+          : n.mediaSlotId || isRecentLocalEdit
+            ? prev.photos || []
+            : [];
+      const keepCompPhotos =
+        n.completionPhotos && n.completionPhotos.length > 0
+          ? n.completionPhotos
+          : n.mediaSlotId || isRecentLocalEdit
+            ? prev.completionPhotos || []
+            : [];
+      return {
+        ...n,
+        cariName: n.cariName || (isRecentLocalEdit ? prev.cariName : undefined),
+        usedMaterials:
+          n.usedMaterials || (isRecentLocalEdit ? prev.usedMaterials : undefined),
+        photos: keepPhotos,
+        completionPhotos: keepCompPhotos,
+        mediaSlotId: n.mediaSlotId || (isRecentLocalEdit ? prev.mediaSlotId : undefined),
+        mediaUpdatedAt: n.mediaUpdatedAt || (isRecentLocalEdit ? prev.mediaUpdatedAt : undefined),
+        readBy: mergedReadBy,
+      };
     });
+    const inFlightNew = current.filter(
+      (c) => !freshIds.has(c.id) && now - (c.createdAt || 0) < 30000
+    );
+    return inFlightNew.length > 0 ? [...inFlightNew, ...merged] : merged;
   };
   const [returnWarrantyItems, setReturnWarrantyItems] = useState<ReturnWarrantyItem[]>([]);
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
@@ -775,7 +806,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         setAllLocations(migratedLocs || []);
         setStandardTasks(tasks || []);
-        setAllNotes(nts || []);
+        setAllNotes((prev) => mergeNotesPreservingReads(nts || [], prev));
         setReturnWarrantyItems(returns || []);
         setAllServices((prev) => mergeServicesPreservingMedia(srvs || [], prev));
         if (wpLoc) {
@@ -1013,16 +1044,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {}
     };
 
+    const refreshCloudNotes = async () => {
+      try {
+        if (!isMounted) return;
+        const latestNotes = await StorageService.getNotes();
+        if (isMounted && latestNotes) {
+          setAllNotes((prev) => mergeNotesPreservingReads(latestNotes, prev));
+        }
+      } catch {}
+    };
+
     const handleOnline = () => {
-      console.log('[Çevrimdışı Eşitleme] İnternet bağlantısı sağlandı, mesai kayıtları eşitleniyor...');
+      console.log('[Çevrimdışı Eşitleme] İnternet bağlantısı sağlandı, mesai ve iş emri kayıtları eşitleniyor...');
       triggerOfflineSync();
       refreshCloudAttendance();
+      refreshCloudNotes();
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         triggerOfflineSync();
         refreshCloudAttendance();
+        refreshCloudNotes();
       }
     };
 
@@ -2485,6 +2528,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // 1. Instant optimistic state update
+    recentLocalNoteEditsRef.current.set(newNote.id, Date.now());
     const newNotes = [newNote, ...allNotesRef.current];
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
@@ -2552,11 +2596,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     cariName?: string
   ) => {
     if (!content.trim()) return;
+    let clearedMediaSlotId: number | undefined;
+    recentLocalNoteEditsRef.current.set(id, Date.now());
     const newNotes = allNotesRef.current.map((n) => {
       if (n.id === id) {
         const nextMode = targetMode !== undefined ? targetMode : n.targetMode || 'self';
         const nextIds = targetUserIds !== undefined ? targetUserIds : n.targetUserIds || [];
         const nextNames = targetUserNames !== undefined ? targetUserNames : n.targetUserNames || [];
+        const nextPhotos = photos !== undefined ? photos : n.photos || [];
+        const existingCompPhotos = n.completionPhotos || [];
+        const allMediaCleared = nextPhotos.length === 0 && existingCompPhotos.length === 0;
+        if (allMediaCleared && n.mediaSlotId) {
+          clearedMediaSlotId = n.mediaSlotId;
+        }
 
         const updated: GeneralNote = {
           ...n,
@@ -2569,7 +2621,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetUserNames: nextNames,
           targetUserId: nextMode === 'all' ? 'all' : nextMode === 'self' ? 'self' : nextIds[0] || 'self',
           targetUserName: nextMode === 'all' ? 'Tüm Personeller' : nextMode === 'self' ? 'Sadece Kendim' : nextNames.join(', ') || 'Özel',
-          photos: photos !== undefined ? photos : n.photos || [],
+          photos: nextPhotos,
+          ...(allMediaCleared ? { mediaSlotId: undefined, mediaUpdatedAt: undefined } : {}),
           notified: false,
         };
         return updated;
@@ -2579,6 +2632,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
+
+    if (clearedMediaSlotId) {
+      StorageService.clearNoteMediaShard(id, clearedMediaSlotId).catch(() => {});
+    }
 
     const noteToSave = newNotes.find((n) => n.id === id);
     if (noteToSave) {
@@ -2655,6 +2712,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const staffName = user?.name || user?.username || 'Saha Personeli';
     const trimmedNote = completionNote?.trim() || undefined;
     const isAdminCompleting = isUserAdmin(user);
+    const nextCompletionPhotos =
+      completionPhotos !== undefined ? completionPhotos : targetNote.completionPhotos || [];
+    const allMediaCleared =
+      nextCompletionPhotos.length === 0 && (targetNote.photos?.length || 0) === 0;
+    const prevMediaSlotId = targetNote.mediaSlotId;
+    recentLocalNoteEditsRef.current.set(id, Date.now());
 
     const updatedNote: GeneralNote = {
       ...targetNote,
@@ -2663,7 +2726,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       completedBy: user?.id,
       completedByName: staffName,
       completionNote: trimmedNote,
-      completionPhotos: completionPhotos !== undefined ? completionPhotos : targetNote.completionPhotos || [],
+      completionPhotos: nextCompletionPhotos,
+      ...(allMediaCleared ? { mediaSlotId: undefined, mediaUpdatedAt: undefined } : {}),
       ...(isAdminCompleting
         ? {
             approvedAt: completedAt,
@@ -2681,6 +2745,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newNotes = currentNotes.map((n) => (n.id === id ? updatedNote : n));
     allNotesRef.current = newNotes;
     setAllNotes(newNotes);
+
+    if (allMediaCleared && prevMediaSlotId) {
+      StorageService.clearNoteMediaShard(id, prevMediaSlotId).catch(() => {});
+    }
 
     // Mark as seen on staff device immediately
     if (user?.id) {
@@ -3155,6 +3223,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const currentRead = targetNote.readBy || [];
     if (currentRead.includes(user.id)) return;
 
+    recentLocalNoteEditsRef.current.set(id, Date.now());
     const updatedNote: GeneralNote = {
       ...targetNote,
       readBy: [...currentRead, user.id],
@@ -3177,6 +3246,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const trimmed = usedMaterials.trim();
     const nextMaterials = trimmed.length > 0 ? trimmed : undefined;
+    recentLocalNoteEditsRef.current.set(id, Date.now());
     const updatedNote: GeneralNote = {
       ...targetNote,
       usedMaterials: nextMaterials,
