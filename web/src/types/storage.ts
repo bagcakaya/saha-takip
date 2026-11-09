@@ -639,6 +639,7 @@ export interface FixedExpenseRecord {
   dueDate?: string; // Son Ödeme Tarihi YYYY-MM-DD (Opsiyonel)
   description?: string; // Açıklama (Opsiyonel)
   status: DebtReceivableStatus; // 'pending' | 'paid'
+  paidMonths?: string[]; // Aylık ödeme takibi: ['2026-11', '2026-12'] gibi ödenen ayların listesi
   paidAt?: number;
   paidBy?: string;
   paidByName?: string;

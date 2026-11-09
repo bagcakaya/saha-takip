@@ -317,7 +317,7 @@ interface StorageContextType {
   ) => Promise<void>;
   updateFixedExpense: (item: FixedExpenseRecord) => Promise<void>;
   deleteFixedExpense: (id: string) => Promise<void>;
-  toggleFixedExpenseStatus: (id: string) => Promise<void>;
+  toggleFixedExpenseStatus: (id: string, monthKey?: string) => Promise<void>;
   refreshAccountingData: () => Promise<void>;
 }
 
@@ -4658,17 +4658,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveAccountingData(updatedPayload);
   };
 
-  const toggleFixedExpenseStatus = async (id: string): Promise<void> => {
+  const toggleFixedExpenseStatus = async (id: string, monthKey?: string): Promise<void> => {
     const now = Date.now();
+    const targetMonth = monthKey || new Date().toISOString().slice(0, 7);
     const updatedList = (accountingData.fixedExpenses || []).map((r) => {
       if (r.id !== id) return r;
-      const nextStatus: 'pending' | 'paid' = r.status === 'paid' ? 'pending' : 'paid';
+      const existingMonths = Array.isArray(r.paidMonths)
+        ? [...r.paidMonths]
+        : r.status === 'paid'
+        ? [targetMonth]
+        : [];
+      const isAlreadyPaidInMonth = existingMonths.includes(targetMonth);
+      const nextPaidMonths = isAlreadyPaidInMonth
+        ? existingMonths.filter((m) => m !== targetMonth)
+        : [...existingMonths, targetMonth];
+      const currentMonthStr = new Date().toISOString().slice(0, 7);
+      const nextStatus: 'pending' | 'paid' = nextPaidMonths.includes(currentMonthStr) ? 'paid' : 'pending';
       return {
         ...r,
         status: nextStatus,
-        paidAt: nextStatus === 'paid' ? now : undefined,
-        paidBy: nextStatus === 'paid' ? user?.id : undefined,
-        paidByName: nextStatus === 'paid' ? user?.name : undefined,
+        paidMonths: nextPaidMonths,
+        paidAt: !isAlreadyPaidInMonth ? now : r.paidAt,
+        paidBy: !isAlreadyPaidInMonth ? user?.id : r.paidBy,
+        paidByName: !isAlreadyPaidInMonth ? user?.name : r.paidByName,
         updatedAt: now,
       };
     });

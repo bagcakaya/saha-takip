@@ -14,11 +14,28 @@ import {
   Download,
   RotateCcw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useStorage } from '../../context/StorageContext';
 import { useAuth } from '../../context/AuthContext';
 import { FixedExpenseRecord } from '../../types/storage';
 import * as XLSX from 'xlsx';
+
+const MONTH_NAMES_TR = [
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
+];
 
 export const FixedExpensesSection: React.FC = () => {
   const { user, company } = useAuth();
@@ -31,6 +48,10 @@ export const FixedExpensesSection: React.FC = () => {
     addAccountingCategory,
   } = useStorage();
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const currentMonthKey = todayStr.slice(0, 7); // Örn: '2026-11'
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -38,6 +59,40 @@ export const FixedExpensesSection: React.FC = () => {
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const shiftMonth = (delta: number) => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    const nextY = d.getFullYear();
+    const nextM = String(d.getMonth() + 1).padStart(2, '0');
+    setSelectedMonth(`${nextY}-${nextM}`);
+  };
+
+  const selectedMonthLabel = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return `${MONTH_NAMES_TR[(m || 1) - 1]} ${y}`;
+  }, [selectedMonth]);
+
+  // Helper: Check if a fixed expense is paid in the selected month
+  const isPaidInMonth = (item: FixedExpenseRecord, monthKey: string): boolean => {
+    if (Array.isArray(item.paidMonths)) {
+      return item.paidMonths.includes(monthKey);
+    }
+    return monthKey === currentMonthKey && item.status === 'paid';
+  };
+
+  // Helper: Project the item's due date day into the selected month (e.g. 2026-11-15 -> 2026-12-15)
+  const getMonthlyDueDate = (dueDate: string | undefined, monthKey: string): string | undefined => {
+    if (!dueDate) return undefined;
+    const parts = dueDate.split('-');
+    if (parts.length !== 3) return dueDate;
+    const day = parseInt(parts[2], 10);
+    if (isNaN(day)) return dueDate;
+    const [y, m] = monthKey.split('-').map(Number);
+    const maxDayInMonth = new Date(y, m, 0).getDate();
+    const clampedDay = String(Math.min(day, maxDayInMonth)).padStart(2, '0');
+    return `${monthKey}-${clampedDay}`;
   };
 
   // Add / Edit Fixed Expense Modal State
@@ -65,7 +120,6 @@ export const FixedExpensesSection: React.FC = () => {
   );
 
   const allRecords = accountingData.fixedExpenses || [];
-  const todayStr = new Date().toISOString().split('T')[0];
 
   const stats = useMemo(() => {
     let totalAmount = 0;
@@ -76,8 +130,9 @@ export const FixedExpensesSection: React.FC = () => {
 
     allRecords.forEach((r) => {
       const amt = Number(r.amount) || 0;
+      const paid = isPaidInMonth(r, selectedMonth);
       totalAmount += amt;
-      if (r.status === 'paid') {
+      if (paid) {
         paidAmount += amt;
         paidCount++;
       } else {
@@ -94,12 +149,14 @@ export const FixedExpensesSection: React.FC = () => {
       pendingCount,
       totalCount: allRecords.length,
     };
-  }, [allRecords]);
+  }, [allRecords, selectedMonth]);
 
   const filteredRecords = useMemo(() => {
     return allRecords
       .filter((r) => {
-        if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+        const paid = isPaidInMonth(r, selectedMonth);
+        if (statusFilter === 'paid' && !paid) return false;
+        if (statusFilter === 'pending' && paid) return false;
         if (categoryFilter !== 'all' && r.categoryId !== categoryFilter) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
@@ -112,17 +169,21 @@ export const FixedExpensesSection: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
-        if (a.status !== b.status) {
-          return a.status === 'pending' ? -1 : 1;
+        const aPaid = isPaidInMonth(a, selectedMonth);
+        const bPaid = isPaidInMonth(b, selectedMonth);
+        if (aPaid !== bPaid) {
+          return aPaid ? 1 : -1;
         }
-        if (a.dueDate && b.dueDate) {
-          return a.dueDate.localeCompare(b.dueDate);
+        const aDue = getMonthlyDueDate(a.dueDate, selectedMonth);
+        const bDue = getMonthlyDueDate(b.dueDate, selectedMonth);
+        if (aDue && bDue) {
+          return aDue.localeCompare(bDue);
         }
-        if (a.dueDate) return -1;
-        if (b.dueDate) return 1;
+        if (aDue) return -1;
+        if (bDue) return 1;
         return b.createdAt - a.createdAt;
       });
-  }, [allRecords, statusFilter, categoryFilter, searchQuery]);
+  }, [allRecords, statusFilter, categoryFilter, searchQuery, selectedMonth]);
 
   const filteredTotals = useMemo(() => {
     let total = 0;
@@ -131,11 +192,11 @@ export const FixedExpensesSection: React.FC = () => {
     filteredRecords.forEach((r) => {
       const amt = Number(r.amount) || 0;
       total += amt;
-      if (r.status === 'paid') paid += amt;
+      if (isPaidInMonth(r, selectedMonth)) paid += amt;
       else pending += amt;
     });
     return { total, pending, paid };
-  }, [filteredRecords]);
+  }, [filteredRecords, selectedMonth]);
 
   // Numeric sanitizer for Tutar input
   const sanitizeNumericAmount = (val: string) => {
@@ -169,7 +230,8 @@ export const FixedExpensesSection: React.FC = () => {
 
   const handleSaveFixedExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cat = expenseCategories.find((c) => c.id === selectedCategoryId) ||
+    const cat =
+      expenseCategories.find((c) => c.id === selectedCategoryId) ||
       categories.find((c) => c.id === selectedCategoryId);
     if (!cat) {
       alert('Lütfen Masraf / Gider Kalemi seçiniz.');
@@ -203,6 +265,7 @@ export const FixedExpensesSection: React.FC = () => {
         dueDate: dueDateInput || undefined,
         description: descriptionInput.trim() || undefined,
         status: 'pending',
+        paidMonths: [],
       });
     }
 
@@ -231,7 +294,7 @@ export const FixedExpensesSection: React.FC = () => {
   const handleDelete = async (item: FixedExpenseRecord) => {
     if (
       confirm(
-        `"[${item.categoryCode}] ${item.categoryName}" (${item.amount.toLocaleString('tr-TR')} ₺) sabit masraf kaydını silmek istediğinize emin misiniz?`
+        `"[${item.categoryCode}] ${item.categoryName}" (${item.amount.toLocaleString('tr-TR')} ₺) aylık sabit masraf kalemini tamamen silmek istediğinize emin misiniz?`
       )
     ) {
       await deleteFixedExpense(item.id);
@@ -244,35 +307,42 @@ export const FixedExpensesSection: React.FC = () => {
       return;
     }
 
-    const rows = filteredRecords.map((r) => ({
-      'ERP Kodu': r.categoryCode || '-',
-      'Masraf / Gider Kalemi': r.categoryName || '-',
-      'Sabit Masraf Tutarı (₺)': r.amount,
-      'Vade': r.maturity || '-',
-      'Son Ödeme Tarihi': r.dueDate || '-',
-      'Durum': r.status === 'paid' ? 'Ödendi' : 'Bekliyor',
-      'Açıklama': r.description || '-',
-      'Ekleyen': r.createdByName || '-',
-    }));
+    const rows = filteredRecords.map((r) => {
+      const paid = isPaidInMonth(r, selectedMonth);
+      const monthlyDue = getMonthlyDueDate(r.dueDate, selectedMonth);
+      return {
+        Dönem: selectedMonthLabel,
+        'ERP Kodu': r.categoryCode || '-',
+        'Masraf / Gider Kalemi': r.categoryName || '-',
+        'Aylık Sabit Masraf Tutarı (₺)': r.amount,
+        Vade: r.maturity || '-',
+        'Bu Ayki Son Ödeme Tarihi': monthlyDue || '-',
+        'Bu Ayki Durum': paid ? 'Ödendi' : 'Bekliyor',
+        Açıklama: r.description || '-',
+        Ekleyen: r.createdByName || '-',
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sabit Masraflar');
-    XLSX.writeFile(wb, `Muhasebe_Sabit_Masraflar_${todayStr}.xlsx`);
+    XLSX.writeFile(wb, `Muhasebe_Sabit_Masraflar_${selectedMonth}.xlsx`);
   };
 
   const getDueDateBadge = (item: FixedExpenseRecord) => {
-    if (item.status === 'paid') {
+    const paid = isPaidInMonth(item, selectedMonth);
+    if (paid) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
           <CheckCircle2 className="w-3 h-3" />
-          Ödendi
+          {selectedMonthLabel} Ödendi
         </span>
       );
     }
-    if (!item.dueDate) return null;
+    const monthlyDue = getMonthlyDueDate(item.dueDate, selectedMonth);
+    if (!monthlyDue) return null;
 
-    const due = new Date(item.dueDate + 'T00:00:00');
+    const due = new Date(monthlyDue + 'T00:00:00');
     const now = new Date(todayStr + 'T00:00:00');
     const diffDays = Math.round((due.getTime() - now.getTime()) / (1000 * 3600 * 24));
 
@@ -310,8 +380,8 @@ export const FixedExpensesSection: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* 1. Üst Başlık ve + Sabit Masraf Ekle Butonu */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+      {/* 1. Üst Başlık, Aylık Dönem Seçici ve + Sabit Masraf Ekle Butonu */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-purple-500/20 shrink-0">
             <CalendarClock className="w-6 h-6" />
@@ -324,14 +394,49 @@ export const FixedExpensesSection: React.FC = () => {
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
                 {activeCompanyName}
               </span>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
+                Her Ay Otomatik Yenilenir
+              </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Her ay düzenli ödemesi olan sabit masraf ve gider kalemlerinin takibi
+              Eklediğiniz sabit masraflar her ay otomatik olarak görünür ve her ayın ödemesi ayrı takip edilir
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+          {/* Aylık Dönem Seçici */}
+          <div className="inline-flex items-center gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() => shiftMonth(-1)}
+              className="p-1.5 rounded-xl hover:bg-white dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Önceki Ay"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="px-2.5 py-1 text-xs sm:text-sm font-black text-slate-900 dark:text-white min-w-[115px] text-center">
+              {selectedMonthLabel}
+            </div>
+            <button
+              type="button"
+              onClick={() => shiftMonth(1)}
+              className="p-1.5 rounded-xl hover:bg-white dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Sonraki Ay"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            {selectedMonth !== currentMonthKey && (
+              <button
+                type="button"
+                onClick={() => setSelectedMonth(currentMonthKey)}
+                className="px-2 py-1 rounded-xl bg-purple-600 text-white text-[10px] font-black cursor-pointer mr-0.5"
+              >
+                Bu Ay
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={openNewModal}
@@ -343,13 +448,13 @@ export const FixedExpensesSection: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Özet KPI Kartları */}
+      {/* 2. Özet KPI Kartları (Seçili Ay İçin) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {/* Aylık Toplam Sabit Masraf */}
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-transparent border border-purple-500/30 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black uppercase text-purple-800 dark:text-purple-400 tracking-wide">
-              Toplam Sabit Masraf
+              {selectedMonthLabel} Sabit Masraf
             </span>
             <div className="w-7 h-7 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center">
               <CalendarClock className="w-4 h-4" />
@@ -359,15 +464,15 @@ export const FixedExpensesSection: React.FC = () => {
             {stats.totalAmount.toLocaleString('tr-TR')} ₺
           </p>
           <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-            Toplam {stats.totalCount} sabit masraf kalemi
+            Her ay sabit {stats.totalCount} masraf kalemi
           </span>
         </div>
 
-        {/* Kalan Ödenecek */}
+        {/* Bu Ay Kalan Ödenecek */}
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-rose-500/10 via-rose-500/5 to-transparent border border-rose-500/30 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black uppercase text-rose-800 dark:text-rose-400 tracking-wide">
-              Kalan Ödenecek
+              {selectedMonthLabel} Kalan
             </span>
             <div className="w-7 h-7 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <Clock className="w-4 h-4" />
@@ -385,7 +490,7 @@ export const FixedExpensesSection: React.FC = () => {
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/30 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black uppercase text-emerald-800 dark:text-emerald-400 tracking-wide">
-              Ödenen Sabit Masraf
+              {selectedMonthLabel} Ödenen
             </span>
             <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
               <CheckCircle2 className="w-4 h-4" />
@@ -499,7 +604,7 @@ export const FixedExpensesSection: React.FC = () => {
             Kayıtlı Sabit Masraf Bulunamadı
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-            Her ay düzenli ödediğiniz kira, fatura, yazılım, aidat gibi sabit masraflarınızı Masraf/Gider kalemi seçerek ekleyebilirsiniz.
+            Eklediğiniz sabit masraflar her ay otomatik olarak bu listede yer alır. Kira, fatura, yazılım, aidat gibi aylık sabit ödemelerinizi hemen ekleyebilirsiniz.
           </p>
           <button
             type="button"
@@ -520,10 +625,10 @@ export const FixedExpensesSection: React.FC = () => {
               </div>
               <div>
                 <span className="text-[11px] font-black uppercase tracking-wider text-purple-700 dark:text-purple-300">
-                  Sabit Masraflar Toplam Özeti ({filteredRecords.length} Kayıt)
+                  {selectedMonthLabel} Sabit Masraflar Toplam Özeti ({filteredRecords.length} Kalem)
                 </span>
                 <p className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-                  Genel Toplam: {filteredTotals.total.toLocaleString('tr-TR')} ₺
+                  Aylık Genel Toplam: {filteredTotals.total.toLocaleString('tr-TR')} ₺
                 </p>
               </div>
             </div>
@@ -552,8 +657,9 @@ export const FixedExpensesSection: React.FC = () => {
           {/* Çekmece (Collapsible) Kartlar */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredRecords.map((item) => {
-              const isPaid = item.status === 'paid';
+              const isPaid = isPaidInMonth(item, selectedMonth);
               const isExpanded = !!expandedIds[item.id];
+              const monthlyDue = getMonthlyDueDate(item.dueDate, selectedMonth);
               return (
                 <div
                   key={item.id}
@@ -609,12 +715,12 @@ export const FixedExpensesSection: React.FC = () => {
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
-                            SABİT MASRAF
+                            AYLIK SABİT MASRAF
                           </span>
                           {getDueDateBadge(item)}
                         </div>
                         <span className="text-[11px] font-semibold text-slate-400">
-                          Aylık Sabit Tutar
+                          {selectedMonthLabel} Dönemi
                         </span>
                       </div>
 
@@ -630,12 +736,12 @@ export const FixedExpensesSection: React.FC = () => {
                         </div>
                         <div>
                           <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                            Son Ödeme Tarihi
+                            Son Ödeme Tarihi ({selectedMonthLabel})
                           </span>
                           <span className="font-bold text-slate-700 dark:text-slate-200 mt-0.5 flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            {item.dueDate
-                              ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString('tr-TR', {
+                            {monthlyDue
+                              ? new Date(monthlyDue + 'T00:00:00').toLocaleDateString('tr-TR', {
                                   day: '2-digit',
                                   month: 'long',
                                   year: 'numeric',
@@ -657,7 +763,7 @@ export const FixedExpensesSection: React.FC = () => {
                       <div className="flex items-center justify-between gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => toggleFixedExpenseStatus(item.id)}
+                          onClick={() => toggleFixedExpenseStatus(item.id, selectedMonth)}
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                             isPaid
                               ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
@@ -667,12 +773,12 @@ export const FixedExpensesSection: React.FC = () => {
                           {isPaid ? (
                             <>
                               <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Bekleyene Geri Al</span>
+                              <span>{selectedMonthLabel} Bekleyene Al</span>
                             </>
                           ) : (
                             <>
                               <Check className="w-3.5 h-3.5" />
-                              <span>Ödendi İşaretle</span>
+                              <span>{selectedMonthLabel} Ödendi İşaretle</span>
                             </>
                           )}
                         </button>
@@ -719,10 +825,10 @@ export const FixedExpensesSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
-                    {editingItem ? 'Sabit Masraf Kaydını Düzenle' : 'Yeni Sabit Masraf Ekle'}
+                    {editingItem ? 'Sabit Masraf Kalemini Düzenle' : 'Yeni Aylık Sabit Masraf Ekle'}
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Her ay sabit ödemesi olan masraf kalemini giriniz
+                    Eklediğiniz sabit masraf her ay otomatik olarak listede görünür
                   </p>
                 </div>
               </div>
@@ -773,7 +879,7 @@ export const FixedExpensesSection: React.FC = () => {
               {/* 2. Tutar (Numeric) * */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Tutar (₺) *
+                  Aylık Sabit Tutar (₺) *
                 </label>
                 <div className="relative">
                   <input
@@ -828,6 +934,9 @@ export const FixedExpensesSection: React.FC = () => {
                     onChange={(e) => setDueDateInput(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                   />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Seçilen gün her ay otomatik olarak o aya uyarlanır
+                  </span>
                 </div>
               </div>
 
@@ -853,7 +962,7 @@ export const FixedExpensesSection: React.FC = () => {
                 >
                   <Check className="w-4 h-4" />
                   <span>
-                    {editingItem ? 'Değişiklikleri Kaydet' : 'Sabit Masrafı Kaydet'}
+                    {editingItem ? 'Değişiklikleri Kaydet' : 'Aylık Sabit Masrafı Kaydet'}
                   </span>
                 </button>
               </div>

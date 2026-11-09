@@ -493,7 +493,13 @@ export const AccountingView: React.FC = () => {
   const unpaidDebtsCount = debtsReceivables.filter((r) => r.type === 'debt' && r.status !== 'paid').length;
   const unpaidReceivablesCount = debtsReceivables.filter((r) => r.type === 'receivable' && r.status !== 'paid').length;
   const fixedExpenses = accountingData.fixedExpenses || [];
-  const unpaidFixedExpensesCount = fixedExpenses.filter((r) => r.status !== 'paid').length;
+  const currentMonthKey = todayStr.slice(0, 7);
+  const unpaidFixedExpensesCount = fixedExpenses.filter((r) => {
+    if (Array.isArray(r.paidMonths)) {
+      return !r.paidMonths.includes(currentMonthKey);
+    }
+    return r.status !== 'paid';
+  }).length;
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
