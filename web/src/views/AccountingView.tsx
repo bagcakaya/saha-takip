@@ -548,16 +548,6 @@ export const AccountingView: React.FC = () => {
                 <span className="mt-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 text-center">
                   Kasa & Masraf Takibi
                 </span>
-                {transactions.length > 0 && (
-                  <div className="mt-2 flex flex-col items-center gap-0.5 text-[11px] font-extrabold">
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      Gelir: {totals.income.toLocaleString('tr-TR')} ₺
-                    </span>
-                    <span className="text-rose-600 dark:text-rose-400">
-                      Gider: {totals.expense.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                )}
               </button>
             )}
 
