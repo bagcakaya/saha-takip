@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem } from '../types/storage';
 import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
@@ -196,8 +196,21 @@ interface StorageContextType {
   cancelLeaveRequest: (requestId: string) => Promise<{ success: boolean; message: string }>;
   deleteLeaveRequest: (requestId: string) => Promise<void>;
   cariler: string[];
+  cariItems: CariItem[];
   carilerUpdatedAt: string | null;
   carilerTotal: number;
+  addCariItem: (data: {
+    name: string;
+    address?: string;
+    phone?: string;
+    tcNo?: string;
+    taxNo?: string;
+  }) => Promise<CariItem>;
+  updateCariItem: (id: string, data: Partial<Omit<CariItem, 'id' | 'createdAt'>>) => Promise<void>;
+  deleteCariItem: (id: string) => Promise<void>;
+  clearAllCariler: () => Promise<void>;
+  loadBundledCarilerTemplate: () => Promise<number>;
+  downloadCariTemplateExcel: () => void;
   importCarilerFromExcelFile: (file: File) => Promise<number>;
   exportCarilerToExcelFile: () => void;
   refreshCariler: () => Promise<void>;
@@ -607,6 +620,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [securityLogs, setSecurityLogs] = useState<SecurityLogItem[]>([]);
   const [cariler, setCariler] = useState<string[]>([]);
+  const [cariItems, setCariItems] = useState<CariItem[]>([]);
   const [carilerUpdatedAt, setCarilerUpdatedAt] = useState<string | null>(null);
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [timedFollowUps, setTimedFollowUps] = useState<TimedFollowUp[]>([]);
@@ -705,6 +719,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setLeaveRequests([]);
       setSecurityLogs([]);
       setCariler([]);
+      setCariItems([]);
       setCarilerUpdatedAt(null);
       setCarilerTotal(0);
       setTimedFollowUps([]);
@@ -778,6 +793,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (cached.timedFollowUps && cached.timedFollowUps.length > 0) setTimedFollowUps(cached.timedFollowUps);
           if (cached.carilerData && cached.carilerData.cariler && cached.carilerData.cariler.length > 0) {
             setCariler(cached.carilerData.cariler);
+            setCariItems(cached.carilerData.cariItems || []);
             setCarilerUpdatedAt(cached.carilerData.updatedAt);
             setCarilerTotal(cached.carilerData.total);
           }
@@ -875,6 +891,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setLeaveRequests(leaveReqs || []);
         setSecurityLogs(secLogs || []);
         setCariler((cariData && cariData.cariler) || []);
+        setCariItems((cariData && cariData.cariItems) || []);
         setCarilerUpdatedAt(cariData?.updatedAt);
         setCarilerTotal(cariData?.total || 0);
         setTimedFollowUps(followUps || []);
@@ -1007,6 +1024,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const cariData = await StorageService.getCarilerData();
               if (isMounted) {
                 setCariler(cariData.cariler);
+                setCariItems(cariData.cariItems || []);
                 setCarilerUpdatedAt(cariData.updatedAt);
                 setCarilerTotal(cariData.total);
               }
@@ -6325,23 +6343,181 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
-  const importCarilerFromExcelFile = async (file: File): Promise<number> => {
-    const res = await StorageService.importCarilerFromExcel(file);
-    setCariler(res.cariler);
+  const applyCariDataState = (res: {
+    cariler: string[];
+    cariItems?: CariItem[];
+    updatedAt: string | null;
+    total: number;
+  }) => {
+    setCariler(res.cariler || []);
+    setCariItems(res.cariItems || []);
     setCarilerUpdatedAt(res.updatedAt);
     setCarilerTotal(res.total);
+  };
+
+  const addCariItem = async (data: {
+    name: string;
+    address?: string;
+    phone?: string;
+    tcNo?: string;
+    taxNo?: string;
+  }): Promise<CariItem> => {
+    const cleanName = data.name.trim();
+    if (!cleanName) {
+      throw new Error('Cari ismi zorunludur.');
+    }
+    const cleanPhone = data.phone ? data.phone.replace(/\D/g, '') : '';
+    const cleanTc = data.tcNo ? data.tcNo.replace(/\D/g, '').slice(0, 11) : '';
+    const cleanTax = data.taxNo ? data.taxNo.replace(/\D/g, '').slice(0, 10) : '';
+    const cleanAddress = data.address ? data.address.trim() : '';
+
+    const now = Date.now();
+    const newItem: CariItem = {
+      id: generateId(),
+      name: cleanName,
+      address: cleanAddress,
+      phone: cleanPhone,
+      tcNo: cleanTc,
+      taxNo: cleanTax,
+      createdAt: now,
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+
+    const existingFiltered = cariItems.filter(
+      (i) => i.name.trim().toLocaleLowerCase('tr-TR') !== cleanName.toLocaleLowerCase('tr-TR')
+    );
+    const nextItems = [...existingFiltered, newItem].sort((a, b) =>
+      a.name.localeCompare(b.name, 'tr')
+    );
+    const nextNames = nextItems.map((i) => i.name);
+    const nowIso = new Date().toISOString();
+
+    applyCariDataState({
+      cariler: nextNames,
+      cariItems: nextItems,
+      updatedAt: nowIso,
+      total: nextItems.length,
+    });
+
+    const saved = await StorageService.saveCarilerData({
+      updatedAt: nowIso,
+      database: `${compCode} Cariler`,
+      total: nextItems.length,
+      cariler: nextNames,
+      cariItems: nextItems,
+      isUserManaged: true,
+    });
+    applyCariDataState(saved);
+    return newItem;
+  };
+
+  const updateCariItem = async (
+    id: string,
+    data: Partial<Omit<CariItem, 'id' | 'createdAt'>>
+  ): Promise<void> => {
+    const now = Date.now();
+    const nextItems = cariItems
+      .map((item) => {
+        if (item.id !== id) return item;
+        const nextName = data.name !== undefined ? data.name.trim() : item.name;
+        return {
+          ...item,
+          name: nextName || item.name,
+          address: data.address !== undefined ? data.address.trim() : item.address,
+          phone: data.phone !== undefined ? data.phone.replace(/\D/g, '') : item.phone,
+          tcNo: data.tcNo !== undefined ? data.tcNo.replace(/\D/g, '').slice(0, 11) : item.tcNo,
+          taxNo: data.taxNo !== undefined ? data.taxNo.replace(/\D/g, '').slice(0, 10) : item.taxNo,
+          updatedAt: now,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+
+    const nextNames = nextItems.map((i) => i.name);
+    const nowIso = new Date().toISOString();
+
+    applyCariDataState({
+      cariler: nextNames,
+      cariItems: nextItems,
+      updatedAt: nowIso,
+      total: nextItems.length,
+    });
+
+    const saved = await StorageService.saveCarilerData({
+      updatedAt: nowIso,
+      database: `${compCode} Cariler`,
+      total: nextItems.length,
+      cariler: nextNames,
+      cariItems: nextItems,
+      isUserManaged: true,
+    });
+    applyCariDataState(saved);
+  };
+
+  const deleteCariItem = async (id: string): Promise<void> => {
+    const nextItems = cariItems.filter((item) => item.id !== id);
+    const nextNames = nextItems.map((i) => i.name);
+    const nowIso = new Date().toISOString();
+
+    applyCariDataState({
+      cariler: nextNames,
+      cariItems: nextItems,
+      updatedAt: nowIso,
+      total: nextItems.length,
+    });
+
+    const saved = await StorageService.saveCarilerData({
+      updatedAt: nowIso,
+      database: `${compCode} Cariler`,
+      total: nextItems.length,
+      cariler: nextNames,
+      cariItems: nextItems,
+      isUserManaged: true,
+    });
+    applyCariDataState(saved);
+  };
+
+  const clearAllCariler = async (): Promise<void> => {
+    const nowIso = new Date().toISOString();
+    applyCariDataState({
+      cariler: [],
+      cariItems: [],
+      updatedAt: nowIso,
+      total: 0,
+    });
+    await StorageService.saveCarilerData({
+      updatedAt: nowIso,
+      database: `${compCode} Cariler`,
+      total: 0,
+      cariler: [],
+      cariItems: [],
+      isUserManaged: true,
+    });
+  };
+
+  const loadBundledCarilerTemplate = async (): Promise<number> => {
+    const res = await StorageService.loadBundledCarilerTemplate();
+    applyCariDataState(res);
+    return res.total;
+  };
+
+  const downloadCariTemplateExcel = () => {
+    StorageService.downloadCariTemplateExcel();
+  };
+
+  const importCarilerFromExcelFile = async (file: File): Promise<number> => {
+    const res = await StorageService.importCarilerFromExcel(file);
+    applyCariDataState(res);
     return res.total;
   };
 
   const exportCarilerToExcelFile = () => {
-    StorageService.exportCarilerToExcel(cariler);
+    StorageService.exportCarilerToExcel(cariItems.length > 0 ? cariItems : cariler);
   };
 
   const refreshCariler = async () => {
     const res = await StorageService.getCarilerData();
-    setCariler(res.cariler);
-    setCarilerUpdatedAt(res.updatedAt);
-    setCarilerTotal(res.total);
+    applyCariDataState(res);
   };
 
   // ==========================================
@@ -7859,8 +8035,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         attendanceRecords,
         adminReminders,
         cariler,
+        cariItems,
         carilerUpdatedAt,
         carilerTotal,
+        addCariItem,
+        updateCariItem,
+        deleteCariItem,
+        clearAllCariler,
+        loadBundledCarilerTemplate,
+        downloadCariTemplateExcel,
         importCarilerFromExcelFile,
         exportCarilerToExcelFile,
         refreshCariler,

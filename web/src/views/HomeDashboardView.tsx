@@ -77,6 +77,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     lastReadTime,
     markAllAsRead,
     accountingData,
+    cariItems,
+    cariler,
   } = useStorage();
   const [isNotificationListOpen, setIsNotificationListOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
@@ -146,6 +148,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const userPersonalNotes = safePersonalNotes.filter((n) => n && n.userId === user?.id);
   const safeJobApplications = Array.isArray(jobApplications) ? jobApplications : [];
   const newJobApplicationsCount = safeJobApplications.filter((a) => a && a.status === 'new').length;
+  const safeCariCount = Array.isArray(cariItems) && cariItems.length > 0 ? cariItems.length : Array.isArray(cariler) ? cariler.length : 0;
 
   const isAdmin = isUserAdmin(user);
   const canManageLogo = isAdmin; // Firmaların Yöneticileri ile Süper Yöneticiler yapabilsin
@@ -367,6 +370,20 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       activeCount: notesPendingCount,
       action: () => onNavigate('notes'),
       visible: isModulePermitted('notes', user, company),
+    },
+    {
+      id: 'cariler',
+      title: 'Cariler',
+      shortTitle: 'Cariler',
+      description: 'Cari hesap kartları, adres, telefon, T.C. Kimlik / Vergi No bilgileri ve şablon aktarımı',
+      icon: Building2,
+      gradient: 'bg-gradient-to-br from-sky-600 via-blue-700 to-indigo-900',
+      borderColor: 'border-sky-400/40',
+      glowColor: 'text-sky-400',
+      badgeText: `${safeCariCount} Cari`,
+      activeCount: safeCariCount > 0 ? safeCariCount : undefined,
+      action: () => onNavigate('cariler'),
+      visible: isModulePermitted('cariler', user, company),
     },
     {
       id: 'staff_tracking',

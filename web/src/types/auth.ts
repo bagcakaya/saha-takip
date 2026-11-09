@@ -407,6 +407,15 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     category: 'operations',
   },
   {
+    id: 'cariler',
+    name: 'Cariler',
+    shortTitle: 'Cariler',
+    description: 'Müşteri ve cari hesap kartları, adres, telefon, T.C. Kimlik / Vergi No bilgileri ve şablon aktarımı',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'operations',
+  },
+  {
     id: 'timed_follow_ups',
     name: 'Süreli Takipler',
     shortTitle: 'Süreli Takip',

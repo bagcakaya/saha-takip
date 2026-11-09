@@ -10,7 +10,7 @@ import { NotificationStatusModal } from '../common/NotificationStatusModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
 
-export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications' | 'accounting';
+export type TabType = 'home' | 'branches' | 'installations' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications' | 'accounting' | 'cariler';
 
 interface HeaderProps {
   activeTab: TabType;

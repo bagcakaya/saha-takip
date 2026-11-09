@@ -586,18 +586,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </button>
             )}
 
-            {/* 5. Cari Listesi (POLATLAR2025 / Excel) */}
-            {((user?.companyCode || 'POLATLAR').toUpperCase() === 'POLATLAR' || cariler.length > 0) && (
+            {/* 5. Cariler Modülü */}
+            {isModulePermitted('cariler', user, company) && (
               <button
                 type="button"
-                onClick={() => setIsCariListOpen(true)}
-                className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-150 cursor-pointer"
+                onClick={() => setActiveTab('cariler')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
+                  activeTab === 'cariler'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
               >
                 <div className="flex items-center gap-3">
-                  <Building2 className="w-4 h-4 text-blue-500" />
-                  <span>Cari Listesi</span>
+                  <Building2 className={`w-4 h-4 ${activeTab === 'cariler' ? 'text-white' : 'text-blue-500'}`} />
+                  <span>Cariler</span>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60">
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'cariler'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60'
+                  }`}
+                >
                   {cariler.length}
                 </span>
               </button>

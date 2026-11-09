@@ -15,6 +15,7 @@ export const VALID_TABS: TabType[] = [
   'template',
   'job_applications',
   'accounting',
+  'cariler',
 ];
 
 /**
@@ -98,6 +99,12 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
 
     accounting: 'accounting',
     muhasebe: 'accounting',
+
+    cariler: 'cariler',
+    cari: 'cariler',
+    cari_listesi: 'cariler',
+    musteriler: 'cariler',
+    customers: 'cariler',
     gelir_gider: 'accounting',
     gelirgider: 'accounting',
     kasa: 'accounting',

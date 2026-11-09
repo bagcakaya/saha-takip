@@ -332,6 +332,7 @@ export interface BackupData {
   attendanceRecords?: AttendanceRecord[];
   adminReminders?: AdminReminder[];
   cariler?: string[];
+  cariItems?: CariItem[];
   leaveRequests?: LeaveRequest[];
   securityLogs?: SecurityLogItem[];
   timedFollowUps?: TimedFollowUp[];
@@ -343,11 +344,26 @@ export interface BackupData {
   accountingData?: AccountingDataPayload;
 }
 
+export interface CariItem {
+  id: string;
+  name: string; // Cari İsmi (Zorunlu)
+  address?: string; // Adresi (Opsiyonel)
+  phone?: string; // Telefon Numarası - Sadece rakam (Opsiyonel)
+  tcNo?: string; // T.C. Kimlik Numarası - Sadece rakam (Opsiyonel)
+  taxNo?: string; // Vergi Numarası - Sadece rakam (Opsiyonel)
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface CariData {
   updatedAt: string | null;
   database?: string;
   total: number;
   cariler: string[];
+  cariItems?: CariItem[];
+  isUserManaged?: boolean;
 }
 
 export interface RegisteredDevice {

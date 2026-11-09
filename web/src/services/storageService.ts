@@ -10,6 +10,7 @@ import {
   AttendanceRecord,
   AdminReminder,
   CariData,
+  CariItem,
   LeaveRequest,
   SecurityLogItem,
   TimedFollowUp,
@@ -950,7 +951,7 @@ export const StorageService = {
       branches,
       attendanceRecords: sanitizedAttendance ? ApprovalShield.applyToAttendance(sanitizedAttendance) : sanitizedAttendance,
       adminReminders,
-      carilerData,
+      carilerData: carilerData ? this.normalizeCariData(carilerData) : null,
       leaveRequests: leaveRequests ? ApprovalShield.applyToLeaveRequests(leaveRequests) : leaveRequests,
       securityLogs,
       timedFollowUps,
@@ -3854,6 +3855,89 @@ export const StorageService = {
   },
 
   /**
+   * Normalizes CariData so cariItems and cariler (string[]) are always synchronized,
+   * and ignores legacy unrequested auto-fallback data unless explicitly loaded by the user.
+   */
+  normalizeCariData(raw: CariData | null | undefined): CariData {
+    const emptyResult: CariData = {
+      updatedAt: null,
+      database: `${activeCompanyCode} Cariler`,
+      total: 0,
+      cariler: [],
+      cariItems: [],
+      isUserManaged: true,
+    };
+
+    if (!raw) return emptyResult;
+
+    // Ignore old automatic cariler.json fallback if it was never explicitly managed/uploaded by the user
+    if (
+      raw.updatedAt === '2026-09-18T11:15:28.652624' &&
+      !raw.isUserManaged &&
+      (!raw.cariItems || raw.cariItems.length === 0)
+    ) {
+      return emptyResult;
+    }
+
+    const itemMap = new Map<string, CariItem>();
+    const now = Date.now();
+
+    if (Array.isArray(raw.cariItems)) {
+      raw.cariItems.forEach((item, idx) => {
+        if (!item || !item.name) return;
+        const cleanName = String(item.name).trim();
+        if (!cleanName) return;
+        const key = cleanName.toLocaleLowerCase('tr-TR');
+        itemMap.set(key, {
+          id: item.id || `cari_${now}_${idx}`,
+          name: cleanName,
+          address: item.address ? String(item.address).trim() : '',
+          phone: item.phone ? String(item.phone).replace(/\D/g, '') : '',
+          tcNo: item.tcNo ? String(item.tcNo).replace(/\D/g, '').slice(0, 11) : '',
+          taxNo: item.taxNo ? String(item.taxNo).replace(/\D/g, '').slice(0, 10) : '',
+          createdAt: item.createdAt || now,
+          updatedAt: item.updatedAt,
+          createdBy: item.createdBy,
+          createdByName: item.createdByName,
+        });
+      });
+    }
+
+    if (Array.isArray(raw.cariler)) {
+      raw.cariler.forEach((cName, idx) => {
+        const cleanName = String(cName || '').trim();
+        if (!cleanName) return;
+        const key = cleanName.toLocaleLowerCase('tr-TR');
+        if (!itemMap.has(key)) {
+          itemMap.set(key, {
+            id: `cari_legacy_${idx}_${key.slice(0, 12).replace(/\s+/g, '_')}`,
+            name: cleanName,
+            address: '',
+            phone: '',
+            tcNo: '',
+            taxNo: '',
+            createdAt: now,
+          });
+        }
+      });
+    }
+
+    const sortedItems = Array.from(itemMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'tr')
+    );
+    const sortedNames = sortedItems.map((i) => i.name);
+
+    return {
+      updatedAt: raw.updatedAt || null,
+      database: raw.database || `${activeCompanyCode} Cariler`,
+      total: sortedItems.length,
+      cariler: sortedNames,
+      cariItems: sortedItems,
+      isUserManaged: true,
+    };
+  },
+
+  /**
    * Retrieves Cari list data (Supabase cloud slot 15 + local IndexedDB cache)
    */
   async getCarilerData(): Promise<CariData> {
@@ -3862,59 +3946,53 @@ export const StorageService = {
 
     // 1. Check local cache (IndexedDB) FIRST for instant UI response (0ms wait)
     const cached = await loadItem<CariData>(localKey);
-    if (cached && Array.isArray(cached.cariler) && cached.cariler.length > 0) {
+    if (
+      cached &&
+      (cached.isUserManaged ||
+        (Array.isArray(cached.cariItems) && cached.cariItems.length > 0) ||
+        (Array.isArray(cached.cariler) &&
+          cached.cariler.length > 0 &&
+          cached.updatedAt !== '2026-09-18T11:15:28.652624'))
+    ) {
+      const normalizedCached = this.normalizeCariData(cached);
       // Non-blocking background sync from cloud slot 15
       loadChunkedSlot<CariData>(slotId)
         .then(({ data: cloudData }) => {
-          if (cloudData && Array.isArray(cloudData.cariler) && cloudData.cariler.length > 0) {
-            if (!cached.updatedAt || (cloudData.updatedAt && new Date(cloudData.updatedAt) > new Date(cached.updatedAt))) {
-              saveItem(localKey, cloudData);
+          if (cloudData) {
+            const normalizedCloud = this.normalizeCariData(cloudData);
+            if (
+              !cached.updatedAt ||
+              (normalizedCloud.updatedAt &&
+                new Date(normalizedCloud.updatedAt) > new Date(cached.updatedAt))
+            ) {
+              saveItem(localKey, normalizedCloud);
             }
           }
         })
         .catch(() => {});
-      return cached;
+      return normalizedCached;
     }
 
-    // 2. If no cache, load from cloud slot 15
+    // 2. If no valid local cache, load from cloud slot 15
     try {
-      const { data: cloudData, notFound } = await loadChunkedSlot<CariData>(slotId);
-      if (cloudData && Array.isArray(cloudData.cariler) && cloudData.cariler.length > 0) {
-        await saveItem(localKey, cloudData);
-        return cloudData;
-      }
-      if (activeCompanyCode !== 'POLATLAR' && notFound) {
-        const emptyCari: CariData = {
-          updatedAt: null,
-          database: `${activeCompanyCode} Cariler`,
-          total: 0,
-          cariler: [],
-        };
-        await saveItem(localKey, emptyCari);
-        return emptyCari;
+      const { data: cloudData } = await loadChunkedSlot<CariData>(slotId);
+      if (cloudData) {
+        const normalizedCloud = this.normalizeCariData(cloudData);
+        await saveItem(localKey, normalizedCloud);
+        return normalizedCloud;
       }
     } catch (e) {
-      console.warn('Cloud cariler load error, checking fallback:', e);
+      console.warn('Cloud cariler load error:', e);
     }
 
-    // 3. Fallback for POLATLAR (defaultCarilerData / cariler.json)
-    const fallback: CariData = {
-      updatedAt: (defaultCarilerData as any).updatedAt || new Date().toISOString(),
-      database: 'POLATLAR2025',
-      total: (defaultCarilerData as any).total || ((defaultCarilerData as any).cariler || []).length,
-      cariler: (defaultCarilerData as any).cariler || [],
-    };
-
-    if (activeCompanyCode === 'POLATLAR') {
-      await saveItem(localKey, fallback);
-      return fallback;
-    }
-
+    // 3. Default empty user-managed Cari state (User adds their own Cariler or loads from Templates)
     const emptyCari: CariData = {
       updatedAt: null,
       database: `${activeCompanyCode} Cariler`,
       total: 0,
       cariler: [],
+      cariItems: [],
+      isUserManaged: true,
     };
     await saveItem(localKey, emptyCari);
     return emptyCari;
@@ -3923,74 +4001,264 @@ export const StorageService = {
   /**
    * Saves updated Cari data to local cache and cloud slot 15
    */
-  async saveCarilerData(data: CariData): Promise<void> {
+  async saveCarilerData(data: CariData): Promise<CariData> {
+    const normalized = this.normalizeCariData({
+      ...data,
+      updatedAt: data.updatedAt || new Date().toISOString(),
+      isUserManaged: true,
+    });
     const localKey = this.getStorageKey(CARILER_DATA_KEY);
-    await saveItem(localKey, data);
-    await saveChunkedSlot(this.getSlotId(15), data);
+    await saveItem(localKey, normalized);
+    await saveChunkedSlot(this.getSlotId(15), normalized);
+    return normalized;
   },
 
   /**
-   * Parses an uploaded Excel (.xlsx) file and extracts Cari names, saving to cloud slot 15
+   * Loads the bundled default Cariler template (POLATLAR2025) on user demand from Şablonlar
    */
-  async importCarilerFromExcel(file: File): Promise<CariData> {
+  async loadBundledCarilerTemplate(): Promise<CariData> {
+    const current = await this.getCarilerData();
+    const existingMap = new Map<string, CariItem>();
+    (current.cariItems || []).forEach((item) => {
+      existingMap.set(item.name.trim().toLocaleLowerCase('tr-TR'), item);
+    });
+
+    const bundledNames: string[] = (defaultCarilerData as any).cariler || [];
+    const now = Date.now();
+    bundledNames.forEach((rawName, idx) => {
+      const cleanName = String(rawName || '').trim();
+      if (!cleanName) return;
+      const key = cleanName.toLocaleLowerCase('tr-TR');
+      if (!existingMap.has(key)) {
+        existingMap.set(key, {
+          id: `cari_tpl_${now}_${idx}`,
+          name: cleanName,
+          address: '',
+          phone: '',
+          tcNo: '',
+          taxNo: '',
+          createdAt: now,
+        });
+      }
+    });
+
+    const mergedItems = Array.from(existingMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'tr')
+    );
+
+    const result: CariData = {
+      updatedAt: new Date().toISOString(),
+      database: `${activeCompanyCode} Şablon & Cariler`,
+      total: mergedItems.length,
+      cariler: mergedItems.map((i) => i.name),
+      cariItems: mergedItems,
+      isUserManaged: true,
+    };
+
+    return this.saveCarilerData(result);
+  },
+
+  /**
+   * Parses an uploaded Excel (.xlsx / .xls) file and extracts Cari items
+   * (Cari İsmi, Adresi, Telefon Numarası, T.C. Kimlik Numarası, Vergi Numarası),
+   * merging with existing Cariler and saving to cloud slot 15.
+   */
+  async importCarilerFromExcel(file: File, mode: 'merge' | 'replace' = 'merge'): Promise<CariData> {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
 
     const rows = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1 });
-    let cariColIndex = 0;
+    let nameColIdx = 0;
+    let addressColIdx = -1;
+    let phoneColIdx = -1;
+    let tcColIdx = -1;
+    let taxColIdx = -1;
     let startRow = 0;
 
     if (rows.length > 0) {
       const headerRow = rows[0] as any[];
       if (Array.isArray(headerRow)) {
-        const foundIdx = headerRow.findIndex(
-          (val) => typeof val === 'string' && /cari|firma|müsteri|müşteri/i.test(val)
-        );
-        if (foundIdx !== -1) {
-          cariColIndex = foundIdx;
-          startRow = 1;
-        } else if (typeof headerRow[0] === 'string' && /ad|isim/i.test(headerRow[0])) {
-          startRow = 1;
-        }
+        headerRow.forEach((cell, idx) => {
+          if (typeof cell !== 'string') return;
+          const h = cell.trim().toLocaleLowerCase('tr-TR');
+          if (
+            nameColIdx === 0 &&
+            idx > 0 &&
+            (h.includes('cari') || h.includes('firma') || h.includes('müşteri') || h.includes('musteri') || h.includes('ü̈nvan') || h.includes('unvan') || h === 'isim' || h === 'ad' || h === 'adı') &&
+            !h.includes('adres')
+          ) {
+            nameColIdx = idx;
+            startRow = 1;
+          } else if (
+            idx === 0 &&
+            (h.includes('cari') || h.includes('firma') || h.includes('müşteri') || h.includes('musteri') || h.includes('isim') || h.includes('ad'))
+          ) {
+            nameColIdx = 0;
+            startRow = 1;
+          } else if (h.includes('adres') || h.includes('konum') || h.includes('lokasyon')) {
+            addressColIdx = idx;
+            startRow = 1;
+          } else if (h.includes('tel') || h.includes('gsm') || h.includes('cep') || h.includes('phone')) {
+            phoneColIdx = idx;
+            startRow = 1;
+          } else if (h.includes('t.c') || h.includes('tc') || h.includes('kimlik')) {
+            tcColIdx = idx;
+            startRow = 1;
+          } else if (h.includes('vergi') || h.includes('vkn')) {
+            taxColIdx = idx;
+            startRow = 1;
+          }
+        });
       }
     }
 
-    const set = new Set<string>();
+    const current = mode === 'merge' ? await this.getCarilerData() : null;
+    const itemMap = new Map<string, CariItem>();
+
+    if (current && Array.isArray(current.cariItems)) {
+      current.cariItems.forEach((item) => {
+        if (!item || !item.name) return;
+        itemMap.set(item.name.trim().toLocaleLowerCase('tr-TR'), item);
+      });
+    }
+
+    const now = Date.now();
     for (let i = startRow; i < rows.length; i++) {
       const row = rows[i] as any[];
-      if (Array.isArray(row) && row[cariColIndex] !== undefined && row[cariColIndex] !== null) {
-        const val = String(row[cariColIndex]).trim();
-        if (val.length > 0 && !/^(cari|cari adı|sıra no|no)$/i.test(val)) {
-          set.add(val);
-        }
+      if (!Array.isArray(row)) continue;
+      const rawName = row[nameColIdx];
+      if (rawName === undefined || rawName === null) continue;
+      const cleanName = String(rawName).trim();
+      if (
+        cleanName.length === 0 ||
+        /^(cari|cari adı|cari ismi|sıra no|no)$/i.test(cleanName)
+      ) {
+        continue;
+      }
+
+      const rawAddress = addressColIdx >= 0 && row[addressColIdx] != null ? String(row[addressColIdx]).trim() : '';
+      const rawPhone = phoneColIdx >= 0 && row[phoneColIdx] != null ? String(row[phoneColIdx]).replace(/\D/g, '') : '';
+      const rawTc = tcColIdx >= 0 && row[tcColIdx] != null ? String(row[tcColIdx]).replace(/\D/g, '').slice(0, 11) : '';
+      const rawTax = taxColIdx >= 0 && row[taxColIdx] != null ? String(row[taxColIdx]).replace(/\D/g, '').slice(0, 10) : '';
+
+      const key = cleanName.toLocaleLowerCase('tr-TR');
+      const existing = itemMap.get(key);
+
+      if (existing) {
+        itemMap.set(key, {
+          ...existing,
+          name: cleanName,
+          address: rawAddress || existing.address || '',
+          phone: rawPhone || existing.phone || '',
+          tcNo: rawTc || existing.tcNo || '',
+          taxNo: rawTax || existing.taxNo || '',
+          updatedAt: now,
+        });
+      } else {
+        itemMap.set(key, {
+          id: `cari_xls_${now}_${i}`,
+          name: cleanName,
+          address: rawAddress,
+          phone: rawPhone,
+          tcNo: rawTc,
+          taxNo: rawTax,
+          createdAt: now,
+        });
       }
     }
 
-    const sortedCariler = Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+    const sortedItems = Array.from(itemMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'tr')
+    );
+
     const result: CariData = {
       updatedAt: new Date().toISOString(),
-      database: activeCompanyCode === 'POLATLAR' ? 'POLATLAR2025 & Excel' : `${activeCompanyCode} Excel Yüklemesi`,
-      total: sortedCariler.length,
-      cariler: sortedCariler,
+      database: `${activeCompanyCode} Excel Şablonu`,
+      total: sortedItems.length,
+      cariler: sortedItems.map((i) => i.name),
+      cariItems: sortedItems,
+      isUserManaged: true,
     };
 
-    const localKey = this.getStorageKey(CARILER_DATA_KEY);
-    await saveItem(localKey, result);
-    await saveChunkedSlot(this.getSlotId(15), result);
-    return result;
+    return this.saveCarilerData(result);
   },
 
   /**
-   * Exports the list of Cariler to an Excel (.xlsx) file download
+   * Exports the list of Cariler (with all 5 fields) to an Excel (.xlsx) file download
    */
-  exportCarilerToExcel(cariler: string[], fileName = 'Cariler.xlsx'): void {
-    const data = [['Cari Adı'], ...cariler.map((c) => [c])];
+  exportCarilerToExcel(carilerOrItems: (string | CariItem)[], fileName = 'Cariler.xlsx'): void {
+    const header = [
+      'Cari İsmi',
+      'Adresi',
+      'Telefon Numarası',
+      'T.C. Kimlik Numarası',
+      'Vergi Numarası',
+    ];
+    const rows = carilerOrItems.map((item) => {
+      if (typeof item === 'string') {
+        return [item, '', '', '', ''];
+      }
+      return [
+        item.name || '',
+        item.address || '',
+        item.phone || '',
+        item.tcNo || '',
+        item.taxNo || '',
+      ];
+    });
+    const data = [header, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{ wch: 45 }];
+    ws['!cols'] = [
+      { wch: 42 },
+      { wch: 45 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 18 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Cariler');
+    XLSX.writeFile(wb, fileName);
+  },
+
+  /**
+   * Downloads a sample Excel template (.xlsx) for importing Cariler
+   */
+  downloadCariTemplateExcel(fileName = 'Cari_Yukleme_Sablonu.xlsx'): void {
+    const data = [
+      [
+        'Cari İsmi',
+        'Adresi',
+        'Telefon Numarası',
+        'T.C. Kimlik Numarası',
+        'Vergi Numarası',
+      ],
+      [
+        'ÖRNEK FİRMA GIDA SAN. VE TİC. LTD. ŞTİ.',
+        'Atatürk Mah. Cumhuriyet Cad. No:10 Yakutiye/Erzurum',
+        '05321234567',
+        '',
+        '1234567890',
+      ],
+      [
+        'AHMET YILMAZ - MARKET İŞLETMESİ',
+        'Yenişehir Mah. İnönü Bulvarı No:25 Palandöken/Erzurum',
+        '05429876543',
+        '12345678901',
+        '',
+      ],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [
+      { wch: 42 },
+      { wch: 45 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cari Şablonu');
     XLSX.writeFile(wb, fileName);
   },
 
