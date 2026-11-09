@@ -27,6 +27,7 @@ import {
   ArrowDownLeft,
   Scale,
   ArrowLeft,
+  CalendarClock,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -39,9 +40,10 @@ import {
   DailyCashBalance,
 } from '../types/storage';
 import { DebtsReceivablesSection } from '../components/accounting/DebtsReceivablesSection';
+import { FixedExpensesSection } from '../components/accounting/FixedExpensesSection';
 import * as XLSX from 'xlsx';
 
-type AccountingModule = 'menu' | 'income_expense' | 'debts_receivables';
+type AccountingModule = 'menu' | 'income_expense' | 'debts_receivables' | 'fixed_expenses';
 type AccountingTab = 'transactions' | 'cash_register' | 'categories' | 'registers';
 
 export const AccountingView: React.FC = () => {
@@ -87,7 +89,7 @@ export const AccountingView: React.FC = () => {
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       const mod = e.state?.accountingModule;
-      if (mod && ['income_expense', 'debts_receivables'].includes(mod)) {
+      if (mod && ['income_expense', 'debts_receivables', 'fixed_expenses'].includes(mod)) {
         setActiveModule(mod);
       } else {
         setActiveModule('menu');
@@ -490,11 +492,13 @@ export const AccountingView: React.FC = () => {
   const debtsReceivables = accountingData.debtsReceivables || [];
   const unpaidDebtsCount = debtsReceivables.filter((r) => r.type === 'debt' && r.status !== 'paid').length;
   const unpaidReceivablesCount = debtsReceivables.filter((r) => r.type === 'receivable' && r.status !== 'paid').length;
+  const fixedExpenses = accountingData.fixedExpenses || [];
+  const unpaidFixedExpensesCount = fixedExpenses.filter((r) => r.status !== 'paid').length;
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
       {/* ========================================================= */}
-      {/* MUHASEBE ANA MENÜSÜ (2 MODÜL: GELİR/GİDER & BORÇLAR/ALACAKLAR) */}
+      {/* MUHASEBE ANA MENÜSÜ (3 MODÜL: GELİR/GİDER, BORÇLAR/ALACAKLAR, SABİT MASRAFLAR) */}
       {/* ========================================================= */}
       {activeModule === 'menu' && (
         <div className="space-y-6 pt-2 pb-8">
@@ -514,14 +518,14 @@ export const AccountingView: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  İşlem yapmak istediğiniz muhasebe modülünü seçiniz: Gelir/Gider veya Borçlar/Alacaklar
+                  İşlem yapmak istediğiniz muhasebe modülünü seçiniz: Gelir/Gider, Borçlar/Alacaklar veya Sabit Masraflar
                 </p>
               </div>
             </div>
           </div>
 
           {/* Dairesel İkon Launcher Butonları (Ana Menü & Personel Takibi Stili) */}
-          <div className="grid grid-cols-2 sm:grid-cols-2 max-w-md mx-auto gap-6 py-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 max-w-2xl mx-auto gap-6 py-4">
             {isSubModulePermitted('accounting', 'income_expense', user, company) && (
               <button
                 type="button"
@@ -567,6 +571,29 @@ export const AccountingView: React.FC = () => {
                 </span>
               </button>
             )}
+
+            {isSubModulePermitted('accounting', 'fixed_expenses', user, company) && (
+              <button
+                type="button"
+                onClick={() => navigateToModule('fixed_expenses')}
+                className="flex flex-col items-center justify-start group cursor-pointer focus:outline-none transition-transform active:scale-95 p-4 rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+              >
+                <div className="relative w-22 h-22 sm:w-24 sm:h-24 rounded-full transition-all duration-200 flex items-center justify-center shadow-xl shadow-black/20 bg-slate-900 border-2 border-purple-500/70 group-hover:scale-105 group-hover:border-purple-400">
+                  <div className="w-15 h-15 rounded-full flex items-center justify-center bg-purple-500/15 group-hover:bg-purple-500/25 transition-colors">
+                    <CalendarClock className="w-8 h-8 text-purple-400" />
+                  </div>
+                  <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-purple-500 text-white text-[10px] font-black border-2 border-slate-950 shadow-md">
+                    {unpaidFixedExpensesCount} Aktif
+                  </span>
+                </div>
+                <span className="mt-3 text-sm sm:text-base font-extrabold text-center leading-tight text-slate-800 dark:text-slate-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                  Sabit Masraflar
+                </span>
+                <span className="mt-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 text-center">
+                  Aylık Sabit Gider Takibi
+                </span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -606,6 +633,20 @@ export const AccountingView: React.FC = () => {
                 <span>Borçlar / Alacaklar</span>
               </button>
             )}
+            {isSubModulePermitted('accounting', 'fixed_expenses', user, company) && (
+              <button
+                type="button"
+                onClick={() => navigateToModule('fixed_expenses')}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                  activeModule === 'fixed_expenses'
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <CalendarClock className="w-4 h-4" />
+                <span>Sabit Masraflar</span>
+              </button>
+            )}
           </div>
 
           <button
@@ -623,6 +664,11 @@ export const AccountingView: React.FC = () => {
       {/* MODÜL 2: BORÇLAR / ALACAKLAR                              */}
       {/* ========================================================= */}
       {activeModule === 'debts_receivables' && <DebtsReceivablesSection />}
+
+      {/* ========================================================= */}
+      {/* MODÜL 3: SABİT MASRAFLAR                                  */}
+      {/* ========================================================= */}
+      {activeModule === 'fixed_expenses' && <FixedExpensesSection />}
 
       {/* ========================================================= */}
       {/* MODÜL 1: GELİR / GİDER (MEVCUT MUHASEBE EKRANI)            */}

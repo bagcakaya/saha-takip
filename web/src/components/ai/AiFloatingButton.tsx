@@ -7,11 +7,16 @@ interface AiFloatingButtonProps {
 
 export const AiFloatingButton: React.FC<AiFloatingButtonProps> = ({ onClick }) => {
   return (
-    <div className="fixed bottom-6 right-5 z-40">
+    <div
+      className="fixed right-3 sm:right-4 z-40"
+      style={{
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)',
+      }}
+    >
       <button
         type="button"
         onClick={onClick}
-        className="group relative flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white shadow-xl shadow-indigo-500/35 hover:shadow-indigo-500/50 hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/25"
+        className="group relative flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white shadow-xl shadow-indigo-500/35 hover:shadow-indigo-500/50 hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/25"
         title="Yapay Zekâ Asistanını Başlat (Sesle veya Yazıyla)"
       >
         {/* Glow effect animation */}

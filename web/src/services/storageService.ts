@@ -4603,6 +4603,11 @@ export const StorageService = {
         validCached && Array.isArray(validCached.debtsReceivables) ? validCached.debtsReceivables : [];
       const finalDebts = cloudDebts.length === 0 && cachedDebts.length > 0 ? cachedDebts : cloudDebts;
 
+      const cloudFixed = Array.isArray(cloudData.fixedExpenses) ? cloudData.fixedExpenses : [];
+      const cachedFixed =
+        validCached && Array.isArray(validCached.fixedExpenses) ? validCached.fixedExpenses : [];
+      const finalFixed = cloudFixed.length === 0 && cachedFixed.length > 0 ? cachedFixed : cloudFixed;
+
       const merged: AccountingDataPayload = {
         transactions: finalTxs,
         categories:
@@ -4624,9 +4629,14 @@ export const StorageService = {
             ? validCached.dailyBalances
             : [],
         debtsReceivables: finalDebts,
+        fixedExpenses: finalFixed,
       };
       await saveItem(localKey, merged);
-      if ((cloudTxs.length === 0 && finalTxs.length > 0) || (cloudDebts.length === 0 && finalDebts.length > 0)) {
+      if (
+        (cloudTxs.length === 0 && finalTxs.length > 0) ||
+        (cloudDebts.length === 0 && finalDebts.length > 0) ||
+        (cloudFixed.length === 0 && finalFixed.length > 0)
+      ) {
         saveChunkedSlot(slotId, merged).catch(() => {});
       }
       return merged;
@@ -4645,8 +4655,14 @@ export const StorageService = {
             : DEFAULT_CASH_REGISTERS,
         dailyBalances: Array.isArray(validCached.dailyBalances) ? validCached.dailyBalances : [],
         debtsReceivables: Array.isArray(validCached.debtsReceivables) ? validCached.debtsReceivables : [],
+        fixedExpenses: Array.isArray(validCached.fixedExpenses) ? validCached.fixedExpenses : [],
       };
-      if (recovered.transactions.length > 0 || recovered.dailyBalances.length > 0 || (recovered.debtsReceivables && recovered.debtsReceivables.length > 0)) {
+      if (
+        recovered.transactions.length > 0 ||
+        recovered.dailyBalances.length > 0 ||
+        (recovered.debtsReceivables && recovered.debtsReceivables.length > 0) ||
+        (recovered.fixedExpenses && recovered.fixedExpenses.length > 0)
+      ) {
         saveChunkedSlot(slotId, recovered).catch(() => {});
       }
       return recovered;
@@ -4659,6 +4675,7 @@ export const StorageService = {
         cashRegisters: DEFAULT_CASH_REGISTERS,
         dailyBalances: [],
         debtsReceivables: [],
+        fixedExpenses: [],
       };
       await saveItem(localKey, initial);
       return initial;
@@ -4670,6 +4687,7 @@ export const StorageService = {
       cashRegisters: DEFAULT_CASH_REGISTERS,
       dailyBalances: [],
       debtsReceivables: [],
+      fixedExpenses: [],
     };
   },
 

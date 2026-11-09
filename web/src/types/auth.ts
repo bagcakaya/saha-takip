@@ -522,6 +522,14 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
         defaultAdmin: true,
       },
       {
+        id: 'fixed_expenses',
+        name: 'Sabit Masraflar',
+        shortTitle: 'Sabit Masraf',
+        description: 'Her ay düzenli ödemesi olan sabit masraf kalemlerinin vade ve ödeme takibi',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
         id: 'cash_register',
         name: 'Kasa & Günlük Mevcut',
         shortTitle: 'Kasa Takibi',

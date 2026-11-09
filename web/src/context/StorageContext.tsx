@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord, FixedExpenseRecord } from '../types/storage';
 import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
@@ -312,6 +312,12 @@ interface StorageContextType {
   updateDebtReceivable: (item: DebtReceivableRecord) => Promise<void>;
   deleteDebtReceivable: (id: string) => Promise<void>;
   toggleDebtReceivableStatus: (id: string) => Promise<void>;
+  addFixedExpense: (
+    item: Omit<FixedExpenseRecord, 'id' | 'createdAt' | 'status'> & { status?: 'pending' | 'paid' }
+  ) => Promise<void>;
+  updateFixedExpense: (item: FixedExpenseRecord) => Promise<void>;
+  deleteFixedExpense: (id: string) => Promise<void>;
+  toggleFixedExpenseStatus: (id: string) => Promise<void>;
   refreshAccountingData: () => Promise<void>;
 }
 
@@ -4611,6 +4617,69 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveAccountingData(updatedPayload);
   };
 
+  const addFixedExpense = async (
+    item: Omit<FixedExpenseRecord, 'id' | 'createdAt' | 'status'> & { status?: 'pending' | 'paid' }
+  ): Promise<void> => {
+    const newItem: FixedExpenseRecord = {
+      ...item,
+      id: generateId(),
+      status: item.status || 'pending',
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      fixedExpenses: [newItem, ...(accountingData.fixedExpenses || [])],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const updateFixedExpense = async (item: FixedExpenseRecord): Promise<void> => {
+    const updatedList = (accountingData.fixedExpenses || []).map((r) =>
+      r.id === item.id ? { ...item, updatedAt: Date.now() } : r
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      fixedExpenses: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteFixedExpense = async (id: string): Promise<void> => {
+    const updatedList = (accountingData.fixedExpenses || []).filter((r) => r.id !== id);
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      fixedExpenses: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const toggleFixedExpenseStatus = async (id: string): Promise<void> => {
+    const now = Date.now();
+    const updatedList = (accountingData.fixedExpenses || []).map((r) => {
+      if (r.id !== id) return r;
+      const nextStatus: 'pending' | 'paid' = r.status === 'paid' ? 'pending' : 'paid';
+      return {
+        ...r,
+        status: nextStatus,
+        paidAt: nextStatus === 'paid' ? now : undefined,
+        paidBy: nextStatus === 'paid' ? user?.id : undefined,
+        paidByName: nextStatus === 'paid' ? user?.name : undefined,
+        updatedAt: now,
+      };
+    });
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      fixedExpenses: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
   const refreshAccountingData = async (): Promise<void> => {
     try {
       const data = await StorageService.getAccountingData();
@@ -8220,6 +8289,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateDebtReceivable,
         deleteDebtReceivable,
         toggleDebtReceivableStatus,
+        addFixedExpense,
+        updateFixedExpense,
+        deleteFixedExpense,
+        toggleFixedExpenseStatus,
         refreshAccountingData,
         checkInStaff,
         checkOutStaff,

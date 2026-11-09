@@ -629,12 +629,32 @@ export interface DebtReceivableRecord {
   createdByName?: string;
 }
 
+export interface FixedExpenseRecord {
+  id: string;
+  categoryId: string;
+  categoryCode: string; // Örn: '770.07'
+  categoryName: string; // Örn: 'Kira & Aidat Gideri'
+  amount: number; // Sabit Masraf Tutarı (₺ - Numeric)
+  maturity?: string; // Vade (Opsiyonel)
+  dueDate?: string; // Son Ödeme Tarihi YYYY-MM-DD (Opsiyonel)
+  description?: string; // Açıklama (Opsiyonel)
+  status: DebtReceivableStatus; // 'pending' | 'paid'
+  paidAt?: number;
+  paidBy?: string;
+  paidByName?: string;
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface AccountingDataPayload {
   transactions: AccountingTransaction[];
   categories: AccountingCategory[];
   cashRegisters: CashRegister[];
   dailyBalances: DailyCashBalance[];
   debtsReceivables?: DebtReceivableRecord[];
+  fixedExpenses?: FixedExpenseRecord[];
 }
 
 // ==========================================

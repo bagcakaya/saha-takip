@@ -655,7 +655,7 @@ const MainApp: React.FC = () => {
         <main
           className="flex-1 w-full max-w-full px-3.5 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6 overflow-x-hidden"
           style={{
-            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)',
+            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 5.5rem)',
           }}
         >
           <ErrorBoundary onReset={() => navigateToTab('home')}>
