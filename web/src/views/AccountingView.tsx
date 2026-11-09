@@ -27,7 +27,6 @@ import {
   ArrowDownLeft,
   Scale,
   ArrowLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -491,12 +490,6 @@ export const AccountingView: React.FC = () => {
   const debtsReceivables = accountingData.debtsReceivables || [];
   const unpaidDebtsCount = debtsReceivables.filter((r) => r.type === 'debt' && r.status !== 'paid').length;
   const unpaidReceivablesCount = debtsReceivables.filter((r) => r.type === 'receivable' && r.status !== 'paid').length;
-  const totalUnpaidDebtAmt = debtsReceivables
-    .filter((r) => r.type === 'debt' && r.status !== 'paid')
-    .reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
-  const totalUnpaidRecAmt = debtsReceivables
-    .filter((r) => r.type === 'receivable' && r.status !== 'paid')
-    .reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
@@ -573,109 +566,6 @@ export const AccountingView: React.FC = () => {
                   Cari Vade & Ödeme Takibi
                 </span>
               </button>
-            )}
-          </div>
-
-          {/* Detaylı Modül Kartları */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Modül 1: Gelir / Gider */}
-            {isSubModulePermitted('accounting', 'income_expense', user, company) && (
-              <div
-                onClick={() => navigateToModule('income_expense')}
-                className="group p-5 sm:p-6 rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500 shadow-sm hover:shadow-xl hover:shadow-emerald-500/10 transition-all cursor-pointer flex flex-col justify-between gap-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-                      <Calculator className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                        Gelir / Gider Modülü
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Gelir & gider hareketleri, masraf kalemleri (ERP kodlu) ve günlük kasa takibi
-                      </p>
-                    </div>
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-emerald-600 group-hover:text-white text-slate-500 flex items-center justify-center transition-colors shrink-0">
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-400 block">
-                      Bu Ay Gelir
-                    </span>
-                    <span className="text-xs sm:text-sm font-black text-emerald-700 dark:text-emerald-300 mt-0.5 block truncate">
-                      {totals.income.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
-                    <span className="text-[10px] font-black uppercase text-rose-700 dark:text-rose-400 block">
-                      Bu Ay Gider
-                    </span>
-                    <span className="text-xs sm:text-sm font-black text-rose-700 dark:text-rose-300 mt-0.5 block truncate">
-                      {totals.expense.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
-                    <span className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-400 block">
-                      Bugünkü Kasa
-                    </span>
-                    <span className="text-xs sm:text-sm font-black text-amber-700 dark:text-amber-300 mt-0.5 block truncate">
-                      {todayDailyBalance.total.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Modül 2: Borçlar / Alacaklar */}
-            {isSubModulePermitted('accounting', 'debts_receivables', user, company) && (
-              <div
-                onClick={() => navigateToModule('debts_receivables')}
-                className="group p-5 sm:p-6 rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800 hover:border-amber-500 dark:hover:border-amber-500 shadow-sm hover:shadow-xl hover:shadow-amber-500/10 transition-all cursor-pointer flex flex-col justify-between gap-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
-                      <Scale className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
-                        Borçlar / Alacaklar Modülü
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Cariler modülü ile entegre borç ve alacak takibi, vade ve son ödeme tarihleri
-                      </p>
-                    </div>
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-amber-500 group-hover:text-white text-slate-500 flex items-center justify-center transition-colors shrink-0">
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-                  <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
-                    <span className="text-[10px] font-black uppercase text-rose-700 dark:text-rose-400 block">
-                      Toplam Kalan Borç ({unpaidDebtsCount})
-                    </span>
-                    <span className="text-xs sm:text-sm font-black text-rose-700 dark:text-rose-300 mt-0.5 block truncate">
-                      {totalUnpaidDebtAmt.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-400 block">
-                      Toplam Kalan Alacak ({unpaidReceivablesCount})
-                    </span>
-                    <span className="text-xs sm:text-sm font-black text-emerald-700 dark:text-emerald-300 mt-0.5 block truncate">
-                      {totalUnpaidRecAmt.toLocaleString('tr-TR')} ₺
-                    </span>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>
