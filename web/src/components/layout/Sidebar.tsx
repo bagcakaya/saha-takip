@@ -21,6 +21,7 @@ import {
   UserPlus,
   Calculator,
   Sparkles,
+  Bell,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
@@ -58,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     timedFollowUps,
     jobApplications,
     accountingData,
+    badgeCount,
   } = useStorage();
   const [isCariListOpen, setIsCariListOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -191,6 +193,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 <Home className="w-4 h-4" />
                 <span>Ana Menü</span>
               </div>
+            </button>
+
+            {/* 0.1. Gelen Bildirimler (Canlı Okunmamış Sayı Rozeti) */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('saha:open-notifications'))}
+              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-150 cursor-pointer ${
+                badgeCount > 0
+                  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Bell className={`w-4 h-4 ${badgeCount > 0 ? 'text-rose-600 dark:text-rose-400' : ''}`} />
+                <span>Bildirimler</span>
+              </div>
+              {badgeCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white shadow-xs">
+                  {badgeCount > 99 ? '99+' : badgeCount}
+                </span>
+              )}
             </button>
 
             {/* 0.5. Kurum ve Şubeler (Yalnızca POLATLAR admin & murat) */}

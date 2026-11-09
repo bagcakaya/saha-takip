@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useStorage } from '../../context/StorageContext';
 import { isUserAdmin, canUserManageServerConfig, isModulePermitted } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
@@ -29,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   actionButton,
 }) => {
   const { user, company, logout } = useAuth();
+  const { badgeCount } = useStorage();
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -95,6 +97,26 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="truncate max-w-[100px]">{user.name}</span>
         </div>
       )}
+
+      {/* Notifications Bell Button with Live Unread Count Badge */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new CustomEvent('saha:open-notifications'))}
+        className={`p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer ${
+          badgeCount > 0
+            ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-200/80 dark:border-rose-800/60'
+            : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+        }`}
+        title={badgeCount > 0 ? `${badgeCount} Okunmamış Bildirim` : 'Gelen Bildirimler'}
+        aria-label="Gelen Bildirimler"
+      >
+        <Bell className="w-4 h-4" />
+        {badgeCount > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </span>
+        )}
+      </button>
 
       {/* Settings (Notification & Device Settings) Button */}
       <button

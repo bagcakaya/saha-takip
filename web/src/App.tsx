@@ -26,6 +26,7 @@ import { LocationDetailModal } from './components/installations/LocationDetailMo
 import { PublicSalarySlipViewer } from './components/salary/PublicSalarySlipViewer';
 import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
+import { NotificationListModal } from './components/common/NotificationListModal';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
 import { AiFloatingButton } from './components/ai/AiFloatingButton';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
@@ -73,20 +74,26 @@ const MainApp: React.FC = () => {
     addPhotoToLocation,
     deletePhotoFromLocation,
     cariler,
+    lastReadTime,
+    markAllAsRead,
   } = useStorage();
 
   // Selected location for right summary panel preview / detail modal
   const [previewLocation, setPreviewLocation] = useState<LocationItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
+  const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
-  // Listen for AI Assistant open events and Alt+A hotkey
+  // Listen for AI Assistant & Notifications open events and Alt+A hotkey
   useEffect(() => {
     const handleOpenAi = () => {
       if (isModulePermitted('ai_assistant', user, company)) {
         setIsAiAssistantOpen(true);
       }
+    };
+    const handleOpenNotifications = () => {
+      setIsNotificationsModalOpen(true);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && (e.key === 'a' || e.key === 'A')) {
@@ -98,9 +105,11 @@ const MainApp: React.FC = () => {
     };
 
     window.addEventListener('saha:open-ai-assistant', handleOpenAi);
+    window.addEventListener('saha:open-notifications', handleOpenNotifications);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('saha:open-ai-assistant', handleOpenAi);
+      window.removeEventListener('saha:open-notifications', handleOpenNotifications);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [user, company]);
@@ -824,6 +833,40 @@ const MainApp: React.FC = () => {
 
       {/* Global Ringing Alarm Modal for Managers */}
       {isAdmin && <CariAlarmRingingModal />}
+
+      {/* Global Notification List Modal (Accessible from Header & Sidebar on any screen) */}
+      {isNotificationsModalOpen && (
+        <NotificationListModal
+          isOpen={isNotificationsModalOpen}
+          onClose={() => setIsNotificationsModalOpen(false)}
+          lastReadTime={lastReadTime}
+          onMarkAllAsRead={markAllAsRead}
+          onNavigate={(tab, filter) => {
+            setIsNotificationsModalOpen(false);
+            navigateToTab(tab, { filter });
+            if (filter) {
+              if (tab === 'staff_tracking') {
+                window.dispatchEvent(
+                  new CustomEvent('saha:set-staff-subtab', { detail: { subTab: filter } })
+                );
+              } else if (tab === 'notes') {
+                if (user?.id) {
+                  try {
+                    localStorage.setItem(`@saha_takip_notes_active_filter_${user.id}`, filter);
+                  } catch {}
+                }
+                window.dispatchEvent(
+                  new CustomEvent('saha:set-notes-filter', { detail: { filter } })
+                );
+              } else if (tab === 'installations') {
+                window.dispatchEvent(
+                  new CustomEvent('saha:set-installations-filter', { detail: { filter } })
+                );
+              }
+            }
+          }}
+        />
+      )}
 
       {/* Yapay Zekâ Asistanı - Global Yüzen Buton & Modal */}
       {isModulePermitted('ai_assistant', user, company) && (

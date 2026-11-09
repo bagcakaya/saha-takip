@@ -86,6 +86,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     securityLogs,
     returnWarrantyItems,
     timedFollowUps,
+    adminReminders,
     markSecurityLogsAsRead,
   } = useStorage();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -594,6 +595,20 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     });
 
 
+    // 7. Admin reminders for staff
+    adminReminders.forEach((rem) => {
+      notifications.push({
+        id: `adm_rem_${rem.id}`,
+        type: 'reminder',
+        title: `📢 ${rem.title || 'Yönetici Duyurusu'}`,
+        senderName: rem.createdByName || 'Yönetici',
+        senderRole: 'Yönetici',
+        content: rem.content,
+        createdAt: rem.createdAt,
+        tab: 'notes',
+      });
+    });
+
     // 8. Approved / Rejected Locations for staff
     allLocations.forEach((loc) => {
       if (loc.completedBy === user.id || loc.createdBy === user.id) {
@@ -705,6 +720,11 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       } catch (err) {
         console.warn('LocalStorage save cleared notifications time error:', err);
       }
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('saha:notifications-cleared', { detail: { time: now } }));
+      } catch {}
     }
 
     // Unread sayaçlarını sıfırla ve güvenlik loglarını okundu işaretle

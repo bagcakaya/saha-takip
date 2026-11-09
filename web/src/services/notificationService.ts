@@ -191,13 +191,18 @@ export const NotificationService = {
       .toLowerCase();
     const normBody = (body || '').trim().toLowerCase();
     const explicitTag = options?.tag ? options.tag.trim() : '';
-    const dedupKey = explicitTag || `${normTitle}:::${normBody}`;
+    const contentKey = `${normTitle}:::${normBody}`;
+    const dedupKey = explicitTag || contentKey;
     const now = Date.now();
+    const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 saat boyunca aynı bildirim tekrar tetiklenemez
 
-    // 1. In-memory deduplication check (60s window)
-    const lastSent = this.recentNotifications.get(dedupKey);
-    if (lastSent && now - lastSent < 60000) {
-      console.log('Skipping duplicate local notification within 60s window:', normTitle);
+    // 1. In-memory deduplication check (both tag and content)
+    const lastSentTag = this.recentNotifications.get(dedupKey);
+    const lastSentContent = this.recentNotifications.get(contentKey);
+    if (
+      (lastSentTag && now - lastSentTag < DEDUP_WINDOW_MS) ||
+      (lastSentContent && now - lastSentContent < DEDUP_WINDOW_MS)
+    ) {
       return;
     }
 
@@ -206,13 +211,22 @@ export const NotificationService = {
       const lsKey = '@saha_recent_local_notif';
       const raw = localStorage.getItem(lsKey);
       const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
-      if (cache[dedupKey] && now - cache[dedupKey] < 60000) {
-        console.log('Skipping duplicate local notification (cross-tab 60s):', normTitle);
+      if (
+        (cache[dedupKey] && now - cache[dedupKey] < DEDUP_WINDOW_MS) ||
+        (cache[contentKey] && now - cache[contentKey] < DEDUP_WINDOW_MS)
+      ) {
+        this.recentNotifications.set(dedupKey, cache[dedupKey] || now);
+        this.recentNotifications.set(contentKey, cache[contentKey] || now);
         return;
       }
       cache[dedupKey] = now;
-      for (const [k, ts] of Object.entries(cache)) {
-        if (now - ts > 120000) delete cache[k];
+      cache[contentKey] = now;
+      const keys = Object.keys(cache);
+      if (keys.length > 300) {
+        const sorted = keys.sort((a, b) => (cache[a] || 0) - (cache[b] || 0));
+        for (let i = 0; i < sorted.length - 250; i++) {
+          delete cache[sorted[i]];
+        }
       }
       localStorage.setItem(lsKey, JSON.stringify(cache));
     } catch {
@@ -220,9 +234,11 @@ export const NotificationService = {
     }
 
     this.recentNotifications.set(dedupKey, now);
-    if (this.recentNotifications.size > 50) {
-      for (const [k, ts] of this.recentNotifications.entries()) {
-        if (now - ts > 60000) this.recentNotifications.delete(k);
+    this.recentNotifications.set(contentKey, now);
+    if (this.recentNotifications.size > 500) {
+      const entries = Array.from(this.recentNotifications.entries()).sort((a, b) => a[1] - b[1]);
+      for (let i = 0; i < 100; i++) {
+        this.recentNotifications.delete(entries[i][0]);
       }
     }
 

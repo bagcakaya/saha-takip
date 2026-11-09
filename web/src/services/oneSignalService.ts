@@ -917,8 +917,21 @@ export const OneSignalService = {
     }
 
     try {
-      // 1. Target: All subscribers of this company (Strict tenant isolation)
+      // 1. Target: All subscribers of this company (Strict tenant isolation + Multi-Channel active device delivery)
       if (targetMode === 'all') {
+        const cleanExcludeUserIds = Array.isArray(excludeUserIds)
+          ? excludeUserIds.map((id) => String(id).trim()).filter(Boolean)
+          : [];
+        const cleanExcludeSubIds = Array.isArray(excludeSubscriptionIds)
+          ? excludeSubscriptionIds.map((s) => String(s).trim()).filter(Boolean)
+          : [];
+        if (!sendAfter && typeof localStorage !== 'undefined') {
+          const currentDeviceSub = localStorage.getItem('@saha_takip_last_sub_id');
+          if (currentDeviceSub && cleanExcludeUserIds.length > 0) {
+            cleanExcludeSubIds.push(currentDeviceSub);
+          }
+        }
+
         const companyFilters: any[] = [
           { field: 'tag', key: 'company_code', relation: '=', value: targetCompanyCode },
         ];
@@ -927,42 +940,104 @@ export const OneSignalService = {
         } else {
           companyFilters.push({ field: 'tag', key: 'company_code', relation: '!=', value: 'NESACOCUK' });
         }
+        if (cleanExcludeUserIds.length > 0) {
+          cleanExcludeUserIds.forEach((exId) => {
+            companyFilters.push({ field: 'tag', key: 'userId', relation: '!=', value: exId });
+          });
+        }
 
+        let compUserIds: string[] = [];
+        if (typeof localStorage !== 'undefined') {
+          try {
+            const raw = localStorage.getItem('@gorev_tamamlama_users_list');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                compUserIds = parsed
+                  .filter(
+                    (u: any) =>
+                      (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode &&
+                      u.id &&
+                      !cleanExcludeUserIds.includes(String(u.id))
+                  )
+                  .map((u: any) => String(u.id));
+              }
+            }
+          } catch {}
+        }
+
+        let registryCompanySubIds: string[] = [];
         try {
-          const res = await this._postNotification({
+          const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
+          if (Array.isArray(registeredDevices)) {
+            registryCompanySubIds = registeredDevices
+              .filter(
+                (d) =>
+                  d.pushSubscriptionId &&
+                  (!d.userId || !cleanExcludeUserIds.includes(d.userId)) &&
+                  !cleanExcludeSubIds.includes(d.pushSubscriptionId)
+              )
+              .map((d) => d.pushSubscriptionId!)
+              .filter(Boolean);
+          }
+        } catch {}
+
+        if (targetCompanyCode !== 'POLATLAR') {
+          registryCompanySubIds = registryCompanySubIds.filter((sub) => !polatlarSubs.includes(sub));
+        } else {
+          registryCompanySubIds = registryCompanySubIds.filter((sub) => sub !== nesaAdminSub);
+        }
+
+        const allTasks: Promise<void>[] = [];
+        const sentIds: string[] = [];
+
+        if (registryCompanySubIds.length > 0) {
+          allTasks.push(
+            this._postNotification({
+              ...basePayload,
+              include_player_ids: Array.from(new Set(registryCompanySubIds)),
+              bypassServerDedup: true,
+            })
+              .then((r) => {
+                if (r?.id && r.id !== 'deduped') sentIds.push(r.id);
+              })
+              .catch(() => {})
+          );
+        }
+
+        allTasks.push(
+          this._postNotification({
             ...basePayload,
             filters: companyFilters,
-          });
-          return { success: true, data: res };
-        } catch (filterErr) {
-          // If tag filter failed, fallback to alias targeting for all users of this company
-          let compUserIds: string[] = [];
-          if (typeof localStorage !== 'undefined') {
-            try {
-              const raw = localStorage.getItem('@gorev_tamamlama_users_list');
-              if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                  compUserIds = parsed
-                    .filter((u: any) => (u.companyCode || 'POLATLAR').toUpperCase() === targetCompanyCode && u.id)
-                    .map((u: any) => String(u.id));
-                }
-              }
-            } catch {}
-          }
-          if (compUserIds.length > 0) {
-            try {
-              const aliasPayload = {
-                ...basePayload,
-                include_aliases: { external_id: compUserIds },
-                target_channel: 'push',
-              };
-              const aliasRes = await this._postNotification(aliasPayload);
-              return { success: true, data: aliasRes };
-            } catch {}
-          }
-          throw filterErr;
+            bypassServerDedup: true,
+          })
+            .then((r) => {
+              if (r?.id && r.id !== 'deduped') sentIds.push(r.id);
+            })
+            .catch(() => {})
+        );
+
+        if (compUserIds.length > 0) {
+          allTasks.push(
+            this._postNotification({
+              ...basePayload,
+              include_aliases: { external_id: compUserIds },
+              target_channel: 'push',
+              bypassServerDedup: true,
+            })
+              .then((r) => {
+                if (r?.id && r.id !== 'deduped') sentIds.push(r.id);
+              })
+              .catch(() => {})
+          );
         }
+
+        await Promise.all(allTasks);
+        if (sentIds.length > 0) {
+          const joined = Array.from(new Set(sentIds.join(',').split(',').filter(Boolean))).join(',');
+          return { success: true, data: { id: joined, ids: sentIds } };
+        }
+        return { success: true, data: { id: 'dispatched' } };
       }
 
       // 2. Target: All admins of this company (Strict tenant isolation)
@@ -982,8 +1057,8 @@ export const OneSignalService = {
           } catch {}
         }
 
-        if (adminUserIds.length === 0 && cleanIds.length > 0) {
-          adminUserIds = cleanIds;
+        if (cleanIds.length > 0) {
+          adminUserIds = Array.from(new Set([...adminUserIds, ...cleanIds]));
         }
 
         // STRICT TENANT ISOLATION: Never include POLATLAR super admins if targeting another company!
@@ -995,7 +1070,9 @@ export const OneSignalService = {
 
         // Fallback for POLATLAR only
         if (adminUserIds.length === 0 && targetCompanyCode === 'POLATLAR') {
-          adminUserIds = ['admin-root', 'mtjsnufrp8pfa'];
+          adminUserIds = ['admin-root', 'admin-1', 'mtjsnufrp8pfa'];
+        } else if (targetCompanyCode === 'POLATLAR') {
+          adminUserIds = Array.from(new Set([...adminUserIds, 'admin-root', 'admin-1', 'mtjsnufrp8pfa']));
         }
 
         // Exclude specified users (e.g. sender staff who initiated request)
@@ -1014,11 +1091,9 @@ export const OneSignalService = {
             registryAdminSubIds = registeredDevices
               .filter(
                 (d) =>
-                  d.userRole === 'admin' &&
+                  (d.userRole === 'admin' || (d.userId && adminUserIds.includes(d.userId))) &&
                   d.pushSubscriptionId &&
-                  d.userId &&
-                  adminUserIds.includes(d.userId) &&
-                  !cleanExcludeUserIds.includes(d.userId)
+                  (!d.userId || !cleanExcludeUserIds.includes(d.userId))
               )
               .map((d) => d.pushSubscriptionId!)
               .filter(Boolean);

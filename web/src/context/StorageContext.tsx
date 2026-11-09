@@ -320,22 +320,184 @@ const SEEN_REMINDER_READS_KEY = (userId: string, compCode?: string) => `@seen_re
 const SEEN_COMPLETED_RETURNS_KEY = (userId: string, compCode?: string) => `@seen_completed_returns_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
+// Bellek içi (0ms) + LocalStorage destekli bildirim tekilleştirme havuzu.
+// LocalStorage kotası dolsa dahi oturum boyunca ve yenilemelerde aynı bildirimin tekrar gelmesini %100 engeller.
+const inMemorySeenSets = new Map<string, Set<string>>();
+
 const getStoredSet = (key: string): Set<string> => {
+  const mem = inMemorySeenSets.get(key);
   try {
     const raw = localStorage.getItem(key);
-    if (raw) return new Set(JSON.parse(raw));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const combined = new Set<string>(mem ? Array.from(mem) : []);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => combined.add(String(item)));
+      }
+      inMemorySeenSets.set(key, combined);
+      return combined;
+    }
   } catch {
     // ignore
   }
-  return new Set();
+  if (mem) return new Set(mem);
+  const fresh = new Set<string>();
+  inMemorySeenSets.set(key, fresh);
+  return fresh;
 };
 
 const saveStoredSet = (key: string, setObj: Set<string>) => {
+  const arr = Array.from(setObj).slice(-2500);
+  inMemorySeenSets.set(key, new Set(arr));
   try {
-    localStorage.setItem(key, JSON.stringify(Array.from(setObj)));
+    localStorage.setItem(key, JSON.stringify(arr));
   } catch {
-    // ignore
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (
+          k &&
+          (k.startsWith('@gorev_tamamlama_locations') ||
+            k.startsWith('@gorev_tamamlama_services') ||
+            k.startsWith('@gorev_tamamlama_general_notes') ||
+            k.startsWith('@gorev_tamamlama_note_media_cache') ||
+            k.startsWith('@gorev_tamamlama_return_warranty') ||
+            k.startsWith('@saha_takip_cariler_data'))
+        ) {
+          localStorage.removeItem(k);
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(arr));
+    } catch {
+      // ignore
+    }
   }
+};
+
+const seedExistingRecordsAsSeen = (
+  userId: string,
+  compCode: string,
+  data: {
+    locations?: LocationItem[] | null;
+    services?: ServiceItem[] | null;
+    notes?: GeneralNote[] | null;
+    returns?: ReturnWarrantyItem[] | null;
+    reminders?: AdminReminder[] | null;
+  }
+) => {
+  const now = Date.now();
+  const locs = data.locations || [];
+  const srvs = data.services || [];
+  const nts = data.notes || [];
+  const returns = data.returns || [];
+  const reminders = data.reminders || [];
+
+  if (locs.length > 0) {
+    const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(userId, compCode));
+    const seenCompletedLocs = getStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(userId, compCode));
+    const seenApprovalLocations = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(userId, compCode));
+    locs.forEach((l) => {
+      seenLocs.add(l.id);
+      const isComplete =
+        Array.isArray(l.tasks) &&
+        l.tasks.length > 0 &&
+        l.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
+      if (isComplete) seenCompletedLocs.add(l.id);
+      if (l.status === 'pending_approval' && l.completedAt) {
+        seenApprovalLocations.add(`${l.id}_pending_${l.completedAt}`);
+      }
+      if (l.status === 'approved' && l.approvedAt) {
+        seenApprovalLocations.add(`${l.id}_approved_${l.approvedAt}`);
+      }
+      if (l.status === 'rejected' && l.rejectedAt) {
+        seenApprovalLocations.add(`${l.id}_rejected_${l.rejectedAt}`);
+      }
+    });
+    saveStoredSet(SEEN_LOCATIONS_KEY(userId, compCode), seenLocs);
+    saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(userId, compCode), seenCompletedLocs);
+    saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(userId, compCode), seenApprovalLocations);
+  }
+
+  if (srvs.length > 0) {
+    const seenServices = getStoredSet(SEEN_SERVICES_KEY(userId, compCode));
+    const seenCompletedServices = getStoredSet(SEEN_COMPLETED_SERVICES_KEY(userId, compCode));
+    const seenApprovalServices = getStoredSet(SEEN_APPROVAL_SERVICES_KEY(userId, compCode));
+    srvs.forEach((s) => {
+      seenServices.add(s.id);
+      if (s.status === 'pending_approval' && s.completedAt) {
+        seenCompletedServices.add(`${s.id}_${s.completedAt}`);
+      }
+      if (s.status === 'approved' && s.approvedAt) {
+        seenApprovalServices.add(`${s.id}_approved_${s.approvedAt}`);
+      }
+      if (s.status === 'rejected' && s.rejectedAt) {
+        seenApprovalServices.add(`${s.id}_rejected_${s.rejectedAt}`);
+      }
+    });
+    saveStoredSet(SEEN_SERVICES_KEY(userId, compCode), seenServices);
+    saveStoredSet(SEEN_COMPLETED_SERVICES_KEY(userId, compCode), seenCompletedServices);
+    saveStoredSet(SEEN_APPROVAL_SERVICES_KEY(userId, compCode), seenApprovalServices);
+  }
+
+  if (nts.length > 0) {
+    const seenNotes = getStoredSet(SEEN_NOTES_KEY(userId, compCode));
+    const seenReminders = getStoredSet(SEEN_REMINDERS_KEY(userId, compCode));
+    const seenCompletedNotes = getStoredSet(SEEN_COMPLETED_NOTES_KEY(userId, compCode));
+    const seenApprovalNotes = getStoredSet(SEEN_APPROVAL_NOTES_KEY(userId, compCode));
+    nts.forEach((n) => {
+      seenNotes.add(n.id);
+      if (n.reminderActive && n.reminderDate) {
+        const reminderTime = new Date(n.reminderDate).getTime();
+        if (reminderTime <= now) seenReminders.add(n.id);
+      }
+      if (n.status === 'pending_approval' && n.completedAt) {
+        seenCompletedNotes.add(`${n.id}_${n.completedAt}`);
+      }
+      if (n.status === 'approved' && n.approvedAt) {
+        seenApprovalNotes.add(`${n.id}_approved_${n.approvedAt}`);
+      }
+      if (n.status === 'rejected' && n.rejectedAt) {
+        seenApprovalNotes.add(`${n.id}_rejected_${n.rejectedAt}`);
+      }
+    });
+    saveStoredSet(SEEN_NOTES_KEY(userId, compCode), seenNotes);
+    saveStoredSet(SEEN_REMINDERS_KEY(userId, compCode), seenReminders);
+    saveStoredSet(SEEN_COMPLETED_NOTES_KEY(userId, compCode), seenCompletedNotes);
+    saveStoredSet(SEEN_APPROVAL_NOTES_KEY(userId, compCode), seenApprovalNotes);
+  }
+
+  if (returns.length > 0) {
+    const seenWarranty = getStoredSet(SEEN_WARRANTY_REMINDERS_KEY(userId, compCode));
+    const seenCompletedReturns = getStoredSet(SEEN_COMPLETED_RETURNS_KEY(userId, compCode));
+    returns.forEach((r) => {
+      if (r.reminderActive && r.reminderDate) {
+        const reminderTime = new Date(r.reminderDate).getTime();
+        if (reminderTime <= now) seenWarranty.add(r.id);
+      }
+      if (r.status === 'completed' && r.completedAt) {
+        seenCompletedReturns.add(`${r.id}_${r.completedAt}`);
+      }
+    });
+    saveStoredSet(SEEN_WARRANTY_REMINDERS_KEY(userId, compCode), seenWarranty);
+    saveStoredSet(SEEN_COMPLETED_RETURNS_KEY(userId, compCode), seenCompletedReturns);
+  }
+
+  if (reminders.length > 0) {
+    const seenAdminReminders = getStoredSet(SEEN_ADMIN_REMINDERS_KEY(userId, compCode));
+    const seenReminderReads = getStoredSet(SEEN_REMINDER_READS_KEY(userId, compCode));
+    reminders.forEach((r) => {
+      seenAdminReminders.add(r.id);
+      if (r.readBy && Array.isArray(r.readBy)) {
+        r.readBy.forEach((readerId) => seenReminderReads.add(`${r.id}_${readerId}`));
+      }
+    });
+    saveStoredSet(SEEN_ADMIN_REMINDERS_KEY(userId, compCode), seenAdminReminders);
+    saveStoredSet(SEEN_REMINDER_READS_KEY(userId, compCode), seenReminderReads);
+  }
+
+  try {
+    localStorage.setItem(SEEN_INITIALIZED_KEY(userId, compCode), 'true');
+  } catch {}
 };
 
 export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -349,6 +511,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ).trim().toUpperCase();
   const activeCompId = (isSuper ? viewingCompany?.id : null) || company?.id || (activeCompCode === 'POLATLAR' ? 1 : undefined);
   const compCode = activeCompCode;
+  const isInitialSyncCompleteRef = useRef<boolean>(false);
+  const sessionStartTimeRef = useRef<number>(Date.now());
+  const firedInAppAlertsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     SystemLogger.setUserContext(
@@ -578,6 +743,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setActiveRingingAlarm(null);
     setIsLoading(true);
     setDataCompanyCode('');
+    isInitialSyncCompleteRef.current = false;
+    sessionStartTimeRef.current = Date.now();
 
     StorageService.setCompany(compCode, compId);
     FastActionAgent.start(compCode);
@@ -590,6 +757,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const cached = await StorageService.getCachedData();
         if (isMounted) {
+          seedExistingRecordsAsSeen(user.id, compCode, {
+            locations: cached.locations,
+            services: cached.services,
+            notes: cached.notes,
+            returns: cached.returnWarranty,
+            reminders: cached.adminReminders,
+          });
           if (cached.locations && cached.locations.length > 0) setAllLocations(cached.locations);
           if (cached.standardTasks && cached.standardTasks.length > 0) setStandardTasks(cached.standardTasks);
           if (cached.notes && cached.notes.length > 0) setAllNotes(cached.notes);
@@ -671,138 +845,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           createdByName: l.createdByName || 'Sistem Yöneticisi',
         }));
 
-        // First-time device seeding: Seed existing historical records so they don't blast notifications on first login
-        const initKey = SEEN_INITIALIZED_KEY(user.id, compCode);
-        if (localStorage.getItem(initKey) === null) {
-          const now = Date.now();
-
-          // 1. Locations
-          const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode));
-          migratedLocs.forEach((l) => seenLocs.add(l.id));
-          saveStoredSet(SEEN_LOCATIONS_KEY(user.id, compCode), seenLocs);
-
-          // 2. Completed Locations
-          const seenCompletedLocs = getStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode));
-          migratedLocs.forEach((l) => {
-            const isComplete =
-              l.tasks.length > 0 &&
-              l.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
-            if (isComplete) seenCompletedLocs.add(l.id);
-          });
-          saveStoredSet(SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode), seenCompletedLocs);
-
-          // 3. Services
-          const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id, compCode));
-          srvs.forEach((s) => seenServices.add(s.id));
-          saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
-
-          // 4. Notes
-          const seenNotes = getStoredSet(SEEN_NOTES_KEY(user.id, compCode));
-          nts.forEach((n) => seenNotes.add(n.id));
-          saveStoredSet(SEEN_NOTES_KEY(user.id, compCode), seenNotes);
-
-          // 5. Timed Reminders
-          const seenReminders = getStoredSet(SEEN_REMINDERS_KEY(user.id, compCode));
-          nts.forEach((n) => {
-            if (n.reminderActive && n.reminderDate) {
-              const reminderTime = new Date(n.reminderDate).getTime();
-              if (reminderTime <= now) seenReminders.add(n.id);
-            }
-          });
-          saveStoredSet(SEEN_REMINDERS_KEY(user.id, compCode), seenReminders);
-
-          // 6. Warranty Reminders
-          const seenWarranty = getStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode));
-          returns.forEach((r) => {
-            if (r.reminderActive && r.reminderDate) {
-              const reminderTime = new Date(r.reminderDate).getTime();
-              if (reminderTime <= now) seenWarranty.add(r.id);
-            }
-          });
-          saveStoredSet(SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode), seenWarranty);
-
-          // 7. Completed Notes
-          const seenCompletedNotes = getStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode));
-          nts.forEach((n) => {
-            if (n.status === 'pending_approval' && n.completedAt) {
-              seenCompletedNotes.add(`${n.id}_${n.completedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_COMPLETED_NOTES_KEY(user.id, compCode), seenCompletedNotes);
-
-          // 8. Approved/Rejected Notes
-          const seenApprovalNotes = getStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode));
-          nts.forEach((n) => {
-            if (n.status === 'approved' && n.approvedAt) {
-              seenApprovalNotes.add(`${n.id}_approved_${n.approvedAt}`);
-            }
-            if (n.status === 'rejected' && n.rejectedAt) {
-              seenApprovalNotes.add(`${n.id}_rejected_${n.rejectedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_APPROVAL_NOTES_KEY(user.id, compCode), seenApprovalNotes);
-
-          // 9. Completed Services
-          const seenCompletedServices = getStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode));
-          srvs.forEach((s) => {
-            if (s.status === 'pending_approval' && s.completedAt) {
-              seenCompletedServices.add(`${s.id}_${s.completedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_COMPLETED_SERVICES_KEY(user.id, compCode), seenCompletedServices);
-
-          // 10. Approved/Rejected Services
-          const seenApprovalServices = getStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode));
-          srvs.forEach((s) => {
-            if (s.status === 'approved' && s.approvedAt) {
-              seenApprovalServices.add(`${s.id}_approved_${s.approvedAt}`);
-            }
-            if (s.status === 'rejected' && s.rejectedAt) {
-              seenApprovalServices.add(`${s.id}_rejected_${s.rejectedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_APPROVAL_SERVICES_KEY(user.id, compCode), seenApprovalServices);
-
-          // 11. Approved/Rejected Locations
-          const seenApprovalLocations = getStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode));
-          migratedLocs.forEach((l) => {
-            if (l.status === 'pending_approval' && l.completedAt) {
-              seenApprovalLocations.add(`${l.id}_pending_${l.completedAt}`);
-            }
-            if (l.status === 'approved' && l.approvedAt) {
-              seenApprovalLocations.add(`${l.id}_approved_${l.approvedAt}`);
-            }
-            if (l.status === 'rejected' && l.rejectedAt) {
-              seenApprovalLocations.add(`${l.id}_rejected_${l.rejectedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode), seenApprovalLocations);
-
-          // 12. Admin Reminders (Talimatlar)
-          const seenAdminReminders = getStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode));
-          reminders.forEach((r) => seenAdminReminders.add(r.id));
-          saveStoredSet(SEEN_ADMIN_REMINDERS_KEY(user.id, compCode), seenAdminReminders);
-
-          // 13. Reminder Reads (Okundu Bildirimleri)
-          const seenReminderReads = getStoredSet(SEEN_REMINDER_READS_KEY(user.id, compCode));
-          reminders.forEach((r) => {
-            if (r.readBy && Array.isArray(r.readBy)) {
-              r.readBy.forEach((readerId) => seenReminderReads.add(`${r.id}_${readerId}`));
-            }
-          });
-          saveStoredSet(SEEN_REMINDER_READS_KEY(user.id, compCode), seenReminderReads);
-
-          // 14. Completed Returns / Warranty items (Ürün Döndü)
-          const seenCompletedReturns = getStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode));
-          returns.forEach((r) => {
-            if (r.status === 'completed' && r.completedAt) {
-              seenCompletedReturns.add(`${r.id}_${r.completedAt}`);
-            }
-          });
-          saveStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode), seenCompletedReturns);
-
-          localStorage.setItem(initKey, 'true');
-        }
+        // Always seed all records present on app open into SEEN_* so opening the app never blasts popups/toasts/chimes for existing records.
+        // Unread counts in "Bildirimler" (badgeCount) remain intact because badgeCount uses lastReadTime!
+        seedExistingRecordsAsSeen(user.id, compCode, {
+          locations: migratedLocs,
+          services: srvs,
+          notes: nts,
+          returns,
+          reminders,
+        });
 
         setAllLocations(migratedLocs || []);
         setStandardTasks(tasks || []);
@@ -834,11 +885,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSalaryRecords(salaries || []);
         setDepartmentSalaries(deptSalaries || []);
         setDataCompanyCode(compCode);
+        isInitialSyncCompleteRef.current = true;
         FastActionAgent.start(compCode);
       } catch (err) {
         console.error('Veriler yüklenirken hata oluştu:', err);
       } finally {
         if (isMounted) {
+          isInitialSyncCompleteRef.current = true;
           setIsLoading(false);
         }
       }
@@ -1172,39 +1225,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   }, [allServices, user]);
 
+  // Helper to show a toast at most once per unique event key while inside the app
+  const showUniqueToast = useCallback(
+    (alertKey: string, toast: { title: string; body: string; tab?: TabType; filter?: string }) => {
+      const toastLockKey = `toast:::${alertKey}`;
+      if (firedInAppAlertsRef.current.has(toastLockKey)) return;
+      firedInAppAlertsRef.current.add(toastLockKey);
+      setActiveToast(toast);
+    },
+    []
+  );
+
   // Check incoming direct notes & timed reminders per user device
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
 
     const notesStorageKey = SEEN_NOTES_KEY(user.id, compCode);
     const remindersStorageKey = SEEN_REMINDERS_KEY(user.id, compCode);
-
-    if (localStorage.getItem(notesStorageKey) === null) {
-      const seenNotes = getStoredSet(notesStorageKey);
-      allNotes.forEach((n) => seenNotes.add(n.id));
-      saveStoredSet(notesStorageKey, seenNotes);
-
-      // İlk girişte geçmiş hatırlatıcıların patlamasını da engelle
-      if (localStorage.getItem(remindersStorageKey) === null) {
-        const seenReminders = getStoredSet(remindersStorageKey);
-        const now = Date.now();
-        allNotes.forEach((n) => {
-          if (n.reminderActive && n.reminderDate) {
-            const reminderTime = new Date(n.reminderDate).getTime();
-            if (reminderTime <= now) {
-              seenReminders.add(n.id);
-            }
-          }
-        });
-        saveStoredSet(remindersStorageKey, seenReminders);
-      }
-      return;
-    }
-
     const seenNotes = getStoredSet(notesStorageKey);
     const seenReminders = getStoredSet(remindersStorageKey);
     const now = Date.now();
+    const minLiveTime = sessionStartTimeRef.current - 60000;
     let seenNotesChanged = false;
     let seenRemindersChanged = false;
     const newTargetedNotes: typeof allNotes = [];
@@ -1220,13 +1262,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. Instant Arrival Notification for targeted note
       if (isTargetedToMe) {
-        if (!seenNotes.has(n.id)) {
+        const alertKey = `note_new_${n.id}`;
+        if (!seenNotes.has(n.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenNotes.add(n.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenNotesChanged = true;
-          newTargetedNotes.push(n);
+          if (!n.createdAt || n.createdAt >= minLiveTime) {
+            newTargetedNotes.push(n);
+          }
         }
       } else if (n.createdBy === user.id) {
-        // Mark creator's own note as already seen so creator never gets arrival alert
         if (!seenNotes.has(n.id)) {
           seenNotes.add(n.id);
           seenNotesChanged = true;
@@ -1242,16 +1287,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         if (isReminderForMe) {
           const reminderTime = new Date(n.reminderDate).getTime();
-          if (reminderTime <= now && !seenReminders.has(n.id)) {
+          const remAlertKey = `note_rem_${n.id}_${reminderTime}`;
+          if (reminderTime <= now && !seenReminders.has(n.id) && !firedInAppAlertsRef.current.has(remAlertKey)) {
             seenReminders.add(n.id);
+            firedInAppAlertsRef.current.add(remAlertKey);
             seenRemindersChanged = true;
 
-            const title = '⏰ İş Emri Hatırlatıcısı';
-            NotificationService.sendNotification(title, n.content, '/?tab=notes&filter=reminders', {
-              tag: `note_rem_${n.id}`,
-              skipIfVisible: true,
-            });
-            setActiveToast({ title, body: n.content, tab: 'notes', filter: 'reminders' });
+            if (reminderTime >= minLiveTime) {
+              const title = '⏰ İş Emri Hatırlatıcısı';
+              NotificationService.sendNotification(title, n.content, '/?tab=notes&filter=reminders', {
+                tag: `note_rem_${n.id}`,
+                skipIfVisible: true,
+              });
+              showUniqueToast(remAlertKey, { title, body: n.content, tab: 'notes', filter: 'reminders' });
+            }
           }
         }
       }
@@ -1265,15 +1314,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         tag: `note_new_${n.id}`,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body: n.content, tab: 'notes', filter: 'pending' });
+      showUniqueToast(`note_new_${n.id}`, { title, body: n.content, tab: 'notes', filter: 'pending' });
     } else if (newTargetedNotes.length > 1) {
+      const batchKey = `note_batch_new_${newTargetedNotes.map((x) => x.id).sort().join('_')}`;
       const title = `📋 Size ${newTargetedNotes.length} Yeni İş Emri İletildi!`;
       const body = `${newTargetedNotes.length} adet yeni iş emri atandı.`;
       NotificationService.sendNotification(title, body, '/?tab=notes&filter=pending', {
-        tag: `note_batch_new_${Date.now()}`,
+        tag: batchKey,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+      showUniqueToast(batchKey, { title, body, tab: 'notes', filter: 'pending' });
     }
 
     if (seenNotesChanged) {
@@ -1282,34 +1332,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (seenRemindersChanged) {
       saveStoredSet(remindersStorageKey, seenReminders);
     }
-  }, [allNotes, user, dataCompanyCode]);
+  }, [allNotes, user, dataCompanyCode, showUniqueToast]);
 
   // Check return & warranty reminders for all users (1-week auto or custom reminder)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
 
     const storageKey = SEEN_WARRANTY_REMINDERS_KEY(user.id, compCode);
-
-    // İlk açılış koruması
-    if (localStorage.getItem(storageKey) === null) {
-      const seenWarrantyReminders = getStoredSet(storageKey);
-      const now = Date.now();
-      returnWarrantyItems.forEach((item) => {
-        if (item.reminderActive && item.reminderDate) {
-          const reminderTime = new Date(item.reminderDate).getTime();
-          if (reminderTime <= now) {
-            seenWarrantyReminders.add(item.id);
-          }
-        }
-      });
-      saveStoredSet(storageKey, seenWarrantyReminders);
-      return;
-    }
-
     const seenWarrantyReminders = getStoredSet(storageKey);
     let seenWarrantyChanged = false;
     const now = Date.now();
+    const minLiveTime = sessionStartTimeRef.current - 60000;
     const newWarrantyAlerts: typeof returnWarrantyItems = [];
 
     returnWarrantyItems.forEach((item) => {
@@ -1319,10 +1353,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         item.status !== 'completed'
       ) {
         const reminderTime = new Date(item.reminderDate).getTime();
-        if (reminderTime <= now && !seenWarrantyReminders.has(item.id)) {
+        const alertKey = `war_rem_${item.id}`;
+        if (reminderTime <= now && !seenWarrantyReminders.has(item.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenWarrantyReminders.add(item.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenWarrantyChanged = true;
-          newWarrantyAlerts.push(item);
+          if (reminderTime >= minLiveTime) {
+            newWarrantyAlerts.push(item);
+          }
         }
       }
     });
@@ -1333,53 +1371,49 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const targetName = item.cariName ? `${item.cariName} (${item.companyName})` : item.companyName;
       const title = `🛡️ ${typeLabel} Durum Takibi: ${targetName}`;
       const body = `${targetName} için gönderilen ${typeLabel.toLowerCase()} ürününün durum sorgulama tarihi geldi. Lütfen son durumunu sorgulayın.`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'returns' });
+      NotificationService.sendNotification(title, body, '/?tab=returns', {
+        tag: `war_rem_${item.id}`,
+        skipIfVisible: true,
+      });
+      showUniqueToast(`war_rem_${item.id}`, { title, body, tab: 'returns' });
     } else if (newWarrantyAlerts.length > 1) {
+      const batchKey = `war_rem_batch_${newWarrantyAlerts.map((x) => x.id).sort().join('_')}`;
       const title = `🛡️ ${newWarrantyAlerts.length} Garanti/İade Takip Hatırlatması`;
       const body = `${newWarrantyAlerts.length} adet ürünün durum kontrol tarihi geldi.`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'returns' });
+      NotificationService.sendNotification(title, body, '/?tab=returns', {
+        tag: batchKey,
+        skipIfVisible: true,
+      });
+      showUniqueToast(batchKey, { title, body, tab: 'returns' });
     }
 
     if (seenWarrantyChanged) {
       saveStoredSet(storageKey, seenWarrantyReminders);
     }
-  }, [returnWarrantyItems, user, dataCompanyCode]);
+  }, [returnWarrantyItems, user, dataCompanyCode, showUniqueToast]);
 
   // Check incoming return & warranty completed ("Ürün Döndü") alerts for Admin
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || returnWarrantyItems.length === 0) return;
 
     if (isUserAdmin(user)) {
       const storageKey = SEEN_COMPLETED_RETURNS_KEY(user.id, compCode);
-
-      // İlk açılış koruması
-      if (localStorage.getItem(storageKey) === null) {
-        const seenCompletedReturns = getStoredSet(storageKey);
-        returnWarrantyItems.forEach((item) => {
-          if (item.status === 'completed' && item.completedAt) {
-            seenCompletedReturns.add(`${item.id}_${item.completedAt}`);
-          }
-        });
-        saveStoredSet(storageKey, seenCompletedReturns);
-        return;
-      }
-
       const seenCompletedReturns = getStoredSet(storageKey);
       let seenChanged = false;
+      const minLiveTime = sessionStartTimeRef.current - 60000;
       const newCompletedReturns: typeof returnWarrantyItems = [];
 
       returnWarrantyItems.forEach((item) => {
         if (item.status === 'completed' && item.completedAt) {
           const key = `${item.id}_${item.completedAt}`;
-          if (!seenCompletedReturns.has(key)) {
+          const alertKey = `ret_comp_${key}`;
+          if (!seenCompletedReturns.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
             seenCompletedReturns.add(key);
+            firedInAppAlertsRef.current.add(alertKey);
             seenChanged = true;
 
-            // Only notify if completed by someone else (avoids duplicate toast on device of person who clicked it)
-            if (item.completedBy !== user.id) {
+            if (item.completedBy !== user.id && item.completedAt >= minLiveTime) {
               newCompletedReturns.push(item);
             }
           }
@@ -1394,45 +1428,49 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const serialText = item.serialNumber ? ` (Seri No: ${item.serialNumber})` : '';
         const title = `📦 ${typeLabel} Ürünü Geri Döndü!`;
         const body = `${staff}, ${cariText}${item.companyName} firmasına ait ${typeLabel.toLowerCase()} ürününü "Geri Döndü" olarak işaretledi.${serialText}`;
-        NotificationService.sendNotification(title, body);
-        setActiveToast({ title, body, tab: 'returns' });
+        NotificationService.sendNotification(title, body, '/?tab=returns', {
+          tag: `ret_comp_${item.id}`,
+          skipIfVisible: true,
+        });
+        showUniqueToast(`ret_comp_${item.id}_${item.completedAt}`, { title, body, tab: 'returns' });
       } else if (newCompletedReturns.length > 1) {
+        const batchKey = `ret_comp_batch_${newCompletedReturns.map((x) => x.id).sort().join('_')}`;
         const title = `📦 ${newCompletedReturns.length} Ürün Geri Döndü!`;
         const body = `${newCompletedReturns.length} adet garanti/iade ürünü "Geri Döndü" olarak işaretlendi.`;
-        NotificationService.sendNotification(title, body);
-        setActiveToast({ title, body, tab: 'returns' });
+        NotificationService.sendNotification(title, body, '/?tab=returns', {
+          tag: batchKey,
+          skipIfVisible: true,
+        });
+        showUniqueToast(batchKey, { title, body, tab: 'returns' });
       }
 
       if (seenChanged) {
         saveStoredSet(storageKey, seenCompletedReturns);
       }
     }
-  }, [returnWarrantyItems, user, dataCompanyCode]);
+  }, [returnWarrantyItems, user, dataCompanyCode, showUniqueToast]);
 
   // Check incoming admin reminders / talimatlar for all personnel
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
 
     const storageKey = SEEN_ADMIN_REMINDERS_KEY(user.id, compCode);
-    if (localStorage.getItem(storageKey) === null) {
-      const seenReminders = getStoredSet(storageKey);
-      adminReminders.forEach((r) => seenReminders.add(r.id));
-      saveStoredSet(storageKey, seenReminders);
-      return;
-    }
-
     const seenReminders = getStoredSet(storageKey);
     let seenChanged = false;
+    const minLiveTime = sessionStartTimeRef.current - 60000;
     const newRemindersList: typeof adminReminders = [];
 
     adminReminders.forEach((r) => {
-      // If created by someone else and user hasn't seen it yet
       if (r.createdBy && r.createdBy !== user.id) {
-        if (!seenReminders.has(r.id)) {
+        const alertKey = `adm_rem_${r.id}`;
+        if (!seenReminders.has(r.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenReminders.add(r.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenChanged = true;
-          newRemindersList.push(r);
+          if (!r.createdAt || r.createdAt >= minLiveTime) {
+            newRemindersList.push(r);
+          }
         }
       } else if (r.createdBy === user.id) {
         if (!seenReminders.has(r.id)) {
@@ -1447,56 +1485,56 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const author = r.createdByName || 'Yönetici';
       const title = `📢 Yeni Yönetici Talimatı: ${r.title}`;
       const body = `${author}: "${r.content.slice(0, 90)}"`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'reminders' });
+      NotificationService.sendNotification(title, body, '/?tab=reminders', {
+        tag: `adm_rem_${r.id}`,
+        skipIfVisible: true,
+      });
+      showUniqueToast(`adm_rem_${r.id}`, { title, body, tab: 'reminders' });
     } else if (newRemindersList.length > 1) {
+      const batchKey = `adm_rem_batch_${newRemindersList.map((x) => x.id).sort().join('_')}`;
       const title = `📢 ${newRemindersList.length} Yeni Yönetici Talimatı`;
       const body = `${newRemindersList.length} adet yeni yönetici talimatı paylaşıldı.`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'reminders' });
+      NotificationService.sendNotification(title, body, '/?tab=reminders', {
+        tag: batchKey,
+        skipIfVisible: true,
+      });
+      showUniqueToast(batchKey, { title, body, tab: 'reminders' });
     }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenReminders);
     }
-  }, [adminReminders, user, dataCompanyCode]);
+  }, [adminReminders, user, dataCompanyCode, showUniqueToast]);
 
   // Check read receipts for reminders created by the current user
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || adminReminders.length === 0) return;
 
     const storageKey = SEEN_REMINDER_READS_KEY(user.id, compCode);
-    if (localStorage.getItem(storageKey) === null) {
-      const seenReads = getStoredSet(storageKey);
-      adminReminders.forEach((r) => {
-        if (r.readBy && Array.isArray(r.readBy)) {
-          r.readBy.forEach((readerId) => seenReads.add(`${r.id}_${readerId}`));
-        }
-      });
-      saveStoredSet(storageKey, seenReads);
-      return;
-    }
-
     const seenReads = getStoredSet(storageKey);
     let seenChanged = false;
 
     adminReminders.forEach((r) => {
-      // Only check reminders created by the current user
       if (r.createdBy === user.id && r.readBy && Array.isArray(r.readBy)) {
         r.readBy.forEach((readerId) => {
           if (readerId !== user.id) {
             const readKey = `${r.id}_${readerId}`;
-            if (!seenReads.has(readKey)) {
+            const alertKey = `rem_read_${readKey}`;
+            if (!seenReads.has(readKey) && !firedInAppAlertsRef.current.has(alertKey)) {
               seenReads.add(readKey);
+              firedInAppAlertsRef.current.add(alertKey);
               seenChanged = true;
 
               const readerUser = users.find((u) => u.id === readerId);
               const readerName = readerUser?.name || readerUser?.username || 'Personel';
               const title = `👁️ Talimat Okundu: ${r.title}`;
               const body = `${readerName}, "${r.title}" talimatınızı okudu ve onayladı.`;
-              NotificationService.sendNotification(title, body);
-              setActiveToast({ title, body, tab: 'reminders' });
+              NotificationService.sendNotification(title, body, '/?tab=reminders', {
+                tag: alertKey,
+                skipIfVisible: true,
+              });
+              showUniqueToast(alertKey, { title, body, tab: 'reminders' });
             }
           }
         });
@@ -1506,32 +1544,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (seenChanged) {
       saveStoredSet(storageKey, seenReads);
     }
-  }, [adminReminders, user, users, dataCompanyCode]);
+  }, [adminReminders, user, users, dataCompanyCode, showUniqueToast]);
 
   // Check incoming locations from staff members (Admin notification)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || !isUserAdmin(user) || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
 
     const storageKey = SEEN_LOCATIONS_KEY(user.id, compCode);
-    if (localStorage.getItem(storageKey) === null) {
-      const seenLocs = getStoredSet(storageKey);
-      allLocations.forEach((loc) => seenLocs.add(loc.id));
-      saveStoredSet(storageKey, seenLocs);
-      return;
-    }
-
     const seenLocs = getStoredSet(storageKey);
     let seenChanged = false;
+    const minLiveTime = sessionStartTimeRef.current - 60000;
     const newLocsList: typeof allLocations = [];
 
     allLocations.forEach((loc) => {
-      // If created by a staff member (or someone else)
       if (loc.createdBy && loc.createdBy !== user.id) {
-        if (!seenLocs.has(loc.id)) {
+        const alertKey = `loc_new_${loc.id}`;
+        if (!seenLocs.has(loc.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenLocs.add(loc.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenChanged = true;
-          newLocsList.push(loc);
+          if (!loc.createdAt || loc.createdAt >= minLiveTime) {
+            newLocsList.push(loc);
+          }
         }
       } else if (loc.createdBy === user.id) {
         if (!seenLocs.has(loc.id)) {
@@ -1550,40 +1585,29 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         tag: `loc_new_${loc.id}`,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body, tab: 'installations' });
+      showUniqueToast(`loc_new_${loc.id}`, { title, body, tab: 'installations' });
     } else if (newLocsList.length > 1) {
+      const batchKey = `loc_batch_new_${newLocsList.map((x) => x.id).sort().join('_')}`;
       const title = `📍 ${newLocsList.length} Yeni Kurulum Eklendi!`;
       const body = `${newLocsList.length} adet yeni kurulum kaydı eklendi.`;
       NotificationService.sendNotification(title, body, '/?tab=installations', {
-        tag: `loc_batch_new_${Date.now()}`,
+        tag: batchKey,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body, tab: 'installations' });
+      showUniqueToast(batchKey, { title, body, tab: 'installations' });
     }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenLocs);
     }
-  }, [allLocations, user, dataCompanyCode]);
+  }, [allLocations, user, dataCompanyCode, showUniqueToast]);
 
   // Check completed locations from staff members (Admin notification)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || !isUserAdmin(user) || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
 
     const storageKey = SEEN_COMPLETED_LOCATIONS_KEY(user.id, compCode);
-    if (localStorage.getItem(storageKey) === null) {
-      const seenDone = getStoredSet(storageKey);
-      allLocations.forEach((loc) => {
-        const isComplete =
-          loc.tasks.length > 0 &&
-          loc.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
-        if (isComplete) seenDone.add(loc.id);
-      });
-      saveStoredSet(storageKey, seenDone);
-      return;
-    }
-
     const seenDone = getStoredSet(storageKey);
     let seenChanged = false;
     const newDoneList: typeof allLocations = [];
@@ -1594,10 +1618,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loc.tasks.every((t) => t.status === 'completed' || t.status === 'not_present');
 
       if (isComplete) {
-        if (!seenDone.has(loc.id)) {
+        const alertKey = `loc_alltasks_${loc.id}`;
+        if (!seenDone.has(loc.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenDone.add(loc.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenChanged = true;
-          newDoneList.push(loc);
+          if (loc.createdBy !== user.id) {
+            newDoneList.push(loc);
+          }
         }
       }
     });
@@ -1611,45 +1639,44 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         tag: `loc_alltasks_${loc.id}`,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body, tab: 'installations' });
+      showUniqueToast(`loc_alltasks_${loc.id}`, { title, body, tab: 'installations' });
     } else if (newDoneList.length > 1) {
+      const batchKey = `loc_batch_alltasks_${newDoneList.map((x) => x.id).sort().join('_')}`;
       const title = `✅ ${newDoneList.length} Kurulum Tamamlandı!`;
       const body = `${newDoneList.length} adet kurulumdaki tüm görevler tamamlandı.`;
       NotificationService.sendNotification(title, body, '/?tab=installations', {
-        tag: `loc_batch_alltasks_${Date.now()}`,
+        tag: batchKey,
         skipIfVisible: true,
       });
-      setActiveToast({ title, body, tab: 'installations' });
+      showUniqueToast(batchKey, { title, body, tab: 'installations' });
     }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenDone);
     }
-  }, [allLocations, user, dataCompanyCode]);
+  }, [allLocations, user, dataCompanyCode, showUniqueToast]);
 
   // Check incoming services from staff members (Admin notification)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || user.role !== 'admin' || dataCompanyCode.toUpperCase() !== compCode || allServices.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || !isUserAdmin(user) || dataCompanyCode.toUpperCase() !== compCode || allServices.length === 0) return;
 
     const storageKey = SEEN_SERVICES_KEY(user.id, compCode);
-    if (localStorage.getItem(storageKey) === null) {
-      const seenServices = getStoredSet(storageKey);
-      allServices.forEach((srv) => seenServices.add(srv.id));
-      saveStoredSet(storageKey, seenServices);
-      return;
-    }
-
     const seenServices = getStoredSet(storageKey);
     let seenChanged = false;
+    const minLiveTime = sessionStartTimeRef.current - 60000;
     const newServicesList: typeof allServices = [];
 
     allServices.forEach((srv) => {
       if (srv.createdBy && srv.createdBy !== user.id) {
-        if (!seenServices.has(srv.id)) {
+        const alertKey = `srv_new_${srv.id}`;
+        if (!seenServices.has(srv.id) && !firedInAppAlertsRef.current.has(alertKey)) {
           seenServices.add(srv.id);
+          firedInAppAlertsRef.current.add(alertKey);
           seenChanged = true;
-          newServicesList.push(srv);
+          if (!srv.createdAt || srv.createdAt >= minLiveTime) {
+            newServicesList.push(srv);
+          }
         }
       } else if (srv.createdBy === user.id) {
         if (!seenServices.has(srv.id)) {
@@ -1664,41 +1691,37 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const staffName = srv.createdByName || 'Saha Personeli';
       const title = '🔧 Yeni Servis Kaydı!';
       const body = `${staffName}, "${srv.companyName}" için servis kaydı ekledi.`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'services' });
+      NotificationService.sendNotification(title, body, '/?tab=services', {
+        tag: `srv_new_${srv.id}`,
+        skipIfVisible: true,
+      });
+      showUniqueToast(`srv_new_${srv.id}`, { title, body, tab: 'services' });
     } else if (newServicesList.length > 1) {
+      const batchKey = `srv_batch_new_${newServicesList.map((x) => x.id).sort().join('_')}`;
       const title = `🔧 ${newServicesList.length} Yeni Servis Kaydı!`;
       const body = `${newServicesList.length} adet yeni servis kaydı oluşturuldu.`;
-      NotificationService.sendNotification(title, body);
-      setActiveToast({ title, body, tab: 'services' });
+      NotificationService.sendNotification(title, body, '/?tab=services', {
+        tag: batchKey,
+        skipIfVisible: true,
+      });
+      showUniqueToast(batchKey, { title, body, tab: 'services' });
     }
 
     if (seenChanged) {
       saveStoredSet(storageKey, seenServices);
     }
-  }, [allServices, user, dataCompanyCode]);
+  }, [allServices, user, dataCompanyCode, showUniqueToast]);
 
   // Check incoming note completions (for Admin) & approval/rejection results (for Staff)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || allNotes.length === 0) return;
+
+    const minLiveTime = sessionStartTimeRef.current - 60000;
 
     // 1. For Admin: Alert when a staff member completes a work order (pending_approval)
     if (isUserAdmin(user)) {
       const completedStorageKey = SEEN_COMPLETED_NOTES_KEY(user.id, compCode);
-
-      // İlk oturum / ilk açılış koruması: Geçmişte birikmiş onay bekleyen iş emirlerini sessizce kaydet, ardışık bildirim patlatma!
-      if (localStorage.getItem(completedStorageKey) === null) {
-        const seenCompleted = getStoredSet(completedStorageKey);
-        allNotes.forEach((n) => {
-          if (n.status === 'pending_approval' && n.completedAt) {
-            seenCompleted.add(`${n.id}_${n.completedAt}`);
-          }
-        });
-        saveStoredSet(completedStorageKey, seenCompleted);
-        return;
-      }
-
       const seenCompleted = getStoredSet(completedStorageKey);
       let seenChanged = false;
       const newPendingNotes: typeof allNotes = [];
@@ -1706,10 +1729,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       allNotes.forEach((n) => {
         if (n.status === 'pending_approval' && n.completedAt && n.completedBy !== user.id) {
           const key = `${n.id}_${n.completedAt}`;
-          if (!seenCompleted.has(key)) {
+          const alertKey = `note_comp_${key}`;
+          if (!seenCompleted.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
             seenCompleted.add(key);
+            firedInAppAlertsRef.current.add(alertKey);
             seenChanged = true;
-            newPendingNotes.push(n);
+            if (n.completedAt >= minLiveTime) {
+              newPendingNotes.push(n);
+            }
           }
         }
       });
@@ -1723,15 +1750,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `note_comp_${n.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+        showUniqueToast(`note_comp_${n.id}_${n.completedAt}`, { title, body, tab: 'notes', filter: 'pending' });
       } else if (newPendingNotes.length > 1) {
+        const batchKey = `notes_batch_comp_${newPendingNotes.map((x) => x.id).sort().join('_')}`;
         const title = `📋 ${newPendingNotes.length} Yeni İş Emri Onay Bekliyor!`;
         const body = `${newPendingNotes.length} adet tamamlanan iş emri onayınızı bekliyor.`;
         NotificationService.sendNotification(title, body, '/?tab=notes&filter=pending', {
-          tag: `notes_batch_comp_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'pending' });
+        showUniqueToast(batchKey, { title, body, tab: 'notes', filter: 'pending' });
       }
 
       if (seenChanged) {
@@ -1740,24 +1768,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // 2. For Staff: Alert when Admin approves or rejects the staff's work order
-    if (user.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       const approvalStorageKey = SEEN_APPROVAL_NOTES_KEY(user.id, compCode);
-
-      // İlk açılış koruması
-      if (localStorage.getItem(approvalStorageKey) === null) {
-        const seenApproval = getStoredSet(approvalStorageKey);
-        allNotes.forEach((n) => {
-          if (n.status === 'approved' && n.approvedAt) {
-            seenApproval.add(`${n.id}_approved_${n.approvedAt}`);
-          }
-          if (n.status === 'rejected' && n.rejectedAt) {
-            seenApproval.add(`${n.id}_rejected_${n.rejectedAt}`);
-          }
-        });
-        saveStoredSet(approvalStorageKey, seenApproval);
-        return;
-      }
-
       const seenApproval = getStoredSet(approvalStorageKey);
       let seenChanged = false;
       const newApproved: typeof allNotes = [];
@@ -1773,20 +1785,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // Check Approved
           if (n.status === 'approved' && n.approvedAt) {
             const key = `${n.id}_approved_${n.approvedAt}`;
-            if (!seenApproval.has(key)) {
+            const alertKey = `note_app_${key}`;
+            if (!seenApproval.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
               seenApproval.add(key);
+              firedInAppAlertsRef.current.add(alertKey);
               seenChanged = true;
-              newApproved.push(n);
+              if (n.approvedAt >= minLiveTime) {
+                newApproved.push(n);
+              }
             }
           }
 
           // Check Rejected
           if (n.status === 'rejected' && n.rejectedAt) {
             const key = `${n.id}_rejected_${n.rejectedAt}`;
-            if (!seenApproval.has(key)) {
+            const alertKey = `note_rej_${key}`;
+            if (!seenApproval.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
               seenApproval.add(key);
+              firedInAppAlertsRef.current.add(alertKey);
               seenChanged = true;
-              newRejected.push(n);
+              if (n.rejectedAt >= minLiveTime) {
+                newRejected.push(n);
+              }
             }
           }
         }
@@ -1801,15 +1821,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `note_app_${n.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
+        showUniqueToast(`note_app_${n.id}_${n.approvedAt}`, { title, body, tab: 'notes', filter: 'approved' });
       } else if (newApproved.length > 1) {
+        const batchKey = `notes_batch_app_${newApproved.map((x) => x.id).sort().join('_')}`;
         const title = `✅ ${newApproved.length} İş Emri Onaylandı!`;
         const body = `Yönetici ${newApproved.length} adet iş emrinizi onayladı.`;
         NotificationService.sendNotification(title, body, '/?tab=notes&filter=approved', {
-          tag: `notes_batch_app_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'approved' });
+        showUniqueToast(batchKey, { title, body, tab: 'notes', filter: 'approved' });
       }
 
       if (newRejected.length === 1) {
@@ -1821,45 +1842,35 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `note_rej_${n.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
+        showUniqueToast(`note_rej_${n.id}_${n.rejectedAt}`, { title, body, tab: 'notes', filter: 'rejected' });
       } else if (newRejected.length > 1) {
+        const batchKey = `notes_batch_rej_${newRejected.map((x) => x.id).sort().join('_')}`;
         const title = `❌ ${newRejected.length} İş Emri Reddedildi!`;
         const body = `Yönetici ${newRejected.length} adet iş emrinizi reddetti.`;
         NotificationService.sendNotification(title, body, '/?tab=notes&filter=rejected', {
-          tag: `notes_batch_rej_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'notes', filter: 'rejected' });
+        showUniqueToast(batchKey, { title, body, tab: 'notes', filter: 'rejected' });
       }
 
       if (seenChanged) {
         saveStoredSet(approvalStorageKey, seenApproval);
       }
     }
-  }, [allNotes, user, dataCompanyCode]);
+  }, [allNotes, user, dataCompanyCode, showUniqueToast]);
 
 
   // Check incoming location completions (for Admin) & approval/rejection results (for Staff)
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-    if (!user || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
+    if (!user || !isInitialSyncCompleteRef.current || dataCompanyCode.toUpperCase() !== compCode || allLocations.length === 0) return;
+
+    const minLiveTime = sessionStartTimeRef.current - 60000;
 
     // 1. For Admin: Alert when a staff member completes a location (pending_approval)
     if (isUserAdmin(user)) {
       const completedStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
-
-      // İlk açılış koruması
-      if (localStorage.getItem(completedStorageKey) === null) {
-        const seenCompleted = getStoredSet(completedStorageKey);
-        allLocations.forEach((loc) => {
-          if (loc.status === 'pending_approval' && loc.completedAt) {
-            seenCompleted.add(`${loc.id}_pending_${loc.completedAt}`);
-          }
-        });
-        saveStoredSet(completedStorageKey, seenCompleted);
-        return;
-      }
-
       const seenCompleted = getStoredSet(completedStorageKey);
       let seenChanged = false;
       const newPendingLocations: typeof allLocations = [];
@@ -1867,10 +1878,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       allLocations.forEach((loc) => {
         if (loc.status === 'pending_approval' && loc.completedAt && loc.completedBy !== user.id) {
           const key = `${loc.id}_pending_${loc.completedAt}`;
-          if (!seenCompleted.has(key)) {
+          const alertKey = `loc_comp_${key}`;
+          if (!seenCompleted.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
             seenCompleted.add(key);
+            firedInAppAlertsRef.current.add(alertKey);
             seenChanged = true;
-            newPendingLocations.push(loc);
+            if (loc.completedAt >= minLiveTime) {
+              newPendingLocations.push(loc);
+            }
           }
         }
       });
@@ -1884,15 +1899,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `loc_comp_${loc.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+        showUniqueToast(`loc_comp_${loc.id}_${loc.completedAt}`, { title, body, tab: 'installations', filter: 'pending_approval' });
       } else if (newPendingLocations.length > 1) {
+        const batchKey = `loc_batch_comp_${newPendingLocations.map((x) => x.id).sort().join('_')}`;
         const title = `📍 ${newPendingLocations.length} Kurulum Onay Bekliyor!`;
         const body = `${newPendingLocations.length} adet kurulum kaydı onayınızı bekliyor.`;
         NotificationService.sendNotification(title, body, '/?tab=installations&filter=pending_approval', {
-          tag: `loc_batch_comp_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'pending_approval' });
+        showUniqueToast(batchKey, { title, body, tab: 'installations', filter: 'pending_approval' });
       }
 
       if (seenChanged) {
@@ -1901,24 +1917,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // 2. For Staff: Alert when Admin approves or rejects the staff's location
-    if (user.role !== 'admin') {
+    if (!isUserAdmin(user)) {
       const approvalStorageKey = SEEN_APPROVAL_LOCATIONS_KEY(user.id, compCode);
-
-      // İlk açılış koruması
-      if (localStorage.getItem(approvalStorageKey) === null) {
-        const seenApproval = getStoredSet(approvalStorageKey);
-        allLocations.forEach((loc) => {
-          if (loc.status === 'approved' && loc.approvedAt) {
-            seenApproval.add(`${loc.id}_approved_${loc.approvedAt}`);
-          }
-          if (loc.status === 'rejected' && loc.rejectedAt) {
-            seenApproval.add(`${loc.id}_rejected_${loc.rejectedAt}`);
-          }
-        });
-        saveStoredSet(approvalStorageKey, seenApproval);
-        return;
-      }
-
       const seenApproval = getStoredSet(approvalStorageKey);
       let seenChanged = false;
       const UpperApprovedLocs: typeof allLocations = [];
@@ -1931,20 +1931,28 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // Check Approved
           if (loc.status === 'approved' && loc.approvedAt) {
             const key = `${loc.id}_approved_${loc.approvedAt}`;
-            if (!seenApproval.has(key)) {
+            const alertKey = `loc_app_${key}`;
+            if (!seenApproval.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
               seenApproval.add(key);
+              firedInAppAlertsRef.current.add(alertKey);
               seenChanged = true;
-              UpperApprovedLocs.push(loc);
+              if (loc.approvedAt >= minLiveTime) {
+                UpperApprovedLocs.push(loc);
+              }
             }
           }
 
           // Check Rejected
           if (loc.status === 'rejected' && loc.rejectedAt) {
             const key = `${loc.id}_rejected_${loc.rejectedAt}`;
-            if (!seenApproval.has(key)) {
+            const alertKey = `loc_rej_${key}`;
+            if (!seenApproval.has(key) && !firedInAppAlertsRef.current.has(alertKey)) {
               seenApproval.add(key);
+              firedInAppAlertsRef.current.add(alertKey);
               seenChanged = true;
-              UpperRejectedLocs.push(loc);
+              if (loc.rejectedAt >= minLiveTime) {
+                UpperRejectedLocs.push(loc);
+              }
             }
           }
         }
@@ -1959,15 +1967,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `loc_app_${loc.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+        showUniqueToast(`loc_app_${loc.id}_${loc.approvedAt}`, { title, body, tab: 'installations', filter: 'approved' });
       } else if (UpperApprovedLocs.length > 1) {
+        const batchKey = `loc_batch_app_${UpperApprovedLocs.map((x) => x.id).sort().join('_')}`;
         const title = `✅ ${UpperApprovedLocs.length} Kurulum Onaylandı!`;
         const body = `Yönetici ${UpperApprovedLocs.length} adet kurulum kaydınızı onayladı.`;
         NotificationService.sendNotification(title, body, '/?tab=installations&filter=approved', {
-          tag: `loc_batch_app_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'approved' });
+        showUniqueToast(batchKey, { title, body, tab: 'installations', filter: 'approved' });
       }
 
       if (UpperRejectedLocs.length === 1) {
@@ -1979,22 +1988,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           tag: `loc_rej_${loc.id}`,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+        showUniqueToast(`loc_rej_${loc.id}_${loc.rejectedAt}`, { title, body, tab: 'installations', filter: 'rejected' });
       } else if (UpperRejectedLocs.length > 1) {
+        const batchKey = `loc_batch_rej_${UpperRejectedLocs.map((x) => x.id).sort().join('_')}`;
         const title = `❌ ${UpperRejectedLocs.length} Kurulum Reddedildi!`;
         const body = `Yönetici ${UpperRejectedLocs.length} adet kurulum kaydınızı reddetti.`;
         NotificationService.sendNotification(title, body, '/?tab=installations&filter=rejected', {
-          tag: `loc_batch_rej_${Date.now()}`,
+          tag: batchKey,
           skipIfVisible: true,
         });
-        setActiveToast({ title, body, tab: 'installations', filter: 'rejected' });
+        showUniqueToast(batchKey, { title, body, tab: 'installations', filter: 'rejected' });
       }
 
       if (seenChanged) {
         saveStoredSet(approvalStorageKey, seenApproval);
       }
     }
-  }, [allLocations, user, dataCompanyCode]);
+  }, [allLocations, user, dataCompanyCode, showUniqueToast]);
 
   const dismissToast = () => {
     setActiveToast(null);
@@ -2052,22 +2062,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newLocations = [newLocation, ...allLocations];
     await saveLocations(newLocations);
 
-    // If added by Field Staff, send hardware push notification directly to all Admins!
+    // Send hardware push notification directly to all Admins' active devices!
     if (!isUserAdmin(user)) {
       const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
       const adminIds = getCompanyAdminIds(activeComp);
-      if (adminIds.length > 0) {
-        const staffName = user?.name || user?.username || 'Saha Personeli';
-        OneSignalService.sendPushNotification({
-          title: '📍 Yeni Kurulum Eklendi!',
-          message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: activeComp,
-          url: 'https://saha-takip-beige.vercel.app/?tab=installations',
-          collapseId: `loc_new_${newLocation.id}`,
-        }).catch((err) => console.warn('OneSignal new loc push error:', err));
-      }
+      const staffName = user?.name || user?.username || 'Saha Personeli';
+      OneSignalService.sendPushNotification({
+        title: '📍 Yeni Kurulum Eklendi!',
+        message: `${staffName}, "${newLocation.name}" için yeni bir kurulum kaydı oluşturdu.`,
+        targetMode: 'admin',
+        targetUserIds: adminIds,
+        excludeUserIds: user?.id ? [user.id] : [],
+        companyCode: activeComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=installations',
+        collapseId: `loc_new_${newLocation.id}`,
+      }).catch((err) => console.warn('OneSignal new loc push error:', err));
     }
   };
 
@@ -2130,20 +2139,19 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
       const adminIds = getCompanyAdminIds(activeComp);
 
-      if (adminIds.length > 0) {
-        OneSignalService.sendPushNotification({
-          title: '✅ Kurulum Tamamlandı!',
-          message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
-          targetMode: 'custom',
-          targetUserIds: adminIds,
-          companyCode: activeComp,
-          url: 'https://saha-takip-beige.vercel.app/?tab=installations',
-          collapseId: `loc_alltasks_${updatedTarget.id}`,
-        }).catch((err) => console.warn('OneSignal complete task push error:', err));
-      }
+      OneSignalService.sendPushNotification({
+        title: '✅ Kurulum Tamamlandı!',
+        message: `${staffName}, "${updatedTarget.name}" kurulumundaki tüm görevleri başarıyla tamamladı.`,
+        targetMode: 'admin',
+        targetUserIds: adminIds,
+        excludeUserIds: user?.id ? [user.id] : [],
+        companyCode: activeComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=installations',
+        collapseId: `loc_alltasks_${updatedTarget.id}`,
+      }).catch((err) => console.warn('OneSignal complete task push error:', err));
 
       if (isUserAdmin(user)) {
-        setActiveToast({
+        showUniqueToast(`loc_alltasks_${updatedTarget.id}`, {
           title: '✅ Kurulum Tamamlandı!',
           body: `"${updatedTarget.name}" kurulumundaki tüm görevler tamamlandı.`,
           tab: 'installations',
@@ -2343,17 +2351,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const locSnippet = targetLocation.name.length > 50 ? `${targetLocation.name.slice(0, 50)}...` : targetLocation.name;
         const locExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
 
-        if (adminIds.length > 0) {
-          await OneSignalService.sendPushNotification({
-            title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
-            message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
-            targetMode: 'custom',
-            targetUserIds: adminIds,
-            companyCode: activeComp,
-            url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
-            collapseId: `loc_comp_${targetLocation.id}`,
-          });
-        }
+        await OneSignalService.sendPushNotification({
+          title: '📍 Kurulum Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, "${locSnippet}" kurulumunu tamamladı ve onayınıza sundu.${locExplanation}`,
+          targetMode: 'admin',
+          targetUserIds: adminIds,
+          excludeUserIds: user?.id ? [user.id] : [],
+          companyCode: activeComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=pending_approval',
+          collapseId: `loc_comp_${targetLocation.id}`,
+        });
       } catch (err) {
         console.warn('OneSignal completeLocation push error:', err);
       }
@@ -2412,6 +2419,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${locSnippet}" kurulumunuzu onayladı.`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            excludeUserIds: user?.id ? [user.id] : [],
             companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=approved',
             collapseId: `loc_app_${id}`,
@@ -2477,6 +2485,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${locSnippet}" kurulumunu reddetti. Gerekçe: ${trimmedReason}`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            excludeUserIds: user?.id ? [user.id] : [],
             companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=installations&filter=rejected',
             collapseId: `loc_rej_${id}`,
@@ -2538,26 +2547,43 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('saveSingleNote background error:', err);
     });
 
-    // 3. Background hardware push notification directly to locked phones via OneSignal (non-blocking)
+    // 3. Background hardware push notification directly to active devices via OneSignal (non-blocking)
+    const activeComp = (user?.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+    const notifTitle = newNote.cariName
+      ? `📋 ${newNote.cariName} - İş Emri (${newNote.createdByName})`
+      : `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`;
+
+    const notifMsg = newNote.cariName
+      ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
+      : newNote.content;
+
     if (targetMode !== 'self') {
-      const notifTitle = newNote.cariName
-        ? `📋 ${newNote.cariName} - İş Emri (${newNote.createdByName})`
-        : `📋 ${newNote.createdByName} Size Yeni Bir İş Emri İletti!`;
-
-      const notifMsg = newNote.cariName
-        ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
-        : newNote.content;
-
-      // 1. Immediate arrival alert (if not self)
+      // 1. Immediate arrival alert to targeted devices (all or custom)
       OneSignalService.sendPushNotification({
         title: notifTitle,
         message: notifMsg,
         targetMode,
         targetUserIds,
-        companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
+        excludeUserIds: user?.id ? [user.id] : [],
+        companyCode: activeComp,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
         collapseId: `note_new_${newNote.id}`,
       }).catch((err) => console.warn('OneSignal addNote push error:', err));
+    } else if (!isUserAdmin(user)) {
+      // If a staff member creates a work order, also notify Admins on their active devices
+      const adminIds = getCompanyAdminIds(activeComp);
+      OneSignalService.sendPushNotification({
+        title: newNote.cariName
+          ? `📋 Yeni İş Emri: ${newNote.cariName} (${newNote.createdByName})`
+          : `📋 ${newNote.createdByName} Yeni Bir İş Emri Ekledi!`,
+        message: notifMsg,
+        targetMode: 'admin',
+        targetUserIds: adminIds,
+        excludeUserIds: user?.id ? [user.id] : [],
+        companyCode: activeComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+        collapseId: `note_new_${newNote.id}`,
+      }).catch((err) => console.warn('OneSignal addNote admin push error:', err));
     }
 
     // 2. Scheduled reminder alert (OneSignal server will wake up locked phone at exact reminder time)
@@ -2566,16 +2592,13 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const isTargetSelf = targetMode === 'self';
       const effectiveMode = isTargetSelf ? 'custom' : targetMode;
       const effectiveUserIds = isTargetSelf ? (user?.id ? [user.id] : []) : targetUserIds;
-      const notifMsg = newNote.cariName
-        ? `🏢 CARİ: ${newNote.cariName}\n📝 ${newNote.content}`
-        : newNote.content;
 
       OneSignalService.sendPushNotification({
         title: newNote.cariName ? `⏰ [${newNote.cariName}] Hatırlatıcı` : `⏰ İş Emri Hatırlatıcısı`,
         message: notifMsg,
         targetMode: effectiveMode,
         targetUserIds: effectiveUserIds,
-        companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
+        companyCode: activeComp,
         url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=reminders',
         sendAfter: new Date(reminderDate).toISOString(),
         collapseId: `note_rem_${newNote.id}`,
@@ -2658,6 +2681,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: notifMsg,
           targetMode: noteToSave.targetMode,
           targetUserIds: noteToSave.targetUserIds,
+          excludeUserIds: user?.id ? [user.id] : [],
           companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
           collapseId: `note_upd_${noteToSave.id}`,
@@ -2786,17 +2810,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetNote.content.length > 50 ? `${targetNote.content.slice(0, 50)}...` : targetNote.content;
         const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
 
-        if (adminIds.length > 0) {
-          await OneSignalService.sendPushNotification({
-            title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
-            message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
-            targetMode: 'custom',
-            targetUserIds: adminIds,
-            companyCode: activeComp,
-            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-            collapseId: `note_comp_${targetNote.id}`,
-          });
-        }
+        await OneSignalService.sendPushNotification({
+          title: '📋 İş Emri Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, "${noteSnippet}" iş emrini tamamladı.${noteExplanation}`,
+          targetMode: 'admin',
+          targetUserIds: adminIds,
+          excludeUserIds: user?.id ? [user.id] : [],
+          companyCode: activeComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+          collapseId: `note_comp_${targetNote.id}`,
+        });
       } catch (pushErr) {
         console.warn('OneSignal completeNote push error:', pushErr);
       }
@@ -2869,6 +2892,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${noteSnippet}" iş emrinizi başarıyla onayladı.`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            excludeUserIds: user?.id ? [user.id] : [],
             companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
             collapseId: `note_app_${id}`,
@@ -2945,6 +2969,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, "${noteSnippet}" iş emrini reddetti. Gerekçe: ${trimmedReason}`,
             targetMode: 'custom',
             targetUserIds: targetRecipientIds,
+            excludeUserIds: user?.id ? [user.id] : [],
             companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=rejected',
             collapseId: `note_rej_${id}`,
@@ -3024,6 +3049,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             message: `${adminName}, ${updatedNotesList.length} adet iş emrinizi başarıyla onayladı.`,
             targetMode: 'custom',
             targetUserIds: recipientList,
+            excludeUserIds: user?.id ? [user.id] : [],
             companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=approved',
             collapseId: `bulk_app_${approvedAt}`,
@@ -3099,17 +3125,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (adminIds.length === 0 && activeComp === 'POLATLAR') adminIds = ['admin-1'];
 
         const noteExplanation = trimmedNote ? `\nAçıklama: ${trimmedNote}` : '';
-        if (adminIds.length > 0) {
-          await OneSignalService.sendPushNotification({
-            title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
-            message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
-            targetMode: 'custom',
-            targetUserIds: adminIds,
-            companyCode: activeComp,
-            url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
-            collapseId: `bulk_comp_${completedAt}`,
-          });
-        }
+        await OneSignalService.sendPushNotification({
+          title: '📋 Toplu İş Emri Tamamlandı (Onay Bekliyor)',
+          message: `${staffName}, ${updatedNotesList.length} adet iş emrini tamamladı.${noteExplanation}`,
+          targetMode: 'admin',
+          targetUserIds: adminIds,
+          excludeUserIds: user?.id ? [user.id] : [],
+          companyCode: activeComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=notes&filter=pending',
+          collapseId: `bulk_comp_${completedAt}`,
+        });
       } catch (pushErr) {
         console.warn('OneSignal completeMultipleNotes push error:', pushErr);
       }
@@ -3305,6 +3330,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: `📢 Yeni Yönetici Talimatı: ${newReminder.title}`,
         message: `${creator}: "${newReminder.content.slice(0, 100)}"`,
         targetMode: 'all',
+        excludeUserIds: user?.id ? [user.id] : [],
         companyCode: compCode,
         url: 'https://saha-takip-beige.vercel.app/?tab=reminders',
         collapseId: `admin_rem_${newReminder.id}`,
@@ -3383,6 +3409,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=returns',
         sendAfter: new Date(newItem.reminderDate).toISOString(),
+        collapseId: `war_rem_${newItem.id}`,
       }).catch((err) => console.warn('OneSignal warranty reminder push error:', err));
     }
 
@@ -3422,6 +3449,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const seenCompleted = getStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode));
         if (finalUpdates.completedAt) {
           seenCompleted.add(`${id}_${finalUpdates.completedAt}`);
+          firedInAppAlertsRef.current.add(`ret_comp_${id}_${finalUpdates.completedAt}`);
         }
         saveStoredSet(SEEN_COMPLETED_RETURNS_KEY(user.id, compCode), seenCompleted);
       }
@@ -3440,6 +3468,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title,
         message,
         targetMode: 'admin',
+        targetUserIds: getCompanyAdminIds(compCode),
+        excludeUserIds: user?.id ? [user.id] : [],
         companyCode: compCode,
         url: 'https://saha-takip-beige.vercel.app/?tab=returns',
         collapseId: `ret_comp_${id}`,
@@ -3447,7 +3477,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. In-App Toast for current user if admin
       if (isUserAdmin(user)) {
-        setActiveToast({ title, body: message, tab: 'returns' });
+        showUniqueToast(`ret_comp_${id}_${finalUpdates.completedAt}`, { title, body: message, tab: 'returns' });
       }
     }
   };
@@ -3481,6 +3511,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const compCode = (user.companyCode || 'POLATLAR').trim().toUpperCase();
       const seenServices = getStoredSet(SEEN_SERVICES_KEY(user.id, compCode));
       seenServices.add(newService.id);
+      firedInAppAlertsRef.current.add(`srv_new_${newService.id}`);
       saveStoredSet(SEEN_SERVICES_KEY(user.id, compCode), seenServices);
     }
 
@@ -3494,45 +3525,42 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('saveSingleService add error:', err);
     });
 
-    // Send push notification directly to all Admins if created by staff (non-blocking in background)
-    if (!isUserAdmin(user)) {
-      (async () => {
-        try {
-          const activeComp = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
-          let adminIds = getCompanyAdminIds(activeComp);
-          if (adminIds.length === 0) {
-            try {
-              const cloudUsers = await UserService.fetchUsersFromCloud();
-              adminIds = cloudUsers
-                .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
-                .map((u) => u.id);
-            } catch {
-              // ignore
-            }
+    // 3. Send hardware push notification directly to all Admins' active devices (non-blocking in background)
+    (async () => {
+      try {
+        const activeComp = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+        let adminIds = getCompanyAdminIds(activeComp);
+        if (adminIds.length === 0) {
+          try {
+            const cloudUsers = await UserService.fetchUsersFromCloud();
+            adminIds = cloudUsers
+              .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === activeComp && (u.role === 'admin' || isUserAdmin(u)))
+              .map((u) => u.id);
+          } catch {
+            // ignore
           }
-          if (adminIds.length === 0 && activeComp === 'POLATLAR') {
-            adminIds = ['admin-1'];
-          }
-
-          const locText = newService.location ? ` (${newService.location})` : '';
-          const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
-
-          if (adminIds.length > 0) {
-            await OneSignalService.sendPushNotification({
-              title: '🔧 Yeni Servis Kaydı',
-              message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
-              targetMode: 'custom',
-              targetUserIds: adminIds,
-              companyCode: activeComp,
-              url: 'https://saha-takip-beige.vercel.app/?tab=services',
-              collapseId: `srv_new_${newService.id}`,
-            });
-          }
-        } catch (err) {
-          console.warn('OneSignal new service push error:', err);
         }
-      })();
-    }
+        if (adminIds.length === 0 && activeComp === 'POLATLAR') {
+          adminIds = ['admin-1'];
+        }
+
+        const locText = newService.location ? ` (${newService.location})` : '';
+        const cariText = newService.cariName ? `[${newService.cariName}] ` : '';
+
+        await OneSignalService.sendPushNotification({
+          title: '🔧 Yeni Servis Kaydı',
+          message: `${staffName}, ${cariText}"${newService.companyName}"${locText} için yeni servis ekledi: ${newService.workDone.slice(0, 80)}`,
+          targetMode: 'admin',
+          targetUserIds: adminIds,
+          excludeUserIds: user?.id ? [user.id] : [],
+          companyCode: activeComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=services',
+          collapseId: `srv_new_${newService.id}`,
+        });
+      } catch (err) {
+        console.warn('OneSignal new service push error:', err);
+      }
+    })();
   };
 
   // Update service record (guarded: admin or creator only)
@@ -4832,8 +4860,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${assignedBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(distToAssigned)})`,
             targetMode: 'admin',
+            targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
+            excludeUserIds: [user.id],
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+            collapseId: `att_in_${newRecord.id}`,
           });
 
           return {
@@ -4898,8 +4929,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '⚠️ Farklı Şubede Mesai Başladı (Onay Bekliyor)',
             message: `${user.name}, bağlı olduğu ${assignedBranch.name} yerine ${otherBranch.name} şubesinde mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
             targetMode: 'admin',
+            targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
+            excludeUserIds: [user.id],
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+            collapseId: `att_in_${newRecord.id}`,
           });
 
           return {
@@ -4960,9 +4994,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, ${assignedBranch.name} şubesinden ${LocationService.formatDistance(distToAssigned)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          collapseId: `att_in_${newRecord.id}`,
         });
 
         return {
@@ -5008,9 +5044,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             title: '🟢 Personel İşe Giriş Yaptı',
             message: `${user.name}, ${nearBranch.name} şubesinde mesaiye başladı. (Mesafe: ${LocationService.formatDistance(nearDist)})`,
             targetMode: 'admin',
+            targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
             excludeUserIds: [user.id],
             companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
             url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+            collapseId: `att_in_${newRecord.id}`,
           });
 
           return {
@@ -5080,9 +5118,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
           message: `${user.name}, en yakın ${closestBranch.name} şubesinden ${LocationService.formatDistance(minDist)} uzakta (20m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
           targetMode: 'admin',
+          targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
           excludeUserIds: [user.id],
           companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
           url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+          collapseId: `att_in_${newRecord.id}`,
         });
 
         return {
@@ -5160,9 +5200,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)',
         message: `${user.name}, iş yerinden ${LocationService.formatDistance(distance)} uzakta (30m dışı) mesaiye başladı. Onayınızı bekliyor.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
         excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_in_${newRecord.id}`,
       });
 
       return {
@@ -5201,9 +5243,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🟢 Personel İşe Giriş Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla iş yerine giriş yaptı. (Mesafe: ${LocationService.formatDistance(distance)})`,
       targetMode: 'admin',
+      targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      collapseId: `att_in_${newRecord.id}`,
     });
 
     return {
@@ -5546,9 +5590,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         title: '⚠️ Konum Dışı İşten Çıkış Onay Talebi',
         message: `${user.name}, ${targetName} konumundan ${LocationService.formatDistance(distance)} uzakta (${allowedRadius}m dışı) işten çıkış onay talebi gönderdi.${options.note ? ' (Not: ' + options.note + ')' : ''}`,
         targetMode: 'admin',
+        targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
         excludeUserIds: [user.id],
         companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_out_${updatedRecord.id}`,
       });
 
       return {
@@ -5612,9 +5658,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '🔴 Personel İşten Çıkış Yaptı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla ${targetName} şubesinden çıkış yaptı. (Toplam Mesai: ${durationText})`,
       targetMode: 'admin',
+      targetUserIds: getCompanyAdminIds(user.companyCode || compCode),
       excludeUserIds: [user.id],
       companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      collapseId: `att_out_${updatedRecord.id}`,
     });
 
     return {
@@ -5772,9 +5820,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       title: '☕ Personel Molaya Çıktı',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molaya çıktı.${note ? ` (Not: ${note})` : ''}`,
       targetMode: 'admin',
+      targetUserIds: getCompanyAdminIds(effectiveCompanyCode),
       excludeUserIds: [user.id],
       companyCode: effectiveCompanyCode,
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      collapseId: `break_start_${newBreak.id}`,
     });
 
     return {
@@ -5902,13 +5952,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     // Push notification to admins about break end
+    const breakEndComp = (user.companyCode || compCode || 'POLATLAR').toUpperCase();
     FastActionAgent.enqueuePushNotification({
       title: '🔄 Personel Moladan Döndü',
       message: `${user.name}, saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} itibarıyla molasını tamamlayıp mesaiye döndü. (Mola Süresi: ${primaryDurationMinutes} dk)`,
       targetMode: 'admin',
+      targetUserIds: getCompanyAdminIds(breakEndComp),
       excludeUserIds: [user.id],
-      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
+      companyCode: breakEndComp,
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+      collapseId: `break_end_${user.id}_${Math.floor(now / 10000)}`,
     });
 
     return {
@@ -6087,6 +6140,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_app_in_${record.id}`,
       });
     } else {
       const now = Date.now();
@@ -6115,6 +6169,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_app_out_${record.id}`,
       });
     }
 
@@ -6165,6 +6220,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_rej_in_${record.id}`,
       });
     } else {
       const updatedRecord: AttendanceRecord = {
@@ -6194,6 +6250,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetUserIds: [record.userId],
         companyCode: (record.companyCode || user.companyCode || compCode || 'POLATLAR').toUpperCase(),
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
+        collapseId: `att_rej_out_${record.id}`,
       });
     }
 
@@ -6342,17 +6399,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // Send OneSignal Push Notification to Admins (non-blocking)
-    OneSignalService.sendPushNotification({
+    const leaveComp = (user.companyCode || compCode || 'POLATLAR').toUpperCase();
+    FastActionAgent.enqueuePushNotification({
       title: `📝 Yeni İzin Talebi: ${user.name}`,
       message: `${user.name}, ${details} ${
         params.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'
       } İzin talebinde bulundu. Neden: ${params.reason}`,
       targetMode: 'admin',
+      targetUserIds: getCompanyAdminIds(leaveComp),
       excludeUserIds: [user.id],
-      companyCode: (user.companyCode || compCode || 'POLATLAR').toUpperCase(),
+      companyCode: leaveComp,
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch((pushErr) => {
-      console.warn('İzin talebi bildirim gönderim hatası:', pushErr);
+      collapseId: `leave_req_${newRequest.id}`,
     });
 
     return {
@@ -6385,7 +6443,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveLeaveRequests(updated);
 
     // Notify employee via push notification (non-blocking)
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '✅ İzin Talebiniz Onaylandı',
       message: `Sayın ${req.userName}, ${
         req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
@@ -6394,8 +6452,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetMode: 'custom',
       companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch((e) => {
-      console.warn('İzin onay bildirimi hatası:', e);
+      collapseId: `leave_app_${req.id}`,
     });
 
     return {
@@ -6430,7 +6487,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveLeaveRequests(updated);
 
     // Notify employee via push notification (non-blocking)
-    OneSignalService.sendPushNotification({
+    FastActionAgent.enqueuePushNotification({
       title: '❌ İzin Talebiniz Reddedildi',
       message: `Sayın ${req.userName}, ${
         req.leaveType === 'hourly' ? 'saatlik' : 'günlük'
@@ -6439,8 +6496,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetMode: 'custom',
       companyCode: (user?.companyCode || compCode || 'POLATLAR').toUpperCase(),
       url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-    }).catch((e) => {
-      console.warn('İzin ret bildirimi hatası:', e);
+      collapseId: `leave_rej_${req.id}`,
     });
 
     return {
@@ -6462,15 +6518,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveLeaveRequests(updated, targetComp);
 
     if (req.status === 'approved' && isUserAdmin(user) && req.userId !== user.id) {
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: 'ℹ️ İzin İptal Bilgisi',
         message: `Sayın ${req.userName}, ${req.date} tarihindeki izniniz yöneticiniz (${user.name}) tarafından kaldırılmıştır. Mesainiz aktiftir.`,
         targetUserIds: [req.userId],
         targetMode: 'custom',
         companyCode: targetComp,
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch((e) => {
-        console.warn('İzin iptal bildirim hatası:', e);
+        collapseId: `leave_can_${req.id}`,
       });
     }
 
@@ -6489,15 +6544,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If was approved and canceled by admin, send push notification to user
     if (req && req.status === 'approved' && user && isUserAdmin(user) && req.userId !== user.id) {
-      OneSignalService.sendPushNotification({
+      FastActionAgent.enqueuePushNotification({
         title: 'ℹ️ İzin İptal Bilgisi',
         message: `Sayın ${req.userName}, ${req.date} tarihindeki izniniz yöneticiniz (${user.name}) tarafından kaldırılmıştır. Mesainiz aktiftir.`,
         targetUserIds: [req.userId],
         targetMode: 'custom',
         companyCode: targetComp,
         url: 'https://saha-takip-beige.vercel.app/?tab=staff_tracking',
-      }).catch((e) => {
-        console.warn('İzin iptal bildirim hatası:', e);
+        collapseId: `leave_can_${req.id}`,
       });
     }
   };
@@ -6573,15 +6627,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const title = `⏰ Süreli Takip (${milestoneLabel}): ${triggeredAlarm.cariName}`;
           const body = triggeredAlarm.description || `Cari takip hatırlatması: ${milestoneLabel}`;
           const followUpUrl = 'https://saha-takip-beige.vercel.app/?tab=timed_follow_ups';
-          NotificationService.sendNotification(title, body, followUpUrl);
+          NotificationService.sendNotification(title, body, followUpUrl, {
+            tag: `tfu_alarm_${triggeredAlarm.id}_${milestoneKey}`,
+            skipIfVisible: true,
+          });
 
           if (triggeredAlarm.sendPush !== false) {
             OneSignalService.sendPushNotification({
               title,
               message: body,
               targetMode: 'admin',
+              targetUserIds: getCompanyAdminIds(user.companyCode || 'POLATLAR'),
               companyCode: user.companyCode || 'POLATLAR',
               url: followUpUrl,
+              collapseId: `tfu_alarm_${triggeredAlarm.id}_${milestoneKey}`,
             }).catch(() => {});
           }
 
@@ -7137,7 +7196,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             NotificationService.sendNotification(
               title,
               body,
-              'https://saha-takip-beige.vercel.app/?tab=personal_notes'
+              'https://saha-takip-beige.vercel.app/?tab=personal_notes',
+              {
+                tag: `pnote_${note.id}_${note.reminderDate}_${note.reminderTime || '09:00'}`,
+                skipIfVisible: true,
+              }
             );
 
             if (isRepeating && note.reminderRepeatMinutes) {
@@ -7324,6 +7387,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return Date.now() - 24 * 60 * 60 * 1000;
   });
 
+  const [clearedNotificationsTime, setClearedNotificationsTime] = useState<number>(() => {
+    if (typeof window !== 'undefined' && user?.id) {
+      const val = localStorage.getItem(`@saha_takip_cleared_notifications_time_${user.id}`);
+      if (val) return Number(val);
+    }
+    return 0;
+  });
+
   useEffect(() => {
     if (typeof window !== 'undefined' && user?.id) {
       const val = localStorage.getItem(`@saha_takip_last_read_time_${user.id}`);
@@ -7332,8 +7403,22 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         setLastReadTime(Date.now() - 24 * 60 * 60 * 1000);
       }
+      const clearedVal = localStorage.getItem(`@saha_takip_cleared_notifications_time_${user.id}`);
+      setClearedNotificationsTime(clearedVal ? Number(clearedVal) : 0);
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleCleared = (e: Event) => {
+      const customEvt = e as CustomEvent<{ time?: number }>;
+      const t = customEvt?.detail?.time || Date.now();
+      setClearedNotificationsTime(t);
+      setLastReadTime((prev) => Math.max(prev, t));
+    };
+    window.addEventListener('saha:notifications-cleared', handleCleared);
+    return () => window.removeEventListener('saha:notifications-cleared', handleCleared);
+  }, []);
 
   const markAllAsRead = async (): Promise<void> => {
     const now = Date.now();
@@ -7398,140 +7483,221 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return 0;
     let count = 0;
     const effectiveIsAdmin = isUserAdmin(user);
+    const cutoffTime = Math.max(lastReadTime, clearedNotificationsTime);
+    const now = Date.now();
+    const isUnreadTime = (ts?: number) => {
+      if (!ts || isNaN(ts)) return false;
+      if (ts > now + 10000) return false;
+      return ts > cutoffTime;
+    };
+
+    const currentCompanyCode = (
+      viewingCompany?.code ||
+      company?.code ||
+      user.companyCode ||
+      compCode ||
+      'POLATLAR'
+    ).trim().toUpperCase();
+    const companyUserIds = new Set(
+      (users || [])
+        .filter((u) => (u.companyCode || 'POLATLAR').trim().toUpperCase() === currentCompanyCode)
+        .map((u) => u.id)
+    );
 
     if (effectiveIsAdmin) {
-      // 1. Pending approval notes newer than lastReadTime
-      count += allNotes.filter(
-        (n) => n.status === 'pending_approval' && (n.completedAt || n.createdAt) > lastReadTime
-      ).length;
+      // 1. Security Logs
+      securityLogs.forEach((l) => {
+        if (l.companyCode && l.companyCode.toUpperCase() !== currentCompanyCode) return;
+        const logUid = l.attemptedUserId || l.boundUserId;
+        if (logUid && companyUserIds.size > 0 && !companyUserIds.has(logUid)) return;
+        if (currentCompanyCode === 'POLATLAR') {
+          const detectedComp = UserService.getUserCompanyCode(l.attemptedUserId, l.attemptedUsername);
+          if (detectedComp && detectedComp !== 'POLATLAR') return;
+        }
+        if (isUnreadTime(l.timestamp)) count++;
+      });
 
-      // 2. Notes created by others newer than lastReadTime
-      count += allNotes.filter(
-        (n) => n.createdBy !== user.id && n.status !== 'pending_approval' && n.createdAt > lastReadTime
-      ).length;
+      // 2. Leave Requests
+      leaveRequests.forEach((req) => {
+        if (req.companyCode) {
+          if (req.companyCode.toUpperCase() !== currentCompanyCode) return;
+        } else if (req.userId && companyUserIds.size > 0 && !companyUserIds.has(req.userId)) {
+          return;
+        }
+        if (currentCompanyCode !== 'POLATLAR' && (req.userName === 'Mert Agcakaya' || req.userName === 'Murat POLAT')) return;
+        if (isUnreadTime(req.requestedAt)) count++;
+      });
 
-      // 3. New services from staff
-      count += allServices.filter(
-        (s) => s.createdBy !== user.id && s.createdAt > lastReadTime
-      ).length;
+      // 3. Attendance check-in / check-out items (matching NotificationListModal 1-to-1)
+      attendanceRecords.forEach((att) => {
+        if (att.companyCode) {
+          if (att.companyCode.toUpperCase() !== currentCompanyCode) return;
+        } else if (companyUserIds.size > 0 && !companyUserIds.has(att.userId)) {
+          return;
+        }
+        if (currentCompanyCode !== 'POLATLAR' && (att.userName === 'Mert Agcakaya' || att.userName === 'Murat POLAT' || att.userName === 'Azizcan ISIYEL')) {
+          return;
+        }
+        if (att.checkInOutside && att.checkInApprovalStatus === 'pending' && isUnreadTime(att.checkInTime)) {
+          count++;
+        }
+        if (att.checkOutOutside && att.checkOutApprovalStatus === 'pending' && isUnreadTime(att.checkOutTime || att.checkInTime)) {
+          count++;
+        }
+        if ((!att.checkInOutside || att.checkInApprovalStatus === 'approved') && att.checkInTime && isUnreadTime(att.checkInTime)) {
+          count++;
+        }
+        if (att.checkOutTime && att.status === 'completed' && (!att.checkOutOutside || att.checkOutApprovalStatus === 'approved') && isUnreadTime(att.checkOutTime)) {
+          count++;
+        }
+      });
 
-      // 4. New locations from staff
-      count += allLocations.filter(
-        (l) => l.createdBy !== user.id && l.status !== 'pending_approval' && l.createdAt > lastReadTime
-      ).length;
+      // 4 & 5. Work orders (pending approval & created by others)
+      allNotes.forEach((n) => {
+        if (currentCompanyCode !== 'POLATLAR' && (n.createdByName === 'Murat POLAT' || n.createdByName === 'Azizcan ISIYEL' || n.createdByName === 'Mert Agcakaya')) return;
+        if (n.status === 'pending_approval') {
+          if (companyUserIds.size > 0 && n.createdBy && !companyUserIds.has(n.createdBy) && n.completedBy && !companyUserIds.has(n.completedBy)) return;
+          if (isUnreadTime(n.completedAt || n.createdAt)) count++;
+        } else if (n.createdBy !== user.id) {
+          if (companyUserIds.size > 0 && n.createdBy && !companyUserIds.has(n.createdBy)) return;
+          if (isUnreadTime(n.createdAt)) count++;
+        }
+        // 8. Active reminders due
+        if (n.reminderActive && n.reminderDate) {
+          const remTime = new Date(n.reminderDate).getTime();
+          if (!isNaN(remTime) && remTime <= now && isUnreadTime(remTime)) {
+            count++;
+          }
+        }
+      });
 
-      // 4b. Pending approval locations
-      count += allLocations.filter(
-        (l) => l.status === 'pending_approval' && (l.completedAt || l.createdAt) > lastReadTime
-      ).length;
+      // 6. Services from staff
+      allServices.forEach((s) => {
+        if (companyUserIds.size > 0 && s.createdBy && !companyUserIds.has(s.createdBy)) return;
+        if (currentCompanyCode !== 'POLATLAR' && (s.createdByName === 'Murat POLAT' || s.createdByName === 'Azizcan ISIYEL' || s.createdByName === 'Mert Agcakaya')) return;
+        if (s.createdBy !== user.id && isUnreadTime(s.createdAt)) {
+          count++;
+        }
+      });
 
-      // 5. Active reminders due
-      count += allNotes.filter((n) => {
-        if (!n.reminderActive || !n.reminderDate) return false;
-        const remTime = new Date(n.reminderDate).getTime();
-        return remTime <= Date.now() && remTime > lastReadTime;
-      }).length;
+      // 7. Locations from staff
+      allLocations.forEach((loc) => {
+        if (companyUserIds.size > 0 && loc.createdBy && !companyUserIds.has(loc.createdBy)) return;
+        if (currentCompanyCode !== 'POLATLAR' && (loc.createdByName === 'Murat POLAT' || loc.createdByName === 'Azizcan ISIYEL' || loc.createdByName === 'Mert Agcakaya')) return;
+        if (loc.status === 'pending_approval') {
+          if (isUnreadTime(loc.completedAt || loc.createdAt)) count++;
+        } else if (loc.createdBy !== user.id) {
+          if (isUnreadTime(loc.createdAt)) count++;
+        }
+      });
 
-      // 6. Security Logs newer than lastReadTime
-      count += securityLogs.filter((l) => l.timestamp > lastReadTime && !l.read).length;
+      // 9. Return / Warranty completed items
+      returnWarrantyItems.forEach((item) => {
+        if (item.status === 'completed' && item.completedAt && isUnreadTime(item.completedAt)) {
+          count++;
+        }
+      });
 
-      // 7. Leave Requests newer than lastReadTime
-      count += leaveRequests.filter((r) => r.requestedAt > lastReadTime).length;
-
-      // 8. Attendance check-ins/check-outs newer than lastReadTime
-      count += attendanceRecords.filter((a) =>
-        a.checkInTime > lastReadTime ||
-        (a.checkOutTime && a.checkOutTime > lastReadTime)
-      ).length;
-
-      // 9. Timed follow-up alarms due (only unnotified and newer than lastReadTime)
-      count += timedFollowUps.filter((item) => {
-        if (item.status !== 'pending' || item.notified) return false;
-        const targetDate = parseDueDateTime(item.snoozedUntil || item.dueDate);
-        const targetTime = targetDate ? targetDate.getTime() : NaN;
-        return !isNaN(targetTime) && targetTime <= Date.now() && targetTime > lastReadTime;
-      }).length;
+      // 10. Timed follow-ups (due or shared)
+      timedFollowUps.forEach((tfu) => {
+        if (tfu.status === 'pending') {
+          const targetDate = parseDueDateTime(tfu.snoozedUntil || tfu.dueDate);
+          const targetTime = targetDate ? targetDate.getTime() : NaN;
+          const isDue = !isNaN(targetTime) && targetTime <= now;
+          if (isDue) {
+            if (isUnreadTime(targetTime)) count++;
+          } else if (tfu.createdBy && tfu.createdBy !== user.id) {
+            if (isUnreadTime(tfu.createdAt || now)) count++;
+          }
+        }
+      });
     } else {
       // Staff
-      // 1. Targeted notes newer than lastReadTime
-      count += allNotes.filter(
-        (n) =>
+      // 1. Leave requests reviewed
+      leaveRequests.forEach((req) => {
+        if (req.userId === user.id && (req.status === 'approved' || req.status === 'rejected')) {
+          if (isUnreadTime(req.reviewedAt || req.requestedAt)) count++;
+        }
+      });
+
+      // 2. Attendance check-in / check-out reviewed (separate check-in & check-out items)
+      attendanceRecords.forEach((att) => {
+        if (att.userId === user.id) {
+          if (att.checkInApprovalStatus === 'approved' && att.checkInOutside && isUnreadTime(att.checkInApprovedAt || att.checkInTime)) {
+            count++;
+          }
+          if (att.checkInApprovalStatus === 'rejected' && isUnreadTime(att.checkInTime)) {
+            count++;
+          }
+          if (att.checkOutApprovalStatus === 'approved' && att.checkOutOutside && isUnreadTime(att.checkOutApprovedAt || att.checkOutTime || att.checkInTime)) {
+            count++;
+          }
+          if (att.checkOutApprovalStatus === 'rejected' && isUnreadTime(att.checkOutTime || att.checkInTime)) {
+            count++;
+          }
+        }
+      });
+
+      // 3, 4, 5, 6. Notes (assigned, approved, rejected, reminders)
+      allNotes.forEach((n) => {
+        const isTargetedToMe =
           n.createdBy !== user.id &&
-          n.createdAt > lastReadTime &&
           (n.targetMode === 'all' ||
             n.targetUserId === 'all' ||
             (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
-            n.targetUserId === user.id)
-      ).length;
+            n.targetUserId === user.id);
 
-      // 2. Approved notes newer than lastReadTime
-      count += allNotes.filter(
-        (n) =>
+        if (isTargetedToMe && isUnreadTime(n.createdAt)) {
+          count++;
+        }
+        if (
           n.status === 'approved' &&
-          (n.approvedAt || n.createdAt) > lastReadTime &&
           (n.completedBy === user.id ||
             (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
-            n.targetUserId === user.id)
-      ).length;
-
-      // 3. Rejected notes newer than lastReadTime
-      count += allNotes.filter(
-        (n) =>
+            n.targetUserId === user.id) &&
+          isUnreadTime(n.approvedAt || n.createdAt)
+        ) {
+          count++;
+        }
+        if (
           n.status === 'rejected' &&
-          (n.rejectedAt || n.createdAt) > lastReadTime &&
           (n.completedBy === user.id ||
             (Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
-            n.targetUserId === user.id)
-      ).length;
+            n.targetUserId === user.id) &&
+          isUnreadTime(n.rejectedAt || n.createdAt)
+        ) {
+          count++;
+        }
+        if (n.reminderActive && n.reminderDate && (n.createdBy === user.id || isTargetedToMe)) {
+          const remTime = new Date(n.reminderDate).getTime();
+          if (!isNaN(remTime) && remTime <= now && isUnreadTime(remTime)) {
+            count++;
+          }
+        }
+      });
 
+      // 7. Admin reminders
+      adminReminders.forEach((r) => {
+        if (isUnreadTime(r.createdAt)) count++;
+      });
 
-      // 3c. Approved / Rejected locations newer than lastReadTime
-      count += allLocations.filter(
-        (l) =>
-          (l.status === 'approved' || l.status === 'rejected') &&
-          (l.approvedAt || l.rejectedAt || l.createdAt) > lastReadTime &&
-          (l.completedBy === user.id || l.createdBy === user.id)
-      ).length;
+      // 8. Approved / Rejected Locations
+      allLocations.forEach((loc) => {
+        if (loc.completedBy === user.id || loc.createdBy === user.id) {
+          if (loc.status === 'approved' && isUnreadTime(loc.approvedAt || loc.createdAt)) {
+            count++;
+          } else if (loc.status === 'rejected' && isUnreadTime(loc.rejectedAt || loc.createdAt)) {
+            count++;
+          }
+        }
+      });
 
-      // 4. Active reminders due
-      count += allNotes.filter((n) => {
-        if (!n.reminderActive || !n.reminderDate) return false;
-        const remTime = new Date(n.reminderDate).getTime();
-        const isTargeted =
-          n.createdBy === user.id ||
-          (n.targetMode === 'custom' && Array.isArray(n.targetUserIds) && n.targetUserIds.includes(user.id)) ||
-          n.targetUserId === user.id;
-        return isTargeted && remTime <= Date.now() && remTime > lastReadTime;
-      }).length;
-
-      // 5. Admin reminders newer than lastReadTime
-      count += adminReminders.filter((r) => r.createdAt > lastReadTime).length;
-
-      // 6. Leave Requests reviewed newer than lastReadTime
-      count += leaveRequests.filter(
-        (r) =>
-          r.userId === user.id &&
-          (r.status === 'approved' || r.status === 'rejected') &&
-          (r.reviewedAt || r.requestedAt) > lastReadTime
-      ).length;
-
-      // 7. Attendance check-in / check-out reviewed newer than lastReadTime
-      count += attendanceRecords.filter((a) => {
-        if (a.userId !== user.id) return false;
-        const inApproved =
-          a.checkInApprovalStatus === 'approved' &&
-          a.checkInOutside &&
-          (a.checkInApprovedAt || a.checkInTime) > lastReadTime;
-        const inRejected = a.checkInApprovalStatus === 'rejected' && a.checkInTime > lastReadTime;
-        const outApproved =
-          a.checkOutApprovalStatus === 'approved' &&
-          a.checkOutOutside &&
-          (a.checkOutApprovedAt || a.checkOutTime || a.checkInTime) > lastReadTime;
-        const outRejected =
-          a.checkOutApprovalStatus === 'rejected' &&
-          (a.checkOutTime || a.checkInTime) > lastReadTime;
-        return inApproved || inRejected || outApproved || outRejected;
-      }).length;
+      // 9. Return / Warranty completed items
+      returnWarrantyItems.forEach((item) => {
+        if (item.status === 'completed' && item.completedAt && (item.createdBy === user.id || item.completedBy === user.id)) {
+          if (isUnreadTime(item.completedAt)) count++;
+        }
+      });
     }
 
     return count;
@@ -7543,9 +7709,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     leaveRequests,
     attendanceRecords,
     adminReminders,
+    returnWarrantyItems,
     timedFollowUps,
     user,
+    users,
+    viewingCompany,
+    company,
+    compCode,
     lastReadTime,
+    clearedNotificationsTime,
   ]);
 
   // --- App Badging API & Dynamic Launcher / Favicon Badge ---

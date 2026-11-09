@@ -168,6 +168,62 @@ let activeCompanyId =
         Number(typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_company_id') : 0) || 0
       );
 
+// Büyük veri setlerinin localStorage 5MB kotasını doldurup bildirim/okundu (SEEN_*) anahtarlarını
+// kilitlemesini (QuotaExceededError) önlemek için ağır anahtarları yalnızca IndexedDB'de tutarız.
+const HEAVY_IDB_ONLY_KEY_PREFIXES = [
+  '@gorev_tamamlama_locations',
+  '@gorev_tamamlama_services',
+  '@gorev_tamamlama_general_notes',
+  '@gorev_tamamlama_note_media_cache',
+  '@gorev_tamamlama_return_warranty',
+  '@saha_takip_cariler_data',
+  '@gorev_tamamlama_attendance',
+  '@gorev_tamamlama_job_applications',
+];
+
+function isHeavyIdbOnlyKey(key: string): boolean {
+  return HEAVY_IDB_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+function purgeHeavyLocalStorageMirrors(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (isHeavyIdbOnlyKey(k)) {
+        keysToRemove.push(k);
+        continue;
+      }
+      if (k.startsWith('@gorev_tamamlama_') || k.startsWith('@saha_takip_')) {
+        const val = localStorage.getItem(k);
+        if (val && val.length > 60000) {
+          keysToRemove.push(k);
+        }
+      }
+    }
+    for (const k of keysToRemove) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          idbGet(k).then((existing) => {
+            if (existing === undefined || existing === null) {
+              idbSet(k, parsed).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      } catch {}
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    }
+  } catch {}
+}
+
+purgeHeavyLocalStorageMirrors();
+
 // Helper to safely load data from IndexedDB or fallback to localStorage
 async function loadItem<T>(key: string): Promise<T | null> {
   try {
@@ -182,7 +238,14 @@ async function loadItem<T>(key: string): Promise<T | null> {
   try {
     const localVal = localStorage.getItem(key);
     if (localVal) {
-      return JSON.parse(localVal) as T;
+      const parsed = JSON.parse(localVal) as T;
+      if (isHeavyIdbOnlyKey(key)) {
+        idbSet(key, parsed).catch(() => {});
+        try {
+          localStorage.removeItem(key);
+        } catch {}
+      }
+      return parsed;
     }
   } catch (e) {
     console.warn(`localStorage read failed for ${key}:`, e);
@@ -191,7 +254,7 @@ async function loadItem<T>(key: string): Promise<T | null> {
   return null;
 }
 
-// Helper to safely save data to IndexedDB and localStorage mirror
+// Helper to safely save data to IndexedDB and lightweight localStorage mirror
 async function saveItem<T>(key: string, value: T): Promise<void> {
   try {
     await idbSet(key, value);
@@ -199,12 +262,22 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
     console.warn(`IndexedDB write failed for ${key}:`, e);
   }
 
+  if (isHeavyIdbOnlyKey(key)) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+    return;
+  }
+
   try {
     const stringified = JSON.stringify(value);
-    if (stringified.length < 4000000) {
+    if (stringified.length < 40000) {
       localStorage.setItem(key, stringified);
+    } else {
+      localStorage.removeItem(key);
     }
   } catch (e) {
+    purgeHeavyLocalStorageMirrors();
     console.warn(`localStorage mirror skipped for ${key}:`, e);
   }
 }
