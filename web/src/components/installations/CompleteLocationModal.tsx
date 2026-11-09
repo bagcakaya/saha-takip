@@ -20,11 +20,17 @@ export const CompleteLocationModal: React.FC<CompleteLocationModalProps> = ({
   const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const initializedLocationIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setCompletionNote(location?.completionNote || '');
-      setCompletionPhotos(location?.completionPhotos || []);
+    if (!isOpen || !location) {
+      initializedLocationIdRef.current = null;
+      return;
+    }
+    if (initializedLocationIdRef.current !== location.id) {
+      initializedLocationIdRef.current = location.id;
+      setCompletionNote(location.completionNote || '');
+      setCompletionPhotos(location.completionPhotos || []);
       setIsSubmitting(false);
     }
   }, [isOpen, location]);

@@ -571,24 +571,31 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const keepPhotos =
         n.photos && n.photos.length > 0
           ? n.photos
-          : n.mediaSlotId || isRecentLocalEdit
-            ? prev.photos || []
+          : prev.photos && prev.photos.length > 0
+            ? prev.photos
             : [];
       const keepCompPhotos =
         n.completionPhotos && n.completionPhotos.length > 0
           ? n.completionPhotos
-          : n.mediaSlotId || isRecentLocalEdit
-            ? prev.completionPhotos || []
+          : prev.completionPhotos && prev.completionPhotos.length > 0
+            ? prev.completionPhotos
             : [];
       return {
         ...n,
-        cariName: n.cariName || (isRecentLocalEdit ? prev.cariName : undefined),
-        usedMaterials:
-          n.usedMaterials || (isRecentLocalEdit ? prev.usedMaterials : undefined),
+        status:
+          isRecentLocalEdit && prev.status && prev.status !== 'pending' && n.status === 'pending'
+            ? prev.status
+            : n.status,
+        completedAt: n.completedAt || (isRecentLocalEdit ? prev.completedAt : undefined),
+        completedBy: n.completedBy || (isRecentLocalEdit ? prev.completedBy : undefined),
+        completedByName: n.completedByName || (isRecentLocalEdit ? prev.completedByName : undefined),
+        completionNote: n.completionNote || (isRecentLocalEdit ? prev.completionNote : undefined),
+        cariName: n.cariName || prev.cariName,
+        usedMaterials: n.usedMaterials || prev.usedMaterials,
         photos: keepPhotos,
         completionPhotos: keepCompPhotos,
-        mediaSlotId: n.mediaSlotId || (isRecentLocalEdit ? prev.mediaSlotId : undefined),
-        mediaUpdatedAt: n.mediaUpdatedAt || (isRecentLocalEdit ? prev.mediaUpdatedAt : undefined),
+        mediaSlotId: n.mediaSlotId || prev.mediaSlotId,
+        mediaUpdatedAt: n.mediaUpdatedAt || prev.mediaUpdatedAt,
         readBy: mergedReadBy,
       };
     });

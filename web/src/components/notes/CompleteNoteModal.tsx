@@ -20,11 +20,17 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
   const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const initializedNoteIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setCompletionNote(note?.completionNote || '');
-      setCompletionPhotos(note?.completionPhotos || []);
+    if (!isOpen || !note) {
+      initializedNoteIdRef.current = null;
+      return;
+    }
+    if (initializedNoteIdRef.current !== note.id) {
+      initializedNoteIdRef.current = note.id;
+      setCompletionNote(note.completionNote || '');
+      setCompletionPhotos(note.completionPhotos || []);
       setIsSubmitting(false);
     }
   }, [isOpen, note]);
@@ -58,10 +64,12 @@ export const CompleteNoteModal: React.FC<CompleteNoteModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || isProcessingPhoto) return;
+    const noteTextToSave = completionNote.trim();
+    const photosToSave = [...completionPhotos];
     setIsSubmitting(true);
     onClose();
     try {
-      await onConfirm(completionNote.trim(), completionPhotos);
+      await onConfirm(noteTextToSave, photosToSave);
     } catch (err) {
       console.error('CompleteNoteModal submit error:', err);
     } finally {

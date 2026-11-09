@@ -20,11 +20,17 @@ export const CompleteServiceModal: React.FC<CompleteServiceModalProps> = ({
   const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const initializedServiceIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setCompletionNote(service?.completionNote || '');
-      setCompletionPhotos(service?.completionPhotos || []);
+    if (!isOpen || !service) {
+      initializedServiceIdRef.current = null;
+      return;
+    }
+    if (initializedServiceIdRef.current !== service.id) {
+      initializedServiceIdRef.current = service.id;
+      setCompletionNote(service.completionNote || '');
+      setCompletionPhotos(service.completionPhotos || []);
       setIsSubmitting(false);
     }
   }, [isOpen, service]);

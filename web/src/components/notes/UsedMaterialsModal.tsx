@@ -20,9 +20,15 @@ export const UsedMaterialsModal: React.FC<UsedMaterialsModalProps> = ({
   const [materials, setMaterials] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(!isAdmin);
+  const initializedNoteIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && note) {
+    if (!isOpen || !note) {
+      initializedNoteIdRef.current = null;
+      return;
+    }
+    if (initializedNoteIdRef.current !== note.id) {
+      initializedNoteIdRef.current = note.id;
       setMaterials(note.usedMaterials || '');
       setIsEditing(!isAdmin);
       setIsSaving(false);

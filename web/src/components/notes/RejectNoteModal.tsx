@@ -17,9 +17,15 @@ export const RejectNoteModal: React.FC<RejectNoteModalProps> = ({
 }) => {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const initializedNoteIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen || !note) {
+      initializedNoteIdRef.current = null;
+      return;
+    }
+    if (initializedNoteIdRef.current !== note.id) {
+      initializedNoteIdRef.current = note.id;
       setReason('');
       setIsSubmitting(false);
     }
