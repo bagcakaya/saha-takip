@@ -316,6 +316,7 @@ interface StorageContextType {
     item: Omit<FixedExpenseRecord, 'id' | 'createdAt' | 'status'> & { status?: 'pending' | 'paid' }
   ) => Promise<void>;
   updateFixedExpense: (item: FixedExpenseRecord) => Promise<void>;
+  bulkUpdateFixedExpenses: (items: FixedExpenseRecord[]) => Promise<void>;
   deleteFixedExpense: (id: string) => Promise<void>;
   toggleFixedExpenseStatus: (id: string, monthKey?: string) => Promise<void>;
   refreshAccountingData: () => Promise<void>;
@@ -4661,6 +4662,21 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveAccountingData(updatedPayload);
   };
 
+  const bulkUpdateFixedExpenses = async (items: FixedExpenseRecord[]): Promise<void> => {
+    const now = Date.now();
+    const mapById = new Map<string, FixedExpenseRecord>();
+    items.forEach((it) => mapById.set(it.id, { ...it, updatedAt: now }));
+    const updatedList = (accountingData.fixedExpenses || []).map((r) =>
+      mapById.has(r.id) ? mapById.get(r.id)! : r
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      fixedExpenses: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
   const deleteFixedExpense = async (id: string): Promise<void> => {
     const updatedList = (accountingData.fixedExpenses || []).filter((r) => r.id !== id);
     const updatedPayload: AccountingDataPayload = {
@@ -8351,6 +8367,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toggleDebtReceivableStatus,
         addFixedExpense,
         updateFixedExpense,
+        bulkUpdateFixedExpenses,
         deleteFixedExpense,
         toggleFixedExpenseStatus,
         refreshAccountingData,

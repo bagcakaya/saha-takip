@@ -629,12 +629,22 @@ export interface DebtReceivableRecord {
   createdByName?: string;
 }
 
+export interface FixedExpensePriceChange {
+  effectiveFrom: string; // 'YYYY-MM-DD' veya 'YYYY-MM' (Örn: '2027-01-01' -> 1 Ocak 2027 itibarıyla)
+  amount: number; // Yeni Sabit Masraf Tutarı (₺ - Numeric)
+  note?: string; // Opsiyonel not (Örn: '1 Ocak 2027 Yılbaşı Güncellemesi')
+  updatedAt?: number;
+  updatedBy?: string;
+  updatedByName?: string;
+}
+
 export interface FixedExpenseRecord {
   id: string;
   categoryId: string;
   categoryCode: string; // Örn: '770.07'
   categoryName: string; // Örn: 'Kira & Aidat Gideri'
   amount: number; // Sabit Masraf Tutarı (₺ - Numeric)
+  priceHistory?: FixedExpensePriceChange[]; // Dönem / tarih bazlı tutar değişiklikleri (Örn: 1 Ocak 2027 itibarıyla yeni tutarlar)
   maturity?: string; // Vade (Opsiyonel)
   dueDate?: string; // Son Ödeme Tarihi YYYY-MM-DD (Opsiyonel)
   description?: string; // Açıklama (Opsiyonel)
