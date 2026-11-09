@@ -92,8 +92,14 @@ export const OneSignalService = {
         serviceWorkerPath: 'OneSignalSDKWorker.js',
       });
 
-      // Listen for notification click events for deep linking
+      // Ensure foreground push notifications are always displayed even when app is visible
       if (OneSignal.Notifications && OneSignal.Notifications.addEventListener) {
+        OneSignal.Notifications.addEventListener('foregroundWillDisplay', (event: any) => {
+          try {
+            event?.notification?.display?.();
+          } catch {}
+        });
+
         OneSignal.Notifications.addEventListener('click', (event: any) => {
           try {
             console.log('OneSignal notification click event received:', event);

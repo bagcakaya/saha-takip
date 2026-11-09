@@ -194,14 +194,15 @@ export const NotificationService = {
     const contentKey = `${normTitle}:::${normBody}`;
     const dedupKey = explicitTag || contentKey;
     const now = Date.now();
-    const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 saat boyunca aynı bildirim tekrar tetiklenemez
+    const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 saat boyunca aynı tag tekrar tetiklenemez
+    const CONTENT_WINDOW_MS = explicitTag ? 15 * 1000 : DEDUP_WINDOW_MS;
 
     // 1. In-memory deduplication check (both tag and content)
     const lastSentTag = this.recentNotifications.get(dedupKey);
     const lastSentContent = this.recentNotifications.get(contentKey);
     if (
       (lastSentTag && now - lastSentTag < DEDUP_WINDOW_MS) ||
-      (lastSentContent && now - lastSentContent < DEDUP_WINDOW_MS)
+      (lastSentContent && now - lastSentContent < CONTENT_WINDOW_MS)
     ) {
       return;
     }
@@ -213,7 +214,7 @@ export const NotificationService = {
       const cache: Record<string, number> = raw ? JSON.parse(raw) : {};
       if (
         (cache[dedupKey] && now - cache[dedupKey] < DEDUP_WINDOW_MS) ||
-        (cache[contentKey] && now - cache[contentKey] < DEDUP_WINDOW_MS)
+        (cache[contentKey] && now - cache[contentKey] < CONTENT_WINDOW_MS)
       ) {
         this.recentNotifications.set(dedupKey, cache[dedupKey] || now);
         this.recentNotifications.set(contentKey, cache[contentKey] || now);
@@ -290,7 +291,7 @@ export const NotificationService = {
             badge: '/favicon.png',
             vibrate: [200, 100, 200],
             tag: safeTag,
-            renotify: false,
+            renotify: options?.skipIfVisible === false,
             data: payloadData,
           });
           return;

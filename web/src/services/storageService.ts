@@ -4461,6 +4461,41 @@ export const StorageService = {
   },
 
   /**
+   * Clears shift reminder deduplication keys for specific user(s) on a given date in local cache + cloud Slot 23
+   */
+  async clearShiftAlertLogsForUsers(userIds: string[], dateStr?: string, companyCode?: string): Promise<void> {
+    if (!Array.isArray(userIds) || userIds.length === 0) return;
+    const comp = (companyCode || activeCompanyCode || 'POLATLAR').trim().toUpperCase();
+    const localKey = this.getStorageKeyForCompany(SHIFT_ALERT_LOGS_KEY, comp);
+    const slotId = this.getSlotIdForCompany(23, comp);
+
+    try {
+      const localCached = (await loadItem<Record<string, number>>(localKey)) || {};
+      const { data: cloudData } = await loadChunkedSlot<Record<string, number>>(slotId);
+      const base =
+        cloudData && typeof cloudData === 'object' && !Array.isArray(cloudData) ? cloudData : {};
+      const merged: Record<string, number> = { ...base, ...localCached };
+
+      let changed = false;
+      for (const k of Object.keys(merged)) {
+        const matchesDate = !dateStr || k.includes(dateStr);
+        const matchesUser = userIds.some((uid) => uid && k.endsWith(`_${uid}`));
+        if (matchesDate && matchesUser) {
+          delete merged[k];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await saveItem(localKey, merged);
+        await saveChunkedSlot(slotId, merged);
+      }
+    } catch (e) {
+      console.warn('Shift alert logs clear error:', e);
+    }
+  },
+
+  /**
    * Retrieves job applications for current company (cloud slot 19 + IndexedDB/localStorage cache)
    */
   async getJobApplications(): Promise<JobApplication[]> {

@@ -3980,8 +3980,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       s.id === id ? { ...s, ...updates, updatedAt: Date.now() } : s
     );
     setShifts(updatedShifts);
+    const affectedUserIds: string[] = [];
     const updatedAssignments = shiftAssignments.map((a) => {
       if (a.shiftId === id) {
+        affectedUserIds.push(a.userId);
         return {
           ...a,
           shiftName: updates.name || a.shiftName,
@@ -3993,6 +3995,9 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return a;
     });
     setShiftAssignments(updatedAssignments);
+    if (affectedUserIds.length > 0) {
+      ShiftReminderService.resetShiftAlertsForUsers(affectedUserIds, undefined, compCode);
+    }
     await StorageService.saveShiftData({
       definitions: updatedShifts,
       assignments: updatedAssignments,
@@ -4044,6 +4049,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     setShiftAssignments(updatedAssignments);
+    ShiftReminderService.resetShiftAlertsForUsers([userId], undefined, compCode);
     await StorageService.saveShiftData({
       definitions: shifts,
       assignments: updatedAssignments,
@@ -6475,8 +6481,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const deleteAttendanceRecord = async (id: string) => {
+    const targetRec = attendanceRecords.find((r) => r.id === id);
     const updated = attendanceRecords.filter((r) => r.id !== id);
     setAttendanceRecords(updated);
+    if (targetRec?.userId) {
+      ShiftReminderService.resetShiftAlertsForUsers(
+        [targetRec.userId],
+        targetRec.date,
+        targetRec.companyCode || compCode
+      );
+    }
     await StorageService.saveAttendanceRecords(updated, { deletedRecordId: id });
   };
 
@@ -7570,12 +7584,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearInterval(interval);
   }, [personalNotes, user?.id]);
 
-  // --- VARDİYA GİRİŞ (+15dk) & ÇIKIŞ (+5dk / +10dk) HATIRLATICI SERVİSİ (Her 20 saniyede bir kontrol) ---
+  // --- VARDİYA GİRİŞ (+15dk) & ÇIKIŞ (+5dk / +10dk) HATIRLATICI SERVİSİ (Her 10 saniyede bir + Ekran Açıldığında kontrol) ---
   // SADECE vardiya tahsis edilen personel için canlı veritabanı doğrulamasıyla çalışır (Yöneticiye gitmez).
   useEffect(() => {
     if (!shiftAssignments || shiftAssignments.length === 0) {
       return;
     }
+
+    const handleToast = (t: { key: string; title: string; body: string; tab?: any }) => {
+      showUniqueToast(t.key, {
+        title: t.title,
+        body: t.body,
+        tab: (t.tab as TabType) || 'staff_tracking',
+      });
+    };
 
     const runShiftRemindersWatcher = () => {
       // 1. Vardiya Başlangıç (+15. dakika) İşe Giriş Hatırlatıcısı
@@ -7586,6 +7608,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         leaveRequests,
         companyCode: compCode,
         currentUser: user || undefined,
+        onShowToast: handleToast,
       });
 
       // 2. Vardiya Bitiş (+5. ve +10. dakika) İşten Çıkış Hatırlatıcısı
@@ -7597,6 +7620,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           leaveRequests,
           companyCode: compCode,
           currentUser: user || undefined,
+          onShowToast: handleToast,
           onUpdateRecord: (updatedRecord) => {
             setAttendanceRecords((prev) => {
               const idx = prev.findIndex((r) => r.id === updatedRecord.id);
@@ -7612,9 +7636,26 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     runShiftRemindersWatcher();
-    const shiftInterval = setInterval(runShiftRemindersWatcher, 20000);
-    return () => clearInterval(shiftInterval);
-  }, [attendanceRecords, shifts, shiftAssignments, leaveRequests, compCode, user]);
+    const shiftInterval = setInterval(runShiftRemindersWatcher, 10000);
+
+    const onVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runShiftRemindersWatcher();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onVisibilityOrFocus);
+      document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    }
+
+    return () => {
+      clearInterval(shiftInterval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onVisibilityOrFocus);
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      }
+    };
+  }, [attendanceRecords, shifts, shiftAssignments, leaveRequests, compCode, user, showUniqueToast]);
 
   // --- MOLA BİTİŞ PUSH TETİKLEYİCİ (Uygulama Kill Edilmiş Personeli Uyandırma Garantisi) ---
   // Mola süresi dolan personelin cihazı kapalı/kill edilmiş olsa bile bulut zamanlayıcıya ek olarak
