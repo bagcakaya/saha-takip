@@ -47,6 +47,11 @@ export const DebtsReceivablesSection: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [selectedCariFilter, setSelectedCariFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -792,12 +797,13 @@ export const DebtsReceivablesSection: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
           {filteredRecords.map((item) => {
             const cariDetail = availableCariler.find(
               (c) => c.name.toLocaleLowerCase('tr-TR') === item.cariName.toLocaleLowerCase('tr-TR')
             );
             const isPaid = item.status === 'paid';
+            const isExpanded = !!expandedIds[item.id];
             const formattedDue = item.dueDate
               ? new Date(item.dueDate).toLocaleDateString('tr-TR', {
                   day: '2-digit',
@@ -809,7 +815,7 @@ export const DebtsReceivablesSection: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className={`bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border transition-all flex flex-col justify-between gap-3.5 shadow-xs ${
+                className={`bg-white dark:bg-slate-900 rounded-2xl border transition-all overflow-hidden shadow-xs ${
                   isPaid
                     ? 'border-slate-200/70 dark:border-slate-800/70 opacity-80'
                     : item.type === 'debt'
@@ -817,11 +823,61 @@ export const DebtsReceivablesSection: React.FC = () => {
                     : 'border-emerald-200/80 dark:border-emerald-900/50 hover:border-emerald-400'
                 }`}
               >
-                <div className="space-y-3">
-                  {/* Top Row: Cari Badge & Amount */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                {/* Çekmece Başlığı: Sadece Cari İsmi ve Borç/Alacak Tutarı */}
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(item.id)}
+                  className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        item.type === 'debt'
+                          ? 'bg-rose-500/10 text-rose-500'
+                          : 'bg-emerald-500/10 text-emerald-500'
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
+                      {item.cariName}
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <span
+                        className={`text-base sm:text-lg font-black block leading-tight ${
+                          isPaid
+                            ? 'line-through text-slate-400 dark:text-slate-500'
+                            : item.type === 'debt'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {item.amount.toLocaleString('tr-TR')} ₺
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400 block">
+                        {item.type === 'debt' ? 'Borç Tutarı' : 'Alacak Tutarı'}
+                      </span>
+                    </div>
+
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${
+                        isExpanded ? 'rotate-180' : ''
+                      }`}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </button>
+
+                {/* Çekmece İçeriği (Tıklayınca Açılan Detay Kısmı) */}
+                {isExpanded && (
+                  <div className="px-4 pb-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+                    {/* Durum Rozetleri & Cari İletişim */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span
                           className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
                             item.type === 'debt'
@@ -834,18 +890,12 @@ export const DebtsReceivablesSection: React.FC = () => {
                         {getDueStatusBadge(item)}
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-blue-500 shrink-0" />
-                        <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white break-words">
-                          {item.cariName}
-                        </h3>
-                      </div>
-
                       {cariDetail && (cariDetail.phone || cariDetail.address) && (
-                        <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
                           {cariDetail.phone && (
                             <a
                               href={`tel:${cariDetail.phone}`}
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 font-mono hover:text-blue-500"
                             >
                               <Phone className="w-3 h-3 text-emerald-500" />
@@ -862,99 +912,82 @@ export const DebtsReceivablesSection: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <span
-                        className={`text-lg sm:text-xl font-black block ${
+                    {/* Vade & Son Ödeme Tarihi */}
+                    <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                          {item.type === 'debt' ? 'Borcun Vadesi' : 'Alacağın Vadesi'}
+                        </span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                          {item.maturity || 'Belirtilmedi'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                          Son Ödeme Tarihi
+                        </span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span>{formattedDue}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Açıklama */}
+                    {item.description && (
+                      <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80 leading-relaxed break-words">
+                        <strong className="text-slate-700 dark:text-slate-200">Açıklama:</strong>{' '}
+                        {item.description}
+                      </p>
+                    )}
+
+                    {/* Alt Aksiyon Butonları */}
+                    <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => toggleDebtReceivableStatus(item.id)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                           isPaid
-                            ? 'line-through text-slate-400 dark:text-slate-500'
-                            : item.type === 'debt'
-                            ? 'text-rose-600 dark:text-rose-400'
-                            : 'text-emerald-600 dark:text-emerald-400'
+                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs'
                         }`}
                       >
-                        {item.amount.toLocaleString('tr-TR')} ₺
-                      </span>
-                      <span className="text-[10px] font-bold text-slate-400">
-                        {item.type === 'debt' ? 'Borç Tutarı' : 'Alacak Tutarı'}
-                      </span>
+                        {isPaid ? (
+                          <>
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Bekleyene Geri Al</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>
+                              {item.type === 'debt' ? 'Ödendi İşaretle' : 'Tahsil Edildi İşaretle'}
+                            </span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(item)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                          title="Düzenle"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          title="Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Middle Row: Vade & Son Ödeme Tarihi */}
-                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs">
-                    <div>
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                        {item.type === 'debt' ? 'Borcun Vadesi' : 'Alacağın Vadesi'}
-                      </span>
-                      <span className="font-extrabold text-slate-800 dark:text-slate-200">
-                        {item.maturity || 'Belirtilmedi'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                        Son Ödeme Tarihi
-                      </span>
-                      <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span>{formattedDue}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  {item.description && (
-                    <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80 leading-relaxed break-words">
-                      <strong className="text-slate-700 dark:text-slate-200">Açıklama:</strong>{' '}
-                      {item.description}
-                    </p>
-                  )}
-                </div>
-
-                {/* Bottom Actions */}
-                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => toggleDebtReceivableStatus(item.id)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                      isPaid
-                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs'
-                    }`}
-                  >
-                    {isPaid ? (
-                      <>
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Bekleyene Geri Al</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                        <span>
-                          {item.type === 'debt' ? 'Ödendi İşaretle' : 'Tahsil Edildi İşaretle'}
-                        </span>
-                      </>
-                    )}
-                  </button>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(item)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
-                      title="Düzenle"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Sil"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
             );
           })}
