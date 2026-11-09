@@ -55,7 +55,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     adminReminders,
     leaveRequests,
     unreadLogsCount,
-    cariler,
     timedFollowUps,
     jobApplications,
     accountingData,
@@ -601,15 +600,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   <Building2 className={`w-4 h-4 ${activeTab === 'cariler' ? 'text-white' : 'text-blue-500'}`} />
                   <span>Cariler</span>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                    activeTab === 'cariler'
-                      ? 'bg-white/20 text-white'
-                      : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60'
-                  }`}
-                >
-                  {cariler.length}
-                </span>
               </button>
             )}
 
