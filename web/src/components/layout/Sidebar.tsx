@@ -597,7 +597,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Building2 className={`w-4 h-4 ${activeTab === 'cariler' ? 'text-white' : 'text-blue-500'}`} />
+                  <Users className={`w-4 h-4 ${activeTab === 'cariler' ? 'text-white' : 'text-sky-500'}`} />
                   <span>Cariler</span>
                 </div>
               </button>

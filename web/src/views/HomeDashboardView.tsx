@@ -22,6 +22,7 @@ import {
   Loader2,
   Maximize2,
   Calculator,
+  Users,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -373,7 +374,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       title: 'Cariler',
       shortTitle: 'Cariler',
       description: 'Cari hesap kartları, adres, telefon, T.C. Kimlik / Vergi No bilgileri ve şablon aktarımı',
-      icon: Building2,
+      icon: Users,
       gradient: 'bg-gradient-to-br from-sky-600 via-blue-700 to-indigo-900',
       borderColor: 'border-sky-400/40',
       glowColor: 'text-sky-400',
