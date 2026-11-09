@@ -164,6 +164,23 @@ export const DebtsReceivablesSection: React.FC = () => {
       });
   }, [allRecords, activeSubTab, statusFilter, selectedCariFilter, searchQuery]);
 
+  // Totals for the currently displayed (filtered) Borçlar or Alacaklar tab
+  const filteredTotals = useMemo(() => {
+    let total = 0;
+    let pending = 0;
+    let paid = 0;
+    filteredRecords.forEach((r) => {
+      const amt = Number(r.amount) || 0;
+      total += amt;
+      if (r.status === 'paid') {
+        paid += amt;
+      } else {
+        pending += amt;
+      }
+    });
+    return { total, pending, paid, count: filteredRecords.length };
+  }, [filteredRecords]);
+
   const openAddModal = (type: DebtReceivableType) => {
     setEditingItem(null);
     setFormType(type);
@@ -501,13 +518,13 @@ export const DebtsReceivablesSection: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveSubTab('debt')}
-          className={`flex items-center justify-center gap-2.5 py-3.5 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+          className={`flex flex-wrap items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
             activeSubTab === 'debt'
               ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <TrendingDown className="w-4 h-4" />
+          <TrendingDown className="w-4 h-4 shrink-0" />
           <span>Borçlar</span>
           <span
             className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
@@ -518,18 +535,29 @@ export const DebtsReceivablesSection: React.FC = () => {
           >
             {summary.debtCount}
           </span>
+          {summary.totalDebt > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-lg text-[11px] font-black ${
+                activeSubTab === 'debt'
+                  ? 'bg-slate-950/25 text-white'
+                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {summary.pendingDebt.toLocaleString('tr-TR')} ₺
+            </span>
+          )}
         </button>
 
         <button
           type="button"
           onClick={() => setActiveSubTab('receivable')}
-          className={`flex items-center justify-center gap-2.5 py-3.5 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+          className={`flex flex-wrap items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
             activeSubTab === 'receivable'
               ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <TrendingUp className="w-4 h-4" />
+          <TrendingUp className="w-4 h-4 shrink-0" />
           <span>Alacaklar</span>
           <span
             className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
@@ -540,6 +568,17 @@ export const DebtsReceivablesSection: React.FC = () => {
           >
             {summary.receivableCount}
           </span>
+          {summary.totalReceivable > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-lg text-[11px] font-black ${
+                activeSubTab === 'receivable'
+                  ? 'bg-slate-950/25 text-white'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {summary.pendingReceivable.toLocaleString('tr-TR')} ₺
+            </span>
+          )}
         </button>
       </div>
 
@@ -672,7 +711,88 @@ export const DebtsReceivablesSection: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div className="space-y-4">
+          {/* Eklendiğinde Görünen Sekme Toplam Özeti (Üst Toplam Barı) */}
+          <div
+            className={`p-4 sm:p-5 rounded-3xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+              activeSubTab === 'debt'
+                ? 'bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-white dark:to-slate-900 border-rose-500/30'
+                : 'bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-white dark:to-slate-900 border-emerald-500/30'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                  activeSubTab === 'debt'
+                    ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                    : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                {activeSubTab === 'debt' ? (
+                  <TrendingDown className="w-5 h-5" />
+                ) : (
+                  <TrendingUp className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                  {activeSubTab === 'debt' ? 'Borçlar Toplam Özeti' : 'Alacaklar Toplam Özeti'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Listelenen {filteredTotals.count} adet {activeSubTab === 'debt' ? 'borç' : 'alacak'} kaydının toplam tutarları
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="px-3 py-2 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 text-right">
+                <span className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 block">
+                  {activeSubTab === 'debt' ? 'Genel Toplam Borç' : 'Genel Toplam Alacak'}
+                </span>
+                <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                  {filteredTotals.total.toLocaleString('tr-TR')} ₺
+                </span>
+              </div>
+
+              <div className="px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-right">
+                <span className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-400 block">
+                  {activeSubTab === 'debt' ? 'Ödenen Borç' : 'Tahsil Edilen'}
+                </span>
+                <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300">
+                  {filteredTotals.paid.toLocaleString('tr-TR')} ₺
+                </span>
+              </div>
+
+              <div
+                className={`px-3 py-2 rounded-2xl border text-right ${
+                  activeSubTab === 'debt'
+                    ? 'bg-rose-500/15 border-rose-500/30'
+                    : 'bg-amber-500/15 border-amber-500/30'
+                }`}
+              >
+                <span
+                  className={`text-[10px] font-black uppercase block ${
+                    activeSubTab === 'debt'
+                      ? 'text-rose-700 dark:text-rose-300'
+                      : 'text-amber-700 dark:text-amber-300'
+                  }`}
+                >
+                  {activeSubTab === 'debt' ? 'Kalan Borç' : 'Kalan Alacak'}
+                </span>
+                <span
+                  className={`text-sm sm:text-base font-black ${
+                    activeSubTab === 'debt'
+                      ? 'text-rose-700 dark:text-rose-300'
+                      : 'text-amber-700 dark:text-amber-300'
+                  }`}
+                >
+                  {filteredTotals.pending.toLocaleString('tr-TR')} ₺
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {filteredRecords.map((item) => {
             const cariDetail = availableCariler.find(
               (c) => c.name.toLocaleLowerCase('tr-TR') === item.cariName.toLocaleLowerCase('tr-TR')
@@ -838,6 +958,23 @@ export const DebtsReceivablesSection: React.FC = () => {
               </div>
             );
           })}
+          </div>
+
+          {/* Liste Sonu Alt Toplam Barı */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+            <span className="text-xs sm:text-sm font-black text-slate-700 dark:text-slate-300">
+              Toplam {filteredTotals.count} Adet {activeSubTab === 'debt' ? 'Borç Kaydı' : 'Alacak Kaydı'}
+            </span>
+            <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm font-black">
+              <span className="text-slate-600 dark:text-slate-300">
+                Genel Toplam: <strong className="text-slate-900 dark:text-white">{filteredTotals.total.toLocaleString('tr-TR')} ₺</strong>
+              </span>
+              <span className={activeSubTab === 'debt' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                {activeSubTab === 'debt' ? 'Kalan Ödenecek Borç: ' : 'Kalan Tahsil Edilecek Alacak: '}
+                <strong>{filteredTotals.pending.toLocaleString('tr-TR')} ₺</strong>
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
