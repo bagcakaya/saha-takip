@@ -4598,6 +4598,10 @@ export const StorageService = {
 
       // If cloud slot is empty but local cache still holds transactions, recover and sync to cloud
       const finalTxs = cloudTxs.length === 0 && cachedTxs.length > 0 ? cachedTxs : cloudTxs;
+      const cloudDebts = Array.isArray(cloudData.debtsReceivables) ? cloudData.debtsReceivables : [];
+      const cachedDebts =
+        validCached && Array.isArray(validCached.debtsReceivables) ? validCached.debtsReceivables : [];
+      const finalDebts = cloudDebts.length === 0 && cachedDebts.length > 0 ? cachedDebts : cloudDebts;
 
       const merged: AccountingDataPayload = {
         transactions: finalTxs,
@@ -4619,9 +4623,10 @@ export const StorageService = {
             : validCached && Array.isArray(validCached.dailyBalances)
             ? validCached.dailyBalances
             : [],
+        debtsReceivables: finalDebts,
       };
       await saveItem(localKey, merged);
-      if (cloudTxs.length === 0 && finalTxs.length > 0) {
+      if ((cloudTxs.length === 0 && finalTxs.length > 0) || (cloudDebts.length === 0 && finalDebts.length > 0)) {
         saveChunkedSlot(slotId, merged).catch(() => {});
       }
       return merged;
@@ -4639,8 +4644,9 @@ export const StorageService = {
             ? validCached.cashRegisters
             : DEFAULT_CASH_REGISTERS,
         dailyBalances: Array.isArray(validCached.dailyBalances) ? validCached.dailyBalances : [],
+        debtsReceivables: Array.isArray(validCached.debtsReceivables) ? validCached.debtsReceivables : [],
       };
-      if (recovered.transactions.length > 0 || recovered.dailyBalances.length > 0) {
+      if (recovered.transactions.length > 0 || recovered.dailyBalances.length > 0 || (recovered.debtsReceivables && recovered.debtsReceivables.length > 0)) {
         saveChunkedSlot(slotId, recovered).catch(() => {});
       }
       return recovered;
@@ -4652,6 +4658,7 @@ export const StorageService = {
         categories: DEFAULT_ACCOUNTING_CATEGORIES,
         cashRegisters: DEFAULT_CASH_REGISTERS,
         dailyBalances: [],
+        debtsReceivables: [],
       };
       await saveItem(localKey, initial);
       return initial;
@@ -4662,6 +4669,7 @@ export const StorageService = {
       categories: DEFAULT_ACCOUNTING_CATEGORIES,
       cashRegisters: DEFAULT_CASH_REGISTERS,
       dailyBalances: [],
+      debtsReceivables: [],
     };
   },
 

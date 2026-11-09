@@ -607,11 +607,34 @@ export interface DailyCashBalance {
   updatedByName?: string;
 }
 
+export type DebtReceivableType = 'debt' | 'receivable'; // Borç | Alacak
+export type DebtReceivableStatus = 'pending' | 'paid'; // Bekliyor | Ödendi / Tahsil Edildi
+
+export interface DebtReceivableRecord {
+  id: string;
+  type: DebtReceivableType; // 'debt' (Borç) | 'receivable' (Alacak)
+  cariId?: string;
+  cariName: string; // Seçilen Cari İsmi
+  amount: number; // Borç / Alacak Tutarı (₺)
+  maturity?: string; // Borcun / Alacağın Vadesi (Varsa - Opsiyonel)
+  dueDate: string; // Son Ödeme Tarihi (YYYY-MM-DD)
+  description?: string; // Açıklama
+  status: DebtReceivableStatus; // 'pending' | 'paid'
+  paidAt?: number;
+  paidBy?: string;
+  paidByName?: string;
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface AccountingDataPayload {
   transactions: AccountingTransaction[];
   categories: AccountingCategory[];
   cashRegisters: CashRegister[];
   dailyBalances: DailyCashBalance[];
+  debtsReceivables?: DebtReceivableRecord[];
 }
 
 // ==========================================
