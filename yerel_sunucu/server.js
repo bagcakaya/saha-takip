@@ -603,10 +603,28 @@ app.post('/api/send-notification', async (req, res) => {
 
     payload.app_id = appId;
 
-    if (payload.url) {
-      delete payload.web_url;
-      delete payload.app_url;
+    const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
+    payload.url = targetUrl;
+    delete payload.web_url;
+    delete payload.app_url;
+
+    let targetTab = 'notes';
+    let targetFilter = '';
+    try {
+      const parsed = new URL(targetUrl, 'https://saha-takip-beige.vercel.app');
+      targetTab = parsed.searchParams.get('tab') || 'notes';
+      targetFilter = parsed.searchParams.get('filter') || '';
+    } catch {
+      // ignore
     }
+
+    payload.data = {
+      ...(payload.data || {}),
+      url: targetUrl,
+      launchURL: targetUrl,
+      tab: payload.data?.tab || targetTab,
+      filter: payload.data?.filter || targetFilter,
+    };
 
     if (!payload.headings || !payload.headings.en) {
       const hText = payload.title || payload.headings?.tr || 'Bildirim';
@@ -663,10 +681,21 @@ app.post('/api/send-notification', async (req, res) => {
       payload.web_push_topic = cleanCollapse;
     }
 
-    // Deduplication check (30-second debounce window, test & scheduled notifications exempt)
-    const isExempt = payload.collapse_id?.startsWith('test_') || Boolean(payload.send_after);
+    // Deduplication check (30-second channel-aware debounce window; test, scheduled & multi-channel notifications exempt)
+    const isExempt =
+      Boolean(payload.bypassServerDedup) ||
+      Boolean(payload.multiChannelGuarantee) ||
+      payload.collapse_id?.startsWith('test_') ||
+      Boolean(payload.send_after);
     if (!isExempt) {
-      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${(payload.targetUserIds || []).join(',')}`;
+      const channelType = payload.include_player_ids
+        ? `player:${(payload.include_player_ids || []).join(',')}`
+        : payload.filters
+        ? `filter:${JSON.stringify(payload.filters)}`
+        : payload.include_aliases
+        ? `alias:${(payload.include_aliases?.external_id || []).join(',')}`
+        : `users:${(payload.targetUserIds || []).join(',')}`;
+      const dedupKey = `${payload.headings?.tr || payload.headings?.en || ''}__${payload.contents?.tr || payload.contents?.en || ''}__${payload.collapse_id || ''}__${channelType}`;
       const now = Date.now();
       const lastTime = serverRecentNotifications.get(dedupKey);
       if (lastTime && now - lastTime < 30000) {
@@ -882,6 +911,16 @@ app.get('/api/web-status', (req, res) => {
   });
 });
 
+// Anlık Vardiya Bekçisi tetikleme ve tanı endpoint'i
+app.all('/api/shift-watchdog', async (req, res) => {
+  try {
+    const result = await runShiftWatchdog(PORT);
+    res.json({ ok: true, ...(result || {}) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 if (webDistPath && fs.existsSync(webDistPath)) {
   console.log(`>> Web Paneli statik yayını devrede: ${webDistPath}`);
   app.use(express.static(webDistPath));
@@ -946,13 +985,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     runCloudSync(PORT, true).catch(() => {});
   }, 30 * 60 * 1000);
 
-  // 7/24 Otonom Vardiya Giriş (+15dk) ve Çıkış (+5dk/+10dk) Hatırlatıcı Kontrolü (Her 60 saniyede bir)
+  // 7/24 Otonom Vardiya Giriş (+15dk) ve Çıkış (+5dk/+10dk) Hatırlatıcı Kontrolü (Her 20 saniyede bir)
   setTimeout(() => {
     runShiftWatchdog(PORT).catch(() => {});
-  }, 10000);
+  }, 5000);
   setInterval(() => {
     runShiftWatchdog(PORT).catch(() => {});
-  }, 60 * 1000);
+  }, 20 * 1000);
 });
 
 server.on('error', (err) => {

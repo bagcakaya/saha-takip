@@ -1065,6 +1065,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (isMounted && accData) setAccountingData(accData);
               return;
             }
+            if (changedSlotId === StorageService.getSlotId(18)) {
+              const shiftData = await StorageService.getShiftData();
+              if (isMounted && shiftData) {
+                setShifts(shiftData.definitions || []);
+                setShiftAssignments(shiftData.assignments || []);
+              }
+              return;
+            }
             if (changedSlotId === StorageService.getSlotId(22)) {
               const deptSalaries = await StorageService.getDepartmentSalaries();
               if (isMounted) setDepartmentSalaries(deptSalaries || []);
@@ -1145,11 +1153,23 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {}
     };
 
+    const refreshCloudShifts = async () => {
+      try {
+        if (!isMounted) return;
+        const shiftData = await StorageService.getShiftData();
+        if (isMounted && shiftData) {
+          setShifts(shiftData.definitions || []);
+          setShiftAssignments(shiftData.assignments || []);
+        }
+      } catch {}
+    };
+
     const handleOnline = () => {
       console.log('[Çevrimdışı Eşitleme] İnternet bağlantısı sağlandı, mesai ve iş emri kayıtları eşitleniyor...');
       triggerOfflineSync();
       refreshCloudAttendance();
       refreshCloudNotes();
+      refreshCloudShifts();
     };
 
     const handleVisibilityChange = () => {
@@ -1157,12 +1177,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         triggerOfflineSync();
         refreshCloudAttendance();
         refreshCloudNotes();
+        refreshCloudShifts();
       }
     };
 
     const handleWindowFocus = () => {
       triggerOfflineSync();
       refreshCloudAttendance();
+      refreshCloudShifts();
     };
 
     if (typeof window !== 'undefined') {
@@ -1175,18 +1197,20 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const syncInterval = setInterval(() => {
       triggerOfflineSync();
       refreshCloudAttendance();
+      refreshCloudShifts();
     }, 20000);
 
     // Yerel Sunucu (Local Mode) Canlı Kalp Atışı (Live Heartbeat Sync - her 12 saniyede bir)
     const localSyncTimer = setInterval(async () => {
       if (!isMounted || !ServerConfigService.isLocalMode()) return;
       try {
-        const [freshNotes, freshLocs, freshServices, freshReturns, freshAtt] = await Promise.all([
+        const [freshNotes, freshLocs, freshServices, freshReturns, freshAtt, freshShifts] = await Promise.all([
           StorageService.getNotes(),
           StorageService.getLocations(),
           StorageService.getServices(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getAttendanceRecords(),
+          StorageService.getShiftData(),
         ]);
         if (isMounted) {
           if (freshNotes && freshNotes.length > 0) setAllNotes((prev) => mergeNotesPreservingReads(freshNotes, prev));
@@ -1194,6 +1218,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (freshServices && freshServices.length > 0) setAllServices((prev) => mergeServicesPreservingMedia(freshServices, prev));
           if (freshReturns && freshReturns.length > 0) setReturnWarrantyItems(freshReturns);
           if (freshAtt && freshAtt.length > 0) setAttendanceRecords(freshAtt);
+          if (freshShifts) {
+            setShifts(freshShifts.definitions || []);
+            setShiftAssignments(freshShifts.assignments || []);
+          }
         }
       } catch (err) {
         // silent heartbeat
@@ -4906,7 +4934,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       userPos = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = ShiftReminderService.getTodayDateString();
     const existingRecord = attendanceRecords.find(
       (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
     );
@@ -4926,7 +4954,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const registerShiftRemindersOnCheckIn = (record: AttendanceRecord) => {
       if (user) {
-        ShiftReminderService.cancelShiftCheckinReminders(user.id, record.date || todayStr, compCode);
+        const assignedForCheckIn = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
+        ShiftReminderService.cancelShiftCheckinReminders(
+          user.id,
+          record.date || todayStr,
+          compCode,
+          assignedForCheckIn?.shift?.startTime || assignedForCheckIn?.assignment?.startTime
+        );
+        ShiftReminderService.resetCheckoutAlertsForUser(user.id, record.date || todayStr, compCode);
       }
       if (!user || user.role === 'admin' || isUserAdmin(user)) return;
       const assigned = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
@@ -4984,7 +5019,14 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
-      ShiftReminderService.cancelShiftCheckinReminders(user.id, todayStr, compCode);
+      const assignedForAdmin = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
+      ShiftReminderService.cancelShiftCheckinReminders(
+        user.id,
+        todayStr,
+        compCode,
+        assignedForAdmin?.shift?.startTime || assignedForAdmin?.assignment?.startTime
+      );
+      ShiftReminderService.resetCheckoutAlertsForUser(user.id, todayStr, compCode);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
       await StorageService.saveAttendanceRecords(updated);
 
@@ -5388,7 +5430,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const updated = [newRecord, ...attendanceRecords];
       setAttendanceRecords(updated);
-      ShiftReminderService.cancelShiftCheckinReminders(user.id, todayStr, compCode);
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
       await StorageService.saveAttendanceRecords(updated);
       registerShiftRemindersOnCheckIn(newRecord);
@@ -5511,6 +5552,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const record = attendanceRecords[recordIndex];
+    const assignedOutShift = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
+    const activeShiftEndTime = assignedOutShift?.shift?.endTime || assignedOutShift?.assignment?.endTime;
 
     if (record.status === 'pending_checkout_approval') {
       return {
@@ -5573,7 +5616,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
       await StorageService.saveAttendanceRecords(updatedRecords);
-      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
+      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
       return {
         success: true,
@@ -5775,7 +5818,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAttendanceRecords(updatedRecords);
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
       await StorageService.saveAttendanceRecords(updatedRecords);
-      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
+      ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
       SystemLogger.warn(
         'MESAI_CIKIS',
@@ -5846,7 +5889,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAttendanceRecords(updatedRecords);
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
     await StorageService.saveAttendanceRecords(updatedRecords);
-    ShiftReminderService.cancelShiftCheckoutReminders(record, compCode);
+    ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
     SystemLogger.info('MESAI_CIKIS', `${user.name}, ${targetName} şubesinden çıkış yaptı (${durationText}).`);
 
@@ -7628,31 +7671,48 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       // 2. Vardiya Bitiş (+5. ve +10. dakika) İşten Çıkış Hatırlatıcısı
-      if (attendanceRecords && attendanceRecords.length > 0) {
-        ShiftReminderService.checkShiftCheckoutReminders({
-          attendanceRecords,
-          shifts,
-          shiftAssignments,
-          leaveRequests,
-          companyCode: compCode,
-          currentUser: user || undefined,
-          onShowToast: handleToast,
-          onUpdateRecord: (updatedRecord) => {
-            setAttendanceRecords((prev) => {
-              const idx = prev.findIndex((r) => r.id === updatedRecord.id);
-              if (idx === -1) return prev;
-              const updated = [...prev];
-              updated[idx] = updatedRecord;
-              FastActionAgent.enqueueAttendanceSync(compCode, updated);
-              return updated;
-            });
-          },
-        });
-      }
+      // Not: Yerel attendanceRecords boş olsa dahi çağrılır; vardiya bitiş penceresinde canlı bulut kayıtlarını doğrular!
+      ShiftReminderService.checkShiftCheckoutReminders({
+        attendanceRecords,
+        shifts,
+        shiftAssignments,
+        leaveRequests,
+        companyCode: compCode,
+        currentUser: user || undefined,
+        onShowToast: handleToast,
+        onUpdateRecord: (updatedRecord) => {
+          setAttendanceRecords((prev) => {
+            const idx = prev.findIndex((r) => r.id === updatedRecord.id);
+            if (idx === -1) return prev;
+            const updated = [...prev];
+            updated[idx] = updatedRecord;
+            FastActionAgent.enqueueAttendanceSync(compCode, updated);
+            return updated;
+          });
+        },
+      });
     };
 
     runShiftRemindersWatcher();
     const shiftInterval = setInterval(runShiftRemindersWatcher, 10000);
+
+    // Arka plan sekme kısıtlamasına (browser background tab throttling) takılmayan hafif Web Worker zamanlayıcısı
+    let shiftWorker: Worker | null = null;
+    let shiftWorkerUrl: string | null = null;
+    if (typeof window !== 'undefined' && typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
+      try {
+        const blob = new Blob(['setInterval(function(){postMessage(1);},10000);'], {
+          type: 'application/javascript',
+        });
+        shiftWorkerUrl = URL.createObjectURL(blob);
+        shiftWorker = new Worker(shiftWorkerUrl);
+        shiftWorker.onmessage = () => {
+          runShiftRemindersWatcher();
+        };
+      } catch {
+        // Fallback to standard setInterval above
+      }
+    }
 
     const onVisibilityOrFocus = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -7661,13 +7721,25 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', onVisibilityOrFocus);
+      window.addEventListener('online', onVisibilityOrFocus);
       document.addEventListener('visibilitychange', onVisibilityOrFocus);
     }
 
     return () => {
       clearInterval(shiftInterval);
+      if (shiftWorker) {
+        try {
+          shiftWorker.terminate();
+        } catch {}
+      }
+      if (shiftWorkerUrl) {
+        try {
+          URL.revokeObjectURL(shiftWorkerUrl);
+        } catch {}
+      }
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onVisibilityOrFocus);
+        window.removeEventListener('online', onVisibilityOrFocus);
         document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       }
     };

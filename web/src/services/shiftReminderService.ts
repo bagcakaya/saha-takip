@@ -158,31 +158,133 @@ function isUserCheckedInOrExcused(
   return false;
 }
 
-function isUserCheckedOutInRecords(records: AttendanceRecord[], userId: string, dateStr: string): {
-  hasCheckedOut: boolean;
-  activeRecord: AttendanceRecord | undefined;
+/**
+ * Evaluates whether a shift-assigned staff member has already checked out (or is excused on approved leave)
+ * for today's shift:
+ * - If the user has an approved daily/hourly leave covering shift end (or `on_leave` attendance record) -> excused (`hasCheckedOutOrExcused: true`).
+ * - If the user has an open attendance record (`checked_in` or `pending_checkin_approval`, no `checkOutTime`, not rejected)
+ *   newer than any earlier checkout -> NOT checked out (`hasCheckedOutOrExcused: false`, `activeRecord` returned).
+ * - If the user has a completed / pending-checkout record for this shift (`checkOutTime >= shiftStartMs - 15m`)
+ *   and no newer open check-in -> ALREADY checked out (`hasCheckedOutOrExcused: true`).
+ * - Otherwise (assigned shift active today, not on leave, and has not checked out) -> NOT checked out (`hasCheckedOutOrExcused: false`).
+ */
+function evaluateUserCheckoutStatus(
+  records: AttendanceRecord[],
+  leaveRequests: LeaveRequest[],
+  userId: string,
+  dateStr: string,
+  shiftStartMs: number,
+  shiftEndMs: number,
+  shiftEndMinutes: number
+): {
+  hasCheckedOutOrExcused: boolean;
+  hasActiveCheckIn: boolean;
+  activeRecord?: AttendanceRecord;
 } {
-  const userTodayRecords = records.filter((r) => r.userId === userId && r.date === dateStr);
-  if (userTodayRecords.length === 0) {
-    return { hasCheckedOut: false, activeRecord: undefined };
+  // 1. Approved leave check (daily leave or hourly leave covering shift end)
+  if (Array.isArray(leaveRequests) && leaveRequests.length > 0) {
+    const hasApprovedLeave = leaveRequests.some((req) => {
+      if (!req || req.userId !== userId || req.status !== 'approved') return false;
+      if (req.leaveType === 'daily') {
+        const start = req.date;
+        const end = req.endDate || req.date;
+        if (start && dateStr >= start && dateStr <= end) return true;
+      } else if (req.leaveType === 'hourly' && req.date === dateStr && req.startTime && req.endTime) {
+        const [sh, sm] = req.startTime.split(':').map(Number);
+        const [eh, em] = req.endTime.split(':').map(Number);
+        if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
+          const leaveStartMin = sh * 60 + sm;
+          const leaveEndMin = eh * 60 + em;
+          if (shiftEndMinutes > leaveStartMin && shiftEndMinutes <= leaveEndMin) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    if (hasApprovedLeave) {
+      return { hasCheckedOutOrExcused: true, hasActiveCheckIn: false };
+    }
   }
 
-  const hasCheckedOut = userTodayRecords.some((r) => {
-    if (r.checkOutTime && Number(r.checkOutTime) > 0) return true;
+  if (!Array.isArray(records) || records.length === 0) {
+    return { hasCheckedOutOrExcused: false, hasActiveCheckIn: false };
+  }
+
+  // On-leave attendance record check
+  const hasOnLeaveRecord = records.some(
+    (r) => r && r.userId === userId && r.date === dateStr && r.status === 'on_leave'
+  );
+  if (hasOnLeaveRecord) {
+    return { hasCheckedOutOrExcused: true, hasActiveCheckIn: false };
+  }
+
+  // Filter attendance records relevant to today / current shift window (handles UTC vs local date & overnight shifts)
+  const relevantRecords = records
+    .filter((r) => {
+      if (!r || r.userId !== userId) return false;
+      if (r.checkInApprovalStatus === 'rejected') return false;
+      if (r.status === 'on_leave') return false;
+
+      const checkInTs = Number(r.checkInTime || 0);
+      const inShiftTimeRange =
+        checkInTs > 0 &&
+        checkInTs >= shiftStartMs - 6 * 60 * 60 * 1000 &&
+        checkInTs <= shiftEndMs + 6 * 60 * 60 * 1000;
+
+      return r.date === dateStr || inShiftTimeRange;
+    })
+    .sort((a, b) => Number(b.checkInTime || 0) - Number(a.checkInTime || 0));
+
+  if (relevantRecords.length === 0) {
+    return { hasCheckedOutOrExcused: false, hasActiveCheckIn: false };
+  }
+
+  // Latest checkout timestamp among relevant records
+  let latestCheckOutTs = 0;
+  for (const r of relevantRecords) {
+    const outTs = Number(r.checkOutTime || 0);
+    if (outTs > latestCheckOutTs) {
+      latestCheckOutTs = outTs;
+    }
+  }
+
+  // Check if there is a currently open check-in session (either approved or pending manager approval)
+  const activeRecord = relevantRecords.find((r) => {
+    const inTs = Number(r.checkInTime || 0);
+    if (inTs <= 0) return false;
+    if (r.checkOutTime && Number(r.checkOutTime) > 0) return false;
+    if (r.status === 'completed' || r.status === 'pending_checkout_approval') return false;
+    if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return false;
+    if (latestCheckOutTs > inTs) return false;
+    return r.status === 'checked_in' || r.status === 'pending_checkin_approval';
+  });
+
+  if (activeRecord) {
+    return {
+      hasCheckedOutOrExcused: false,
+      hasActiveCheckIn: true,
+      activeRecord,
+    };
+  }
+
+  // No open check-in session -> check if user completed/submitted checkout for this shift
+  const hasCheckedOutForShift = relevantRecords.some((r) => {
+    const outTs = Number(r.checkOutTime || 0);
+    // Ignore old completed records that finished before the current shift window started
+    if (outTs > 0 && outTs < shiftStartMs - 15 * 60 * 1000) {
+      return false;
+    }
+    if (outTs > 0) return true;
     if (r.status === 'completed' || r.status === 'pending_checkout_approval') return true;
     if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return true;
     return false;
   });
 
-  const activeRecord = userTodayRecords.find((r) => {
-    if (!r.checkInTime) return false;
-    if (r.checkOutTime && Number(r.checkOutTime) > 0) return false;
-    if (r.status === 'completed' || r.status === 'pending_checkout_approval') return false;
-    if (r.checkOutApprovalStatus === 'approved' || r.checkOutApprovalStatus === 'pending') return false;
-    return r.status === 'checked_in';
-  });
-
-  return { hasCheckedOut, activeRecord };
+  return {
+    hasCheckedOutOrExcused: hasCheckedOutForShift,
+    hasActiveCheckIn: false,
+  };
 }
 
 export const ShiftReminderService = {
@@ -199,7 +301,7 @@ export const ShiftReminderService = {
 
   /**
    * Determines if a staff member has an assigned shift that is scheduled for today.
-   * STRICT: Returns null if no shift assignment or today is not in daysOfWeek.
+   * STRICT: Returns null if no shift assignment or today (or overnight shift start day) is not in daysOfWeek.
    */
   getAssignedShiftForToday(
     userId: string,
@@ -222,11 +324,28 @@ export const ShiftReminderService = {
       updatedAt: 0,
     };
 
+    const now = new Date();
     // Day check: 1 = Pazartesi ... 7 = Pazar
-    let currentDay = new Date().getDay();
-    if (currentDay === 0) currentDay = 7;
+    let checkDay = now.getDay();
+    if (checkDay === 0) checkDay = 7;
 
-    if (shift.daysOfWeek && shift.daysOfWeek.length > 0 && !shift.daysOfWeek.includes(currentDay)) {
+    // Overnight shift check (e.g. 22:00 -> 06:00 evaluated at 06:05 AM belongs to previous day's shift)
+    const startStr = shift.startTime || assignment.startTime;
+    const endStr = shift.endTime || assignment.endTime;
+    if (startStr && endStr && startStr.includes(':') && endStr.includes(':')) {
+      const [sh, sm] = startStr.split(':').map(Number);
+      const [eh, em] = endStr.split(':').map(Number);
+      if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
+        const startMin = sh * 60 + sm;
+        const endMin = eh * 60 + em;
+        const curMin = now.getHours() * 60 + now.getMinutes();
+        if (endMin <= startMin && curMin < startMin) {
+          checkDay = checkDay === 1 ? 7 : checkDay - 1;
+        }
+      }
+    }
+
+    if (shift.daysOfWeek && shift.daysOfWeek.length > 0 && !shift.daysOfWeek.includes(checkDay)) {
       return null; // Today is not an active workday for this shift
     }
 
@@ -272,7 +391,7 @@ export const ShiftReminderService = {
     // Cross-midnight / overnight shift handling (e.g. 22:00 to 06:00)
     if (endTotalMin <= startTotalMin) {
       const currentTotalMin = now.getHours() * 60 + now.getMinutes();
-      if (currentTotalMin <= endTotalMin) {
+      if (currentTotalMin < startTotalMin) {
         shiftStartDate.setDate(shiftStartDate.getDate() - 1);
       } else {
         shiftEndDate.setDate(shiftEndDate.getDate() + 1);
@@ -293,6 +412,7 @@ export const ShiftReminderService = {
 
   /**
    * Calculates exact shift end and staff reminder thresholds for today:
+   * - shiftStartMs: Exact shift start time
    * - shiftEndMs: Exact shift end time
    * - target5mMs: 5 minutes after shift end time (+5m) -> 1st reminder to staff
    * - target10mMs: 10 minutes after shift end time (+10m) -> 2nd reminder to staff
@@ -301,12 +421,14 @@ export const ShiftReminderService = {
     shift: ShiftDefinition,
     assignment?: ShiftAssignment
   ): {
+    shiftStartMs: number;
     shiftEndMs: number;
     target5mMs: number;
     target10mMs: number;
     targetStaffMs: number;
     targetAdminMs: number;
     target20mMs: number;
+    shiftEndMinutes: number;
   } | null {
     const endTimeStr = shift.endTime || assignment?.endTime;
     if (!endTimeStr || !endTimeStr.includes(':')) return null;
@@ -318,32 +440,43 @@ export const ShiftReminderService = {
 
     if (isNaN(endH) || isNaN(endM)) return null;
 
+    const safeStartH = isNaN(startH) ? 8 : startH;
+    const safeStartM = isNaN(startM) ? 30 : startM;
+
     const now = new Date();
+    const shiftStartDate = new Date();
+    shiftStartDate.setHours(safeStartH, safeStartM, 0, 0);
+
     const shiftEndDate = new Date();
     shiftEndDate.setHours(endH, endM, 0, 0);
 
     // Cross-midnight / overnight shift handling (e.g. 22:00 to 06:00)
-    const startTotalMin = (isNaN(startH) ? 8 : startH) * 60 + (isNaN(startM) ? 30 : startM);
+    const startTotalMin = safeStartH * 60 + safeStartM;
     const endTotalMin = endH * 60 + endM;
     if (endTotalMin <= startTotalMin) {
       const currentTotalMin = now.getHours() * 60 + now.getMinutes();
       if (currentTotalMin >= startTotalMin) {
         shiftEndDate.setDate(shiftEndDate.getDate() + 1);
+      } else {
+        shiftStartDate.setDate(shiftStartDate.getDate() - 1);
       }
     }
 
+    const shiftStartMs = shiftStartDate.getTime();
     const shiftEndMs = shiftEndDate.getTime();
     const target5mMs = shiftEndMs + 5 * 60 * 1000; // Vardiya bitiminden 5 dk sonra personele 1. bildirim
     const target10mMs = shiftEndMs + 10 * 60 * 1000; // Vardiya bitiminden 10 dk sonra personele 2. bildirim
     const target20mMs = shiftEndMs + 20 * 60 * 1000;
 
     return {
+      shiftStartMs,
       shiftEndMs,
       target5mMs,
       target10mMs,
       targetStaffMs: target5mMs,
       targetAdminMs: target10mMs,
       target20mMs,
+      shiftEndMinutes: endTotalMin,
     };
   },
 
@@ -374,16 +507,51 @@ export const ShiftReminderService = {
   },
 
   /**
-   * Blocks local check-in alert key immediately when staff checks in so no reminder is ever triggered
+   * Blocks local check-in alert key when staff checks in (for the specific shift start key if known)
    */
-  cancelShiftCheckinReminders(userId: string, dateStr?: string, _companyCode?: string): void {
+  cancelShiftCheckinReminders(
+    userId: string,
+    dateStr?: string,
+    _companyCode?: string,
+    shiftStartTime?: string
+  ): void {
     if (!userId) return;
     const targetDate = dateStr || this.getTodayDateString();
-    markSentLocalCheckinAlert(targetDate, userId, '15m');
+    if (shiftStartTime) {
+      const cleanStartKey = normalizeShiftTimeKey(shiftStartTime, '0900');
+      markSentLocalCheckinAlert(targetDate, userId, '15m', cleanStartKey);
+    }
   },
 
   /**
-   * Clears local and cloud check-in/check-out alert dedup keys for given users (e.g. when shift time is updated or test attendance record is deleted)
+   * Clears checkout alert dedup keys when a staff member starts a new check-in session on the same day
+   * so +5m and +10m checkout reminders are freshly armed for the new active session.
+   */
+  resetCheckoutAlertsForUser(userId: string, dateStr?: string, companyCode?: string): void {
+    if (!userId) return;
+    const targetDate = dateStr || this.getTodayDateString();
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k.startsWith(LOCAL_DEDUP_PREFIX) && k.includes(targetDate) && k.includes(userId)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      } catch {}
+    }
+
+    NotificationService.clearShiftDedupCache('checkout');
+    OneSignalService.clearShiftPushDedupCache('checkout');
+    StorageService.clearShiftAlertLogsForUsers([userId], targetDate, companyCode, 'checkout_').catch(() => {});
+  },
+
+  /**
+   * Clears local and cloud check-in/check-out alert dedup keys for given users
+   * (e.g. when shift time is updated, shift is reassigned, or attendance record is deleted)
    */
   resetShiftAlertsForUsers(userIds: string[], dateStr?: string, companyCode?: string): void {
     if (!Array.isArray(userIds) || userIds.length === 0) return;
@@ -396,44 +564,29 @@ export const ShiftReminderService = {
           if (!k) continue;
           if (
             (k.startsWith(LOCAL_CHECKIN_DEDUP_PREFIX) || k.startsWith(LOCAL_DEDUP_PREFIX)) &&
-            k.includes(targetDate) &&
+            (!dateStr || k.includes(targetDate)) &&
             userIds.some((uid) => uid && k.includes(uid))
           ) {
             keysToRemove.push(k);
           }
         }
         keysToRemove.forEach((k) => localStorage.removeItem(k));
-
-        // Also remove any matching shift tags from @saha_recent_local_notif
-        const notifRaw = localStorage.getItem('@saha_recent_local_notif');
-        if (notifRaw) {
-          const cache = JSON.parse(notifRaw);
-          let mutated = false;
-          for (const ck of Object.keys(cache)) {
-            if (
-              ck.includes('checkin_15m_') ||
-              ck.includes('checkout_5m_') ||
-              ck.includes('checkout_10m_') ||
-              ck.includes('vardiya giriş hatırlatması')
-            ) {
-              delete cache[ck];
-              mutated = true;
-            }
-          }
-          if (mutated) {
-            localStorage.setItem('@saha_recent_local_notif', JSON.stringify(cache));
-          }
-        }
       } catch {}
     }
 
-    StorageService.clearShiftAlertLogsForUsers(userIds, targetDate, companyCode).catch(() => {});
+    NotificationService.clearShiftDedupCache('all');
+    OneSignalService.clearShiftPushDedupCache('all');
+    StorageService.clearShiftAlertLogsForUsers(userIds, dateStr, companyCode).catch(() => {});
   },
 
   /**
-   * Cancels any pre-scheduled notifications and blocks local alert keys when staff checks out
+   * Cancels any legacy pre-scheduled notifications when staff checks out
    */
-  cancelShiftCheckoutReminders(record: AttendanceRecord, companyCode?: string): void {
+  cancelShiftCheckoutReminders(
+    record: AttendanceRecord,
+    companyCode?: string,
+    shiftEndTime?: string
+  ): void {
     const comp = (companyCode || record.companyCode || 'POLATLAR').toUpperCase();
     const dateStr = record.date || this.getTodayDateString();
 
@@ -448,19 +601,16 @@ export const ShiftReminderService = {
       FastActionAgent.enqueueCancelNotification(notifId, comp);
     }
 
-    // Personel çıkış yaptığı için bugünün bildirim anahtarlarını kalıcı olarak bloke et
-    if (record.userId) {
-      markSentLocalAlert(dateStr, record.userId, '5m');
-      markSentLocalAlert(dateStr, record.userId, '10m');
-      markSentLocalAlert(dateStr, record.userId, 'staff');
-      markSentLocalAlert(dateStr, record.userId, 'admin');
-      markSentLocalAlert(dateStr, record.userId, '20m');
+    if (record.userId && shiftEndTime) {
+      const cleanEndKey = normalizeShiftTimeKey(shiftEndTime, '1800');
+      markSentLocalAlert(dateStr, record.userId, '5m', cleanEndKey);
+      markSentLocalAlert(dateStr, record.userId, '10m', cleanEndKey);
+      markSentLocalAlert(dateStr, record.userId, 'staff', cleanEndKey);
     }
   },
 
   /**
    * VARDİYA BAŞLANGIÇ (İŞE GİRİŞ) HATIRLATICISI (+15. DAKİKA):
-   * İşten çıkarkenki prosedürün işe giriş karşılığıdır:
    * - Önceden zamanlanmaz; vardiya başlangıcından 15 dakika geçtikten sonra canlı veritabanı kontrolü yapılır.
    * - Kullanıcı bugün işe giriş yapmışsa (onaylı veya yönetici onayı bekleyen) ya da onaylı izni varsa BİLDİRİM GİTMEZ.
    * - Hala giriş yapmadıysa SADECE ilgili kullanıcıya bildirim gönderilir (Yöneticiye ASLA gitmez) ve
@@ -490,6 +640,8 @@ export const ShiftReminderService = {
     let freshAlertLogs: Record<string, number> | null = null;
 
     for (const assignment of shiftAssignments) {
+      if (!assignment || !assignment.userId) continue;
+
       // 1. Bugün aktif vardiyası tanımlı mı kontrol et
       const assigned = this.getAssignedShiftForToday(assignment.userId, shifts, shiftAssignments);
       if (!assigned) continue;
@@ -519,7 +671,6 @@ export const ShiftReminderService = {
       }
 
       // Önce mevcut bellek kayıtlarından kontrol et (Giriş yapmışsa veya onaylı izinliyse bildirim gitmez)
-      // NOT: Burada markSentLocalCheckinAlert ÇAĞRILMAZ; böylece test kaydı silinirse veya vardiya saati değişirse kilitlenmez!
       if (
         isUserCheckedInOrExcused(
           attendanceRecords || [],
@@ -558,8 +709,8 @@ export const ShiftReminderService = {
 
           if (
             isUserCheckedInOrExcused(
-              freshCloudRecords || attendanceRecords || [],
-              freshCloudLeaves || leaveRequests,
+              freshCloudRecords && freshCloudRecords.length > 0 ? freshCloudRecords : attendanceRecords || [],
+              freshCloudLeaves && freshCloudLeaves.length > 0 ? freshCloudLeaves : leaveRequests,
               assignment.userId,
               todayStr,
               shiftStartMs,
@@ -631,26 +782,27 @@ export const ShiftReminderService = {
   },
 
   /**
-   * Periodic runner / client-side agent check:
-   * Evaluates all staff with assigned shifts for today.
+   * VARDİYA BİTİŞ (İŞTEN ÇIKIŞ) HATIRLATICISI (+5. VE +10. DAKİKA):
    * - Yöneticiye (Admin) ASLA bildirim gönderilmez!
-   * - Vardiya saati bittiği halde HALA çıkış yapmayan personele:
+   * - Bugün aktif vardiyası olan ve onaylı izni bulunmayan personel, vardiya saati bittiği halde HALA çıkış yapmamışsa:
    *   1) +5. dakikada (target5mMs) 1. çıkış hatırlatma bildirimi gönderilir.
    *   2) +10. dakikada (target10mMs) hala çıkış yapmadıysa 2. çıkış uyarı bildirimi gönderilir.
-   * - Personel çıkış yapmışsa hiçbir bildirim gönderilmez.
+   * - Bellek içi attendanceRecords boş/eski olsa dahi vardiya bitiş penceresinde canlı veritabanı (Slot 6 + Slot 10 + Slot 23)
+   *   kontrol edilerek 100% doğrulukla çalışır.
    */
   async checkShiftCheckoutReminders(params: ShiftReminderCheckParams): Promise<void> {
     const {
-      attendanceRecords,
+      attendanceRecords = [],
       shifts,
       shiftAssignments,
+      leaveRequests = [],
       companyCode,
       currentUser,
       onUpdateRecord,
       onShowToast,
     } = params;
 
-    if (!shiftAssignments || shiftAssignments.length === 0 || !attendanceRecords || attendanceRecords.length === 0) {
+    if (!shiftAssignments || shiftAssignments.length === 0) {
       return;
     }
 
@@ -659,10 +811,13 @@ export const ShiftReminderService = {
     const comp = (companyCode || 'POLATLAR').toUpperCase();
 
     let freshCloudRecords: AttendanceRecord[] | null = null;
+    let freshCloudLeaves: LeaveRequest[] | null = null;
     let freshAlertLogs: Record<string, number> | null = null;
 
     for (const assignment of shiftAssignments) {
-      // 1. Strict Scope Check: Must have a shift assigned and valid for today
+      if (!assignment || !assignment.userId) continue;
+
+      // 1. Bugün aktif vardiyası tanımlı mı kontrol et
       const assigned = this.getAssignedShiftForToday(assignment.userId, shifts, shiftAssignments);
       if (!assigned) continue;
 
@@ -670,37 +825,22 @@ export const ShiftReminderService = {
       const timestamps = this.calculateShiftTimestamps(shift, assignment);
       if (!timestamps) continue;
 
-      const { shiftEndMs, target5mMs, target10mMs } = timestamps;
+      const { shiftStartMs, shiftEndMs, target5mMs, target10mMs, shiftEndMinutes } = timestamps;
 
       // Vardiya bitişinin üzerinden henüz 5 dakika geçmediyse kontrol etmeye gerek yok
       if (now < target5mMs) continue;
 
-      // Vardiya bitişi üzerinden 6 saatten fazla geçtiyse eski kayıtları es geç
+      // Vardiya bitişi üzerinden 6 saatten fazla geçtiyse eski kontrolleri es geç
       if (now - shiftEndMs > 6 * 60 * 60 * 1000) continue;
 
-      // Önce mevcut bellek kayıtlarından kontrol et
-      const localCheck = isUserCheckedOutInRecords(attendanceRecords, assignment.userId, todayStr);
-
-      if (localCheck.hasCheckedOut || !localCheck.activeRecord) {
-        continue;
-      }
-
-      const activeRecord = localCheck.activeRecord;
       const shiftEndStr = shift.endTime || assignment.endTime || '18:00';
       const cleanEndKey = normalizeShiftTimeKey(shiftEndStr, '1800');
 
-      const is5mNotified =
-        activeRecord.shiftCheckout5mNotified ||
-        activeRecord.shiftCheckoutStaffNotified ||
-        hasSentLocalAlert(todayStr, assignment.userId, '5m', cleanEndKey) ||
-        hasSentLocalAlert(todayStr, assignment.userId, 'staff', cleanEndKey);
+      const is5mLocalSent = hasSentLocalAlert(todayStr, assignment.userId, '5m', cleanEndKey);
+      const is10mLocalSent = hasSentLocalAlert(todayStr, assignment.userId, '10m', cleanEndKey);
 
-      const is10mNotified =
-        activeRecord.shiftCheckout10mNotified ||
-        hasSentLocalAlert(todayStr, assignment.userId, '10m', cleanEndKey);
-
-      const needs5m = !is5mNotified && now >= target5mMs && now < target10mMs;
-      const needs10m = !is10mNotified && now >= target10mMs;
+      const needs5m = !is5mLocalSent && now >= target5mMs && now < target10mMs;
+      const needs10m = !is10mLocalSent && now >= target10mMs;
 
       if (!needs5m && !needs10m) continue;
 
@@ -709,16 +849,43 @@ export const ShiftReminderService = {
       const inFlightKey = needs10m ? cloudKey10m : cloudKey5m;
       if (inFlightAlertKeys.has(inFlightKey)) continue;
 
-      const staffCompany = (activeRecord.companyCode || assignment.companyCode || shift.companyCode || comp).trim().toUpperCase();
+      // Bellek içi hızlı ön kontrol: SADECE kullanıcı bu vardiya için zaten kesin çıkış yapmışsa veya onaylı izinliyse atla!
+      // (Bellekte henüz kayıt yoksa asla atlama; aşağıdaki canlı bulut doğrulaması en güncel kayıtları çekecek!)
+      const memStatus = evaluateUserCheckoutStatus(
+        attendanceRecords,
+        leaveRequests,
+        assignment.userId,
+        todayStr,
+        shiftStartMs,
+        shiftEndMs,
+        shiftEndMinutes
+      );
+      if (memStatus.hasCheckedOutOrExcused) {
+        continue;
+      }
+
+      const staffCompany = (
+        memStatus.activeRecord?.companyCode ||
+        assignment.companyCode ||
+        shift.companyCode ||
+        comp
+      )
+        .trim()
+        .toUpperCase();
+
       inFlightAlertKeys.add(inFlightKey);
 
       try {
         // CANLI VERİTABANI DOĞRULAMASI:
-        // Bildirim göndermeden hemen önce sunucudan/buluttan en güncel mesai kayıtlarını çekerek
-        // personelin başka bir cihazdan/telefondan çıkış yapıp yapmadığını kesin olarak doğrula!
+        // Bildirim göndermeden hemen önce sunucudan/buluttan en güncel mesai kayıtlarını, izinleri
+        // ve Slot 23 bildirim günlüğünü çekerek personelin başka bir cihazdan çıkış yapıp yapmadığını doğrula!
+        let activeRecord = memStatus.activeRecord;
         try {
           if (!freshCloudRecords) {
             freshCloudRecords = await StorageService.getAttendanceRecords();
+          }
+          if (!freshCloudLeaves) {
+            freshCloudLeaves = await StorageService.getLeaveRequests(staffCompany);
           }
           if (!freshAlertLogs) {
             freshAlertLogs = await StorageService.getShiftAlertLogs(staffCompany);
@@ -736,31 +903,25 @@ export const ShiftReminderService = {
             }
           }
 
-          if (freshCloudRecords && freshCloudRecords.length > 0) {
-            const freshCheck = isUserCheckedOutInRecords(freshCloudRecords, assignment.userId, todayStr);
-            if (freshCheck.hasCheckedOut || !freshCheck.activeRecord) {
-              continue;
-            }
-            if (
-              (needs5m && (freshCheck.activeRecord.shiftCheckout5mNotified || freshCheck.activeRecord.shiftCheckoutStaffNotified)) ||
-              (needs10m && freshCheck.activeRecord.shiftCheckout10mNotified)
-            ) {
-              if (freshCheck.activeRecord.shiftCheckout5mNotified || freshCheck.activeRecord.shiftCheckoutStaffNotified) {
-                markSentLocalAlert(todayStr, assignment.userId, '5m', cleanEndKey);
-                markSentLocalAlert(todayStr, assignment.userId, 'staff', cleanEndKey);
-              }
-              if (freshCheck.activeRecord.shiftCheckout10mNotified) {
-                markSentLocalAlert(todayStr, assignment.userId, '10m', cleanEndKey);
-              }
-              continue;
-            }
+          const liveStatus = evaluateUserCheckoutStatus(
+            freshCloudRecords && freshCloudRecords.length > 0 ? freshCloudRecords : attendanceRecords,
+            freshCloudLeaves && freshCloudLeaves.length > 0 ? freshCloudLeaves : leaveRequests,
+            assignment.userId,
+            todayStr,
+            shiftStartMs,
+            shiftEndMs,
+            shiftEndMinutes
+          );
+
+          if (liveStatus.hasCheckedOutOrExcused) {
+            continue;
           }
+
+          activeRecord = liveStatus.activeRecord || activeRecord;
         } catch {
-          // Ağ hatası olursa mevcut kayda göre devam et
+          // Ağ hatası olursa mevcut yerel veriye göre devam et
         }
 
-        let recordUpdated = false;
-        const updatedRecord: AttendanceRecord = { ...activeRecord };
         const appUrl =
           typeof window !== 'undefined' && window.location.origin
             ? window.location.origin
@@ -770,15 +931,13 @@ export const ShiftReminderService = {
         if (needs5m) {
           markSentLocalAlert(todayStr, assignment.userId, '5m', cleanEndKey);
           markSentLocalAlert(todayStr, assignment.userId, 'staff', cleanEndKey);
-          updatedRecord.shiftCheckout5mNotified = true;
-          updatedRecord.shiftCheckout5mNotifiedAt = now;
-          updatedRecord.shiftCheckoutStaffNotified = true;
-          updatedRecord.shiftCheckoutStaffNotifiedAt = now;
-          recordUpdated = true;
+          if (freshAlertLogs) {
+            freshAlertLogs[cloudKey5m] = now;
+          }
           await StorageService.markShiftAlertSent(cloudKey5m, staffCompany);
 
           const title = '🔔 Vardiya Çıkış Hatırlatması (5. Dakika)';
-          const message = `Saat ${shiftEndStr} vardiyanız 5 dakika önce sona erdi ancak henüz çıkış yapmadınız. Lütfen işten çıkış işleminizi yapmayı unutmayın!`;
+          const message = `Saat ${shiftEndStr} vardiyanız 5 dakika önce sona erdi ancak henüz işten çıkış yapmadınız. Lütfen işten çıkış işleminizi yapmayı unutmayın!`;
 
           // Kullanıcı şu an sisteme bağlı olan personelin kendisi ise yerel bildirim, ses ve toast göster
           if (currentUser?.id === assignment.userId) {
@@ -797,7 +956,7 @@ export const ShiftReminderService = {
             }
           }
 
-          // SADECE ilgili personelin telefonuna push bildirim gönder (Yöneticiye ASLA gitmez)
+          // SADECE ilgili personelin telefonuna donanım push bildirimi gönder (Yöneticiye ASLA gitmez)
           const pushParams5m = {
             title,
             message,
@@ -812,6 +971,16 @@ export const ShiftReminderService = {
               if (!res || !res.success) FastActionAgent.enqueuePushNotification(pushParams5m);
             })
             .catch(() => FastActionAgent.enqueuePushNotification(pushParams5m));
+
+          if (activeRecord && onUpdateRecord) {
+            onUpdateRecord({
+              ...activeRecord,
+              shiftCheckout5mNotified: true,
+              shiftCheckout5mNotifiedAt: now,
+              shiftCheckoutStaffNotified: true,
+              shiftCheckoutStaffNotifiedAt: now,
+            });
+          }
         }
 
         // --- KONTROL 2: VARDİYA BİTİMİNDEN 10 DAKİKA SONRA (SADECE PERSONELE 2. BİLDİRİM) ---
@@ -819,15 +988,13 @@ export const ShiftReminderService = {
           markSentLocalAlert(todayStr, assignment.userId, '5m', cleanEndKey);
           markSentLocalAlert(todayStr, assignment.userId, 'staff', cleanEndKey);
           markSentLocalAlert(todayStr, assignment.userId, '10m', cleanEndKey);
-          updatedRecord.shiftCheckout5mNotified = true;
-          updatedRecord.shiftCheckoutStaffNotified = true;
-          updatedRecord.shiftCheckout10mNotified = true;
-          updatedRecord.shiftCheckout10mNotifiedAt = now;
-          recordUpdated = true;
+          if (freshAlertLogs) {
+            freshAlertLogs[cloudKey10m] = now;
+          }
           await StorageService.markShiftAlertSent(cloudKey10m, staffCompany);
 
           const title = '⚠️ Vardiya Çıkış Uyarısı (10. Dakika)';
-          const message = `Saat ${shiftEndStr} vardiyanız 10 dakika önce sona erdi ve hala çıkış yapmadınız! Lütfen işten çıkış işleminizi gerçekleştiriniz.`;
+          const message = `Saat ${shiftEndStr} vardiyanız 10 dakika önce sona erdi ve hala işten çıkış yapmadınız! Lütfen işten çıkış işleminizi gerçekleştiriniz.`;
 
           // Kullanıcı şu an sisteme bağlı olan personelin kendisi ise yerel bildirim, ses ve toast göster
           if (currentUser?.id === assignment.userId) {
@@ -846,7 +1013,7 @@ export const ShiftReminderService = {
             }
           }
 
-          // SADECE ilgili personelin telefonuna push bildirim gönder (Yöneticiye ASLA gitmez)
+          // SADECE ilgili personelin telefonuna donanım push bildirimi gönder (Yöneticiye ASLA gitmez)
           const pushParams10m = {
             title,
             message,
@@ -861,10 +1028,16 @@ export const ShiftReminderService = {
               if (!res || !res.success) FastActionAgent.enqueuePushNotification(pushParams10m);
             })
             .catch(() => FastActionAgent.enqueuePushNotification(pushParams10m));
-        }
 
-        if (recordUpdated && onUpdateRecord) {
-          onUpdateRecord(updatedRecord);
+          if (activeRecord && onUpdateRecord) {
+            onUpdateRecord({
+              ...activeRecord,
+              shiftCheckout5mNotified: true,
+              shiftCheckoutStaffNotified: true,
+              shiftCheckout10mNotified: true,
+              shiftCheckout10mNotifiedAt: now,
+            });
+          }
         }
       } finally {
         inFlightAlertKeys.delete(inFlightKey);

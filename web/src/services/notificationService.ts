@@ -171,6 +171,59 @@ export const NotificationService = {
   recentNotifications: new Map<string, number>(),
 
   /**
+   * Clears shift check-in / check-out entries from both in-memory and localStorage notification caches
+   */
+  clearShiftDedupCache(mode: 'all' | 'checkout' = 'all'): void {
+    const matchesShiftEntry = (k: string): boolean => {
+      const lower = k.toLowerCase();
+      if (mode === 'checkout') {
+        return (
+          lower.includes('checkout_5m_') ||
+          lower.includes('checkout_10m_') ||
+          lower.includes('vardiya çıkış hatırlatması') ||
+          lower.includes('vardiya çıkış uyarısı')
+        );
+      }
+      return (
+        lower.includes('checkin_15m_') ||
+        lower.includes('checkout_5m_') ||
+        lower.includes('checkout_10m_') ||
+        lower.includes('vardiya giriş hatırlatması') ||
+        lower.includes('vardiya çıkış hatırlatması') ||
+        lower.includes('vardiya çıkış uyarısı')
+      );
+    };
+
+    try {
+      for (const k of Array.from(this.recentNotifications.keys())) {
+        if (matchesShiftEntry(k)) {
+          this.recentNotifications.delete(k);
+        }
+      }
+    } catch {}
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const lsKey = '@saha_recent_local_notif';
+        const raw = localStorage.getItem(lsKey);
+        if (raw) {
+          const cache: Record<string, number> = JSON.parse(raw);
+          let mutated = false;
+          for (const ck of Object.keys(cache)) {
+            if (matchesShiftEntry(ck)) {
+              delete cache[ck];
+              mutated = true;
+            }
+          }
+          if (mutated) {
+            localStorage.setItem(lsKey, JSON.stringify(cache));
+          }
+        }
+      } catch {}
+    }
+  },
+
+  /**
    * Sends a browser / PWA service worker notification with audio chime
    * and automatic deep-linking to the relevant tab.
    * Includes 60-second deduplication cache and title normalization to prevent duplicate alerts.

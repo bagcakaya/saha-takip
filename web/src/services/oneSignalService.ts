@@ -617,9 +617,43 @@ export const OneSignalService = {
   },
 
   /**
-   * Memory cache to debounce duplicate push requests within 4 seconds
+   * Memory cache to debounce duplicate push requests within 45 seconds
    */
   recentPushRequests: new Map<string, number>(),
+
+  /**
+   * Clears shift push debounce entries when shift hours or attendance records are reset
+   */
+  clearShiftPushDedupCache(mode: 'all' | 'checkout' = 'all'): void {
+    const matches = (k: string): boolean => {
+      if (mode === 'checkout') {
+        return k.includes('Vardiya Çıkış');
+      }
+      return k.includes('Vardiya Giriş') || k.includes('Vardiya Çıkış');
+    };
+    try {
+      for (const k of Array.from(this.recentPushRequests.keys())) {
+        if (matches(k)) this.recentPushRequests.delete(k);
+      }
+    } catch {}
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const lsKey = '@saha_recent_push_requests';
+        const raw = localStorage.getItem(lsKey);
+        if (raw) {
+          const cache: Record<string, number> = JSON.parse(raw);
+          let changed = false;
+          for (const ck of Object.keys(cache)) {
+            if (matches(ck)) {
+              delete cache[ck];
+              changed = true;
+            }
+          }
+          if (changed) localStorage.setItem(lsKey, JSON.stringify(cache));
+        }
+      } catch {}
+    }
+  },
 
   /**
    * Sends a hardware push notification via OneSignal REST API directly to locked phones
