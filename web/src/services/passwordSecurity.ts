@@ -144,6 +144,22 @@ export const PasswordSecurity = {
   },
 
   /**
+   * Synchronously ensures a password string is stored in salted SHA-256 format (`$s256$<salt>$<hash>`).
+   * If already hashed, returns as-is. If legacy plaintext, hashes deterministically per userId
+   * so all devices/cloud slots converge without race conditions and without forcing re-login.
+   */
+  ensureHashedSync(userId: string, storedOrRawPassword?: string | null): string {
+    if (!storedOrRawPassword) return '';
+    const trimmed = String(storedOrRawPassword).trim();
+    if (!trimmed) return '';
+    if (this.isHashed(trimmed)) return trimmed;
+    const cleanUid = String(userId || 'default').trim();
+    const deterministicSalt = sha256Sync(`saha_pwd_salt_v1:${cleanUid}`).slice(0, 32);
+    const hash = sha256Sync(`${deterministicSalt}:${trimmed}`);
+    return `${HASH_PREFIX}${deterministicSalt}$${hash}`;
+  },
+
+  /**
    * Verifies an entered password against stored password.
    * Supports both new `$s256$...` salted hashes and legacy plaintext passwords.
    * 

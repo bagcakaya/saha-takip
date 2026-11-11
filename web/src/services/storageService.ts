@@ -430,8 +430,13 @@ async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; not
 
 // Helper to save chunked JSON to standard_tasks slot
 async function saveChunkedSlot(slotId: number, data: any, throwOnError = false): Promise<void> {
-  // GÜVENLİK ZIRHI: POLATLAR harici kurumların sistem kök slotlarına (1-10) yazması engellenir
-  if (activeCompanyCode !== 'POLATLAR' && slotId <= 10) {
+  // GÜVENLİK ZIRHI: POLATLAR harici kurumların sistem kök slotlarına (1-20, 21001, 22001, 23001) yazması engellenir
+  const isPolatlarRootSlot =
+    (slotId >= 1 && slotId <= 20) ||
+    slotId === 21001 ||
+    slotId === 22001 ||
+    slotId === 23001;
+  if (activeCompanyCode !== 'POLATLAR' && isPolatlarRootSlot) {
     console.warn(
       `[GÜVENLİK İHLALİ] Kurum '${activeCompanyCode}' kök slot ${slotId}'e yazmaya yetkili değildir! İşlem engellendi.`
     );

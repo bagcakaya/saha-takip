@@ -50,7 +50,7 @@ function recordDeletedUserId(id: string): void {
 const DEFAULT_ADMIN: UserAccount = {
   id: 'admin-root',
   username: 'admin',
-  password: '1234',
+  password: PasswordSecurity.ensureHashedSync('admin-root', '1234'),
   name: 'Sistem Yöneticisi',
   role: 'admin',
   createdAt: 1700000000000,
@@ -61,13 +61,15 @@ const DEFAULT_ADMIN: UserAccount = {
 const DEFAULT_MURAT: UserAccount = {
   id: 'mtjsnufrp8pfa',
   username: 'murat',
-  password: '4412',
+  password: PasswordSecurity.ensureHashedSync('mtjsnufrp8pfa', '4412'),
   name: 'Murat POLAT',
   role: 'admin',
   createdAt: 1788335296983,
   companyCode: 'POLATLAR',
   companyName: 'Polatlar',
 };
+
+let hasAutoUpgradedCloudHashes = false;
 
 export const UserService = {
   /**
@@ -80,14 +82,13 @@ export const UserService = {
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          let needsSave = false;
           const filtered = parsed.filter((u) => u && !deletedIds.has(u.id));
           if (filtered.length !== parsed.length) {
-            try {
-              localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(filtered));
-            } catch {}
+            needsSave = true;
           }
           if (filtered.length > 0) {
-            return filtered.map((u) => {
+            const normalized = filtered.map((u) => {
               let comp = (u.companyCode || u.company_code || '').trim().toUpperCase();
               if (!comp && u.username && u.username.includes(':')) {
                 comp = u.username.split(':')[0].trim().toUpperCase();
@@ -97,12 +98,23 @@ export const UserService = {
               }
               if (!comp) comp = 'POLATLAR';
               const isAdmin = isUserAdmin(u);
+              const safePass = PasswordSecurity.ensureHashedSync(u.id, u.password);
+              if (safePass !== u.password) {
+                needsSave = true;
+              }
               return {
                 ...u,
+                password: safePass,
                 companyCode: comp,
                 role: isAdmin ? ('admin' as UserRole) : u.role,
               };
             });
+            if (needsSave) {
+              try {
+                localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(normalized));
+              } catch {}
+            }
+            return normalized;
           }
         }
       }
@@ -250,12 +262,17 @@ export const UserService = {
   },
 
   /**
-   * Saves users list to local storage
+   * Saves users list to local storage (ensuring all passwords are salted SHA-256 hashes)
    */
   saveUsers(users: UserAccount[]): void {
     try {
       const deletedIds = getDeletedUserIds();
-      const clean = users.filter((u) => u && !deletedIds.has(u.id));
+      const clean = users
+        .filter((u) => u && !deletedIds.has(u.id))
+        .map((u) => ({
+          ...u,
+          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+        }));
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(clean));
     } catch (e) {
       console.error('Kullanıcılar kaydedilemedi:', e);
@@ -268,7 +285,12 @@ export const UserService = {
   async syncToSlot101(userList: UserAccount[]): Promise<void> {
     try {
       const deletedIds = getDeletedUserIds();
-      const cleanUserList = userList.filter((u) => u && !deletedIds.has(u.id));
+      const cleanUserList = userList
+        .filter((u) => u && !deletedIds.has(u.id))
+        .map((u) => ({
+          ...u,
+          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+        }));
       const companiesInUserList = new Set(
         cleanUserList.map((u) => (u.companyCode || 'POLATLAR').toUpperCase())
       );
@@ -290,12 +312,18 @@ export const UserService = {
           // Only preserve existing users from companies NOT included in cleanUserList
           if (!companiesInUserList.has(comp)) {
             const key = `${comp}:${(u.username || '').toLowerCase()}`;
-            userMap.set(key, u);
+            userMap.set(key, {
+              ...u,
+              password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+            });
           }
         });
         cleanUserList.forEach((u) => {
           const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-          userMap.set(key, u);
+          userMap.set(key, {
+            ...u,
+            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+          });
         });
 
         const merged = Array.from(userMap.values());
@@ -317,7 +345,7 @@ export const UserService = {
           return {
             id: u.id,
             username: cloudUsername,
-            password: u.password,
+            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
             name: u.name,
             role: u.role,
             created_at: u.createdAt || Date.now(),
@@ -358,12 +386,18 @@ export const UserService = {
         // Only preserve existing users from companies NOT included in cleanUserList
         if (!companiesInUserList.has(comp)) {
           const key = `${comp}:${(u.username || '').toLowerCase()}`;
-          userMap.set(key, u);
+          userMap.set(key, {
+            ...u,
+            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+          });
         }
       });
       cleanUserList.forEach((u) => {
         const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-        userMap.set(key, u);
+        userMap.set(key, {
+          ...u,
+          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+        });
       });
 
       const merged = Array.from(userMap.values());
@@ -708,7 +742,22 @@ export const UserService = {
       } catch {}
 
       const deletedIds = getDeletedUserIds();
-      const all = Array.from(userMap.values()).filter((u) => u && !deletedIds.has(u.id));
+      let foundUnhashedInCloud = false;
+      const all = Array.from(userMap.values())
+        .filter((u) => u && !deletedIds.has(u.id))
+        .map((u) => {
+          if (u.password && !PasswordSecurity.isHashed(u.password)) {
+            foundUnhashedInCloud = true;
+          }
+          return {
+            ...u,
+            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+          };
+        });
+      if (foundUnhashedInCloud && !hasAutoUpgradedCloudHashes && !companyCodeFilter) {
+        hasAutoUpgradedCloudHashes = true;
+        this.syncToSlot101(all).catch(() => {});
+      }
       if (companyCodeFilter) {
         const clean = companyCodeFilter.trim().toUpperCase();
         return all.filter((u) => (u.companyCode || 'POLATLAR').toUpperCase() === clean);
@@ -730,6 +779,7 @@ export const UserService = {
     // 0. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
     if (ServerConfigService.isLocalMode()) {
       let localFoundUsers: UserAccount[] | null = null;
+      let foundPlaintextLocal = false;
       try {
         const slotRes = await ServerConfigService.apiGet<{ id: number; tasks: string[]; notFound?: boolean }>(
           `/api/standard_tasks/${USERS_SLOT_ID}`
@@ -738,7 +788,17 @@ export const UserService = {
           const rawJson = slotRes.data.tasks.join('');
           const parsed = JSON.parse(rawJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            localFoundUsers = parsed.filter((u: UserAccount) => u && !deletedIds.has(u.id));
+            localFoundUsers = parsed
+              .filter((u: UserAccount) => u && !deletedIds.has(u.id))
+              .map((u: UserAccount) => {
+                if (u.password && !PasswordSecurity.isHashed(u.password)) {
+                  foundPlaintextLocal = true;
+                }
+                return {
+                  ...u,
+                  password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+                };
+              });
           }
         }
       } catch (err) {
@@ -769,11 +829,14 @@ export const UserService = {
                 }
 
                 const isAdminRole = isUserAdmin({ username, companyCode, role: row.role });
+                if (row.password && !PasswordSecurity.isHashed(row.password)) {
+                  foundPlaintextLocal = true;
+                }
 
                 return {
                   id: row.id,
                   username,
-                  password: row.password,
+                  password: PasswordSecurity.ensureHashedSync(row.id, row.password),
                   name: row.name,
                   role: isAdminRole ? ('admin' as UserRole) : (row.role as UserRole),
                   createdAt: Number(row.created_at) || Date.now(),
@@ -785,6 +848,11 @@ export const UserService = {
         } catch (err) {
           console.warn('Yerel sunucu app_users tablosu okunurken hata:', err);
         }
+      }
+
+      if (foundPlaintextLocal && localFoundUsers && localFoundUsers.length > 0 && !hasAutoUpgradedCloudHashes) {
+        hasAutoUpgradedCloudHashes = true;
+        this.syncToSlot101(localFoundUsers).catch(() => {});
       }
 
       // Check if we need Supabase fallback or merge

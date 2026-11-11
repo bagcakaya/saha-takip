@@ -8,9 +8,12 @@
  * - Resets attempt counter immediately on successful login.
  */
 
+import { sha256Sync } from './passwordSecurity';
+
 const THROTTLE_STORAGE_KEY = '@saha_takip_auth_throttle';
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_SEAL_SECRET = 'saha_takip_integrity_seal_v2_9f8a7b6c';
 
 interface ThrottleRecord {
   attempts: number;
@@ -157,5 +160,50 @@ export const AuthSecurityService = {
    */
   async delay(ms: number = 1000): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  },
+
+  /**
+   * Computes a cryptographic integrity seal over the user's identity, role, and companyCode
+   * to prevent DevTools localStorage privilege escalation (e.g. changing role: 'user' -> 'admin').
+   */
+  computeSessionSeal(user: {
+    id?: string;
+    username?: string;
+    role?: string;
+    companyCode?: string;
+  }): string {
+    const id = String(user?.id || '').trim();
+    const uname = String(user?.username || '').trim().toLowerCase();
+    const role = String(user?.role || 'staff').trim().toLowerCase();
+    const comp = String(user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    return sha256Sync(`${SESSION_SEAL_SECRET}|${id}|${uname}|${role}|${comp}`);
+  },
+
+  /**
+   * Returns a clean User object (without any raw password field) stamped with `securitySeal`
+   */
+  sealUserSession<T extends { id: string; username: string; role: any; companyCode?: string }>(
+    user: T
+  ): T & { securitySeal: string } {
+    const copy: any = { ...user };
+    delete copy.password;
+    copy.securitySeal = this.computeSessionSeal(copy);
+    return copy;
+  },
+
+  /**
+   * Verifies whether a stored session object's `securitySeal` matches its current role & companyCode.
+   * Returns:
+   * - `'valid'` if seal is present and matches
+   * - `'legacy_unsealed'` if session was created before seal rollout (eligible for silent auto-upgrade)
+   * - `'tampered'` if seal is present but does not match (e.g. role or companyCode was modified in localStorage)
+   */
+  verifySessionSeal(user: any): 'valid' | 'legacy_unsealed' | 'tampered' {
+    if (!user || typeof user !== 'object') return 'tampered';
+    if (!user.securitySeal || typeof user.securitySeal !== 'string') {
+      return 'legacy_unsealed';
+    }
+    const expected = this.computeSessionSeal(user);
+    return user.securitySeal === expected ? 'valid' : 'tampered';
   },
 };

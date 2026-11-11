@@ -8,6 +8,7 @@ import { OneSignalService } from '../services/oneSignalService';
 import { DeviceService } from '../services/deviceService';
 import { ServerConfigService } from '../services/serverConfigService';
 import { LicenseAlertService } from '../services/licenseAlertService';
+import { AuthSecurityService } from '../services/authSecurityService';
 
 interface AuthContextType {
   user: User | null;
@@ -100,19 +101,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const saved = localStorage.getItem(AUTH_STORAGE_KEY) || sessionStorage.getItem(AUTH_STORAGE_KEY);
+      const fromLocal = localStorage.getItem(AUTH_STORAGE_KEY);
+      const fromSession = !fromLocal ? sessionStorage.getItem(AUTH_STORAGE_KEY) : null;
+      const saved = fromLocal || fromSession;
       if (saved) {
         const parsed: User = JSON.parse(saved);
-        if (parsed && parsed.companyCode) {
-          StorageService.setCompany(parsed.companyCode);
-        } else if (parsed) {
-          parsed.companyCode = 'POLATLAR';
-          StorageService.setCompany('POLATLAR', 1);
+        if (parsed && typeof parsed === 'object') {
+          delete (parsed as any).password;
+
+          // Verify cryptographic session seal (Zero-Logout policy: silently seal legacy sessions; revert tampered roles)
+          const sealStatus = AuthSecurityService.verifySessionSeal(parsed);
+          if (sealStatus === 'tampered') {
+            try {
+              const knownUsers = UserService.getUsers();
+              const matchedRecord = knownUsers.find(
+                (u) =>
+                  u.id === parsed.id ||
+                  ((u.companyCode || 'POLATLAR').toUpperCase() === (parsed.companyCode || 'POLATLAR').toUpperCase() &&
+                    u.username.toLowerCase() === (parsed.username || '').toLowerCase())
+              );
+              if (matchedRecord) {
+                parsed.role = isUserAdmin(matchedRecord) ? 'admin' : matchedRecord.role;
+                parsed.companyCode = (matchedRecord.companyCode || 'POLATLAR').toUpperCase();
+              } else {
+                parsed.role = isUserAdmin(parsed) ? 'admin' : 'staff';
+              }
+              StorageService.logSecurityEvent({
+                companyCode: parsed.companyCode || 'POLATLAR',
+                attemptedUsername: parsed.username || parsed.name || 'Bilinmeyen',
+                deviceId: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 80) : 'Web Client',
+                platform: 'Web Tarayıcı',
+                message: `Tarayıcı yerel depolamasında (localStorage) yetki/kurum manipülasyonu tespit edildi ve gerçek yetkiye (${parsed.role}) geri döndürüldü.`,
+                status: 'danger',
+              }).catch(() => {});
+            } catch {}
+          }
+
+          if (parsed.companyCode) {
+            StorageService.setCompany(parsed.companyCode);
+          } else {
+            parsed.companyCode = 'POLATLAR';
+            StorageService.setCompany('POLATLAR', 1);
+          }
+          if (isUserAdmin(parsed)) {
+            parsed.role = 'admin';
+          }
+
+          const sealed = AuthSecurityService.sealUserSession(parsed);
+          if (sealStatus !== 'valid') {
+            try {
+              if (fromLocal) {
+                localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(sealed));
+              } else if (fromSession) {
+                sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(sealed));
+              }
+            } catch {}
+          }
+          return sealed;
         }
-        if (isUserAdmin(parsed)) {
-          parsed.role = 'admin';
-        }
-        return parsed;
       }
     } catch (e) {
       console.warn('Oturum bilgisi okunamadı:', e);
@@ -352,18 +398,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return null;
       }
 
-      const shouldBeAdmin = isUserAdmin(currentUser) || (fresh && isUserAdmin(fresh));
-      const finalRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : currentUser.role);
+      const isTampered = AuthSecurityService.verifySessionSeal(currentUser) === 'tampered';
+      const shouldBeAdmin = fresh ? isUserAdmin(fresh) : isUserAdmin(currentUser);
+      const finalRole: UserRole = shouldBeAdmin ? 'admin' : (fresh ? fresh.role : (isTampered ? 'staff' : currentUser.role));
       const finalName = fresh ? fresh.name : currentUser.name;
+      const finalCompany = fresh ? (fresh.companyCode || 'POLATLAR').toUpperCase() : (currentUser.companyCode || 'POLATLAR').toUpperCase();
 
-      if (finalRole !== currentUser.role || finalName !== currentUser.name) {
-        const updated: User = {
+      if (
+        isTampered ||
+        finalRole !== currentUser.role ||
+        finalName !== currentUser.name ||
+        finalCompany !== (currentUser.companyCode || 'POLATLAR').toUpperCase() ||
+        !(currentUser as any).securitySeal
+      ) {
+        const updated = AuthSecurityService.sealUserSession({
           ...currentUser,
           role: finalRole,
           name: finalName,
-        };
+          companyCode: finalCompany,
+        });
         try {
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+          if (sessionStorage.getItem(AUTH_STORAGE_KEY)) {
+            sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+          } else {
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+          }
         } catch {
           // ignore
         }
@@ -468,7 +527,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 4. Configure Storage & OneSignal for this company
     const effectiveRole: UserRole = isUserAdmin(authenticatedUser) ? 'admin' : authenticatedUser.role;
-    const finalUser: User = isUserAdmin(authenticatedUser) ? { ...authenticatedUser, role: 'admin' } : authenticatedUser;
+    const rawUser: User = isUserAdmin(authenticatedUser) ? { ...authenticatedUser, role: 'admin' } : authenticatedUser;
+    const finalUser: User = AuthSecurityService.sealUserSession(rawUser);
 
     StorageService.setCompany(matchedCompany.code, matchedCompany.id);
     setHomeCompany(matchedCompany);
@@ -643,7 +703,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.success) {
       await refreshUsers();
       if (user && user.id === id) {
-        const updatedUser: User = {
+        const updatedUser = AuthSecurityService.sealUserSession({
           ...user,
           name: updates.name !== undefined ? updates.name : user.name,
           role: updates.role !== undefined ? updates.role : user.role,
@@ -654,8 +714,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           iban: updates.iban !== undefined ? updates.iban : user.iban,
           department: updates.department !== undefined ? updates.department : user.department,
           isActive: updates.isActive !== undefined ? updates.isActive : user.isActive,
-        };
+        });
         setUser(updatedUser);
+        try {
+          if (sessionStorage.getItem(AUTH_STORAGE_KEY)) {
+            sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser));
+          } else {
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser));
+          }
+        } catch {}
       }
     }
     return res;

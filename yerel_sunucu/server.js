@@ -33,10 +33,46 @@ process.on('unhandledRejection', (reason) => {
   appendServerErrorLog('unhandledRejection', reason);
 });
 
-// Middleware
+// Middleware & Güvenlik Başlıkları
+app.disable('x-powered-by');
 app.use(cors());
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Hafif Bellek İçi Hız Sınırlayıcı (DoS / Taşma Saldırı Koruması - Normal kullanımı asla etkilemez)
+const ipRateBuckets = new Map();
+function checkIpRateLimit(req, bucketName, maxRequestsPerMinute = 180) {
+  try {
+    const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'local';
+    const ip = String(rawIp).split(',')[0].trim();
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
+      return true;
+    }
+    const key = `${bucketName}:${ip}`;
+    const now = Date.now();
+    const entry = ipRateBuckets.get(key);
+    if (!entry || now - entry.windowStart > 60000) {
+      ipRateBuckets.set(key, { windowStart: now, count: 1 });
+      if (ipRateBuckets.size > 1000) {
+        for (const [k, v] of ipRateBuckets.entries()) {
+          if (now - v.windowStart > 120000) ipRateBuckets.delete(k);
+        }
+      }
+      return true;
+    }
+    entry.count += 1;
+    return entry.count <= maxRequestsPerMinute;
+  } catch {
+    return true;
+  }
+}
 
 // Fotoğraf Yükleme Dizini
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
@@ -44,19 +80,53 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Statik Dosya Erişimi (Fotoğraflar için)
-app.use('/uploads', express.static(uploadDir));
+// Statik Dosya Erişimi (Fotoğraflar için - Script çalıştırma korumalı)
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
+    next();
+  },
+  express.static(uploadDir)
+);
 
-// Multer Disk Storage Yapılandırması
+const ALLOWED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif', '.bmp']);
+const BLOCKED_UPLOAD_EXTS = new Set([
+  '.html', '.htm', '.svg', '.xml', '.xhtml', '.js', '.mjs', '.cjs', '.ts',
+  '.php', '.asp', '.aspx', '.jsp', '.exe', '.bat', '.cmd', '.ps1', '.sh', '.vbs',
+]);
+
+// Multer Disk Storage Yapılandırması (Güvenli Uzantı ve MIME Kontrolü)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const uniqueName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
+    const rawExt = (path.extname(file.originalname || '') || '.jpg').toLowerCase();
+    const safeExt = ALLOWED_IMAGE_EXTS.has(rawExt) ? rawExt : '.jpg';
+    const uniqueName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}${safeExt}`;
     cb(null, uniqueName);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB max
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB max
+  fileFilter: (req, file, cb) => {
+    const rawExt = (path.extname(file.originalname || '') || '').toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (
+      BLOCKED_UPLOAD_EXTS.has(rawExt) ||
+      mime.includes('html') ||
+      mime.includes('svg') ||
+      mime.includes('javascript') ||
+      mime.includes('ecmascript') ||
+      mime.includes('x-msdownload')
+    ) {
+      return cb(new Error('Güvenlik nedeniyle yalnızca fotoğraf/görsel dosyaları yüklenebilir.'));
+    }
+    cb(null, true);
+  },
+});
 
 // =========================================================================
 // 1. HEALTH CHECK ENDPOINT
@@ -81,6 +151,9 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/standard_tasks/:id', async (req, res) => {
   try {
     const slotId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(slotId) || slotId <= 0) {
+      return res.status(400).json({ error: 'Geçersiz slot ID' });
+    }
     const pool = await getPool();
     const result = await pool
       .request()
@@ -109,6 +182,9 @@ app.get('/api/standard_tasks/:id', async (req, res) => {
 app.post('/api/standard_tasks/:id', async (req, res) => {
   try {
     const slotId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(slotId) || slotId <= 0) {
+      return res.status(400).json({ error: 'Geçersiz slot ID' });
+    }
     const { tasks } = req.body;
     const tasksJson = JSON.stringify(Array.isArray(tasks) ? tasks : []);
 
@@ -489,7 +565,7 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
   }
 });
 
-// Tablodan kayıt sil
+// Tablodan kayıt sil (%100 Parametreli SQL - SQL Injection Korumalı)
 app.post('/api/tables/:table/delete', async (req, res) => {
   try {
     const tableName = req.params.table;
@@ -500,17 +576,28 @@ app.post('/api/tables/:table/delete', async (req, res) => {
       return res.json({ success: true, count: 0 });
     }
 
+    const cleanIds = ids
+      .map((i) => (i !== null && i !== undefined ? String(i).trim() : ''))
+      .filter((i) => i.length > 0 && i.length <= 100);
+
+    if (cleanIds.length === 0) {
+      return res.json({ success: true, count: 0 });
+    }
+
     const pool = await getPool();
-    // Parametreli güvenli silme
-    const tableParam = new sql.Table();
-    tableParam.columns.add('id', sql.NVarChar(100));
-    for (const id of ids) tableParam.rows.add(String(id));
+    const batchSize = 500;
+    for (let start = 0; start < cleanIds.length; start += batchSize) {
+      const batch = cleanIds.slice(start, start + batchSize);
+      const request = pool.request();
+      const paramNames = batch.map((idVal, idx) => {
+        const pName = `id${idx}`;
+        request.input(pName, sql.NVarChar(100), idVal);
+        return `@${pName}`;
+      });
+      await request.query(`DELETE FROM dbo.[${tableName}] WHERE id IN (${paramNames.join(', ')})`);
+    }
 
-    await pool
-      .request()
-      .query(`DELETE FROM dbo.[${tableName}] WHERE id IN ('${ids.map((i) => String(i).replace(/'/g, "''")).join("','")}')`);
-
-    res.json({ success: true, count: ids.length });
+    res.json({ success: true, count: cleanIds.length });
   } catch (err) {
     console.error(`POST /api/tables/${req.params.table}/delete error:`, err);
     res.status(500).json({ error: err.message });
@@ -518,19 +605,28 @@ app.post('/api/tables/:table/delete', async (req, res) => {
 });
 
 // =========================================================================
-// 4. FOTOĞRAF YÜKLEME (Yerel Sunucu Sabit Diski)
+// 4. FOTOĞRAF YÜKLEME (Yerel Sunucu Sabit Diski - Güvenli Yükleme)
 // =========================================================================
-app.post('/api/upload', upload.single('photo'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Dosya yüklenmedi' });
-    }
-    const relativeUrl = `/uploads/${req.file.filename}`;
-    res.json({ success: true, url: relativeUrl, filename: req.file.filename });
-  } catch (err) {
-    console.error('Fotoğraf yükleme hatası:', err);
-    res.status(500).json({ error: err.message });
+app.post('/api/upload', (req, res) => {
+  if (!checkIpRateLimit(req, 'upload', 90)) {
+    return res.status(429).json({ error: 'Çok fazla dosya yükleme isteği gönderildi. Lütfen biraz bekleyin.' });
   }
+  upload.single('photo')(req, res, (uploadErr) => {
+    if (uploadErr) {
+      console.warn('Güvenli fotoğraf yükleme reddi:', uploadErr.message);
+      return res.status(400).json({ error: uploadErr.message || 'Geçersiz dosya.' });
+    }
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Dosya yüklenmedi' });
+      }
+      const relativeUrl = `/uploads/${req.file.filename}`;
+      res.json({ success: true, url: relativeUrl, filename: req.file.filename });
+    } catch (err) {
+      console.error('Fotoğraf yükleme hatası:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 });
 
 // =========================================================================
@@ -574,9 +670,42 @@ app.delete('/api/send-notification', async (req, res) => {
   }
 });
 
+function sanitizeNotificationUrl(rawUrl) {
+  const defaultBase = 'https://saha-takip-beige.vercel.app';
+  if (!rawUrl || typeof rawUrl !== 'string') return defaultBase;
+  const trimmed = rawUrl.trim();
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) return defaultBase;
+  try {
+    const parsed = new URL(trimmed, defaultBase);
+    const allowedHosts = new Set([
+      'saha-takip-beige.vercel.app',
+      '81.213.219.69',
+      'localhost',
+      '127.0.0.1',
+    ]);
+    if (!allowedHosts.has(parsed.hostname.toLowerCase())) {
+      const safeRedirect = new URL(defaultBase);
+      const tab = parsed.searchParams.get('tab');
+      const filter = parsed.searchParams.get('filter');
+      if (tab) safeRedirect.searchParams.set('tab', tab);
+      if (filter) safeRedirect.searchParams.set('filter', filter);
+      return safeRedirect.toString();
+    }
+    return parsed.toString();
+  } catch {
+    return defaultBase;
+  }
+}
+
 app.post('/api/send-notification', async (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'push', 180)) {
+      return res.status(429).json({ error: 'Çok fazla bildirim isteği gönderildi.' });
+    }
     const payload = req.body;
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ error: 'Geçersiz bildirim verisi' });
+    }
     const apiKey = getOneSignalApiKey();
     const appId = getOneSignalAppId();
 
@@ -603,7 +732,9 @@ app.post('/api/send-notification', async (req, res) => {
 
     payload.app_id = appId;
 
-    const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
+    const targetUrl = sanitizeNotificationUrl(
+      payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app'
+    );
     payload.url = targetUrl;
     delete payload.web_url;
     delete payload.app_url;
@@ -836,17 +967,29 @@ if (!fs.existsSync(logsDir)) {
 
 app.post('/api/logs', (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'logs', 180)) {
+      return res.status(429).json({ error: 'Çok fazla log isteği gönderildi.' });
+    }
     const item = req.body;
-    if (!item) return res.status(400).json({ error: 'Log payload is empty' });
+    if (!item || typeof item !== 'object') return res.status(400).json({ error: 'Log payload is empty' });
+
+    const cleanField = (val, maxLen = 500) =>
+      String(val || '')
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        .slice(0, maxLen);
 
     const now = new Date();
-    const dateStr = item.dateStr || now.toISOString().replace('T', ' ').substring(0, 19);
-    const level = item.level || 'INFO';
-    const category = item.category || 'SISTEM_GENEL';
-    const userStr = item.userName ? `[Kullanıcı: ${item.userName}${item.companyCode ? ' / ' + item.companyCode : ''}] ` : '';
-    const message = item.message || '';
-    const details = item.details ? `\n   -> Detay: ${String(item.details).replace(/\n/g, '\n      ')}` : '';
-    const device = item.deviceInfo ? `\n   -> Cihaz: ${item.deviceInfo}` : '';
+    const dateStr = cleanField(item.dateStr || now.toISOString().replace('T', ' ').substring(0, 19), 40);
+    const level = cleanField(item.level || 'INFO', 20);
+    const category = cleanField(item.category || 'SISTEM_GENEL', 50);
+    const userName = cleanField(item.userName, 80);
+    const companyCode = cleanField(item.companyCode, 40);
+    const userStr = userName ? `[Kullanıcı: ${userName}${companyCode ? ' / ' + companyCode : ''}] ` : '';
+    const message = cleanField(item.message, 1000);
+    const details = item.details
+      ? `\n   -> Detay: ${cleanField(item.details, 2000).replace(/\n/g, '\n      ')}`
+      : '';
+    const device = item.deviceInfo ? `\n   -> Cihaz: ${cleanField(item.deviceInfo, 250)}` : '';
 
     const logLine = `[${dateStr}] [${level}] [${category}] ${userStr}${message}${details}${device}\n`;
 
@@ -872,8 +1015,17 @@ app.get('/api/logs', (req, res) => {
     if (!fs.existsSync(mainLogFile)) {
       return res.json({ content: 'Henüz log kaydı bulunmuyor.' });
     }
-    const content = fs.readFileSync(mainLogFile, 'utf8');
-    res.json({ content });
+    const stat = fs.statSync(mainLogFile);
+    const maxBytes = 256 * 1024; // Son 256 KB
+    if (stat.size <= maxBytes) {
+      const content = fs.readFileSync(mainLogFile, 'utf8');
+      return res.json({ content });
+    }
+    const fd = fs.openSync(mainLogFile, 'r');
+    const buf = Buffer.alloc(maxBytes);
+    fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+    fs.closeSync(fd);
+    res.json({ content: buf.toString('utf8') });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

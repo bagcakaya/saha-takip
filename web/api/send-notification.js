@@ -1,20 +1,101 @@
-const ONESIGNAL_APP_ID = '03e50631-8d38-4796-a90f-ae524dab69fd';
+const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || '03e50631-8d38-4796-a90f-ae524dab69fd';
 const _k = 'b3NfdjJfYXBwX2Fwc3FtbW1uaGJkem5raXB2emplM2szajd4YmV5amhtNGsydXdtZm5jZWhxbXJybWY1YmxreXpjcG00NHRtcGp0ZmdlcTR5NzZkYXlqczQ1dHR1a2Fiam1oYXdsZ3JnZ3lzbGVkeHE=';
-const getApiKey = () => (typeof Buffer !== 'undefined' ? Buffer.from(_k, 'base64').toString('utf8') : atob(_k));
+const getApiKey = () =>
+  process.env.ONESIGNAL_REST_KEY ||
+  (typeof Buffer !== 'undefined' ? Buffer.from(_k, 'base64').toString('utf8') : atob(_k));
 
 const recentNotificationsCache = new Map();
+const ipRateCache = new Map();
+
+function isAllowedOrigin(originHeader) {
+  if (!originHeader) return true;
+  try {
+    const parsed = new URL(originHeader);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'saha-takip-beige.vercel.app' ||
+      host.endsWith('.vercel.app') ||
+      host === '81.213.219.69' ||
+      host === 'localhost' ||
+      host === '127.0.0.1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function checkRateLimit(req, maxPerMinute = 180) {
+  try {
+    const rawIp = req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    const ip = String(rawIp).split(',')[0].trim();
+    const now = Date.now();
+    const entry = ipRateCache.get(ip);
+    if (!entry || now - entry.start > 60000) {
+      ipRateCache.set(ip, { start: now, count: 1 });
+      if (ipRateCache.size > 500) {
+        for (const [k, v] of ipRateCache.entries()) {
+          if (now - v.start > 120000) ipRateCache.delete(k);
+        }
+      }
+      return true;
+    }
+    entry.count += 1;
+    return entry.count <= maxPerMinute;
+  } catch {
+    return true;
+  }
+}
+
+function sanitizeNotificationUrl(rawUrl) {
+  const defaultBase = 'https://saha-takip-beige.vercel.app';
+  if (!rawUrl || typeof rawUrl !== 'string') return defaultBase;
+  const trimmed = rawUrl.trim();
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) return defaultBase;
+  try {
+    const parsed = new URL(trimmed, defaultBase);
+    const allowedHosts = new Set([
+      'saha-takip-beige.vercel.app',
+      '81.213.219.69',
+      'localhost',
+      '127.0.0.1',
+    ]);
+    if (!allowedHosts.has(parsed.hostname.toLowerCase())) {
+      const safeRedirect = new URL(defaultBase);
+      const tab = parsed.searchParams.get('tab');
+      const filter = parsed.searchParams.get('filter');
+      if (tab) safeRedirect.searchParams.set('tab', tab);
+      if (filter) safeRedirect.searchParams.set('filter', filter);
+      return safeRedirect.toString();
+    }
+    return parsed.toString();
+  } catch {
+    return defaultBase;
+  }
+}
 
 export default async function handler(req, res) {
+  const origin = req.headers?.origin;
+  if (!isAllowedOrigin(origin)) {
+    res.status(403).json({ error: 'Forbidden origin' });
+    return;
+  }
+
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', origin || 'https://saha-takip-beige.vercel.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Saha-Client-Token'
   );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
+    return;
+  }
+
+  if (!checkRateLimit(req, 180)) {
+    res.status(429).json({ error: 'Too many notification requests' });
     return;
   }
 
@@ -65,7 +146,9 @@ export default async function handler(req, res) {
 
     payload.app_id = ONESIGNAL_APP_ID;
 
-    const targetUrl = payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app';
+    const targetUrl = sanitizeNotificationUrl(
+      payload.web_url || payload.url || payload.app_url || 'https://saha-takip-beige.vercel.app'
+    );
     payload.url = targetUrl;
     delete payload.web_url;
     delete payload.app_url;
