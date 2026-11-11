@@ -42,6 +42,7 @@ import {
   Banknote,
   Lock,
   Unlock,
+  UserPlus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isUserAdmin, isSuperAdmin, isSubModulePermitted } from '../types/auth';
@@ -61,6 +62,7 @@ import {
 import { BranchSelect, BranchOption } from '../components/common/BranchSelect';
 import { StaffSelect } from '../components/common/StaffSelect';
 import { StaffSalaryModule } from '../components/salary/StaffSalaryModule';
+import { JobApplicationsView } from './JobApplicationsView';
 import { ApprovalShield } from '../services/approvalShield';
 import { SystemLogsModal } from '../components/common/SystemLogsModal';
 
@@ -98,6 +100,7 @@ export const StaffTrackingView: React.FC = () => {
     updateWorkplaceBreakMinutes,
     updateWorkplaceOutsideCheckInPolicy,
     refreshAttendance,
+    jobApplications,
   } = useStorage();
 
   const isAdmin = isUserAdmin(user);
@@ -1621,7 +1624,17 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
 
   // Ana Menü stili alt bölüm yönetimi (Varsayılan olarak URL veya 'menu' başlar)
-  type ActiveSection = 'menu' | 'checkin_checkout' | 'breaks' | 'summary' | 'leaves' | 'workplace' | 'shifts' | 'definitions' | 'salary';
+  type ActiveSection =
+    | 'menu'
+    | 'checkin_checkout'
+    | 'breaks'
+    | 'summary'
+    | 'leaves'
+    | 'workplace'
+    | 'shifts'
+    | 'definitions'
+    | 'salary'
+    | 'job_applications';
   const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -1630,7 +1643,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         if (sec === 'checkin_checkout' && typeof navigator !== 'undefined' && !navigator.onLine) {
           return 'menu';
         }
-        if (sec && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions', 'salary'].includes(sec)) {
+        if (
+          sec &&
+          [
+            'checkin_checkout',
+            'breaks',
+            'summary',
+            'leaves',
+            'workplace',
+            'shifts',
+            'definitions',
+            'salary',
+            'job_applications',
+          ].includes(sec)
+        ) {
           return sec as ActiveSection;
         }
       } catch {}
@@ -1721,6 +1747,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       color: 'text-emerald-400',
       bg: 'bg-emerald-500/15',
     },
+    job_applications: {
+      title: 'İş Başvuruları & Aday Takibi',
+      subtitle: 'Aday özgeçmişleri, mülakat süreci ve personelleştirme',
+      icon: UserPlus,
+      color: 'text-teal-500',
+      bg: 'bg-teal-500/15',
+    },
   };
   const [isStaffSummaryOpen, setIsStaffSummaryOpen] = useState(false);
 
@@ -1767,7 +1800,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         return;
       }
     }
-    if (!isAdmin && (section === 'summary' || section === 'workplace' || section === 'definitions' || section === 'salary')) {
+    if (!isAdmin && (section === 'summary' || section === 'workplace' || section === 'definitions' || section === 'salary' || section === 'job_applications')) {
       setActiveSection('checkin_checkout');
       return;
     }
@@ -1788,7 +1821,7 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       setActiveSection('menu');
       return;
     }
-    if (!isAdmin && (activeSection === 'summary' || activeSection === 'workplace' || activeSection === 'definitions' || activeSection === 'salary')) {
+    if (!isAdmin && (activeSection === 'summary' || activeSection === 'workplace' || activeSection === 'definitions' || activeSection === 'salary' || activeSection === 'job_applications')) {
       setActiveSection('checkin_checkout');
     }
   }, [isAdmin, activeSection, viewingCompany, company, user]);
@@ -1807,6 +1840,8 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
         navigateToSection('leaves');
       } else if (e?.detail?.subTab === 'attendance' || e?.detail?.filter === 'attendance') {
         navigateToSection('checkin_checkout');
+      } else if (e?.detail?.subTab === 'job_applications' || e?.detail?.filter === 'job_applications') {
+        navigateToSection('job_applications');
       }
     };
     window.addEventListener('saha:set-staff-subtab' as any, handleSetSubTab);
@@ -1817,7 +1852,20 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       const section = e.state?.staffSection;
-      if (section && ['checkin_checkout', 'breaks', 'summary', 'leaves', 'workplace', 'shifts', 'definitions'].includes(section)) {
+      if (
+        section &&
+        [
+          'checkin_checkout',
+          'breaks',
+          'summary',
+          'leaves',
+          'workplace',
+          'shifts',
+          'definitions',
+          'salary',
+          'job_applications',
+        ].includes(section)
+      ) {
         setActiveSection(section);
       } else {
         // If not in a sub-section state, return to staff tracking menu
@@ -2418,6 +2466,23 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
                       borderColor: 'border-emerald-500',
                       bgGlow: 'bg-emerald-500/15',
                       badgeText: 'Maaş & Bordro',
+                    },
+                    {
+                      id: 'job_applications' as const,
+                      title: 'İş Başvurusu',
+                      icon: UserPlus,
+                      glowColor: 'text-teal-400',
+                      borderColor: 'border-teal-500',
+                      bgGlow: 'bg-teal-500/15',
+                      badgeText:
+                        (jobApplications || []).filter((a) => a && a.status === 'new').length === 0 &&
+                        (jobApplications || []).length > 0
+                          ? `${(jobApplications || []).length} Aday`
+                          : undefined,
+                      badgeCount:
+                        (jobApplications || []).filter((a) => a && a.status === 'new').length > 0
+                          ? (jobApplications || []).filter((a) => a && a.status === 'new').length
+                          : undefined,
                     },
                     {
                       id: 'definitions' as const,
@@ -6822,6 +6887,13 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
       {activeSection === 'salary' && isAdmin && isSubModulePermitted('staff_tracking', 'salary', user, viewingCompany || company) && (
         <StaffSalaryModule onBack={handleBackToSectionMenu} />
       )}
+
+      {/* --- SECTION: İŞ BAŞVURULARI & ADAY TAKİBİ MODÜLÜ --- */}
+      {activeSection === 'job_applications' &&
+        isAdmin &&
+        isSubModulePermitted('staff_tracking', 'job_applications', user, viewingCompany || company) && (
+          <JobApplicationsView />
+        )}
 
       {/* --- MODAL: KONUM DIŞI GİRİŞ / ÇIKIŞ YÖNETİCİ ONAY MODALI --- */}
       {confirmModal.isOpen && (

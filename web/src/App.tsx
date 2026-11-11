@@ -117,22 +117,38 @@ const MainApp: React.FC = () => {
 
   // --- 1. History & Navigation Management for Android Back Button & iOS Swipe Back ---
   const navigateToTab = useCallback((nextTab: TabType, options?: { replace?: boolean; filter?: string }) => {
+    const resolvedTab: TabType = nextTab === 'job_applications' ? 'staff_tracking' : nextTab;
+    const isJobAppsRedirect = nextTab === 'job_applications';
     setActiveTab((prev) => {
-      const isSame = prev === nextTab;
+      const isSame = prev === resolvedTab;
       if (typeof window !== 'undefined') {
-        const filterSuffix = options?.filter ? `&filter=${options.filter}` : '';
-        const url = nextTab === 'home' ? window.location.pathname : `?tab=${nextTab}${filterSuffix}`;
+        const filterSuffix = isJobAppsRedirect
+          ? '&section=job_applications'
+          : options?.filter
+          ? `&filter=${options.filter}`
+          : '';
+        const url = resolvedTab === 'home' ? window.location.pathname : `?tab=${resolvedTab}${filterSuffix}`;
         try {
+          const stateObj = isJobAppsRedirect
+            ? { tab: 'staff_tracking', staffSection: 'job_applications', isRoot: false }
+            : { tab: resolvedTab, isRoot: resolvedTab === 'home' };
           if (options?.replace) {
-            window.history.replaceState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
-          } else if (!isSame) {
-            window.history.pushState({ tab: nextTab, isRoot: nextTab === 'home' }, '', url);
+            window.history.replaceState(stateObj, '', url);
+          } else if (!isSame || isJobAppsRedirect) {
+            window.history.pushState(stateObj, '', url);
+          }
+          if (isJobAppsRedirect) {
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent('saha:set-staff-subtab', { detail: { subTab: 'job_applications' } })
+              );
+            }, 50);
           }
         } catch (err) {
           console.warn('History navigation error:', err);
         }
       }
-      return nextTab;
+      return resolvedTab;
     });
   }, []);
 

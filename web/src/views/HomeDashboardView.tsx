@@ -14,7 +14,6 @@ import {
   Clock,
   StickyNote,
   ChevronDown,
-  UserPlus,
   ShieldCheck,
   ImagePlus,
   Camera,
@@ -73,7 +72,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     unreadLogsCount,
     timedFollowUps,
     personalNotes,
-    jobApplications,
     badgeCount,
     lastReadTime,
     markAllAsRead,
@@ -145,8 +143,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const safeTimedFollowUps = Array.isArray(timedFollowUps) ? timedFollowUps : [];
   const safePersonalNotes = Array.isArray(personalNotes) ? personalNotes : [];
   const userPersonalNotes = safePersonalNotes.filter((n) => n && n.userId === user?.id);
-  const safeJobApplications = Array.isArray(jobApplications) ? jobApplications : [];
-  const newJobApplicationsCount = safeJobApplications.filter((a) => a && a.status === 'new').length;
 
   const isAdmin = isUserAdmin(user);
   const canManageLogo = isAdmin; // Firmaların Yöneticileri ile Süper Yöneticiler yapabilsin
@@ -395,23 +391,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       activeCount: activeStaffCount,
       action: () => onNavigate('staff_tracking'),
       visible: isModulePermitted('staff_tracking', user, company),
-    },
-    {
-      id: 'job_applications',
-      title: 'İş Başvuruları',
-      shortTitle: 'İş Başvurusu',
-      description: 'Aday özgeçmişleri, mülakat süreci ve personelleştirme',
-      icon: UserPlus,
-      gradient: 'bg-gradient-to-br from-teal-600 via-emerald-700 to-indigo-950',
-      borderColor: 'border-teal-400/40',
-      glowColor: 'text-teal-400',
-      badgeText:
-        newJobApplicationsCount > 0
-          ? `${newJobApplicationsCount} Yeni`
-          : `${safeJobApplications.length} Aday`,
-      activeCount: newJobApplicationsCount > 0 ? newJobApplicationsCount : undefined,
-      action: () => onNavigate('job_applications'),
-      visible: isModulePermitted('job_applications', user, company),
     },
     {
       id: 'accounting',
