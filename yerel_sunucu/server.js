@@ -1206,53 +1206,12 @@ if (webDistPath && fs.existsSync(webDistPath)) {
   });
 }
 
-// Başlat (Port Çakışması Otomatik Kurtarma ve Yeniden Deneme Kalkanı)
-const { execSync } = require('child_process');
-
-function freePortOnWindows(port) {
-  if (process.platform !== 'win32') return false;
-  let killedAny = false;
-  try {
-    const out = execSync(`netstat -aon | findstr :${port} | findstr LISTENING`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const lines = String(out || '').split(/\r?\n/).filter(Boolean);
-    const pids = new Set();
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      const pid = Number(parts[parts.length - 1]);
-      if (pid && pid > 0 && pid !== process.pid) {
-        pids.add(pid);
-      }
-    }
-    for (const pid of pids) {
-      try {
-        console.log(`>> [PORT KURTARMA] Port ${port}'i tutan eski işlem kapatılıyor (PID: ${pid})...`);
-        execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
-        killedAny = true;
-      } catch {
-        try {
-          execSync(`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue"`, {
-            stdio: 'ignore',
-          });
-          killedAny = true;
-        } catch {}
-      }
-    }
-  } catch {
-    // Port şu an dinlenmiyor
-  }
-  return killedAny;
-}
-
-let listenRetries = 0;
-const MAX_LISTEN_RETRIES = 5;
-let backgroundTimersStarted = false;
-
-function startBackgroundTimers() {
-  if (backgroundTimersStarted) return;
-  backgroundTimersStarted = true;
+// Başlat
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log('================================================================');
+  console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
+  console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
+  console.log('================================================================');
 
   // Sunucu her açıldığında kapalı kalınan süredeki verileri Supabase'den otomatik çek
   setTimeout(() => {
@@ -1273,36 +1232,14 @@ function startBackgroundTimers() {
   setInterval(() => {
     runShiftWatchdog(PORT).catch(() => {});
   }, 20 * 1000);
-}
+});
 
-function startListening() {
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log('================================================================');
-    console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
-    console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
-    console.log('================================================================');
-    startBackgroundTimers();
-  });
-
-  server.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE' && listenRetries < MAX_LISTEN_RETRIES) {
-      listenRetries += 1;
-      console.warn(
-        `>> [PORT KURTARMA] Port ${PORT} kullanımda (Deneme ${listenRetries}/${MAX_LISTEN_RETRIES}). Eski işlem kapatılıp 1.5 sn içinde yeniden deneniyor...`
-      );
-      freePortOnWindows(PORT);
-      setTimeout(() => {
-        try {
-          server.close();
-        } catch {}
-        startListening();
-      }, 1500);
-      return;
-    }
-    console.error(`>> [SUNUCU PORT HATASI] Port ${PORT} başlatılamadı:`, err.message);
-    appendServerErrorLog('serverListenError', err);
-    process.exit(1);
-  });
-}
-
-startListening();
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.log(`>> [BİLGİ] Port ${PORT} zaten aktif bir Saha Takip servisi tarafından kullanılıyor.`);
+    process.exit(0);
+  }
+  console.error(`>> [SUNUCU PORT HATASI] Port ${PORT} başlatılamadı:`, err.message);
+  appendServerErrorLog('serverListenError', err);
+  process.exit(1);
+});

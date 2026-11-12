@@ -1,4 +1,4 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-call "%~dp0Baslat.bat" --background-loop
+wscript.exe //B //NoLogo "%~dp0Arka_Planda_Baslat.vbs"
+exit /b 0
