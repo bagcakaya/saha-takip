@@ -23,7 +23,22 @@ let isRunning = false;
 let isProcessing = false;
 let heartbeatInterval: any = null;
 let selfHealInterval: any = null;
+let cloudWatchdogInterval: any = null;
 let lastSelfHealAt = 0;
+
+function triggerCloudShiftWatchdog(): void {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  try {
+    fetch('/api/tenant-watchdog', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'X-Saha-Client-Token': 'saha-watchdog-v2',
+      },
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
 
 function generateActionId(): string {
   return 'act_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
@@ -125,9 +140,17 @@ export const FastActionAgent = {
       }, 90000);
     }
 
+    // 6. Bulut Vardiya Bekçisi Kalp Atışı (Her 25 saniyede bir kilitli/kill edilmiş cihazları denetler)
+    if (!cloudWatchdogInterval) {
+      cloudWatchdogInterval = setInterval(() => {
+        triggerCloudShiftWatchdog();
+      }, 25000);
+    }
+
     // Başlangıçta bekleyen görevleri anında erit
     setTimeout(() => {
       this.processQueue();
+      triggerCloudShiftWatchdog();
     }, 300);
   },
 
@@ -144,6 +167,10 @@ export const FastActionAgent = {
     if (selfHealInterval) {
       clearInterval(selfHealInterval);
       selfHealInterval = null;
+    }
+    if (cloudWatchdogInterval) {
+      clearInterval(cloudWatchdogInterval);
+      cloudWatchdogInterval = null;
     }
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.handleNetworkRecovery);
