@@ -28,6 +28,10 @@ import {
   Scale,
   ArrowLeft,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useStorage } from '../context/StorageContext';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +49,21 @@ import * as XLSX from 'xlsx';
 
 type AccountingModule = 'menu' | 'income_expense' | 'debts_receivables' | 'fixed_expenses';
 type AccountingTab = 'transactions' | 'cash_register' | 'categories' | 'registers';
+
+const MONTH_NAMES = [
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
+];
 
 export const AccountingView: React.FC = () => {
   const { user, company } = useAuth();
@@ -161,6 +180,165 @@ export const AccountingView: React.FC = () => {
   // Helper date filtering
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  // Aylık Gelir / Gider Çekmecesi (Görsel-2) State
+  const [selectedDrawerYear, setSelectedDrawerYear] = useState<number>(currentYear);
+  const [isMonthlyDrawerOpen, setIsMonthlyDrawerOpen] = useState<boolean>(true);
+  const [activeMonthModal, setActiveMonthModal] = useState<{ year: number; month: number } | null>(null);
+  const [monthModalFilterType, setMonthModalFilterType] = useState<'all' | 'income' | 'expense'>('all');
+  const [monthModalSearch, setMonthModalSearch] = useState('');
+
+  // Seçili Yıl İçin 12 Aylık Gelir / Gider Dökümü
+  const monthlyDrawerData = useMemo(() => {
+    const months = Array.from({ length: 12 }, (_, idx) => ({
+      monthNum: idx + 1,
+      monthName: MONTH_NAMES[idx],
+      income: 0,
+      expense: 0,
+      net: 0,
+      cash: 0,
+      bank: 0,
+      card: 0,
+      pocket: 0,
+      transactions: [] as AccountingTransaction[],
+    }));
+
+    let yearIncome = 0;
+    let yearExpense = 0;
+
+    transactions.forEach((tx) => {
+      if (!tx.date) return;
+      const parts = tx.date.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (y !== selectedDrawerYear || isNaN(m) || m < 1 || m > 12) return;
+
+      const amt = Number(tx.amount) || 0;
+      const bucket = months[m - 1];
+      bucket.transactions.push(tx);
+
+      if (tx.type === 'income') {
+        bucket.income += amt;
+        yearIncome += amt;
+      } else {
+        bucket.expense += amt;
+        yearExpense += amt;
+      }
+      bucket.net = bucket.income - bucket.expense;
+
+      if (tx.paymentMethod === 'cash_register') bucket.cash += amt;
+      else if (tx.paymentMethod === 'bank_transfer') bucket.bank += amt;
+      else if (tx.paymentMethod === 'credit_card') bucket.card += amt;
+      else if (tx.paymentMethod === 'out_of_pocket') bucket.pocket += amt;
+    });
+
+    months.forEach((b) => {
+      b.transactions.sort((a, c) => (c.date || '').localeCompare(a.date || ''));
+    });
+
+    return {
+      months,
+      yearIncome,
+      yearExpense,
+      yearNet: yearIncome - yearExpense,
+    };
+  }, [transactions, selectedDrawerYear]);
+
+  // Tıklanan Ayın Detay Modalı Verisi
+  const activeMonthDetail = useMemo(() => {
+    if (!activeMonthModal) return null;
+    const { year, month } = activeMonthModal;
+    const prefix = `${year}-${String(month).padStart(2, '0')}`;
+    const allMonthTxs = transactions
+      .filter((t) => (t.date || '').startsWith(prefix))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    let income = 0;
+    let expense = 0;
+    let cash = 0;
+    let bank = 0;
+    let card = 0;
+    let pocket = 0;
+    const catMap = new Map<string, { code: string; name: string; type: AccountingTransactionType; total: number; count: number }>();
+
+    allMonthTxs.forEach((t) => {
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'income') income += amt;
+      else expense += amt;
+
+      if (t.paymentMethod === 'cash_register') cash += amt;
+      else if (t.paymentMethod === 'bank_transfer') bank += amt;
+      else if (t.paymentMethod === 'credit_card') card += amt;
+      else if (t.paymentMethod === 'out_of_pocket') pocket += amt;
+
+      const key = `${t.type}_${t.categoryId || t.categoryName}`;
+      const existing = catMap.get(key);
+      if (existing) {
+        existing.total += amt;
+        existing.count += 1;
+      } else {
+        catMap.set(key, {
+          code: t.categoryCode || 'ERP',
+          name: t.categoryName || 'Diğer',
+          type: t.type,
+          total: amt,
+          count: 1,
+        });
+      }
+    });
+
+    const filteredList = allMonthTxs.filter((t) => {
+      if (monthModalFilterType !== 'all' && t.type !== monthModalFilterType) return false;
+      if (monthModalSearch.trim()) {
+        const q = monthModalSearch.toLowerCase().trim();
+        const inCat = (t.categoryName || '').toLowerCase().includes(q);
+        const inCode = (t.categoryCode || '').toLowerCase().includes(q);
+        const inDesc = (t.description || '').toLowerCase().includes(q);
+        const inReceipt = (t.receiptNumber || '').toLowerCase().includes(q);
+        if (!inCat && !inCode && !inDesc && !inReceipt) return false;
+      }
+      return true;
+    });
+
+    const monthDailyBalances = dailyBalances
+      .filter((b) => (b.date || '').startsWith(prefix))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    return {
+      year,
+      month,
+      monthName: MONTH_NAMES[month - 1] || '',
+      income,
+      expense,
+      net: income - expense,
+      cash,
+      bank,
+      card,
+      pocket,
+      allMonthTxs,
+      filteredList,
+      categorySummary: Array.from(catMap.values()).sort((a, b) => b.total - a.total),
+      monthDailyBalances,
+    };
+  }, [activeMonthModal, transactions, dailyBalances, monthModalFilterType, monthModalSearch]);
+
+  const handleSelectMonthFromDrawer = (year: number, monthNum: number) => {
+    const startStr = `${year}-${String(monthNum).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, monthNum, 0).getDate();
+    const endStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    if (year === currentYear && monthNum === currentMonth) {
+      setFilterPeriod('month');
+    } else {
+      setFilterPeriod('custom');
+      setCustomStartDate(startStr);
+      setCustomEndDate(endStr);
+    }
+    setMonthModalFilterType('all');
+    setMonthModalSearch('');
+    setActiveMonthModal({ year, month: monthNum });
+  };
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
@@ -259,7 +437,7 @@ export const AccountingView: React.FC = () => {
   const liveCashTotal = liveCashNakit + liveCashHavale + liveCashKrediKarti;
 
   // Handlers for Transaction Modal
-  const openNewTxModal = (type: AccountingTransactionType) => {
+  const openNewTxModal = (type: AccountingTransactionType, presetDate?: string) => {
     setEditingTx(null);
     setTxType(type);
     const availableCats = categories.filter((c) => c.type === type && c.isActive);
@@ -267,7 +445,7 @@ export const AccountingView: React.FC = () => {
     setTxAmount('');
     setTxPaymentMethod('cash_register');
     setTxCashRegister(cashRegisters[0]?.name || 'Merkez Kasa');
-    setTxDate(new Date().toISOString().split('T')[0]);
+    setTxDate(presetDate || new Date().toISOString().split('T')[0]);
     setTxDescription('');
     setTxReceiptNumber('');
     setTxReceiptPhoto(undefined);
@@ -913,6 +1091,186 @@ export const AccountingView: React.FC = () => {
       {/* ========================================================= */}
       {activeTab === 'transactions' && (
         <div className="space-y-4">
+          {/* ========================================================= */}
+          {/* 📂 AYLIK GELİR / GİDER ÇEKMECESİ (Görsel-2 12 Ay Çizelgesi) */}
+          {/* ========================================================= */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
+            {/* Çekmece Üst Başlığı */}
+            <div
+              onClick={() => setIsMonthlyDrawerOpen((prev) => !prev)}
+              className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 flex items-center justify-center shrink-0">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      {selectedDrawerYear} Yılı Aylık Gelir / Gider Çekmecesi
+                    </h3>
+                    {/* Yıl Seçici (< 2026 >) */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDrawerYear((y) => y - 1)}
+                        className="p-1 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        title="Önceki Yıl"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="px-1.5 text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                        {selectedDrawerYear}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDrawerYear((y) => y + 1)}
+                        className="p-1 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        title="Sonraki Yıl"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Her ayın gelir, gider ve kasa detaylarını görmek için ilgili aya dokunun
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="flex items-center gap-2 text-xs font-bold">
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60">
+                    🟢 +{monthlyDrawerData.yearIncome.toLocaleString('tr-TR')} ₺
+                  </span>
+                  <span className="px-2.5 py-1 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200/70 dark:border-rose-800/60">
+                    🔴 -{monthlyDrawerData.yearExpense.toLocaleString('tr-TR')} ₺
+                  </span>
+                </div>
+
+                {/* Çekmece Aç/Kapa Butonu */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMonthlyDrawerOpen((prev) => !prev);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                    isMonthlyDrawerOpen
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400'
+                      : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100'
+                  }`}
+                >
+                  <span>Gelir / Gider Çekmecesi</span>
+                  {isMonthlyDrawerOpen ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Çekmece İçeriği: 12 Ay Çizelgesi (Görsel-2 Tasarımı) */}
+            {isMonthlyDrawerOpen && (
+              <div className="p-4 sm:p-5 bg-slate-50/80 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                  <span>{selectedDrawerYear} Yılı Aylar Çizelgesi:</span>
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                    Detay, PDF/Excel ve gelir/gider girişi için aya dokunun
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                  {monthlyDrawerData.months.map((mItem) => {
+                    const hasTx = mItem.transactions.length > 0;
+                    const isCurrent =
+                      selectedDrawerYear === currentYear && mItem.monthNum === currentMonth;
+                    const isSelectedModal =
+                      activeMonthModal?.year === selectedDrawerYear &&
+                      activeMonthModal?.month === mItem.monthNum;
+
+                    return (
+                      <button
+                        key={mItem.monthNum}
+                        type="button"
+                        onClick={() =>
+                          handleSelectMonthFromDrawer(selectedDrawerYear, mItem.monthNum)
+                        }
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+                          hasTx
+                            ? 'bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-800/80 shadow-sm hover:border-emerald-500'
+                            : 'bg-white/60 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/60 hover:bg-white hover:border-slate-300'
+                        } ${isCurrent || isSelectedModal ? 'ring-2 ring-emerald-500/60' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span
+                            className={`text-xs font-bold ${
+                              hasTx
+                                ? 'text-slate-900 dark:text-white'
+                                : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            {mItem.monthName}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            {hasTx && (
+                              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                {mItem.transactions.length}
+                              </span>
+                            )}
+                            {isCurrent && (
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            )}
+                          </div>
+                        </div>
+
+                        {hasTx ? (
+                          <div className="space-y-1">
+                            <p
+                              className={`text-xs sm:text-sm font-black font-mono ${
+                                mItem.net >= 0
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              {mItem.net >= 0 ? '+' : ''}
+                              {mItem.net.toLocaleString('tr-TR')} ₺
+                            </p>
+                            <div className="flex flex-wrap gap-1 text-[9px] font-bold">
+                              {mItem.income > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                  +{mItem.income.toLocaleString('tr-TR')} ₺
+                                </span>
+                              )}
+                              {mItem.expense > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50">
+                                  -{mItem.expense.toLocaleString('tr-TR')} ₺
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-1">
+                            <p className="text-[11px] font-medium text-slate-400">
+                              Kayıt Yok
+                            </p>
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                              + Giriş Yap
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Filtre ve Arama Çubuğu */}
           <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -1782,10 +2140,397 @@ export const AccountingView: React.FC = () => {
       )}
 
       {/* ========================================================= */}
+      {/* MODAL 0: İLGİLİ AYA TIKLANINCA AÇILAN AY DETAY KARTI      */}
+      {/* ========================================================= */}
+      {activeMonthDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Üst Başlık */}
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-emerald-950/20 via-slate-900/5 to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-black text-lg shrink-0">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                      {activeMonthDetail.monthName} {activeMonthDetail.year} Dönemi Detayı
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                      {activeMonthDetail.allMonthTxs.length} İşlem
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                    {activeMonthDetail.monthName} {activeMonthDetail.year} ayına ait tüm gelir, gider, kalem dağılımları ve kasa hareketleri
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Bu Aya Gelir Ekle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultDate =
+                      activeMonthDetail.year === currentYear && activeMonthDetail.month === currentMonth
+                        ? todayStr
+                        : `${activeMonthDetail.year}-${String(activeMonthDetail.month).padStart(2, '0')}-01`;
+                    openNewTxModal('income', defaultDate);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Gelir Ekle</span>
+                </button>
+
+                {/* Bu Aya Gider Ekle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultDate =
+                      activeMonthDetail.year === currentYear && activeMonthDetail.month === currentMonth
+                        ? todayStr
+                        : `${activeMonthDetail.year}-${String(activeMonthDetail.month).padStart(2, '0')}-01`;
+                    openNewTxModal('expense', defaultDate);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-sm transition-colors cursor-pointer"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                  <span>Gider Ekle</span>
+                </button>
+
+                {/* Bu Ayın Excel'ini İndir */}
+                {activeMonthDetail.allMonthTxs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rows = activeMonthDetail.allMonthTxs.map((t) => ({
+                        Tarih: t.date,
+                        Tür: t.type === 'income' ? 'Gelir' : 'Gider',
+                        'ERP Kodu': t.categoryCode || '-',
+                        'Kalem Adı': t.categoryName || '-',
+                        'Ödeme Yöntemi':
+                          t.paymentMethod === 'cash_register'
+                            ? 'Kasadan (Nakit)'
+                            : t.paymentMethod === 'bank_transfer'
+                            ? 'Havale / Banka'
+                            : t.paymentMethod === 'credit_card'
+                            ? 'Kredi Kartı'
+                            : 'Cepten (Şahsi)',
+                        'Kasa Adı': t.cashRegisterName || '-',
+                        'Tutar (₺)': t.amount,
+                        'Fiş / Belge No': t.receiptNumber || '-',
+                        Açıklama: t.description || '-',
+                        Şube: t.branchName || '-',
+                        'İşlemi Yapan': t.createdByName || '-',
+                      }));
+                      const ws = XLSX.utils.json_to_sheet(rows);
+                      const wb = XLSX.utils.book_new();
+                      XLSX.utils.book_append_sheet(
+                        wb,
+                        ws,
+                        `${activeMonthDetail.monthName}-${activeMonthDetail.year}`
+                      );
+                      XLSX.writeFile(
+                        wb,
+                        `Gelir_Gider_${activeMonthDetail.monthName}_${activeMonthDetail.year}.xlsx`
+                      );
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-slate-700 cursor-pointer"
+                    title="Bu ayın işlemlerini Excel olarak indir"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Excel</span>
+                  </button>
+                )}
+
+                {/* Kapat (X) */}
+                <button
+                  type="button"
+                  onClick={() => setActiveMonthModal(null)}
+                  className="p-2 rounded-2xl text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Kapat"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Gövdesi */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
+              {/* 1. O Ayın 4'lü Finansal Özeti */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60">
+                  <span className="text-[11px] font-black uppercase text-emerald-800 dark:text-emerald-400">
+                    {activeMonthDetail.monthName} Geliri
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1">
+                    +{activeMonthDetail.income.toLocaleString('tr-TR')} ₺
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/60">
+                  <span className="text-[11px] font-black uppercase text-rose-800 dark:text-rose-400">
+                    {activeMonthDetail.monthName} Gideri
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-rose-600 dark:text-rose-400 font-mono mt-1">
+                    -{activeMonthDetail.expense.toLocaleString('tr-TR')} ₺
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60">
+                  <span className="text-[11px] font-black uppercase text-blue-800 dark:text-blue-400">
+                    Net Bakiye (Kâr)
+                  </span>
+                  <p
+                    className={`text-lg sm:text-xl font-black font-mono mt-1 ${
+                      activeMonthDetail.net >= 0
+                        ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {activeMonthDetail.net >= 0 ? '+' : ''}
+                    {activeMonthDetail.net.toLocaleString('tr-TR')} ₺
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60">
+                  <span className="text-[11px] font-black uppercase text-slate-600 dark:text-slate-300">
+                    Ödeme Dağılımı
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 mt-1.5">
+                    <span>💵 Kasa: {activeMonthDetail.cash.toLocaleString('tr-TR')} ₺</span>
+                    <span>🏦 Banka: {activeMonthDetail.bank.toLocaleString('tr-TR')} ₺</span>
+                    <span>💳 Kart: {activeMonthDetail.card.toLocaleString('tr-TR')} ₺</span>
+                    <span>👤 Cepten: {activeMonthDetail.pocket.toLocaleString('tr-TR')} ₺</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Kalem Bazlı Aylık Özet (Varsa) */}
+              {activeMonthDetail.categorySummary.length > 0 && (
+                <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {activeMonthDetail.monthName} Ayı Kalem Dağılımı ({activeMonthDetail.categorySummary.length} Kalem)
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {activeMonthDetail.categorySummary.map((cItem, idx) => (
+                      <div
+                        key={idx}
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                          cItem.type === 'income'
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
+                            : 'bg-rose-50/80 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
+                        }`}
+                      >
+                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-900/60">
+                          {cItem.code}
+                        </span>
+                        <span>{cItem.name}:</span>
+                        <span className="font-black font-mono">
+                          {cItem.type === 'income' ? '+' : '-'}
+                          {cItem.total.toLocaleString('tr-TR')} ₺
+                        </span>
+                        <span className="text-[10px] opacity-75">({cItem.count})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Ay İçi Arama ve Tür Filtresi */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setMonthModalFilterType('all')}
+                    className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                      monthModalFilterType === 'all'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    Tümü ({activeMonthDetail.allMonthTxs.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMonthModalFilterType('income')}
+                    className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                      monthModalFilterType === 'income'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    🟢 Gelirler ({activeMonthDetail.allMonthTxs.filter((t) => t.type === 'income').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMonthModalFilterType('expense')}
+                    className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                      monthModalFilterType === 'expense'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    🔴 Giderler ({activeMonthDetail.allMonthTxs.filter((t) => t.type === 'expense').length})
+                  </button>
+                </div>
+
+                <div className="relative flex-1 max-w-xs">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder={`${activeMonthDetail.monthName} ayı içinde ara...`}
+                    value={monthModalSearch}
+                    onChange={(e) => setMonthModalSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  {monthModalSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setMonthModalSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. O Aya Ait Gelir / Gider İşlem Listesi */}
+              {activeMonthDetail.filteredList.length === 0 ? (
+                <div className="text-center py-10 px-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Receipt className="w-9 h-9 text-slate-400 mx-auto mb-2 opacity-60" />
+                  <p className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300">
+                    {activeMonthDetail.monthName} {activeMonthDetail.year} döneminde kayıtlı işlem bulunmuyor.
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1 mb-3">
+                    Üstteki butonları kullanarak bu aya yeni gelir veya gider işlemi ekleyebilirsiniz.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                          <th className="py-2.5 px-3">Tarih</th>
+                          <th className="py-2.5 px-3">Tür</th>
+                          <th className="py-2.5 px-3">ERP Kodu & Kalem</th>
+                          <th className="py-2.5 px-3">Ödeme / Kasa</th>
+                          <th className="py-2.5 px-3">Açıklama / Belge</th>
+                          <th className="py-2.5 px-3 text-right">Tutar</th>
+                          <th className="py-2.5 px-3 text-center">İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                        {activeMonthDetail.filteredList.map((tx) => {
+                          const isIncome = tx.type === 'income';
+                          return (
+                            <tr
+                              key={tx.id}
+                              className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
+                            >
+                              <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                {tx.date}
+                              </td>
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                    isIncome
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                                  }`}
+                                >
+                                  {isIncome ? 'GELİR' : 'GİDER'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700">
+                                    {tx.categoryCode || 'ERP'}
+                                  </span>
+                                  <span className="font-bold text-slate-900 dark:text-white">
+                                    {tx.categoryName}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 whitespace-nowrap text-slate-700 dark:text-slate-300 font-semibold">
+                                {tx.paymentMethod === 'cash_register' && '💵 Kasadan (Nakit)'}
+                                {tx.paymentMethod === 'bank_transfer' && '🏦 Havale / Banka'}
+                                {tx.paymentMethod === 'credit_card' && '💳 Kredi Kartı'}
+                                {tx.paymentMethod === 'out_of_pocket' && '👤 Cepten (Şahsi)'}
+                              </td>
+                              <td className="py-3 px-3 max-w-xs">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-slate-800 dark:text-slate-200 truncate" title={tx.description}>
+                                    {tx.description || '-'}
+                                  </span>
+                                  <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                    {tx.receiptNumber && <span>Fiş: #{tx.receiptNumber}</span>}
+                                    {tx.receiptPhoto && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewImage(tx.receiptPhoto!)}
+                                        className="text-blue-500 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        <span>Görsel</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-right whitespace-nowrap font-black font-mono">
+                                <span
+                                  className={
+                                    isIncome
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-rose-600 dark:text-rose-400'
+                                  }
+                                >
+                                  {isIncome ? '+' : '-'}
+                                  {tx.amount.toLocaleString('tr-TR')} ₺
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditTxModal(tx)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title="Düzenle"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteTx(tx)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title="Sil"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* MODAL 1: GELİR / GİDER EKLEME & DÜZENLEME MODALI          */}
       {/* ========================================================= */}
       {isTxModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Başlık */}
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -2108,7 +2853,7 @@ export const AccountingView: React.FC = () => {
       {/* MODAL 2: KALEM EKLEME & DÜZENLEME (ERP KODLU)             */}
       {/* ========================================================= */}
       {isCatModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2296,7 +3041,7 @@ export const AccountingView: React.FC = () => {
       {previewImage && (
         <div
           onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md cursor-pointer animate-in fade-in"
+          className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md cursor-pointer animate-in fade-in"
         >
           <div className="relative max-w-2xl max-h-[90vh] bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-2xl">
             <button
