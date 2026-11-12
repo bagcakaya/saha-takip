@@ -7,21 +7,45 @@ const getApiKey = () =>
 const recentNotificationsCache = new Map();
 const ipRateCache = new Map();
 
-function isAllowedOrigin(originHeader) {
-  if (!originHeader) return true;
-  try {
-    const parsed = new URL(originHeader);
-    const host = parsed.hostname.toLowerCase();
-    return (
-      host === 'saha-takip-beige.vercel.app' ||
-      host.endsWith('.vercel.app') ||
-      host === '81.213.219.69' ||
-      host === 'localhost' ||
-      host === '127.0.0.1'
-    );
-  } catch {
+function isTrustedHost(host) {
+  if (!host) return false;
+  const clean = String(host).toLowerCase().trim();
+  return (
+    clean === 'saha-takip-beige.vercel.app' ||
+    clean.endsWith('.vercel.app') ||
+    clean === '81.213.219.69' ||
+    clean === 'localhost' ||
+    clean === '127.0.0.1'
+  );
+}
+
+function isAllowedOrigin(originHeader, req) {
+  if (originHeader) {
+    try {
+      const parsed = new URL(originHeader);
+      if (parsed.protocol === 'capacitor:' || parsed.protocol === 'ionic:') return true;
+      return isTrustedHost(parsed.hostname);
+    } catch {
+      return false;
+    }
+  }
+  if (!req) return true;
+  const referer = req.headers?.referer;
+  if (referer) {
+    try {
+      const parsed = new URL(referer);
+      if (isTrustedHost(parsed.hostname)) return true;
+    } catch {
+      return false;
+    }
+  }
+  const ua = String(req.headers?.['user-agent'] || '').toLowerCase();
+  if (/curl\/|python-requests|python-urllib|go-http-client|postmanruntime|insomnia|sqlmap|nikto/i.test(ua)) {
     return false;
   }
+  const token = String(req.headers?.['x-saha-client-token'] || '');
+  const secFetch = String(req.headers?.['sec-fetch-site'] || '');
+  return token.startsWith('saha-') || secFetch === 'same-origin' || secFetch === 'same-site';
 }
 
 function checkRateLimit(req, maxPerMinute = 180) {
@@ -75,7 +99,7 @@ function sanitizeNotificationUrl(rawUrl) {
 
 export default async function handler(req, res) {
   const origin = req.headers?.origin;
-  if (!isAllowedOrigin(origin)) {
+  if (!isAllowedOrigin(origin, req)) {
     res.status(403).json({ error: 'Forbidden origin' });
     return;
   }

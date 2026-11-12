@@ -1,13 +1,83 @@
 import nodemailer from 'nodemailer';
 
+const resetEmailRateCache = new Map();
+
+function isAllowedResetOrigin(req) {
+  const origin = req.headers?.origin;
+  const referer = req.headers?.referer;
+  const ua = String(req.headers?.['user-agent'] || '').toLowerCase();
+  const token = String(req.headers?.['x-saha-client-token'] || '');
+
+  for (const h of [origin, referer]) {
+    if (!h) continue;
+    try {
+      const u = new URL(h);
+      const host = u.hostname.toLowerCase();
+      if (
+        u.protocol === 'capacitor:' ||
+        u.protocol === 'ionic:' ||
+        host === 'saha-takip-beige.vercel.app' ||
+        host.endsWith('.vercel.app') ||
+        host === '81.213.219.69' ||
+        host === 'localhost' ||
+        host === '127.0.0.1'
+      ) {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  if (/curl\/|python-requests|python-urllib|go-http-client|postmanruntime|insomnia|sqlmap|nikto/i.test(ua)) {
+    return false;
+  }
+  return token.startsWith('saha-') || req.headers?.['sec-fetch-site'] === 'same-origin';
+}
+
+function checkResetEmailRate(req) {
+  try {
+    const rawIp = req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    const ip = String(rawIp).split(',')[0].trim();
+    const now = Date.now();
+    const entry = resetEmailRateCache.get(ip);
+    if (!entry || now - entry.start > 10 * 60 * 1000) {
+      resetEmailRateCache.set(ip, { start: now, count: 1 });
+      return true;
+    }
+    entry.count += 1;
+    return entry.count <= 6;
+  } catch {
+    return true;
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .slice(0, 120);
+}
+
 export default async function handler(req, res) {
+  if (!isAllowedResetOrigin(req)) {
+    res.status(403).json({ error: 'Forbidden origin' });
+    return;
+  }
+
+  const origin = req.headers?.origin;
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Origin', origin || 'https://saha-takip-beige.vercel.app');
+  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Saha-Client-Token'
   );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -19,22 +89,38 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (!checkResetEmailRate(req)) {
+    res.status(429).json({ error: 'Çok fazla şifre sıfırlama e-postası talep edildi. Lütfen 10 dakika bekleyin.' });
+    return;
+  }
+
   try {
     const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const { to, companyName, companyCode, adminName, code } = payload || {};
 
-    if (!to || !code) {
-      res.status(400).json({ error: 'Missing required parameters (to, code)' });
+    const cleanTo = String(to || '').trim().toLowerCase();
+    const cleanCode = String(code || '').trim();
+    if (!cleanTo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanTo) || cleanTo.length > 120) {
+      res.status(400).json({ error: 'Geçersiz e-posta adresi' });
+      return;
+    }
+    if (!/^[0-9A-Za-z]{4,8}$/.test(cleanCode)) {
+      res.status(400).json({ error: 'Geçersiz doğrulama kodu formatı' });
       return;
     }
 
-    const subject = `[İş Takip] ${code} Doğrulama Kodu - Yönetici Şifre Sıfırlama (${companyCode || 'Kurum'})`;
+    const safeAdminName = escapeHtml(adminName || 'Yönetici');
+    const safeCompanyCode = escapeHtml(companyCode || 'Kurum');
+    const safeCompanyName = escapeHtml(companyName || safeCompanyCode);
+    const safeCode = escapeHtml(cleanCode);
 
-    const textContent = `Merhaba ${adminName || 'Yönetici'},
+    const subject = `[İş Takip] ${safeCode} Doğrulama Kodu - Yönetici Şifre Sıfırlama (${safeCompanyCode})`;
 
-${companyName || companyCode} (${companyCode}) kurumu için yönetici hesabınıza ait şifre sıfırlama talebinde bulunuldu.
+    const textContent = `Merhaba ${safeAdminName},
 
-6 Haneli Doğrulama Kodunuz: ${code}
+${safeCompanyName} (${safeCompanyCode}) kurumu için yönetici hesabınıza ait şifre sıfırlama talebinde bulunuldu.
+
+6 Haneli Doğrulama Kodunuz: ${safeCode}
 (Bu kod 15 dakika boyunca geçerlidir)
 
 Uygulamanın şifre sıfırlama ekranına yukarıdaki kodu girerek yeni yönetici şifrenizi anında belirleyebilirsiniz.
@@ -72,10 +158,10 @@ Güvenlik Uyarısı: Eğer bu talebi siz yapmadıysanız, hesabınız güvendedi
                 <tr>
                   <td style="padding: 32px 28px;">
                     <h2 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0;">
-                      Merhaba ${adminName || 'Yönetici'},
+                      Merhaba ${safeAdminName},
                     </h2>
                     <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 20px 0;">
-                      <strong style="color: #0f172a;">${companyName || companyCode}</strong> (${companyCode}) kurumu için yönetici hesabınıza ait şifre sıfırlama talebinde bulunuldu.
+                      <strong style="color: #0f172a;">${safeCompanyName}</strong> (${safeCompanyCode}) kurumu için yönetici hesabınıza ait şifre sıfırlama talebinde bulunuldu.
                     </p>
 
                     <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; text-align: center; margin: 24px 0;">
@@ -83,7 +169,7 @@ Güvenlik Uyarısı: Eğer bu talebi siz yapmadıysanız, hesabınız güvendedi
                         6 Haneli Doğrulama Kodunuz
                       </div>
                       <div style="font-size: 36px; font-weight: 900; color: #2563eb; letter-spacing: 10px; font-family: monospace; padding: 8px 0;">
-                        ${code}
+                        ${safeCode}
                       </div>
                       <div style="font-size: 12px; color: #dc2626; font-weight: 700; margin-top: 8px;">
                         ⏱️ Bu kod 15 dakika boyunca geçerlidir.

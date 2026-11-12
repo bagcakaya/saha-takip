@@ -676,7 +676,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://saha-takip-beige.vercel.app';
         await fetch(`${baseUrl}/api/tenant-watchdog`, {
           method: 'GET',
-          headers: { 'Cache-Control': 'no-cache' },
+          headers: {
+            'Cache-Control': 'no-cache',
+            'X-Saha-Client-Token': 'saha-web-client-v2',
+          },
         });
       } catch {
         // Silent background self-healing

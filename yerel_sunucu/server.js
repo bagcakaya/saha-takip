@@ -35,26 +35,106 @@ process.on('unhandledRejection', (reason) => {
 
 // Middleware & Güvenlik Başlıkları
 app.disable('x-powered-by');
-app.use(cors());
+
+function isTrustedHostName(host) {
+  if (!host) return false;
+  const clean = String(host).toLowerCase().trim();
+  return (
+    clean === 'saha-takip-beige.vercel.app' ||
+    clean.endsWith('.vercel.app') ||
+    clean === '81.213.219.69' ||
+    clean === 'localhost' ||
+    clean === '127.0.0.1' ||
+    clean === '[::1]'
+  );
+}
+
+function isLoopbackIp(req) {
+  const rawIp = req.socket?.remoteAddress || '';
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return false;
+  return rawIp === '127.0.0.1' || rawIp === '::1' || rawIp === '::ffff:127.0.0.1';
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      try {
+        const parsed = new URL(origin);
+        if (
+          parsed.protocol === 'capacitor:' ||
+          parsed.protocol === 'ionic:' ||
+          isTrustedHostName(parsed.hostname)
+        ) {
+          return callback(null, true);
+        }
+      } catch {}
+      return callback(new Error('Yetkisiz CORS kaynağı (Origin) engellendi.'));
+    },
+    credentials: true,
+  })
+);
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '1; mode=block');
+
+  // API uç noktalarını dış ağdan gelen tarayıcı-dışı bot/script (curl, python, scanner) saldırılarına karşı koru
+  if (req.path.startsWith('/api/') && req.method !== 'OPTIONS' && !isLoopbackIp(req)) {
+    const clientToken = String(req.headers['x-saha-client-token'] || '');
+    const origin = String(req.headers['origin'] || '');
+    const referer = String(req.headers['referer'] || '');
+    const secFetchSite = String(req.headers['sec-fetch-site'] || '');
+    const ua = String(req.headers['user-agent'] || '').toLowerCase();
+
+    let hasTrustedOriginOrReferer = false;
+    for (const candidate of [origin, referer]) {
+      if (!candidate) continue;
+      try {
+        const u = new URL(candidate);
+        if (u.protocol === 'capacitor:' || u.protocol === 'ionic:' || isTrustedHostName(u.hostname)) {
+          hasTrustedOriginOrReferer = true;
+        } else {
+          return res.status(403).json({ error: 'Yetkisiz kaynak (Origin/Referer) erişimi engellendi.' });
+        }
+      } catch {}
+    }
+
+    const isAutomatedScanner =
+      /curl\/|python-requests|python-urllib|go-http-client|postmanruntime|insomnia|sqlmap|nikto|nmap|masscan|zgrab/i.test(ua);
+    if (isAutomatedScanner && !clientToken.startsWith('saha-')) {
+      return res.status(403).json({ error: 'Otomatik tarama / bot aracı erişimi engellendi.' });
+    }
+
+    const isVerifiedClient =
+      clientToken.startsWith('saha-') ||
+      hasTrustedOriginOrReferer ||
+      secFetchSite === 'same-origin' ||
+      secFetchSite === 'same-site';
+
+    // Hassas veri okuma/yazma uç noktalarında doğrulanmış istemci veya tarayıcı bağlamı zorunludur
+    if (!isVerifiedClient && req.path !== '/api/health' && req.path !== '/api/web-status') {
+      return res.status(403).json({ error: 'Yetkisiz doğrudan API erişimi engellendi.' });
+    }
+  }
+
   next();
 });
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
 // Hafif Bellek İçi Hız Sınırlayıcı (DoS / Taşma Saldırı Koruması - Normal kullanımı asla etkilemez)
 const ipRateBuckets = new Map();
 function checkIpRateLimit(req, bucketName, maxRequestsPerMinute = 180) {
   try {
-    const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'local';
-    const ip = String(rawIp).split(',')[0].trim();
-    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
+    if (isLoopbackIp(req)) {
       return true;
     }
+    const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'local';
+    const ip = String(rawIp).split(',')[0].trim();
     const key = `${bucketName}:${ip}`;
     const now = Date.now();
     const entry = ipRateBuckets.get(key);
@@ -181,6 +261,9 @@ app.get('/api/standard_tasks/:id', async (req, res) => {
 
 app.post('/api/standard_tasks/:id', async (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'slot_write', 300)) {
+      return res.status(429).json({ error: 'Çok fazla yazma isteği gönderildi.' });
+    }
     const slotId = parseInt(req.params.id, 10);
     if (!Number.isInteger(slotId) || slotId <= 0) {
       return res.status(400).json({ error: 'Geçersiz slot ID' });
@@ -252,9 +335,12 @@ app.get('/api/tables/:table', async (req, res) => {
   }
 });
 
-// Tabloya toplu veya tekil upsert
+// Tabloya toplu veya tekil upsert (Satır Sınırı & Hız Sınırı Korumalı)
 app.post('/api/tables/:table/upsert', async (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'table_upsert', 240)) {
+      return res.status(429).json({ error: 'Çok fazla tablo güncelleme isteği gönderildi.' });
+    }
     const tableName = req.params.table;
     validateTable(tableName);
 
@@ -263,10 +349,11 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
       return res.json({ success: true, count: 0 });
     }
 
+    const safeRows = rawRows.slice(0, 2500);
     const pool = await getPool();
 
-    for (const row of rawRows) {
-      if (!row.id) continue;
+    for (const row of safeRows) {
+      if (!row || typeof row !== 'object' || !row.id) continue;
 
       if (tableName === 'locations') {
         await pool
@@ -948,6 +1035,9 @@ app.post('/api/send-notification', async (req, res) => {
 // =========================================================================
 app.all('/api/sync-cloud', async (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'sync_cloud', 12)) {
+      return res.status(429).json({ success: false, error: 'Çok fazla eşitleme isteği gönderildi.' });
+    }
     const result = await runCloudSync(PORT, false);
     res.json({ success: true, message: 'Bulut eşitlemesi başarıyla tamamlandı.', result });
   } catch (err) {
@@ -1011,6 +1101,9 @@ app.post('/api/logs', (req, res) => {
 
 app.get('/api/logs', (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'logs_read', 60)) {
+      return res.status(429).json({ error: 'Çok fazla log okuma isteği gönderildi.' });
+    }
     const mainLogFile = path.join(logsDir, 'is_takip_hatalari.log');
     if (!fs.existsSync(mainLogFile)) {
       return res.json({ content: 'Henüz log kaydı bulunmuyor.' });
@@ -1045,27 +1138,22 @@ const webDistCandidates = [
 ];
 const webDistPath = webDistCandidates.find((p) => fs.existsSync(path.join(p, 'index.html')) || fs.existsSync(p));
 
-// Tanı ve durum kontrol endpoint'i
+// Tanı ve durum kontrol endpoint'i (Yol İfşası / Path Disclosure Korumalı)
 app.get('/api/web-status', (req, res) => {
   res.json({
     status: 'ok',
     version: '2.0-web-hosted',
     serverTime: new Date().toISOString(),
-    dirname: __dirname,
-    cwd: process.cwd(),
-    webDistPath: webDistPath || null,
     hasIndexHtml: webDistPath ? fs.existsSync(path.join(webDistPath, 'index.html')) : false,
-    candidates: webDistCandidates.map((c) => ({
-      path: c,
-      exists: fs.existsSync(c),
-      hasIndexHtml: fs.existsSync(path.join(c, 'index.html')),
-    })),
   });
 });
 
 // Anlık Vardiya Bekçisi tetikleme ve tanı endpoint'i
 app.all('/api/shift-watchdog', async (req, res) => {
   try {
+    if (!checkIpRateLimit(req, 'shift_watchdog', 30)) {
+      return res.status(429).json({ ok: false, error: 'Çok fazla vardiya kontrol isteği gönderildi.' });
+    }
     const result = await runShiftWatchdog(PORT);
     res.json({ ok: true, ...(result || {}) });
   } catch (err) {

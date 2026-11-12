@@ -71,6 +71,33 @@ const DEFAULT_MURAT: UserAccount = {
 
 let hasAutoUpgradedCloudHashes = false;
 
+function decryptUserPii(u: UserAccount): UserAccount {
+  return {
+    ...u,
+    password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+    tcNo: PasswordSecurity.decryptPiiSync(u.id, u.tcNo),
+    iban: PasswordSecurity.decryptPiiSync(u.id, u.iban),
+    phone: PasswordSecurity.decryptPiiSync(u.id, u.phone),
+    address: PasswordSecurity.decryptPiiSync(u.id, u.address),
+  };
+}
+
+function encryptUserForSlot101(u: UserAccount): UserAccount {
+  return {
+    ...u,
+    password: PasswordSecurity.ensureHashedSync(u.id, u.password),
+    tcNo: PasswordSecurity.encryptPiiSync(u.id, u.tcNo),
+    iban: PasswordSecurity.encryptPiiSync(u.id, u.iban),
+    phone: PasswordSecurity.encryptPiiSync(u.id, u.phone),
+    address: PasswordSecurity.encryptPiiSync(u.id, u.address),
+  };
+}
+
+function hasUnencryptedPii(u: UserAccount): boolean {
+  const fields = [u.tcNo, u.iban, u.phone, u.address];
+  return fields.some((f) => typeof f === 'string' && f.trim().length > 0 && !f.trim().startsWith('$enc1$'));
+}
+
 export const UserService = {
   /**
    * Retrieves all user accounts from local storage / cache
@@ -102,12 +129,12 @@ export const UserService = {
               if (safePass !== u.password) {
                 needsSave = true;
               }
-              return {
+              return decryptUserPii({
                 ...u,
                 password: safePass,
                 companyCode: comp,
                 role: isAdmin ? ('admin' as UserRole) : u.role,
-              };
+              });
             });
             if (needsSave) {
               try {
@@ -262,17 +289,14 @@ export const UserService = {
   },
 
   /**
-   * Saves users list to local storage (ensuring all passwords are salted SHA-256 hashes)
+   * Saves users list to local storage (ensuring all passwords are salted SHA-256 hashes and PII is decrypted for UI)
    */
   saveUsers(users: UserAccount[]): void {
     try {
       const deletedIds = getDeletedUserIds();
       const clean = users
         .filter((u) => u && !deletedIds.has(u.id))
-        .map((u) => ({
-          ...u,
-          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-        }));
+        .map((u) => decryptUserPii(u));
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(clean));
     } catch (e) {
       console.error('Kullanıcılar kaydedilemedi:', e);
@@ -280,17 +304,14 @@ export const UserService = {
   },
 
   /**
-   * Syncs user list to standard_tasks slot 101 for mobile app parity
+   * Syncs user list to standard_tasks slot 101 for mobile app parity (with encrypted PII & hashed passwords)
    */
   async syncToSlot101(userList: UserAccount[]): Promise<void> {
     try {
       const deletedIds = getDeletedUserIds();
       const cleanUserList = userList
         .filter((u) => u && !deletedIds.has(u.id))
-        .map((u) => ({
-          ...u,
-          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-        }));
+        .map((u) => encryptUserForSlot101(u));
       const companiesInUserList = new Set(
         cleanUserList.map((u) => (u.companyCode || 'POLATLAR').toUpperCase())
       );
@@ -312,18 +333,12 @@ export const UserService = {
           // Only preserve existing users from companies NOT included in cleanUserList
           if (!companiesInUserList.has(comp)) {
             const key = `${comp}:${(u.username || '').toLowerCase()}`;
-            userMap.set(key, {
-              ...u,
-              password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-            });
+            userMap.set(key, encryptUserForSlot101(u));
           }
         });
         cleanUserList.forEach((u) => {
           const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-          userMap.set(key, {
-            ...u,
-            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-          });
+          userMap.set(key, encryptUserForSlot101(u));
         });
 
         const merged = Array.from(userMap.values());
@@ -386,18 +401,12 @@ export const UserService = {
         // Only preserve existing users from companies NOT included in cleanUserList
         if (!companiesInUserList.has(comp)) {
           const key = `${comp}:${(u.username || '').toLowerCase()}`;
-          userMap.set(key, {
-            ...u,
-            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-          });
+          userMap.set(key, encryptUserForSlot101(u));
         }
       });
       cleanUserList.forEach((u) => {
         const key = `${(u.companyCode || 'POLATLAR').toUpperCase()}:${(u.username || '').toLowerCase()}`;
-        userMap.set(key, {
-          ...u,
-          password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-        });
+        userMap.set(key, encryptUserForSlot101(u));
       });
 
       const merged = Array.from(userMap.values());
@@ -746,13 +755,10 @@ export const UserService = {
       const all = Array.from(userMap.values())
         .filter((u) => u && !deletedIds.has(u.id))
         .map((u) => {
-          if (u.password && !PasswordSecurity.isHashed(u.password)) {
+          if ((u.password && !PasswordSecurity.isHashed(u.password)) || hasUnencryptedPii(u)) {
             foundUnhashedInCloud = true;
           }
-          return {
-            ...u,
-            password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-          };
+          return decryptUserPii(u);
         });
       if (foundUnhashedInCloud && !hasAutoUpgradedCloudHashes && !companyCodeFilter) {
         hasAutoUpgradedCloudHashes = true;
@@ -791,13 +797,10 @@ export const UserService = {
             localFoundUsers = parsed
               .filter((u: UserAccount) => u && !deletedIds.has(u.id))
               .map((u: UserAccount) => {
-                if (u.password && !PasswordSecurity.isHashed(u.password)) {
+                if ((u.password && !PasswordSecurity.isHashed(u.password)) || hasUnencryptedPii(u)) {
                   foundPlaintextLocal = true;
                 }
-                return {
-                  ...u,
-                  password: PasswordSecurity.ensureHashedSync(u.id, u.password),
-                };
+                return decryptUserPii(u);
               });
           }
         }
@@ -1335,7 +1338,10 @@ export const UserService = {
           if (dualUrl) {
             await fetch(`${dualUrl}/api/tables/app_users/delete`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Saha-Client-Token': 'saha-web-client-v2',
+              },
               body: JSON.stringify({ ids: [id] }),
             });
           }

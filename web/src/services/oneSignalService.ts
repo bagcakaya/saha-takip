@@ -1417,7 +1417,10 @@ export const OneSignalService = {
     try {
       const proxyRes = await fetch('/api/send-notification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Saha-Client-Token': 'saha-web-client-v2',
+        },
         body: JSON.stringify(cleanPayload),
         keepalive: true,
       });

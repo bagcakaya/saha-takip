@@ -191,7 +191,10 @@ export const PasswordResetService = {
     try {
       await fetch('/api/send-reset-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Saha-Client-Token': 'saha-web-client-v2',
+        },
         body: JSON.stringify({
           to: targetEmail,
           companyName: company?.name || cleanCompany,

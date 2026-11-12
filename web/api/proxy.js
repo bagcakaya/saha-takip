@@ -4,21 +4,62 @@
 
 const DEFAULT_LOCAL_SERVER = process.env.LOCAL_SERVER_URL || 'http://81.213.219.69:3001';
 
-function isAllowedOrigin(originHeader) {
-  if (!originHeader) return true; // Same-origin veya sunucu-içi istekler
-  try {
-    const parsed = new URL(originHeader);
-    const host = parsed.hostname.toLowerCase();
-    return (
-      host === 'saha-takip-beige.vercel.app' ||
-      host.endsWith('.vercel.app') ||
-      host === '81.213.219.69' ||
-      host === 'localhost' ||
-      host === '127.0.0.1'
-    );
-  } catch {
+function isTrustedHost(host) {
+  if (!host) return false;
+  const clean = String(host).toLowerCase().trim();
+  return (
+    clean === 'saha-takip-beige.vercel.app' ||
+    clean.endsWith('.vercel.app') ||
+    clean === '81.213.219.69' ||
+    clean === 'localhost' ||
+    clean === '127.0.0.1'
+  );
+}
+
+function isAllowedRequest(req) {
+  const originHeader = req.headers?.origin;
+  const refererHeader = req.headers?.referer;
+  const clientToken = String(req.headers?.['x-saha-client-token'] || '');
+  const secFetchSite = String(req.headers?.['sec-fetch-site'] || '');
+  const ua = String(req.headers?.['user-agent'] || '').toLowerCase();
+
+  if (originHeader) {
+    try {
+      const parsed = new URL(originHeader);
+      if (parsed.protocol === 'capacitor:' || parsed.protocol === 'ionic:') return true;
+      return isTrustedHost(parsed.hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  if (refererHeader) {
+    try {
+      const parsed = new URL(refererHeader);
+      if (isTrustedHost(parsed.hostname)) return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (/curl\/|python-requests|python-urllib|go-http-client|postmanruntime|insomnia|sqlmap|nikto/i.test(ua)) {
     return false;
   }
+
+  return (
+    clientToken.startsWith('saha-') ||
+    secFetchSite === 'same-origin' ||
+    secFetchSite === 'same-site'
+  );
+}
+
+function getAllowedTargetHosts() {
+  const set = new Set(['81.213.219.69']);
+  try {
+    const defUrl = new URL(DEFAULT_LOCAL_SERVER);
+    if (defUrl.hostname) set.add(defUrl.hostname.toLowerCase());
+  } catch {}
+  return set;
 }
 
 function resolveSafeTargetBaseUrl(rawTarget) {
@@ -31,20 +72,9 @@ function resolveSafeTargetBaseUrl(rawTarget) {
       return null;
     }
     const host = parsed.hostname.toLowerCase();
-    // SSRF Koruması: Bulut metadata (169.254.169.254), loopback ve iç ağ adreslerini kesin olarak reddet
-    if (
-      host === 'localhost' ||
-      host === '0.0.0.0' ||
-      host === '[::1]' ||
-      host === '::1' ||
-      host.endsWith('.internal') ||
-      host.endsWith('.local') ||
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
-    ) {
+    // SSRF & Open-Proxy Koruması: Yalnızca yetkili yerel sunucu IP adresine ve 3001 portuna izin ver
+    const allowedTargets = getAllowedTargetHosts();
+    if (!allowedTargets.has(host)) {
       return null;
     }
     const port = parsed.port || '3001';
@@ -69,8 +99,8 @@ function resolveSafeEndpoint(rawEndpoint) {
 
 export default async function handler(req, res) {
   const origin = req.headers?.origin;
-  if (!isAllowedOrigin(origin)) {
-    res.status(403).json({ status: 'error', message: 'Yetkisiz kaynak (Origin) erişimi engellendi.' });
+  if (!isAllowedRequest(req)) {
+    res.status(403).json({ status: 'error', message: 'Yetkisiz kaynak (Origin/Client) erişimi engellendi.' });
     return;
   }
 
@@ -107,6 +137,7 @@ export default async function handler(req, res) {
       method: req.method,
       headers: {
         Accept: 'application/json',
+        'X-Saha-Client-Token': 'saha-edge-proxy-v2',
       },
     };
 

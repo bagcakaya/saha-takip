@@ -291,7 +291,10 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
     const timer = setTimeout(() => controller.abort(), 15000);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
-      headers: { 'Accept': 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'X-Saha-Client-Token': 'saha-web-client-v2',
+      },
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -343,7 +346,11 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Saha-Client-Token': 'saha-web-client-v2',
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

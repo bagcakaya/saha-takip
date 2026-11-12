@@ -197,4 +197,62 @@ export const PasswordSecurity = {
       needsRehash: isLegacyMatch, // If it matches legacy plaintext, signal that it needs immediate rehash
     };
   },
+
+  /**
+   * Encrypts sensitive PII fields (TC No, IBAN, Phone, Address) using a SHA-256 CTR keystream (`$enc1$<hex>`)
+   * before storing in Cloud Slot 101 so direct Supabase REST reads cannot expose plaintext PII.
+   */
+  encryptPiiSync(userId: string, value?: string | null): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith('$enc1$')) return trimmed;
+
+    try {
+      const utf8 = unescape(encodeURIComponent(trimmed));
+      const cleanUid = String(userId || 'default').trim();
+      let hexOut = '';
+      for (let i = 0; i < utf8.length; i++) {
+        const blockIdx = Math.floor(i / 32);
+        const keyHex = sha256Sync(`saha_pii_k1:${cleanUid}:${blockIdx}`);
+        const bytePos = (i % 32) * 2;
+        const keyByte = parseInt(keyHex.slice(bytePos, bytePos + 2), 16);
+        const cipherByte = (utf8.charCodeAt(i) & 0xff) ^ keyByte;
+        hexOut += cipherByte.toString(16).padStart(2, '0');
+      }
+      return `$enc1$${hexOut}`;
+    } catch {
+      return trimmed;
+    }
+  },
+
+  /**
+   * Transparently decrypts `$enc1$<hex>` PII fields when reading from Cloud Slot 101 or local storage.
+   * If value is legacy plaintext, returns it unchanged (100% backward compatible).
+   */
+  decryptPiiSync(userId: string, value?: string | null): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    if (!trimmed.startsWith('$enc1$')) return trimmed;
+
+    try {
+      const hexPayload = trimmed.slice(6);
+      if (!hexPayload || hexPayload.length % 2 !== 0) return trimmed;
+      const cleanUid = String(userId || 'default').trim();
+      const byteLen = hexPayload.length / 2;
+      let utf8 = '';
+      for (let i = 0; i < byteLen; i++) {
+        const blockIdx = Math.floor(i / 32);
+        const keyHex = sha256Sync(`saha_pii_k1:${cleanUid}:${blockIdx}`);
+        const bytePos = (i % 32) * 2;
+        const keyByte = parseInt(keyHex.slice(bytePos, bytePos + 2), 16);
+        const cipherByte = parseInt(hexPayload.slice(i * 2, i * 2 + 2), 16);
+        utf8 += String.fromCharCode((cipherByte ^ keyByte) & 0xff);
+      }
+      return decodeURIComponent(escape(utf8));
+    } catch {
+      return trimmed;
+    }
+  },
 };

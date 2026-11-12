@@ -160,7 +160,10 @@ export const ServerConfigService = {
     try {
       const res = await fetch(healthUrl, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'X-Saha-Client-Token': 'saha-web-client-v2',
+        },
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -228,7 +231,10 @@ export const ServerConfigService = {
     try {
       const res = await fetch(requestUrl, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'X-Saha-Client-Token': 'saha-web-client-v2',
+        },
       });
       if (!res.ok) return { data: null, error: `HTTP ${res.status}` };
       const data = await res.json();
@@ -245,7 +251,11 @@ export const ServerConfigService = {
     try {
       const res = await fetch(requestUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Saha-Client-Token': 'saha-web-client-v2',
+        },
         body: JSON.stringify(body),
       });
       if (!res.ok) return { data: null, error: `HTTP ${res.status}` };
