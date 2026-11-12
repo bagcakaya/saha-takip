@@ -190,7 +190,7 @@ export const AccountingView: React.FC = () => {
   const [monthModalFilterType, setMonthModalFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [monthModalSearch, setMonthModalSearch] = useState('');
 
-  // Seçili Yıl İçin 12 Aylık Gelir / Gider Dökümü
+  // Seçili Yıl İçin 12 Aylık Gelir / Gider Dökümü (Üstteki Arama / Tür / Ödeme Türü / Kalem Filtreleriyle Uyumlu)
   const monthlyDrawerData = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, idx) => ({
       monthNum: idx + 1,
@@ -214,6 +214,20 @@ export const AccountingView: React.FC = () => {
       const y = parseInt(parts[0], 10);
       const m = parseInt(parts[1], 10);
       if (y !== selectedDrawerYear || isNaN(m) || m < 1 || m > 12) return;
+
+      // Üstteki yeşil filtre çubuğu kontrolleri
+      if (filterType !== 'all' && tx.type !== filterType) return;
+      if (filterPaymentMethod !== 'all' && tx.paymentMethod !== filterPaymentMethod) return;
+      if (filterCategory !== 'all' && tx.categoryId !== filterCategory) return;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const inCat = (tx.categoryName || '').toLowerCase().includes(q);
+        const inCode = (tx.categoryCode || '').toLowerCase().includes(q);
+        const inDesc = (tx.description || '').toLowerCase().includes(q);
+        const inReceipt = (tx.receiptNumber || '').toLowerCase().includes(q);
+        const inUser = (tx.createdByName || '').toLowerCase().includes(q);
+        if (!inCat && !inCode && !inDesc && !inReceipt && !inUser) return;
+      }
 
       const amt = Number(tx.amount) || 0;
       const bucket = months[m - 1];
@@ -244,7 +258,7 @@ export const AccountingView: React.FC = () => {
       yearExpense,
       yearNet: yearIncome - yearExpense,
     };
-  }, [transactions, selectedDrawerYear]);
+  }, [transactions, selectedDrawerYear, filterType, filterPaymentMethod, filterCategory, searchQuery]);
 
   // Tıklanan Ayın Detay Modalı Verisi
   const activeMonthDetail = useMemo(() => {
@@ -252,7 +266,12 @@ export const AccountingView: React.FC = () => {
     const { year, month } = activeMonthModal;
     const prefix = `${year}-${String(month).padStart(2, '0')}`;
     const allMonthTxs = transactions
-      .filter((t) => (t.date || '').startsWith(prefix))
+      .filter((t) => {
+        if (!(t.date || '').startsWith(prefix)) return false;
+        if (filterPaymentMethod !== 'all' && t.paymentMethod !== filterPaymentMethod) return false;
+        if (filterCategory !== 'all' && t.categoryId !== filterCategory) return false;
+        return true;
+      })
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     let income = 0;
@@ -322,7 +341,7 @@ export const AccountingView: React.FC = () => {
       categorySummary: Array.from(catMap.values()).sort((a, b) => b.total - a.total),
       monthDailyBalances,
     };
-  }, [activeMonthModal, transactions, dailyBalances, monthModalFilterType, monthModalSearch]);
+  }, [activeMonthModal, transactions, dailyBalances, monthModalFilterType, monthModalSearch, filterPaymentMethod, filterCategory]);
 
   const handleSelectMonthFromDrawer = (year: number, monthNum: number) => {
     const startStr = `${year}-${String(monthNum).padStart(2, '0')}-01`;
@@ -335,8 +354,8 @@ export const AccountingView: React.FC = () => {
       setCustomStartDate(startStr);
       setCustomEndDate(endStr);
     }
-    setMonthModalFilterType('all');
-    setMonthModalSearch('');
+    setMonthModalFilterType(filterType);
+    setMonthModalSearch(searchQuery);
     setActiveMonthModal({ year, month: monthNum });
   };
 
@@ -631,40 +650,6 @@ export const AccountingView: React.FC = () => {
     setNewRegName('');
     setNewRegDescription('');
     setIsRegModalOpen(false);
-  };
-
-  // Export to Excel
-  const handleExportExcel = () => {
-    if (filteredTransactions.length === 0) {
-      alert('Dışa aktarılacak işlem bulunamadı.');
-      return;
-    }
-
-    const rows = filteredTransactions.map((t) => ({
-      Tarih: t.date,
-      Tür: t.type === 'income' ? 'Gelir' : 'Gider',
-      'ERP Kodu': t.categoryCode || '-',
-      'Kalem Adı': t.categoryName || '-',
-      'Ödeme Yöntemi':
-        t.paymentMethod === 'cash_register'
-          ? 'Kasadan (Nakit)'
-          : t.paymentMethod === 'bank_transfer'
-          ? 'Havale / Banka'
-          : t.paymentMethod === 'credit_card'
-          ? 'Kredi Kartı'
-          : 'Cepten (Şahsi)',
-      'Kasa Adı': t.cashRegisterName || '-',
-      'Tutar (₺)': t.amount,
-      'Fiş / Belge No': t.receiptNumber || '-',
-      Açıklama: t.description || '-',
-      Şube: t.branchName || '-',
-      'İşlemi Yapan': t.createdByName || '-',
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Gelir-Gider');
-    XLSX.writeFile(wb, `Muhasebe_Gelir_Gider_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const debtsReceivables = accountingData.debtsReceivables || [];
@@ -1092,6 +1077,99 @@ export const AccountingView: React.FC = () => {
       {activeTab === 'transactions' && (
         <div className="space-y-4">
           {/* ========================================================= */}
+          {/* 🔍 ÜST ARAMA VE FİLTRE ÇUBUĞU (Çekmecenin Üstünde)        */}
+          {/* ========================================================= */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
+            {/* Arama Inputu */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Kalem adı, ERP kodu, açıklama veya fiş no ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Tür, Ödeme Türü ve Kalem Filtreleri */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {/* Tür Filtresi (Tümü / Gelirler / Giderler) */}
+              <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                    filterType === 'all'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Tümü
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('income')}
+                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                    filterType === 'income'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  🟢 Gelirler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('expense')}
+                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
+                    filterType === 'expense'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  🔴 Giderler
+                </button>
+              </div>
+
+              {/* Ödeme Yöntemi Filtresi */}
+              <select
+                value={filterPaymentMethod}
+                onChange={(e) => setFilterPaymentMethod(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
+              >
+                <option value="all">Ödeme Türü: Tümü</option>
+                <option value="cash_register">Kasadan / Kasa</option>
+                <option value="bank_transfer">Havale / Banka</option>
+                <option value="credit_card">Kredi Kartı</option>
+                <option value="out_of_pocket">Cepten (Şahsi)</option>
+              </select>
+
+              {/* Kalem Filtresi */}
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer max-w-[200px]"
+              >
+                <option value="all">Kalem: Tümü</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.code}] {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* ========================================================= */}
           {/* 📂 AYLIK GELİR / GİDER ÇEKMECESİ (Görsel-2 12 Ay Çizelgesi) */}
           {/* ========================================================= */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -1270,372 +1348,6 @@ export const AccountingView: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Filtre ve Arama Çubuğu */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-              {/* Arama Inputu */}
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Kalem adı, ERP kodu, açıklama veya fiş no ara..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Excel İndir */}
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
-                title="Listeyi Excel olarak indir"
-              >
-                <Download className="w-4 h-4 text-emerald-600" />
-                <span>Excel İndir</span>
-              </button>
-            </div>
-
-            {/* Hızlı Filtre Butonları */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {/* Tür Filtresi */}
-              <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setFilterType('all')}
-                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterType === 'all'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  Tümü
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterType('income')}
-                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterType === 'income'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  🟢 Gelirler
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterType('expense')}
-                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterType === 'expense'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  🔴 Giderler
-                </button>
-              </div>
-
-              {/* Dönem Filtresi */}
-              <div className="flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('today')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'today'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Bugün
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('week')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'week'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Bu Hafta
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('month')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'month'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Bu Ay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('year')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'year'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Bu Yıl
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('all')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'all'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Tüm Zamanlar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterPeriod('custom')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    filterPeriod === 'custom'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Özel
-                </button>
-              </div>
-
-              {/* Özel Tarih Aralığı */}
-              {filterPeriod === 'custom' && (
-                <div className="flex flex-wrap items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400 ml-1" />
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="px-2 py-0.5 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-                  />
-                  <span className="text-slate-400">-</span>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="px-2 py-0.5 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              )}
-
-              {/* Ödeme Yöntemi Filtresi */}
-              <select
-                value={filterPaymentMethod}
-                onChange={(e) => setFilterPaymentMethod(e.target.value)}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
-              >
-                <option value="all">Ödeme Türü: Tümü</option>
-                <option value="cash_register">Kasadan / Kasa</option>
-                <option value="bank_transfer">Havale / Banka</option>
-                <option value="credit_card">Kredi Kartı</option>
-                <option value="out_of_pocket">Cepten (Şahsi)</option>
-              </select>
-
-              {/* Kalem Filtresi */}
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer max-w-[200px]"
-              >
-                <option value="all">Kalem: Tümü</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    [{c.code}] {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Hareketler Listesi / Tablosu */}
-          {filteredTransactions.length === 0 ? (
-            <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-3 border border-emerald-100 dark:border-emerald-900/50">
-                <Receipt className="w-7 h-7" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
-                Kayıtlı Hareket Bulunamadı
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-4">
-                Seçili filtrelerde gelir veya gider işlemi bulunamadı. Yukarıdaki butonlardan yeni işlem ekleyebilirsiniz.
-              </p>
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openNewTxModal('income')}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm"
-                >
-                  + Gelir Ekle
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openNewTxModal('expense')}
-                  className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold shadow-sm"
-                >
-                  - Gider Ekle
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/40 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
-                      <th className="py-3 px-4">Tarih</th>
-                      <th className="py-3 px-4">Tür</th>
-                      <th className="py-3 px-4">ERP Kodu & Kalem</th>
-                      <th className="py-3 px-4">Ödeme / Kasa</th>
-                      <th className="py-3 px-4">Açıklama / Belge</th>
-                      <th className="py-3 px-4 text-right">Tutar</th>
-                      <th className="py-3 px-4 text-center">İşlem</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                    {filteredTransactions.map((tx) => {
-                      const isIncome = tx.type === 'income';
-                      return (
-                        <tr
-                          key={tx.id}
-                          className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
-                        >
-                          {/* Tarih */}
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                            {tx.date}
-                          </td>
-
-                          {/* Tür */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                                isIncome
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-                              }`}
-                            >
-                              {isIncome ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                              <span>{isIncome ? 'GELİR' : 'GİDER'}</span>
-                            </span>
-                          </td>
-
-                          {/* ERP Kodu & Kalem */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700">
-                                {tx.categoryCode || 'ERP'}
-                              </span>
-                              <span className="font-bold text-slate-900 dark:text-white">
-                                {tx.categoryName}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* Ödeme / Kasa */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
-                                {tx.paymentMethod === 'cash_register' && <Banknote className="w-3.5 h-3.5 text-amber-500" />}
-                                {tx.paymentMethod === 'bank_transfer' && <Landmark className="w-3.5 h-3.5 text-blue-500" />}
-                                {tx.paymentMethod === 'credit_card' && <CreditCard className="w-3.5 h-3.5 text-purple-500" />}
-                                {tx.paymentMethod === 'out_of_pocket' && <UserCheck className="w-3.5 h-3.5 text-rose-500" />}
-                                <span>
-                                  {tx.paymentMethod === 'cash_register' && 'Kasadan (Nakit)'}
-                                  {tx.paymentMethod === 'bank_transfer' && 'Havale / Banka'}
-                                  {tx.paymentMethod === 'credit_card' && 'Kredi Kartı'}
-                                  {tx.paymentMethod === 'out_of_pocket' && 'Cepten (Şahsi)'}
-                                </span>
-                              </span>
-                              {tx.cashRegisterName && (
-                                <span className="text-[10px] text-slate-400">
-                                  {tx.cashRegisterName}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Açıklama & Belge */}
-                          <td className="py-3.5 px-4 max-w-xs">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-slate-800 dark:text-slate-200 truncate" title={tx.description}>
-                                {tx.description || '-'}
-                              </span>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                {tx.receiptNumber && <span>Fiş/Ftr: #{tx.receiptNumber}</span>}
-                                {tx.receiptPhoto && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewImage(tx.receiptPhoto!)}
-                                    className="text-blue-500 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
-                                  >
-                                    <Eye className="w-3 h-3" />
-                                    <span>Görsel</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Tutar */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-black font-mono text-sm">
-                            <span
-                              className={
-                                isIncome
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-600 dark:text-rose-400'
-                              }
-                            >
-                              {isIncome ? '+' : '-'}
-                              {tx.amount.toLocaleString('tr-TR')} ₺
-                            </span>
-                          </td>
-
-                          {/* İşlemler */}
-                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditTxModal(tx)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                title="Düzenle"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTx(tx)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                title="Sil"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -2442,7 +2154,8 @@ export const AccountingView: React.FC = () => {
                                       : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
                                   }`}
                                 >
-                                  {isIncome ? 'GELİR' : 'GİDER'}
+                                  {isIncome ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                                  <span>{isIncome ? 'GELİR' : 'GİDER'}</span>
                                 </span>
                               </td>
                               <td className="py-3 px-3">
