@@ -280,7 +280,7 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
         MERGE dbo.standard_tasks AS target
         USING (SELECT @id AS id) AS source
         ON (target.id = source.id)
-        WHEN MATCHED THEN
+        WHEN MATCHED AND (target.tasks IS NULL OR target.tasks <> @tasks) THEN
           UPDATE SET tasks = @tasks, updated_at = SYSUTCDATETIME()
         WHEN NOT MATCHED THEN
           INSERT (id, tasks, updated_at) VALUES (@id, @tasks, SYSUTCDATETIME());
@@ -335,7 +335,9 @@ app.get('/api/tables/:table', async (req, res) => {
   }
 });
 
-// Tabloya toplu veya tekil upsert (Satır Sınırı & Hız Sınırı Korumalı)
+const ensuredTableSchemas = new Set();
+
+// Tabloya toplu veya tekil upsert (Satır Sınırı & Hız Sınırı Korumalı + Gereksiz Transaction Log Önleyici)
 app.post('/api/tables/:table/upsert', async (req, res) => {
   try {
     if (!checkIpRateLimit(req, 'table_upsert', 240)) {
@@ -351,6 +353,32 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
 
     const safeRows = rawRows.slice(0, 2500);
     const pool = await getPool();
+
+    if (!ensuredTableSchemas.has(tableName)) {
+      try {
+        if (tableName === 'notes') {
+          await pool.request().query(`
+            IF COL_LENGTH('dbo.notes', 'cari_name') IS NULL ALTER TABLE dbo.notes ADD cari_name NVARCHAR(255) NULL;
+            IF COL_LENGTH('dbo.notes', 'used_materials') IS NULL ALTER TABLE dbo.notes ADD used_materials NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.notes', 'photos') IS NULL ALTER TABLE dbo.notes ADD photos NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.notes', 'completion_photos') IS NULL ALTER TABLE dbo.notes ADD completion_photos NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.notes', 'read_by') IS NULL ALTER TABLE dbo.notes ADD read_by NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.notes', 'processed_at') IS NULL ALTER TABLE dbo.notes ADD processed_at BIGINT NULL;
+            IF COL_LENGTH('dbo.notes', 'processed_by') IS NULL ALTER TABLE dbo.notes ADD processed_by NVARCHAR(100) NULL;
+            IF COL_LENGTH('dbo.notes', 'processed_by_name') IS NULL ALTER TABLE dbo.notes ADD processed_by_name NVARCHAR(255) NULL;
+          `);
+        } else if (tableName === 'services') {
+          await pool.request().query(`
+            IF COL_LENGTH('dbo.services', 'photos') IS NULL ALTER TABLE dbo.services ADD photos NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.services', 'cari_name') IS NULL ALTER TABLE dbo.services ADD cari_name NVARCHAR(255) NULL;
+            IF COL_LENGTH('dbo.services', 'status') IS NULL ALTER TABLE dbo.services ADD status NVARCHAR(50) NULL;
+            IF COL_LENGTH('dbo.services', 'completion_note') IS NULL ALTER TABLE dbo.services ADD completion_note NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.services', 'completion_photos') IS NULL ALTER TABLE dbo.services ADD completion_photos NVARCHAR(MAX) NULL;
+          `);
+        }
+        ensuredTableSchemas.add(tableName);
+      } catch {}
+    }
 
     for (const row of safeRows) {
       if (!row || typeof row !== 'object' || !row.id) continue;
@@ -386,7 +414,18 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             MERGE dbo.locations AS target
             USING (SELECT @id AS id) AS source
             ON (target.id = source.id)
-            WHEN MATCHED THEN
+            WHEN MATCHED AND (
+              ISNULL(target.name, '') <> ISNULL(@name, '') OR
+              ISNULL(target.status, '') <> ISNULL(@status, '') OR
+              ISNULL(target.notes, '') <> ISNULL(@notes, '') OR
+              ISNULL(target.tasks, '') <> ISNULL(@tasks, '') OR
+              ISNULL(target.photos, '') <> ISNULL(@photos, '') OR
+              ISNULL(target.completion_note, '') <> ISNULL(@completion_note, '') OR
+              ISNULL(target.completion_photos, '') <> ISNULL(@completion_photos, '') OR
+              ISNULL(target.completed_at, 0) <> ISNULL(@completed_at, 0) OR
+              ISNULL(target.approved_at, 0) <> ISNULL(@approved_at, 0) OR
+              ISNULL(target.rejected_at, 0) <> ISNULL(@rejected_at, 0)
+            ) THEN
               UPDATE SET name=@name, address=@address, notes=@notes, photos=@photos, latitude=@latitude, longitude=@longitude,
                          created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name, tasks=@tasks,
                          status=@status, completed_at=@completed_at, completed_by=@completed_by, completed_by_name=@completed_by_name,
@@ -436,27 +475,22 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             .input('completion_photos', sql.NVarChar(sql.MAX), JSON.stringify(row.completion_photos || []))
             .input('read_by', sql.NVarChar(sql.MAX), JSON.stringify(row.read_by || []))
             .query(`
-              IF COL_LENGTH('dbo.notes', 'cari_name') IS NULL
-                ALTER TABLE dbo.notes ADD cari_name NVARCHAR(255) NULL;
-              IF COL_LENGTH('dbo.notes', 'used_materials') IS NULL
-                ALTER TABLE dbo.notes ADD used_materials NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.notes', 'photos') IS NULL
-                ALTER TABLE dbo.notes ADD photos NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.notes', 'completion_photos') IS NULL
-                ALTER TABLE dbo.notes ADD completion_photos NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.notes', 'read_by') IS NULL
-                ALTER TABLE dbo.notes ADD read_by NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.notes', 'processed_at') IS NULL
-                ALTER TABLE dbo.notes ADD processed_at BIGINT NULL;
-              IF COL_LENGTH('dbo.notes', 'processed_by') IS NULL
-                ALTER TABLE dbo.notes ADD processed_by NVARCHAR(100) NULL;
-              IF COL_LENGTH('dbo.notes', 'processed_by_name') IS NULL
-                ALTER TABLE dbo.notes ADD processed_by_name NVARCHAR(255) NULL;
-
               MERGE dbo.notes AS target
               USING (SELECT @id AS id) AS source
               ON (target.id = source.id)
-              WHEN MATCHED THEN
+              WHEN MATCHED AND (
+                ISNULL(target.content, '') <> ISNULL(@content, '') OR
+                ISNULL(target.status, '') <> ISNULL(@status, '') OR
+                ISNULL(target.cari_name, '') <> ISNULL(COALESCE(@cari_name, target.cari_name), '') OR
+                ISNULL(target.completion_note, '') <> ISNULL(@completion_note, '') OR
+                ISNULL(target.used_materials, '') <> ISNULL(COALESCE(@used_materials, target.used_materials), '') OR
+                ISNULL(target.completed_at, 0) <> ISNULL(@completed_at, 0) OR
+                ISNULL(target.approved_at, 0) <> ISNULL(@approved_at, 0) OR
+                ISNULL(target.rejected_at, 0) <> ISNULL(@rejected_at, 0) OR
+                ISNULL(target.processed_at, 0) <> ISNULL(@processed_at, 0) OR
+                ISNULL(target.notified, 0) <> ISNULL(@notified, 0) OR
+                ISNULL(target.read_by, '') <> ISNULL(CASE WHEN @read_by = '[]' AND target.read_by IS NOT NULL THEN target.read_by ELSE @read_by END, '')
+              ) THEN
                 UPDATE SET content=@content, cari_name=COALESCE(@cari_name, target.cari_name), created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name,
                            target_mode=@target_mode, target_user_ids=@target_user_ids, target_user_names=@target_user_names,
                            target_user_id=@target_user_id, target_user_name=@target_user_name, reminder_active=@reminder_active,
@@ -506,7 +540,14 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               MERGE dbo.notes AS target
               USING (SELECT @id AS id) AS source
               ON (target.id = source.id)
-              WHEN MATCHED THEN
+              WHEN MATCHED AND (
+                ISNULL(target.content, '') <> ISNULL(@content, '') OR
+                ISNULL(target.status, '') <> ISNULL(@status, '') OR
+                ISNULL(target.completion_note, '') <> ISNULL(@completion_note, '') OR
+                ISNULL(target.completed_at, 0) <> ISNULL(@completed_at, 0) OR
+                ISNULL(target.approved_at, 0) <> ISNULL(@approved_at, 0) OR
+                ISNULL(target.rejected_at, 0) <> ISNULL(@rejected_at, 0)
+              ) THEN
                 UPDATE SET content=@content, created_at=@created_at, created_by=@created_by, created_by_name=@created_by_name,
                            target_mode=@target_mode, target_user_ids=@target_user_ids, target_user_names=@target_user_names,
                            target_user_id=@target_user_id, target_user_name=@target_user_name, reminder_active=@reminder_active,
@@ -540,21 +581,17 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             .input('completion_note', sql.NVarChar(sql.MAX), row.completion_note || null)
             .input('completion_photos', sql.NVarChar(sql.MAX), JSON.stringify(row.completion_photos || []))
             .query(`
-              IF COL_LENGTH('dbo.services', 'photos') IS NULL
-                ALTER TABLE dbo.services ADD photos NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.services', 'cari_name') IS NULL
-                ALTER TABLE dbo.services ADD cari_name NVARCHAR(255) NULL;
-              IF COL_LENGTH('dbo.services', 'status') IS NULL
-                ALTER TABLE dbo.services ADD status NVARCHAR(50) NULL;
-              IF COL_LENGTH('dbo.services', 'completion_note') IS NULL
-                ALTER TABLE dbo.services ADD completion_note NVARCHAR(MAX) NULL;
-              IF COL_LENGTH('dbo.services', 'completion_photos') IS NULL
-                ALTER TABLE dbo.services ADD completion_photos NVARCHAR(MAX) NULL;
-
               MERGE dbo.services AS target
               USING (SELECT @id AS id) AS source
               ON (target.id = source.id)
-              WHEN MATCHED THEN
+              WHEN MATCHED AND (
+                ISNULL(target.company_name, '') <> ISNULL(@company_name, '') OR
+                ISNULL(target.work_done, '') <> ISNULL(@work_done, '') OR
+                ISNULL(target.status, '') <> ISNULL(@status, '') OR
+                ISNULL(target.completion_note, '') <> ISNULL(@completion_note, '') OR
+                ISNULL(target.photos, '') <> ISNULL(@photos, '') OR
+                ISNULL(target.completion_photos, '') <> ISNULL(@completion_photos, '')
+              ) THEN
                 UPDATE SET company_name=@company_name, cari_name=@cari_name, location=@location, latitude=@latitude, longitude=@longitude,
                            work_done=@work_done, [date]=@date, photos=@photos, created_at=@created_at, created_by=@created_by,
                            created_by_name=@created_by_name, status=@status, completion_note=@completion_note,
@@ -580,7 +617,10 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               MERGE dbo.services AS target
               USING (SELECT @id AS id) AS source
               ON (target.id = source.id)
-              WHEN MATCHED THEN
+              WHEN MATCHED AND (
+                ISNULL(target.company_name, '') <> ISNULL(@company_name, '') OR
+                ISNULL(target.work_done, '') <> ISNULL(@work_done, '')
+              ) THEN
                 UPDATE SET company_name=@company_name, location=@location, latitude=@latitude, longitude=@longitude,
                            work_done=@work_done, [date]=@date, created_at=@created_at, created_by=@created_by,
                            created_by_name=@created_by_name, updated_at=SYSUTCDATETIME()
@@ -613,7 +653,13 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             MERGE dbo.return_warranty AS target
             USING (SELECT @id AS id) AS source
             ON (target.id = source.id)
-            WHEN MATCHED THEN
+            WHEN MATCHED AND (
+              ISNULL(target.status, '') <> ISNULL(@status, '') OR
+              ISNULL(target.notes, '') <> ISNULL(@notes, '') OR
+              ISNULL(target.serial_number, '') <> ISNULL(@serial_number, '') OR
+              ISNULL(target.tracking_code, '') <> ISNULL(@tracking_code, '') OR
+              ISNULL(target.notified, 0) <> ISNULL(@notified, 0)
+            ) THEN
               UPDATE SET [type]=@type, company_name=@company_name, sent_date=@sent_date, serial_number=@serial_number,
                          tracking_code=@tracking_code, serial_number_photo=@serial_number_photo, tracking_code_photo=@tracking_code_photo,
                          notes=@notes, status=@status, reminder_date=@reminder_date, reminder_active=@reminder_active, notified=@notified,
@@ -636,7 +682,12 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
             MERGE dbo.app_users AS target
             USING (SELECT @id AS id) AS source
             ON (target.id = source.id)
-            WHEN MATCHED THEN
+            WHEN MATCHED AND (
+              ISNULL(target.username, '') <> ISNULL(@username, '') OR
+              ISNULL(target.password, '') <> ISNULL(@password, '') OR
+              ISNULL(target.name, '') <> ISNULL(@name, '') OR
+              ISNULL(target.role, '') <> ISNULL(@role, '')
+            ) THEN
               UPDATE SET username=@username, password=@password, name=@name, role=@role, created_at=@created_at, updated_at=SYSUTCDATETIME()
             WHEN NOT MATCHED THEN
               INSERT (id, username, password, name, role, created_at, updated_at)
@@ -1046,14 +1097,207 @@ app.all('/api/sync-cloud', async (req, res) => {
 });
 
 // =========================================================================
-// 9. SYSTEM LOGS ENDPOINTS (İş Takip Sistemi Hata ve Olay Günlüğü)
+// 9. SYSTEM LOGS ENDPOINTS & 3 GÜNLÜK OTOMATİK LOG / DB LDF TEMİZLEYİCİ
 // =========================================================================
+const LOG_RETENTION_DAYS = 3;
+const LOG_RETENTION_MS = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const MAX_LOG_FILE_BYTES = 512 * 1024; // Maksimum 512 KB log dosyası boyutu
+
 const logsDir = process.env.LOGS_DIR || path.resolve(__dirname, '../../Logs');
 if (!fs.existsSync(logsDir)) {
   try {
     fs.mkdirSync(logsDir, { recursive: true });
   } catch {}
 }
+
+function getCutoffDateStrings() {
+  const cutoffDate = new Date(Date.now() - LOG_RETENTION_MS);
+  const isoDate = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const compactDate = isoDate.replace(/-/g, ''); // YYYYMMDD
+  return { cutoffMs: cutoffDate.getTime(), isoDate, compactDate };
+}
+
+function pruneSingleLogFile(filePath, isoCutoffDate) {
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const stat = fs.statSync(filePath);
+    if (stat.size === 0) return false;
+
+    // Dosya çok büyükse yalnızca son 1 MB'lık kısmı oku ve 3 günlük filtre uygula
+    let raw = '';
+    const readCap = 1024 * 1024;
+    if (stat.size > readCap) {
+      const fd = fs.openSync(filePath, 'r');
+      const buf = Buffer.alloc(readCap);
+      fs.readSync(fd, buf, 0, readCap, stat.size - readCap);
+      fs.closeSync(fd);
+      raw = buf.toString('utf8');
+      const firstNewline = raw.indexOf('\n');
+      if (firstNewline !== -1) raw = raw.slice(firstNewline + 1);
+    } else {
+      raw = fs.readFileSync(filePath, 'utf8');
+    }
+
+    const lines = raw.split('\n');
+    const keptLines = [];
+    let keepCurrentBlock = true;
+
+    for (const line of lines) {
+      const dateMatch = line.match(/^\[(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) {
+        const lineDate = dateMatch[1];
+        keepCurrentBlock = lineDate >= isoCutoffDate;
+      }
+      if (keepCurrentBlock) {
+        keptLines.push(line);
+      }
+    }
+
+    let finalContent = keptLines.join('\n').trim();
+    if (finalContent.length > 0) finalContent += '\n';
+
+    if (Buffer.byteLength(finalContent, 'utf8') > MAX_LOG_FILE_BYTES) {
+      finalContent = finalContent.slice(finalContent.length - MAX_LOG_FILE_BYTES);
+      const firstLineIdx = finalContent.indexOf('\n');
+      if (firstLineIdx !== -1) finalContent = finalContent.slice(firstLineIdx + 1);
+    }
+
+    if (Buffer.byteLength(finalContent, 'utf8') !== stat.size) {
+      fs.writeFileSync(filePath, finalContent, 'utf8');
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupFileSystemLogs() {
+  const { cutoffMs, isoDate, compactDate } = getCutoffDateStrings();
+  let deletedFiles = 0;
+  let prunedFiles = 0;
+
+  const candidateDirs = Array.from(new Set([logsDir, __dirname, path.resolve(__dirname, '..')]));
+  for (const dir of candidateDirs) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      const entries = fs.readdirSync(dir);
+      for (const name of entries) {
+        const fullPath = path.join(dir, name);
+        // 1. Günlük is_takip_YYYYMMDD.log dosyalarından 3 günden eski olanları sil
+        const dailyMatch = name.match(/^is_takip_(\d{8})\.log$/i);
+        if (dailyMatch) {
+          const fileYmd = dailyMatch[1];
+          if (fileYmd < compactDate) {
+            try {
+              fs.unlinkSync(fullPath);
+              deletedFiles++;
+            } catch {}
+            continue;
+          }
+          if (pruneSingleLogFile(fullPath, isoDate)) prunedFiles++;
+          continue;
+        }
+
+        // 2. Diğer .log dosyalarını kontrol et (3 günden eski kayıtları ve 512 KB üstünü kırp)
+        if (name.toLowerCase().endsWith('.log')) {
+          try {
+            const st = fs.statSync(fullPath);
+            if (st.mtimeMs < cutoffMs && name !== 'is_takip_hatalari.log' && name !== 'sunucu_hata.log') {
+              fs.unlinkSync(fullPath);
+              deletedFiles++;
+              continue;
+            }
+            if (pruneSingleLogFile(fullPath, isoDate)) prunedFiles++;
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  return { deletedFiles, prunedFiles };
+}
+
+async function runDatabaseAndLogMaintenance() {
+  const fileStats = cleanupFileSystemLogs();
+  let dbLogShrunk = false;
+  let slot13PrunedCount = 0;
+
+  try {
+    const pool = await getPool();
+
+    // 1. SQL Server Transaction Log (SahaTakipDB_log.ldf) şişmesini kalıcı olarak engelle (SIMPLE Recovery + Shrink)
+    await pool.request().query(`
+      DECLARE @dbName NVARCHAR(128) = DB_NAME();
+      DECLARE @sql NVARCHAR(MAX);
+      IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @dbName AND recovery_model_desc <> 'SIMPLE')
+      BEGIN
+        SET @sql = N'ALTER DATABASE ' + QUOTENAME(@dbName) + N' SET RECOVERY SIMPLE WITH NO_WAIT;';
+        EXEC(@sql);
+      END
+      CHECKPOINT;
+      DECLARE @logFile NVARCHAR(128);
+      SELECT TOP 1 @logFile = name FROM sys.database_files WHERE type_desc = 'LOG';
+      IF @logFile IS NOT NULL
+      BEGIN
+        DBCC SHRINKFILE (@logFile, 8) WITH NO_INFOMSGS;
+      END
+
+      IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'SAAS_MASTER_DB' AND recovery_model_desc <> 'SIMPLE')
+      BEGIN
+        BEGIN TRY
+          EXEC(N'ALTER DATABASE [SAAS_MASTER_DB] SET RECOVERY SIMPLE WITH NO_WAIT; USE [SAAS_MASTER_DB]; CHECKPOINT; DBCC SHRINKFILE (N''SAAS_MASTER_DB_log'', 8) WITH NO_INFOMSGS;');
+        END TRY
+        BEGIN CATCH
+        END CATCH
+      END
+    `);
+    dbLogShrunk = true;
+
+    // 2. Veritabanı Slot 13 (Sistem Logları) içindeki 3 günden eski kayıtları temizle
+    const slotRes = await pool
+      .request()
+      .input('id', sql.Int, 13)
+      .query('SELECT tasks FROM dbo.standard_tasks WHERE id = @id');
+
+    if (slotRes.recordset.length > 0 && slotRes.recordset[0].tasks) {
+      let parsed = [];
+      try {
+        parsed = JSON.parse(slotRes.recordset[0].tasks);
+      } catch {
+        parsed = [];
+      }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const cutoffMs = Date.now() - LOG_RETENTION_MS;
+        const filtered = parsed
+          .filter((entry) => {
+            if (!entry || typeof entry !== 'object') return false;
+            const ts = Number(entry.timestamp) || (entry.dateStr ? Date.parse(entry.dateStr) : 0);
+            return ts > 0 ? ts >= cutoffMs : false;
+          })
+          .slice(0, 200);
+
+        if (filtered.length !== parsed.length) {
+          slot13PrunedCount = parsed.length - filtered.length;
+          await pool
+            .request()
+            .input('id', sql.Int, 13)
+            .input('tasks', sql.NVarChar(sql.MAX), JSON.stringify(filtered))
+            .query('UPDATE dbo.standard_tasks SET tasks = @tasks, updated_at = SYSUTCDATETIME() WHERE id = @id');
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('>> [Log/DB Bakım Uyarısı]:', err.message);
+  }
+
+  console.log(
+    `>> [Otomatik Log & SSD Bakımı] SQL LDF küçültme: ${dbLogShrunk ? 'BAŞARILI (SIMPLE Mod + 8MB)' : 'ATLANDI'}, Silinen >3 gün log dosyası: ${fileStats.deletedFiles}, Kırpılan log dosyası: ${fileStats.prunedFiles}, Silinen eski sistem logu: ${slot13PrunedCount}`
+  );
+  return { ...fileStats, dbLogShrunk, slot13PrunedCount };
+}
+
+let lastLogCleanupTime = 0;
 
 app.post('/api/logs', (req, res) => {
   try {
@@ -1063,7 +1307,7 @@ app.post('/api/logs', (req, res) => {
     const item = req.body;
     if (!item || typeof item !== 'object') return res.status(400).json({ error: 'Log payload is empty' });
 
-    const cleanField = (val, maxLen = 500) =>
+    const cleanField = (val, maxLen = 400) =>
       String(val || '')
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
         .slice(0, maxLen);
@@ -1075,11 +1319,11 @@ app.post('/api/logs', (req, res) => {
     const userName = cleanField(item.userName, 80);
     const companyCode = cleanField(item.companyCode, 40);
     const userStr = userName ? `[Kullanıcı: ${userName}${companyCode ? ' / ' + companyCode : ''}] ` : '';
-    const message = cleanField(item.message, 1000);
+    const message = cleanField(item.message, 500);
     const details = item.details
-      ? `\n   -> Detay: ${cleanField(item.details, 2000).replace(/\n/g, '\n      ')}`
+      ? `\n   -> Detay: ${cleanField(item.details, 600).replace(/\n/g, '\n      ')}`
       : '';
-    const device = item.deviceInfo ? `\n   -> Cihaz: ${cleanField(item.deviceInfo, 250)}` : '';
+    const device = item.deviceInfo ? `\n   -> Cihaz: ${cleanField(item.deviceInfo, 180)}` : '';
 
     const logLine = `[${dateStr}] [${level}] [${category}] ${userStr}${message}${details}${device}\n`;
 
@@ -1092,10 +1336,29 @@ app.post('/api/logs', (req, res) => {
     const dailyLogFile = path.join(logsDir, `is_takip_${yyyymmdd}.log`);
     fs.appendFileSync(dailyLogFile, logLine, 'utf8');
 
+    // Her 30 dakikada bir arka planda 3 günden eski logları ve 512 KB sınırını otomatik denetle
+    if (Date.now() - lastLogCleanupTime > 30 * 60 * 1000) {
+      lastLogCleanupTime = Date.now();
+      setImmediate(() => {
+        try {
+          cleanupFileSystemLogs();
+        } catch {}
+      });
+    }
+
     res.json({ success: true, loggedAt: dateStr });
   } catch (err) {
     console.error('Log yazma hatası:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.all('/api/logs/cleanup', async (req, res) => {
+  try {
+    const result = await runDatabaseAndLogMaintenance();
+    res.json({ success: true, retentionDays: LOG_RETENTION_DAYS, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -1104,6 +1367,7 @@ app.get('/api/logs', (req, res) => {
     if (!checkIpRateLimit(req, 'logs_read', 60)) {
       return res.status(429).json({ error: 'Çok fazla log okuma isteği gönderildi.' });
     }
+    cleanupFileSystemLogs();
     const mainLogFile = path.join(logsDir, 'is_takip_hatalari.log');
     if (!fs.existsSync(mainLogFile)) {
       return res.json({ content: 'Henüz log kaydı bulunmuyor.' });
@@ -1206,40 +1470,61 @@ if (webDistPath && fs.existsSync(webDistPath)) {
   });
 }
 
-// Başlat
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('================================================================');
-  console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
-  console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
-  console.log('================================================================');
-
-  // Sunucu her açıldığında kapalı kalınan süredeki verileri Supabase'den otomatik çek
-  setTimeout(() => {
-    runCloudSync(PORT, false).catch((err) => {
-      console.warn('>> [Açılış Eşitlemesi Uyarısı]:', err.message);
+// Tek seferlik bakım/temizlik modu (Log_Temizle.bat veya Baslat.bat üzerinden doğrudan çağrıldığında)
+if (process.argv.includes('--cleanup-only')) {
+  runDatabaseAndLogMaintenance()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch(() => {
+      process.exit(0);
     });
-  }, 2500);
+} else {
+  // Başlat
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log('================================================================');
+    console.log(`>> Saha Takip Yerel API çalışıyor: http://0.0.0.0:${PORT}`);
+    console.log(`>> Fotoğraf Depolama Klasörü: ${uploadDir}`);
+    console.log('================================================================');
 
-  // Periyodik Otomatik Eşitleme (Her 30 dakikada bir kontrol)
-  setInterval(() => {
-    runCloudSync(PORT, true).catch(() => {});
-  }, 30 * 60 * 1000);
+    // Sunucu açılışında SQL LDF (SahaTakipDB_log) küçültme + 3 günden eski logları temizleme
+    setTimeout(() => {
+      runDatabaseAndLogMaintenance().catch(() => {});
+    }, 1500);
 
-  // 7/24 Otonom Vardiya Giriş (+15dk) ve Çıkış (+5dk/+10dk) Hatırlatıcı Kontrolü (Her 20 saniyede bir)
-  setTimeout(() => {
-    runShiftWatchdog(PORT).catch(() => {});
-  }, 5000);
-  setInterval(() => {
-    runShiftWatchdog(PORT).catch(() => {});
-  }, 20 * 1000);
-});
+    // Her 6 saatte bir otomatik SQL LDF küçültme ve >3 günlük log temizliği
+    setInterval(() => {
+      runDatabaseAndLogMaintenance().catch(() => {});
+    }, 6 * 60 * 60 * 1000);
 
-server.on('error', (err) => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.log(`>> [BİLGİ] Port ${PORT} zaten aktif bir Saha Takip servisi tarafından kullanılıyor.`);
-    process.exit(0);
-  }
-  console.error(`>> [SUNUCU PORT HATASI] Port ${PORT} başlatılamadı:`, err.message);
-  appendServerErrorLog('serverListenError', err);
-  process.exit(1);
-});
+    // Sunucu her açıldığında kapalı kalınan süredeki verileri Supabase'den otomatik çek
+    setTimeout(() => {
+      runCloudSync(PORT, false).catch((err) => {
+        console.warn('>> [Açılış Eşitlemesi Uyarısı]:', err.message);
+      });
+    }, 2500);
+
+    // Periyodik Otomatik Eşitleme (Her 30 dakikada bir kontrol)
+    setInterval(() => {
+      runCloudSync(PORT, true).catch(() => {});
+    }, 30 * 60 * 1000);
+
+    // 7/24 Otonom Vardiya Giriş (+15dk) ve Çıkış (+5dk/+10dk) Hatırlatıcı Kontrolü (Her 20 saniyede bir)
+    setTimeout(() => {
+      runShiftWatchdog(PORT).catch(() => {});
+    }, 5000);
+    setInterval(() => {
+      runShiftWatchdog(PORT).catch(() => {});
+    }, 20 * 1000);
+  });
+
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.log(`>> [BİLGİ] Port ${PORT} zaten aktif bir Saha Takip servisi tarafından kullanılıyor.`);
+      process.exit(0);
+    }
+    console.error(`>> [SUNUCU PORT HATASI] Port ${PORT} başlatılamadı:`, err.message);
+    appendServerErrorLog('serverListenError', err);
+    process.exit(1);
+  });
+}

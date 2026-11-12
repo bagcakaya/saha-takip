@@ -3,8 +3,10 @@ import { supabase } from './supabaseClient';
 import { ServerConfigService } from './serverConfigService';
 
 const SYSTEM_LOGS_LOCAL_KEY = '@is_takip_system_logs';
-const MAX_LOCAL_LOGS = 300;
-const MAX_CLOUD_LOGS = 500;
+const LOG_RETENTION_DAYS = 3;
+const LOG_RETENTION_MS = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000; // Son 3 gün
+const MAX_LOCAL_LOGS = 150;
+const MAX_CLOUD_LOGS = 200;
 const SLOT_ID = 13; // Slot 13 reserved for system & error logs
 
 class SystemLoggerService {
@@ -96,6 +98,18 @@ class SystemLoggerService {
   }
 
   /**
+   * Filter logs to keep ONLY entries from the last 3 days
+   */
+  private filterRecentLogs(logs: SystemLogItem[]): SystemLogItem[] {
+    const cutoff = Date.now() - LOG_RETENTION_MS;
+    return logs.filter((entry) => {
+      if (!entry || typeof entry !== 'object') return false;
+      const ts = Number(entry.timestamp) || (entry.dateStr ? Date.parse(entry.dateStr) : 0);
+      return ts > 0 ? ts >= cutoff : false;
+    });
+  }
+
+  /**
    * Base log recording method
    */
   public log(
@@ -121,6 +135,9 @@ class SystemLoggerService {
           detailsStr = String(details);
         }
       }
+      if (detailsStr && detailsStr.length > 600) {
+        detailsStr = detailsStr.slice(0, 600) + '...';
+      }
     }
 
     const user = overrideUser || this.currentUserContext;
@@ -131,7 +148,7 @@ class SystemLoggerService {
       dateStr,
       level,
       category,
-      message,
+      message: String(message || '').slice(0, 500),
       details: detailsStr,
       userId: user.userId,
       userName: user.userName,
@@ -176,7 +193,7 @@ class SystemLoggerService {
   }
 
   /**
-   * Append to localStorage buffer
+   * Append to localStorage buffer (enforcing 3-day retention & max count)
    */
   private appendLocalLog(item: SystemLogItem) {
     try {
@@ -186,9 +203,7 @@ class SystemLoggerService {
       if (!Array.isArray(logs)) logs = [];
 
       logs.unshift(item);
-      if (logs.length > MAX_LOCAL_LOGS) {
-        logs = logs.slice(0, MAX_LOCAL_LOGS);
-      }
+      logs = this.filterRecentLogs(logs).slice(0, MAX_LOCAL_LOGS);
       localStorage.setItem(SYSTEM_LOGS_LOCAL_KEY, JSON.stringify(logs));
     } catch (err) {
       console.warn('[SystemLogger] LocalStorage log append failed:', err);
@@ -196,7 +211,7 @@ class SystemLoggerService {
   }
 
   /**
-   * Get all local logs
+   * Get all local logs (automatically pruning entries older than 3 days)
    */
   public getLocalLogs(): SystemLogItem[] {
     try {
@@ -204,14 +219,19 @@ class SystemLoggerService {
       const raw = localStorage.getItem(SYSTEM_LOGS_LOCAL_KEY);
       if (!raw) return [];
       const logs = JSON.parse(raw);
-      return Array.isArray(logs) ? logs : [];
+      if (!Array.isArray(logs)) return [];
+      const recent = this.filterRecentLogs(logs).slice(0, MAX_LOCAL_LOGS);
+      if (recent.length !== logs.length) {
+        localStorage.setItem(SYSTEM_LOGS_LOCAL_KEY, JSON.stringify(recent));
+      }
+      return recent;
     } catch {
       return [];
     }
   }
 
   /**
-   * Fetch all logs (merged from local and cloud slot 13)
+   * Fetch all logs (merged from local and cloud slot 13, keeping only last 3 days)
    */
   public async fetchAllLogs(): Promise<SystemLogItem[]> {
     const local = this.getLocalLogs();
@@ -235,16 +255,28 @@ class SystemLoggerService {
         }
       } catch {}
 
+      const recentCloud = this.filterRecentLogs(cloudLogs);
+
       // Merge and deduplicate by id
       const map = new Map<string, SystemLogItem>();
       for (const item of local) {
         if (item && item.id) map.set(item.id, item);
       }
-      for (const item of cloudLogs) {
+      for (const item of recentCloud) {
         if (item && item.id) map.set(item.id, item);
       }
 
-      const merged = Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const merged = this.filterRecentLogs(Array.from(map.values()))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, MAX_CLOUD_LOGS);
+
+      // If cloud had expired (>3 days) logs, persist the cleaned list back to Slot 13
+      if (recentCloud.length !== cloudLogs.length) {
+        const jsonStr = JSON.stringify(merged);
+        await supabase.from('standard_tasks').upsert({ id: SLOT_ID, tasks: [jsonStr] });
+        ServerConfigService.apiPost(`/api/standard_tasks/${SLOT_ID}`, { tasks: [jsonStr] }).catch(() => {});
+      }
+
       return merged;
     } catch {
       return local;
@@ -258,11 +290,11 @@ class SystemLoggerService {
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
     this.syncTimeout = setTimeout(() => {
       this.syncCloudLogs().catch(() => {});
-    }, 150);
+    }, 3000);
   }
 
   /**
-   * Sync logs to Supabase slot 13
+   * Sync logs to Supabase slot 13 (keeping only last 3 days & max 200 items)
    */
   private async syncCloudLogs() {
     if (this.isSyncing) return;
@@ -287,13 +319,12 @@ class SystemLoggerService {
       }
 
       const map = new Map<string, SystemLogItem>();
-      for (const l of cloudLogs) if (l && l.id) map.set(l.id, l);
+      for (const l of this.filterRecentLogs(cloudLogs)) if (l && l.id) map.set(l.id, l);
       for (const l of localLogs) if (l && l.id) map.set(l.id, l);
 
-      let merged = Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      if (merged.length > MAX_CLOUD_LOGS) {
-        merged = merged.slice(0, MAX_CLOUD_LOGS);
-      }
+      const merged = this.filterRecentLogs(Array.from(map.values()))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, MAX_CLOUD_LOGS);
 
       const jsonStr = JSON.stringify(merged);
       const CHUNK_SIZE = 100000;
@@ -303,6 +334,7 @@ class SystemLoggerService {
       }
 
       await supabase.from('standard_tasks').upsert({ id: SLOT_ID, tasks: chunks });
+      ServerConfigService.apiPost(`/api/standard_tasks/${SLOT_ID}`, { tasks: chunks }).catch(() => {});
     } catch (err) {
       console.warn('[SystemLogger] Cloud sync error:', err);
     } finally {

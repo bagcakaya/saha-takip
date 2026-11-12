@@ -49,8 +49,9 @@ echo If fso.FileExists^("C:\Program Files\nodejs\node.exe"^) Then nodeExe = "C:\
 echo WshShell.Run """" ^& nodeExe ^& """ """ ^& scriptDir ^& "\server.js""", 0, False
 ) > "%~dp0Arka_Planda_Baslat.vbs"
 
-:: 4. Guvenlik Duvari ve Acilis Gorevini Tanimla (wscript ile sifir pencere)
-echo [2/3] Windows Arka Plan ve Port 3001 izni ayarlaniyor...
+:: 4. Guvenlik Duvari, SQL Log (SahaTakipDB_log) Kucultme ve Acilis Gorevini Tanimla (wscript ile sifir pencere)
+echo [2/3] Windows Arka Plan, SQL Log Kucultme ve Port 3001 izni ayarlaniyor...
+sqlcmd -S localhost -E -Q "ALTER DATABASE [SahaTakipDB] SET RECOVERY SIMPLE WITH NO_WAIT; USE [SahaTakipDB]; CHECKPOINT; DECLARE @lf NVARCHAR(128); SELECT TOP 1 @lf = name FROM sys.database_files WHERE type_desc = 'LOG'; IF @lf IS NOT NULL DBCC SHRINKFILE (@lf, 8) WITH NO_INFOMSGS;" >nul 2>&1
 netsh advfirewall firewall delete rule name="Saha Takip API Port 3001" >nul 2>&1
 netsh advfirewall firewall add rule name="Saha Takip API Port 3001" dir=in action=allow protocol=TCP localport=3001 >nul 2>&1
 schtasks /Create /TN "SahaTakip_YerelSunucu_3001" /TR "wscript.exe //B //NoLogo \"%~dp0Arka_Planda_Baslat.vbs\"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F >nul 2>&1
