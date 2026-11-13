@@ -18,6 +18,7 @@ import {
   Building2,
   Loader2,
   Package,
+  ChevronDown,
 } from 'lucide-react';
 import { GeneralNote } from '../../types/storage';
 import { useAuth } from '../../context/AuthContext';
@@ -52,6 +53,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [showReadList, setShowReadList] = useState(false);
   const [localHasRead, setLocalHasRead] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const displayCariName =
+    (note.cariName || '').trim() ||
+    (note.content ? note.content.split('\n')[0].slice(0, 50) : 'Cari Belirtilmedi');
 
   const isAdmin = isUserAdmin(currentUser);
   const isCreatedByMe = note.createdBy === currentUser?.id;
@@ -264,7 +270,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
 
   return (
     <div
-      className={`rounded-2xl p-4 sm:p-5 shadow-xs border mb-3 space-y-3 transition-all ${
+      className={`rounded-2xl p-3.5 sm:p-4 shadow-xs border mb-3 transition-all ${
         agingInfo
           ? `${agingInfo.cardBg} bg-white dark:bg-slate-800`
           : isDirectToMe
@@ -272,30 +278,15 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           : 'bg-white dark:bg-slate-800'
       } ${cardBorderClass()}`}
     >
-      {/* Cari Banner at the very top */}
-      {note.cariName && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xs">
-          <Building2 className="w-4 h-4 text-blue-200 shrink-0" />
-          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md">
-              Cari
-            </span>
-            <span className="text-xs sm:text-sm font-black truncate">
-              {note.cariName}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Header & Badges */}
-      <div className="flex items-start justify-between gap-2">
+      {/* Cari Çekmece Başlığı (Çekmece Açılmadan Önce Sadece Cari İsmi Kısmı Görünür) */}
+      <div className="flex items-center gap-2">
         {selectionMode && onToggleSelect && (
           <div
             onClick={(e) => {
               e.stopPropagation();
               onToggleSelect();
             }}
-            className="cursor-pointer mr-1 mt-0.5 shrink-0"
+            className="cursor-pointer shrink-0"
             title={isSelected ? 'Seçimi Kaldır' : 'Seç'}
           >
             <div
@@ -309,7 +300,36 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             </div>
           </div>
         )}
-        <div className="space-y-1.5 flex-1">
+
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          aria-expanded={isOpen}
+          className="flex-1 min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:via-indigo-700 hover:to-blue-800 text-white shadow-xs cursor-pointer transition-all text-left select-none"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Building2 className="w-4 h-4 text-blue-200 shrink-0" />
+            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md shrink-0">
+              CARİ
+            </span>
+            <span className="text-xs sm:text-sm font-black truncate min-w-0 flex-1">
+              {displayCariName}
+            </span>
+          </div>
+          <ChevronDown
+            className={`w-4 h-4 text-blue-100 shrink-0 transition-transform duration-200 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Çekmece İçeriği (Tıklayınca Tüm Detaylar Alta Doğru Açılır) */}
+      {isOpen && (
+        <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/70 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* Header & Badges */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-1.5 flex-1">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-slate-500 flex-wrap">
             <span>{formattedCreated}</span>
             {note.createdByName && (
@@ -870,6 +890,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             </div>
           )}
         </>
+      )}
+        </div>
       )}
 
       {/* Complete Note Modal */}

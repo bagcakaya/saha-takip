@@ -22,6 +22,7 @@ import {
   Maximize2,
   Calculator,
   Users,
+  BarChart3,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -61,7 +62,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const {
     branches,
-    locations,
     notes,
     returnWarrantyItems,
     standardTasks,
@@ -132,7 +132,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
   // Defensive fallbacks for all arrays from storage
   const safeBranches = Array.isArray(branches) ? branches : [];
-  const safeLocations = Array.isArray(locations) ? locations : [];
   const safeServices = Array.isArray(services) ? services : [];
   const safeNotes = Array.isArray(notes) ? notes : [];
   const safeReturnWarrantyItems = Array.isArray(returnWarrantyItems) ? returnWarrantyItems : [];
@@ -253,11 +252,6 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     (r) => r && r.date === todayKey && r.status === 'checked_in'
   ).length;
 
-  // Kurulumlar (Installations) Counts
-  const installationPendingCount = safeLocations.filter(
-    (loc) => loc && (!loc.status || loc.status === 'pending')
-  ).length;
-
   // Servisler (Services) Counts
   const servicesPendingCount = safeServices.filter(
     (s) => s && (!s.status || s.status === 'pending')
@@ -324,18 +318,17 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       visible: isModulePermitted('ai_assistant', user, company),
     },
     {
-      id: 'installations',
-      title: 'Kurulumlar',
-      shortTitle: 'Kurulumlar',
-      description: 'Saha montajları, müşteri adresleri ve kontrol listeleri',
-      icon: Building2,
+      id: 'reports',
+      title: 'Raporlar',
+      shortTitle: 'Raporlar',
+      description: 'Saha operasyonları, servis, iş emri, personel ve muhasebe analiz raporları',
+      icon: BarChart3,
       gradient: 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800',
       borderColor: 'border-blue-400/40',
       glowColor: 'text-blue-400',
-      badgeText: `${installationPendingCount} Bekleyen`,
-      activeCount: installationPendingCount,
-      action: () => onNavigate('installations'),
-      visible: isModulePermitted('installations', user, company),
+      badgeText: 'Raporlar',
+      action: () => onNavigate('reports'),
+      visible: isModulePermitted('reports', user, company),
     },
     {
       id: 'services',
@@ -629,8 +622,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center min-w-[62px]">
-              <span className="text-[9px] font-bold text-slate-300 block uppercase">Kurulum</span>
-              <span className="text-sm sm:text-base font-black text-white">{safeLocations.length}</span>
+              <span className="text-[9px] font-bold text-slate-300 block uppercase">İş Emri</span>
+              <span className="text-sm sm:text-base font-black text-white">{safeNotes.length}</span>
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-center min-w-[62px]">
               <span className="text-[9px] font-bold text-slate-300 block uppercase">Servis</span>

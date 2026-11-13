@@ -6,6 +6,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { RightSummaryPanel } from './components/layout/RightSummaryPanel';
 import { Header, TabType } from './components/layout/Header';
 import { InstallationsView } from './views/InstallationsView';
+import { ReportsView } from './views/ReportsView';
 import { ServicesView } from './views/ServicesView';
 import { NotesView } from './views/NotesView';
 import { ReturnWarrantyView } from './views/ReturnWarrantyView';
@@ -565,6 +566,11 @@ const MainApp: React.FC = () => {
           subtitle: 'İş Takip Sistemi',
           title: 'Kurulumlar',
         };
+      case 'reports':
+        return {
+          subtitle: 'Analiz & İstatistik Merkezi',
+          title: 'Raporlar',
+        };
       case 'services':
         return {
           subtitle: 'Teknik Servis & Müdahale',
@@ -685,6 +691,12 @@ const MainApp: React.FC = () => {
             {activeTab === 'installations' &&
               (isModulePermitted('installations', user, company) ? (
                 <InstallationsView />
+              ) : (
+                <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
+              ))}
+            {activeTab === 'reports' &&
+              (isModulePermitted('reports', user, company) ? (
+                <ReportsView />
               ) : (
                 <HomeDashboardView onNavigate={(tab) => navigateToTab(tab)} />
               ))}

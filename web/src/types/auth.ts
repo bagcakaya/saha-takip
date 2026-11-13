@@ -451,13 +451,13 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     category: 'core',
   },
   {
-    id: 'installations',
-    name: 'Kurulumlar',
-    shortTitle: 'Kurulumlar',
-    description: 'Müşteri kurulumları, saha montajları, adresler ve kontrol listeleri',
+    id: 'reports',
+    name: 'Raporlar',
+    shortTitle: 'Raporlar',
+    description: 'Saha operasyonları, servis kayıtları, iş emirleri, personel ve muhasebe analiz raporları',
     defaultStaff: true,
     defaultAdmin: true,
-    category: 'technical',
+    category: 'management',
   },
   {
     id: 'services',

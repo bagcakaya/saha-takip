@@ -4,6 +4,7 @@ export const VALID_TABS: TabType[] = [
   'home',
   'branches',
   'installations',
+  'reports',
   'services',
   'notes',
   'personal_notes',
@@ -31,9 +32,13 @@ export function normalizeTab(rawTab?: string | null): TabType | null {
     dashboard: 'home',
     anasayfa: 'home',
 
-    installations: 'installations',
-    kurulumlar: 'installations',
-    montaj: 'installations',
+    reports: 'reports',
+    raporlar: 'reports',
+    rapor: 'reports',
+
+    installations: 'reports',
+    kurulumlar: 'reports',
+    montaj: 'reports',
 
     services: 'services',
     servisler: 'services',
