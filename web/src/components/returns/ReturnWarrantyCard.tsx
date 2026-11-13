@@ -12,6 +12,7 @@ import {
   Hourglass,
   Maximize2,
   Building2,
+  ChevronDown,
 } from 'lucide-react';
 import { ReturnWarrantyItem } from '../../types/storage';
 import { WhatsappService } from '../../services/whatsappService';
@@ -46,6 +47,9 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
   const [isEditingFollowUp, setIsEditingFollowUp] = useState(false);
   const [followUpInput, setFollowUpInput] = useState('');
   const [isSavingFollowUp, setIsSavingFollowUp] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const displayCariName = (item.cariName || item.companyName || 'Cari Belirtilmedi').trim();
 
   const returnPhotos = [item.serialNumberPhoto, item.trackingCodePhoto].filter(Boolean) as string[];
 
@@ -146,28 +150,39 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
   return (
     <>
       <div
-        className={`rounded-2xl p-4 sm:p-5 shadow-xs border mb-3 space-y-4 transition-all duration-200 ${
+        className={`rounded-2xl p-3.5 sm:p-4 shadow-xs border transition-all duration-200 ${
           isCompleted
             ? 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/60 dark:border-slate-800 opacity-85'
             : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 hover:shadow-md'
         }`}
       >
-        {/* Cari Banner at the very top */}
-        {item.cariName && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xs">
+        {/* Cari Çekmece Başlığı (Çekmece Açılmadan Önce Sadece Cari İsmi Kısmı Görünür) */}
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          aria-expanded={isOpen}
+          className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:via-indigo-700 hover:to-blue-800 text-white shadow-xs cursor-pointer transition-all text-left select-none"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <Building2 className="w-4 h-4 text-blue-200 shrink-0" />
-            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-              <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md">
-                Cari / Müşteri
-              </span>
-              <span className="text-xs sm:text-sm font-black truncate">
-                {item.cariName}
-              </span>
-            </div>
+            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md shrink-0">
+              CARİ
+            </span>
+            <span className="text-xs sm:text-sm font-black truncate min-w-0 flex-1">
+              {displayCariName}
+            </span>
           </div>
-        )}
+          <ChevronDown
+            className={`w-4 h-4 text-blue-100 shrink-0 transition-transform duration-200 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
 
-        {/* Top Badges & Actions */}
+        {/* Çekmece İçeriği (Tıklayınca Tüm Detaylar Alta Doğru Açılır) */}
+        {isOpen && (
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 dark:border-slate-700/70 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* Top Badges & Actions */}
         <div className="flex items-start justify-between gap-2 flex-wrap">
           {/* Left Badges */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -520,6 +535,8 @@ export const ReturnWarrantyCard: React.FC<ReturnWarrantyCardProps> = ({
             </div>
           )}
         </div>
+          </div>
+        )}
       </div>
 
       {/* Lightbox for Fullscreen Photo View */}
