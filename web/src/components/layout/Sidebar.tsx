@@ -22,11 +22,13 @@ import {
   Sparkles,
   Bell,
   BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 import { TabType } from './Header';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
 import { ThemeToggle } from './ThemeToggle';
+import { useAppUpdateDetector } from '../../utils/appUpdater';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { WeatherService } from '../../services/weatherService';
@@ -63,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
+  const { updateAvailable, isRefreshing, triggerRefresh } = useAppUpdateDetector();
 
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
@@ -161,7 +164,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] font-black tracking-widest uppercase text-blue-600 dark:text-blue-400 block">
                 İş Takip
               </span>
@@ -169,6 +172,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 Rapor Portalı
               </h2>
             </div>
+
+            <button
+              type="button"
+              onClick={triggerRefresh}
+              disabled={isRefreshing}
+              className={`p-2.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                updateAvailable
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 animate-pulse'
+                  : 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200/80 dark:border-sky-800/60'
+              }`}
+              title={
+                updateAvailable
+                  ? 'Yeni Sistem Güncellemesi Hazır! Anında Almak İçin Tıklayın'
+                  : 'Sistemi Yenile ve Son Güncellemeleri Al'
+              }
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {updateAvailable && <span className="text-[10px] font-black">Güncelle</span>}
+            </button>
           </div>
 
           {/* Navigation Links */}

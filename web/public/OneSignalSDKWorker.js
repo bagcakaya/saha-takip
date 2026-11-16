@@ -1,6 +1,6 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v10';
+const CACHE_NAME = 'saha-takip-pwa-v11';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -8,6 +8,12 @@ const ASSETS_TO_CACHE = [
   '/favicon.png',
   '/icon.png',
 ];
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 // Install Event
 self.addEventListener('install', (event) => {
@@ -50,13 +56,17 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event (Network First, Cache Fallback)
+// Fetch Event (Network First with no-store for HTML navigation so updates arrive immediately)
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (!event.request.url.startsWith(self.location.origin)) return;
 
+  const isHtmlNav =
+    event.request.mode === 'navigate' ||
+    (event.request.headers.get('accept') || '').includes('text/html');
+
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, isHtmlNav ? { cache: 'no-store' } : undefined)
       .then((response) => {
         if (response && response.status === 200 && response.type === 'basic') {
           const responseClone = response.clone();
@@ -69,7 +79,7 @@ self.addEventListener('fetch', (event) => {
       .catch(() => {
         return caches.match(event.request).then((cachedResponse) => {
           if (cachedResponse) return cachedResponse;
-          if (event.request.headers.get('accept')?.includes('text/html')) {
+          if (isHtmlNav) {
             return caches.match('/index.html');
           }
         });

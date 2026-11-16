@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles, Bell } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles, Bell, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
 import { isUserAdmin, canUserManageServerConfig, isModulePermitted } from '../../types/auth';
@@ -9,6 +9,7 @@ import { CreateCompanyModal } from '../auth/CreateCompanyModal';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
+import { useAppUpdateDetector } from '../../utils/appUpdater';
 
 export type TabType = 'home' | 'branches' | 'installations' | 'reports' | 'services' | 'notes' | 'personal_notes' | 'staff_tracking' | 'timed_follow_ups' | 'reminders' | 'returns' | 'logs' | 'template' | 'job_applications' | 'accounting' | 'cariler';
 
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const { updateAvailable, isRefreshing, triggerRefresh } = useAppUpdateDetector();
   const [permission] = useState<NotificationPermission>(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       return Notification.permission;
@@ -115,6 +117,29 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
+        )}
+      </button>
+
+      {/* Instant Update / Hard Refresh Button */}
+      <button
+        type="button"
+        onClick={triggerRefresh}
+        disabled={isRefreshing}
+        className={`p-1.5 sm:px-2.5 sm:py-2 rounded-xl transition-all relative cursor-pointer flex items-center gap-1.5 ${
+          updateAvailable
+            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 animate-pulse'
+            : 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200/70 dark:border-sky-800/60'
+        }`}
+        title={
+          updateAvailable
+            ? 'Yeni Sistem Güncellemesi Hazır! Anında Almak İçin Dokunun'
+            : 'Sistemi Yenile ve Son Güncellemeleri Al'
+        }
+        aria-label="Sistemi Yenile ve Güncelle"
+      >
+        <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        {updateAvailable && (
+          <span className="text-[10px] font-black uppercase tracking-tight">Güncelle</span>
         )}
       </button>
 
