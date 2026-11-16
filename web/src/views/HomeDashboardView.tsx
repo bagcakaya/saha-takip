@@ -686,7 +686,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
                     type="button"
                     onClick={handleToggleLogoFit}
                     className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold flex items-center gap-1 shadow transition-transform active:scale-95 cursor-pointer"
-                    title={company.logoFit === 'contain' ? 'Tam Doldur (Cover)' : 'Orantılı Sığdır (Contain)'}
+                    title={company?.logoFit === 'contain' ? 'Tam Doldur (Cover)' : 'Orantılı Sığdır (Contain)'}
                   >
                     <Maximize2 className="w-3.5 h-3.5" />
                   </button>
