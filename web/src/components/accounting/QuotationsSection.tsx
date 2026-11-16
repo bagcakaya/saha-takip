@@ -568,8 +568,38 @@ export const QuotationsSection: React.FC = () => {
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Record<string, boolean>>({});
   const [isDownloadingPdfId, setIsDownloadingPdfId] = useState<string | null>(null);
 
-  // Preview Modal state
+  // Preview Modal state & responsive A4 auto-fit scale
   const [previewQuote, setPreviewQuote] = useState<QuotationRecord | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
+  const previewSheetRef = useRef<HTMLDivElement | null>(null);
+  const [previewScale, setPreviewScale] = useState<number>(1);
+  const [previewScaledHeight, setPreviewScaledHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!previewQuote) return;
+    const A4_WIDTH = 750;
+
+    const recalcScale = () => {
+      const container = previewContainerRef.current;
+      const sheet = previewSheetRef.current;
+      if (!container) return;
+      const availableWidth = Math.max(240, container.clientWidth - 16);
+      const nextScale = availableWidth < A4_WIDTH ? availableWidth / A4_WIDTH : 1;
+      setPreviewScale(nextScale);
+      if (sheet) {
+        setPreviewScaledHeight(Math.ceil(sheet.scrollHeight * nextScale));
+      }
+    };
+
+    const timer1 = setTimeout(recalcScale, 30);
+    const timer2 = setTimeout(recalcScale, 200);
+    window.addEventListener('resize', recalcScale);
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      window.removeEventListener('resize', recalcScale);
+    };
+  }, [previewQuote]);
 
   // =========================================================
   // QUOTATION EDITOR MODAL STATE
@@ -3666,19 +3696,36 @@ export const QuotationsSection: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-4 sm:p-6 overflow-y-auto bg-slate-800/90 flex-1">
+            <div
+              ref={previewContainerRef}
+              className="p-2 sm:p-6 overflow-y-auto overflow-x-hidden bg-slate-800/90 flex-1 flex justify-center"
+            >
               <div
-                className="bg-white rounded-xl shadow-2xl mx-auto overflow-x-auto max-w-[780px]"
-                dangerouslySetInnerHTML={{
-                  __html: generateQuotationPdfHtml(
-                    previewQuote,
-                    activePolatlarLogo,
-                    activeCompanyFullTitle,
-                    quotationSettings.companyAddress,
-                    quotationSettings.companyPhone
-                  ),
+                style={{
+                  width: `${Math.round(750 * previewScale)}px`,
+                  height: previewScaledHeight ? `${previewScaledHeight}px` : 'auto',
+                  position: 'relative',
                 }}
-              />
+              >
+                <div
+                  ref={previewSheetRef}
+                  className="bg-white rounded-xl shadow-2xl overflow-hidden"
+                  style={{
+                    width: '750px',
+                    transform: `scale(${previewScale})`,
+                    transformOrigin: 'top left',
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: generateQuotationPdfHtml(
+                      previewQuote,
+                      activePolatlarLogo,
+                      activeCompanyFullTitle,
+                      quotationSettings.companyAddress,
+                      quotationSettings.companyPhone
+                    ),
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
