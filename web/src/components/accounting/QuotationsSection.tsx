@@ -703,6 +703,16 @@ export const QuotationsSection: React.FC = () => {
   // Product Catalog Picker Modal inside Quotation Editor
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogQuantities, setCatalogQuantities] = useState<Record<string, number>>({});
+  const [addedCatalogToastId, setAddedCatalogToastId] = useState<string | null>(null);
+
+  const getCatalogQty = (prodId: string) => Math.max(1, Number(catalogQuantities[prodId]) || 1);
+  const setCatalogQty = (prodId: string, val: number) => {
+    setCatalogQuantities((prev) => ({
+      ...prev,
+      [prodId]: Math.max(1, val),
+    }));
+  };
 
   // =========================================================
   // PRODUCT CATALOG MODAL STATE (KAYITLI ÜRÜNLER)
@@ -1123,30 +1133,50 @@ export const QuotationsSection: React.FC = () => {
     setLineItems((prev) => (prev.length > 1 ? prev.filter((i) => i.id !== id) : prev));
   };
 
-  // Add Product from Saved Catalog to Quotation Line Items
-  const handleSelectProductFromCatalog = (prod: QuotationProduct) => {
+  // Add Product from Saved Catalog to Quotation Line Items (with selected quantity & calculated total)
+  const handleSelectProductFromCatalog = (prod: QuotationProduct, selectedQuantity = 1) => {
+    const qty = Math.max(1, Number(selectedQuantity) || 1);
+    const unitPrice = Number(prod.unitPrice) || 0;
     const newLine: QuotationLineItem = {
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 7),
       productId: prod.id,
       code: prod.code || '',
       name: prod.name,
       description: prod.description || '',
-      quantity: 1,
+      quantity: qty,
       unit: prod.unit || 'Adet',
-      unitPrice: Number(prod.unitPrice) || 0,
+      unitPrice,
       discountPercent: 0,
       vatRate: prod.vatRate ?? 20,
-      lineTotal: Number(prod.unitPrice) || 0,
+      lineTotal: qty * unitPrice,
       imageUrl: prod.imageUrl,
     };
 
     setLineItems((prev) => {
+      // If product already exists in lineItems, add to its quantity and update its lineTotal
+      const existingIdx = prev.findIndex((it) => it.productId === prod.id && it.name === prod.name);
+      if (existingIdx !== -1) {
+        return prev.map((it, idx) => {
+          if (idx !== existingIdx) return it;
+          const nextQty = (Number(it.quantity) || 0) + qty;
+          const price = Number(it.unitPrice) || 0;
+          const disc = Math.min(100, Math.max(0, Number(it.discountPercent) || 0));
+          return {
+            ...it,
+            quantity: nextQty,
+            lineTotal: nextQty * price * (1 - disc / 100),
+          };
+        });
+      }
       // If the only row is empty, replace it; otherwise append
       if (prev.length === 1 && !prev[0].name.trim() && !prev[0].unitPrice) {
         return [newLine];
       }
       return [...prev, newLine];
     });
+
+    setAddedCatalogToastId(prod.id);
+    setTimeout(() => setAddedCatalogToastId((prev) => (prev === prod.id ? null : prev)), 1800);
   };
 
   // Save a Quotation Line Item directly into the Product Catalog
@@ -3338,55 +3368,120 @@ export const QuotationsSection: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                filteredProducts.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700 hover:border-emerald-400 transition-all"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      {prod.imageUrl ? (
-                        <img
-                          src={prod.imageUrl}
-                          alt={prod.name}
-                          className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-xl bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
-                          <Package className="w-5 h-5" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          {prod.code && (
-                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
-                              {prod.code}
-                            </span>
-                          )}
-                          <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
-                            {prod.name}
-                          </span>
-                        </div>
-                        {prod.description && (
-                          <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {prod.description}
+                filteredProducts.map((prod) => {
+                  const selectedQty = getCatalogQty(prod.id);
+                  const unitPrice = Number(prod.unitPrice) || 0;
+                  const calculatedLineTotal = selectedQty * unitPrice;
+                  const isJustAdded = addedCatalogToastId === prod.id;
+
+                  return (
+                    <div
+                      key={prod.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700 hover:border-emerald-400 transition-all"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        {prod.imageUrl ? (
+                          <img
+                            src={prod.imageUrl}
+                            alt={prod.name}
+                            className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                            <Package className="w-5 h-5" />
                           </div>
                         )}
-                        <div className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          {formatMoney(prod.unitPrice, prod.currency || 'TRY')} / {prod.unit || 'Adet'}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {prod.code && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
+                                {prod.code}
+                              </span>
+                            )}
+                            <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                              {prod.name}
+                            </span>
+                          </div>
+                          {prod.description && (
+                            <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {prod.description}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+                              {formatMoney(unitPrice, prod.currency || 'TRY')} / {prod.unit || 'Adet'}
+                            </span>
+                            {selectedQty > 1 && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-black">
+                                {selectedQty} {prod.unit || 'Adet'} Toplam:{' '}
+                                {formatMoney(calculatedLineTotal, prod.currency || 'TRY')}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleSelectProductFromCatalog(prod)}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-xs cursor-pointer shrink-0 flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Teklife Ekle</span>
-                    </button>
-                  </div>
-                ))
+                      {/* Sağ Taraf: Miktar Seçici (- / Miktar / +) ve Teklife Ekle Butonu */}
+                      <div className="flex items-center justify-end gap-2 shrink-0">
+                        <div className="inline-flex items-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-0.5 shadow-2xs">
+                          <button
+                            type="button"
+                            onClick={() => setCatalogQty(prod.id, selectedQty - 1)}
+                            className="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-black text-sm flex items-center justify-center cursor-pointer select-none"
+                            title="Miktarı Azalt"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            step="any"
+                            value={selectedQty}
+                            onChange={(e) =>
+                              setCatalogQty(prod.id, parseFloat(e.target.value) || 1)
+                            }
+                            className="w-12 text-center bg-transparent text-xs font-black text-slate-900 dark:text-white focus:outline-none"
+                            title="Eklenecek Miktar"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setCatalogQty(prod.id, selectedQty + 1)}
+                            className="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-black text-sm flex items-center justify-center cursor-pointer select-none"
+                            title="Miktarı Artır"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSelectProductFromCatalog(prod, selectedQty)}
+                          className={`px-3.5 py-2 rounded-xl text-white text-xs font-black shadow-xs cursor-pointer shrink-0 flex items-center gap-1 transition-all ${
+                            isJustAdded
+                              ? 'bg-sky-600'
+                              : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95'
+                          }`}
+                        >
+                          {isJustAdded ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{selectedQty} Eklendi!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>
+                                {selectedQty > 1
+                                  ? `${selectedQty} ${prod.unit || 'Adet'} Ekle`
+                                  : 'Teklife Ekle'}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
 
