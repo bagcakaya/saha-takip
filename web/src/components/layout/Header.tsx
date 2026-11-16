@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Settings, Sparkles, Bell, RefreshCw } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Users, ShieldCheck, Server, Bell, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useStorage } from '../../context/StorageContext';
-import { isUserAdmin, canUserManageServerConfig, isModulePermitted } from '../../types/auth';
+import { isUserAdmin, canUserManageServerConfig } from '../../types/auth';
 import { UserManagementModal } from '../auth/UserManagementModal';
 import { CreateCompanyModal } from '../auth/CreateCompanyModal';
-import { NotificationStatusModal } from '../common/NotificationStatusModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
 import { useAppUpdateDetector } from '../../utils/appUpdater';
@@ -30,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
   title,
   actionButton,
 }) => {
-  const { user, company, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { badgeCount } = useStorage();
   const isAdmin = isUserAdmin(user);
   const canManageServer = canUserManageServerConfig(user);
@@ -38,14 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isLocalServer, setIsLocalServer] = useState(() => ServerConfigService.isLocalMode());
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
-  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const { updateAvailable, isRefreshing, triggerRefresh } = useAppUpdateDetector();
-  const [permission] = useState<NotificationPermission>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission;
-    }
-    return 'default';
-  });
 
   const rightActionButtons = (
     <div className="flex items-center gap-1 sm:gap-2 shrink-0 flex-wrap justify-end">
@@ -142,33 +134,6 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-[10px] font-black uppercase tracking-tight">Güncelle</span>
         )}
       </button>
-
-      {/* Settings (Notification & Device Settings) Button */}
-      <button
-        type="button"
-        onClick={() => setIsNotificationSettingsOpen(true)}
-        className="p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
-        title="Bildirim ve Cihaz Ayarları"
-        aria-label="Bildirim ve Cihaz Ayarları"
-      >
-        <Settings className="w-4 h-4" />
-        {permission !== 'granted' && (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
-        )}
-      </button>
-
-      {/* AI Assistant Button */}
-      {isModulePermitted('ai_assistant', user, company) && (
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('saha:open-ai-assistant'))}
-          className="p-1.5 sm:p-2.5 rounded-xl transition-all relative cursor-pointer text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-800/60"
-          title="Yapay Zekâ Asistanı (Sesli veya Yazılı)"
-          aria-label="Yapay Zekâ Asistanı"
-        >
-          <Sparkles className="w-4 h-4 animate-pulse text-indigo-600 dark:text-indigo-400" />
-        </button>
-      )}
 
       <ThemeToggle />
 
@@ -278,16 +243,6 @@ export const Header: React.FC<HeaderProps> = ({
         <CreateCompanyModal
           isOpen={isCreateCompanyOpen}
           onClose={() => setIsCreateCompanyOpen(false)}
-        />
-      )}
-
-
-
-      {/* Notification Status & Settings Modal */}
-      {isNotificationSettingsOpen && (
-        <NotificationStatusModal
-          isOpen={isNotificationSettingsOpen}
-          onClose={() => setIsNotificationSettingsOpen(false)}
         />
       )}
 
