@@ -299,53 +299,31 @@ export const generateQuotationPdfHtml = (
 
   return `
     <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; background: #ffffff; width: 750px; margin: 0 auto; padding: 24px 28px; box-sizing: border-box;">
-      <!-- 1. EN ÜSTTE POLATLAR KURUMSAL LOGO VE TEKLİF BAŞLIĞI -->
+      <!-- 1. EN ÜSTTE POLATLAR YAZILIM KURUMSAL LOGO VE TEKLİF BAŞLIĞI -->
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0284c7; padding-bottom: 16px; margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 16px;">
-          <img
-            src="${logoUrl}"
-            alt="POLATLAR Logo"
-            style="max-height: 76px; max-width: 260px; object-fit: contain; display: block;"
-          />
-          ${
-            logoUrl !== POLATLAR_CORPORATE_LOGO_SVG_DATA_URI
-              ? `
-            <div>
-              <div style="font-size: 20px; font-weight: 900; color: #0f172a; letter-spacing: 0.5px;">
-                ${escapeHtml(companyFullTitle || 'POLATLAR')}
-              </div>
-              ${
-                companyAddress
-                  ? `<div style="font-size: 10px; color: #475569; margin-top: 2px;">${escapeHtml(companyAddress)}</div>`
-                  : ''
-              }
-              ${
-                companyPhone
-                  ? `<div style="font-size: 10px; color: #475569; font-weight: 700;">Tel: ${escapeHtml(companyPhone)}</div>`
-                  : ''
-              }
+          <div style="background: #0f172a; padding: 10px 18px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #1e293b;">
+            <img
+              src="${logoUrl}"
+              alt="POLATLAR YAZILIM Logo"
+              style="height: 46px; width: auto; max-width: 190px; object-fit: contain; display: block;"
+            />
+          </div>
+          <div>
+            <div style="font-size: 21px; font-weight: 900; color: #0f172a; letter-spacing: 0.6px; text-transform: uppercase;">
+              ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
             </div>
-          `
-              : `
-            <div>
-              ${
-                companyFullTitle && companyFullTitle !== 'POLATLAR'
-                  ? `<div style="font-size: 11px; font-weight: 800; color: #1e3a8a;">${escapeHtml(companyFullTitle)}</div>`
-                  : ''
-              }
-              ${
-                companyAddress
-                  ? `<div style="font-size: 10px; color: #475569; margin-top: 2px;">${escapeHtml(companyAddress)}</div>`
-                  : ''
-              }
-              ${
-                companyPhone
-                  ? `<div style="font-size: 10px; color: #475569; font-weight: 700;">Tel: ${escapeHtml(companyPhone)}</div>`
-                  : ''
-              }
-            </div>
-          `
-          }
+            ${
+              companyAddress
+                ? `<div style="font-size: 10px; color: #475569; margin-top: 2px;">${escapeHtml(companyAddress)}</div>`
+                : ''
+            }
+            ${
+              companyPhone
+                ? `<div style="font-size: 10px; color: #475569; font-weight: 700;">Tel: ${escapeHtml(companyPhone)}</div>`
+                : ''
+            }
+          </div>
         </div>
 
         <div style="text-align: right;">
@@ -513,7 +491,7 @@ export const generateQuotationPdfHtml = (
               TEKLİFİ VEREN FİRMA (KAŞE / İMZA)
             </div>
             <div style="border-top: 1px solid #cbd5e1; padding-top: 5px; font-size: 10.5px; font-weight: 800; color: #0284c7;">
-              ${escapeHtml(companyFullTitle || 'POLATLAR')}
+              ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
             </div>
           </td>
           <td style="width: 10%;"></td>
@@ -546,7 +524,7 @@ const createEmptyLineItem = (): QuotationLineItem => ({
 });
 
 export const QuotationsSection: React.FC = () => {
-  const { user, company, updateCompanyLogo } = useAuth();
+  const { user, updateCompanyLogo } = useAuth();
   const {
     accountingData,
     cariItems,
@@ -578,11 +556,14 @@ export const QuotationsSection: React.FC = () => {
   );
   const quotationSettings = accountingData.quotationSettings || {};
 
-  // Active POLATLAR Logo (Priority: Quotation Settings Custom Logo -> Company Logo -> POLATLAR Built-in Corporate SVG)
+  // Active POLATLAR YAZILIM Logo (Görsel-2 Official Logo by default, or Custom Quotation Logo)
   const activePolatlarLogo =
-    quotationSettings.customLogoUrl || company?.logoUrl || POLATLAR_CORPORATE_LOGO_SVG_DATA_URI;
+    quotationSettings.customLogoUrl || POLATLAR_CORPORATE_LOGO_SVG_DATA_URI;
+  const rawCompanyTitle = quotationSettings.companyFullTitle || 'POLATLAR YAZILIM';
   const activeCompanyFullTitle =
-    quotationSettings.companyFullTitle || company?.name || 'POLATLAR';
+    rawCompanyTitle.trim().toLocaleUpperCase('tr-TR') === 'POLATLAR'
+      ? 'POLATLAR YAZILIM'
+      : rawCompanyTitle;
 
   // Sub-navigation: 'quotations' | 'products' | 'footers'
   const [subTab, setSubTab] = useState<'quotations' | 'products' | 'footers'>('quotations');
@@ -663,7 +644,10 @@ export const QuotationsSection: React.FC = () => {
 
   // Company Header Settings in Footers/Settings tab
   const [settingsCompanyTitle, setSettingsCompanyTitle] = useState(
-    quotationSettings.companyFullTitle || 'POLATLAR'
+    quotationSettings.companyFullTitle &&
+      quotationSettings.companyFullTitle.trim().toLocaleUpperCase('tr-TR') !== 'POLATLAR'
+      ? quotationSettings.companyFullTitle
+      : 'POLATLAR YAZILIM'
   );
   const [settingsCompanyAddress, setSettingsCompanyAddress] = useState(
     quotationSettings.companyAddress || ''
@@ -1494,7 +1478,7 @@ export const QuotationsSection: React.FC = () => {
     e.preventDefault();
     await updateQuotationSettings({
       ...quotationSettings,
-      companyFullTitle: settingsCompanyTitle.trim() || 'POLATLAR',
+      companyFullTitle: settingsCompanyTitle.trim() || 'POLATLAR YAZILIM',
       companyAddress: settingsCompanyAddress.trim() || undefined,
       companyPhone: settingsCompanyPhone.trim() || undefined,
     });
@@ -1560,14 +1544,14 @@ export const QuotationsSection: React.FC = () => {
       {/* ========================================================= */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          {/* POLATLAR Kurumsal Logo Kutusu */}
-          <div className="relative group/qlogo flex items-center justify-center bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2 shadow-xs shrink-0">
+          {/* POLATLAR YAZILIM Kurumsal Logo Kutusu */}
+          <div className="relative group/qlogo flex items-center justify-center bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2.5 shadow-md shrink-0">
             <img
               src={activePolatlarLogo}
-              alt="POLATLAR Logo"
-              className="h-12 sm:h-14 w-auto max-w-[190px] object-contain"
+              alt="POLATLAR YAZILIM Logo"
+              className="h-11 sm:h-12 w-auto max-w-[180px] object-contain"
             />
-            <div className="absolute inset-0 bg-slate-950/80 opacity-0 group-hover/qlogo:opacity-100 transition-opacity rounded-2xl flex items-center justify-center gap-1.5 px-2">
+            <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover/qlogo:opacity-100 transition-opacity rounded-2xl flex items-center justify-center gap-1.5 px-2">
               <button
                 type="button"
                 onClick={() => openGalleryForTarget({ mode: 'companyLogo' })}
@@ -1591,10 +1575,10 @@ export const QuotationsSection: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                Teklif &amp; Proforma Modülü
+                POLATLAR YAZILIM — Teklif Modülü
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
-                POLATLAR Kurumsal Teklif
+                POLATLAR YAZILIM
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2324,17 +2308,19 @@ export const QuotationsSection: React.FC = () => {
             {/* Üst Başlık: POLATLAR Logosu En Başta */}
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-950/50 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                <img
-                  src={activePolatlarLogo}
-                  alt="POLATLAR Logo"
-                  className="h-10 sm:h-12 w-auto max-w-[160px] object-contain bg-white rounded-xl p-1 border border-slate-200 dark:border-slate-800 shrink-0"
-                />
+                <div className="bg-slate-950 rounded-xl px-3 py-1.5 border border-slate-800 shrink-0 flex items-center justify-center">
+                  <img
+                    src={activePolatlarLogo}
+                    alt="POLATLAR YAZILIM Logo"
+                    className="h-9 sm:h-10 w-auto max-w-[150px] object-contain"
+                  />
+                </div>
                 <div className="min-w-0">
                   <h2 className="text-sm sm:text-lg font-black text-slate-900 dark:text-white truncate">
                     {editingQuote ? `Teklifi Düzenle (${quoteNumber})` : 'Yeni Fiyat Teklifi Hazırla'}
                   </h2>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    POLATLAR kurumsal antetli PDF teklif formu
+                    POLATLAR YAZILIM kurumsal antetli PDF teklif formu
                   </p>
                 </div>
               </div>
