@@ -200,14 +200,14 @@ export const generateQuotationPdfHtml = (
     .map((item, idx) => {
       const imgCell = item.imageUrl
         ? `<img src="${item.imageUrl}" alt="${escapeHtml(item.name)}" style="width: 52px; height: 52px; object-fit: contain; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; padding: 2px; display: block; margin: 0 auto;" />`
-        : `<div style="width: 52px; height: 52px; border-radius: 8px; border: 1px dashed #cbd5e1; background: #f8fafc; color: #94a3b8; font-size: 9px; font-weight: bold; display: flex; align-items: center; justify-content: center; text-align: center; margin: 0 auto;">GÖRSEL<br/>YOK</div>`;
+        : `<div style="width: 52px; height: 52px; border-radius: 8px; border: 1px dashed #cbd5e1; background: #f8fafc; color: #94a3b8; font-size: 8.5px; font-weight: 400; letter-spacing: 0.3px; display: flex; align-items: center; justify-content: center; text-align: center; margin: 0 auto;">GÖRSEL<br/>YOK</div>`;
 
       if (isPriceless) {
         return `
           <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; background-color: ${
             idx % 2 === 1 ? '#f8fafc' : '#ffffff'
           };">
-            <td style="padding: 10px 8px; text-align: center; font-weight: 800; color: #475569; font-size: 11.5px; width: 36px;">
+            <td style="padding: 10px 8px; text-align: center; font-weight: 300; color: #64748b; font-size: 11px; width: 36px;">
               ${idx + 1}
             </td>
             ${
@@ -216,21 +216,21 @@ export const generateQuotationPdfHtml = (
                 : ''
             }
             <td style="padding: 10px 12px;">
-              <div style="font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.35;">
+              <div style="font-size: 12px; font-weight: 500; color: #0f172a; line-height: 1.4; letter-spacing: 0.15px;">
                 ${escapeHtml(item.name)}
               </div>
               ${
                 item.code
-                  ? `<div style="font-size: 9.5px; font-weight: 700; color: #0284c7; margin-top: 2px;">Stok/Ürün Kodu: ${escapeHtml(item.code)}</div>`
+                  ? `<div style="font-size: 9.5px; font-weight: 400; color: #0284c7; margin-top: 2px; letter-spacing: 0.25px;">Stok/Ürün Kodu: ${escapeHtml(item.code)}</div>`
                   : ''
               }
               ${
                 item.description
-                  ? `<div style="font-size: 10.5px; color: #475569; margin-top: 3px; white-space: pre-wrap; line-height: 1.35;">${escapeHtml(item.description)}</div>`
+                  ? `<div style="font-size: 10px; font-weight: 300; color: #64748b; margin-top: 3px; white-space: pre-wrap; line-height: 1.4; letter-spacing: 0.1px;">${escapeHtml(item.description)}</div>`
                   : ''
               }
             </td>
-            <td style="padding: 10px 10px; text-align: center; font-size: 12px; font-weight: 800; color: #1e293b; white-space: nowrap; width: 100px;">
+            <td style="padding: 10px 10px; text-align: center; font-size: 11.5px; font-weight: 400; color: #1e293b; white-space: nowrap; width: 100px; letter-spacing: 0.2px;">
               ${item.quantity} ${escapeHtml(item.unit || 'Adet')}
             </td>
           </tr>
@@ -241,48 +241,48 @@ export const generateQuotationPdfHtml = (
         <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; background-color: ${
           idx % 2 === 1 ? '#f8fafc' : '#ffffff'
         };">
-          <td style="padding: 9px 6px; text-align: center; font-weight: 800; color: #475569; font-size: 11px;">
+          <td style="padding: 9px 6px; text-align: center; font-weight: 300; color: #64748b; font-size: 11px;">
             ${idx + 1}
           </td>
           <td style="padding: 8px 6px; text-align: center; width: 64px;">
             ${imgCell}
           </td>
           <td style="padding: 9px 10px;">
-            <div style="font-size: 12px; font-weight: 800; color: #0f172a; line-height: 1.3;">
+            <div style="font-size: 11.5px; font-weight: 500; color: #0f172a; line-height: 1.35; letter-spacing: 0.15px;">
               ${escapeHtml(item.name)}
             </div>
             ${
               item.code
-                ? `<div style="font-size: 9.5px; font-weight: 700; color: #0284c7; margin-top: 2px;">Stok/Ürün Kodu: ${escapeHtml(item.code)}</div>`
+                ? `<div style="font-size: 9.5px; font-weight: 400; color: #0284c7; margin-top: 2px; letter-spacing: 0.25px;">Stok/Ürün Kodu: ${escapeHtml(item.code)}</div>`
                 : ''
             }
             ${
               item.description
-                ? `<div style="font-size: 10.5px; color: #475569; margin-top: 3px; white-space: pre-wrap; line-height: 1.35;">${escapeHtml(item.description)}</div>`
+                ? `<div style="font-size: 10px; font-weight: 300; color: #64748b; margin-top: 3px; white-space: pre-wrap; line-height: 1.4; letter-spacing: 0.1px;">${escapeHtml(item.description)}</div>`
                 : ''
             }
           </td>
-          <td style="padding: 9px 8px; text-align: center; font-size: 11.5px; font-weight: 800; color: #1e293b; white-space: nowrap;">
+          <td style="padding: 9px 8px; text-align: center; font-size: 11px; font-weight: 400; color: #1e293b; white-space: nowrap;">
             ${item.quantity} ${escapeHtml(item.unit || 'Adet')}
           </td>
-          <td style="padding: 9px 8px; text-align: right; font-size: 11.5px; font-weight: 700; color: #334155; white-space: nowrap;">
+          <td style="padding: 9px 8px; text-align: right; font-size: 11px; font-weight: 400; color: #334155; white-space: nowrap;">
             ${fmt(item.unitPrice)}
           </td>
           ${
             hasAnyDiscount
-              ? `<td style="padding: 9px 6px; text-align: center; font-size: 11px; font-weight: 700; color: #e11d48; white-space: nowrap;">
+              ? `<td style="padding: 9px 6px; text-align: center; font-size: 10.5px; font-weight: 400; color: #e11d48; white-space: nowrap;">
                   ${item.discountPercent ? `%${item.discountPercent}` : '-'}
                 </td>`
               : ''
           }
           ${
             quote.includeVat
-              ? `<td style="padding: 9px 6px; text-align: center; font-size: 10.5px; font-weight: 700; color: #64748b; white-space: nowrap;">
+              ? `<td style="padding: 9px 6px; text-align: center; font-size: 10px; font-weight: 300; color: #64748b; white-space: nowrap;">
                   %${item.vatRate ?? 20}
                 </td>`
               : ''
           }
-          <td style="padding: 9px 10px; text-align: right; font-size: 12px; font-weight: 900; color: #0f172a; white-space: nowrap;">
+          <td style="padding: 9px 10px; text-align: right; font-size: 11.5px; font-weight: 500; color: #0f172a; white-space: nowrap;">
             ${fmt(item.lineTotal)}
           </td>
         </tr>
@@ -294,7 +294,7 @@ export const generateQuotationPdfHtml = (
     quote.footerTerms && quote.footerTerms.length > 0
       ? `
       <div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden; page-break-inside: avoid;">
-        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e3a8a 100%); color: #ffffff; padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e3a8a 100%); color: #ffffff; padding: 7px 14px; font-size: 10px; font-weight: 400; letter-spacing: 1.1px; text-transform: uppercase;">
           TEKLİF KOŞULLARI VE BELGE ALTI BİLGİLENDİRME NOTLARI
         </div>
         <div style="padding: 10px 14px; background-color: #f8fafc;">
@@ -303,10 +303,10 @@ export const generateQuotationPdfHtml = (
               .map(
                 (term) => `
               <tr>
-                <td style="padding: 5px 8px 5px 0; vertical-align: top; width: 170px; font-size: 10.5px; font-weight: 800; color: #0f172a; white-space: nowrap;">
+                <td style="padding: 5px 8px 5px 0; vertical-align: top; width: 170px; font-size: 10.5px; font-weight: 500; color: #1e293b; white-space: nowrap; letter-spacing: 0.15px;">
                   ▪ ${escapeHtml(term.title)}:
                 </td>
-                <td style="padding: 5px 0; vertical-align: top; font-size: 10.5px; color: #334155; line-height: 1.4;">
+                <td style="padding: 5px 0; vertical-align: top; font-size: 10.5px; font-weight: 300; color: #475569; line-height: 1.45; letter-spacing: 0.1px;">
                   ${escapeHtml(term.content)}
                 </td>
               </tr>
@@ -317,8 +317,8 @@ export const generateQuotationPdfHtml = (
           ${
             quote.customFooterNote
               ? `
-            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5e1; font-size: 10.5px; color: #1e293b; white-space: pre-wrap;">
-              <strong>Ek Not:</strong> ${escapeHtml(quote.customFooterNote)}
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5e1; font-size: 10.5px; font-weight: 300; color: #334155; white-space: pre-wrap; line-height: 1.45;">
+              <span style="font-weight: 500; color: #0f172a;">Ek Not:</span> ${escapeHtml(quote.customFooterNote)}
             </div>
           `
               : ''
@@ -328,8 +328,8 @@ export const generateQuotationPdfHtml = (
     `
       : quote.customFooterNote
       ? `
-      <div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px 14px; background-color: #f8fafc; page-break-inside: avoid; font-size: 10.5px; color: #1e293b; white-space: pre-wrap;">
-        <strong style="display: block; margin-bottom: 4px; color: #0f172a; text-transform: uppercase;">TEKLİF KOŞULLARI &amp; NOTLAR:</strong>
+      <div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px 14px; background-color: #f8fafc; page-break-inside: avoid; font-size: 10.5px; font-weight: 300; color: #334155; white-space: pre-wrap; line-height: 1.45;">
+        <span style="display: block; margin-bottom: 4px; font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.8px;">TEKLİF KOŞULLARI &amp; NOTLAR:</span>
         ${escapeHtml(quote.customFooterNote)}
       </div>
     `
@@ -341,7 +341,7 @@ export const generateQuotationPdfHtml = (
       : POLATLAR_NAVY_LOGO_DATA_URI;
 
   return `
-    <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; background: #ffffff; width: 750px; margin: 0 auto; padding: 28px 32px; box-sizing: border-box;">
+    <div style="font-family: 'Montserrat', 'Inter', 'Plus Jakarta Sans', 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-weight: 300; letter-spacing: 0.15px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; color: #1e293b; background: #ffffff; width: 750px; margin: 0 auto; padding: 28px 32px; box-sizing: border-box;">
       <!-- 1. EN ÜSTTE POLATLAR YAZILIM KURUMSAL LOGO VE FİRMA BİLGİLERİ -->
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px;">
         <div style="padding-top: 4px;">
@@ -352,14 +352,14 @@ export const generateQuotationPdfHtml = (
               style="height: 64px; width: auto; max-width: 240px; object-fit: contain; display: block;"
             />
           </div>
-          <div style="font-size: 13px; font-weight: 900; color: #003870; letter-spacing: 0.8px; margin-top: 6px; text-transform: uppercase;">
+          <div style="font-size: 12px; font-weight: 500; color: #003870; letter-spacing: 1.6px; margin-top: 6px; text-transform: uppercase;">
             ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
           </div>
         </div>
 
-        <div style="text-align: left; font-size: 10.5px; color: #475569; line-height: 1.45; min-width: 225px;">
-          <div style="font-weight: 800; color: #334155;">POLATLAR YAZILIM &amp; BİLGİSAYAR</div>
-          <div style="font-weight: 800; color: #334155;">MÜHENDİSLİĞİ LTD.ŞTİ.</div>
+        <div style="text-align: left; font-size: 10.5px; font-weight: 300; color: #475569; line-height: 1.5; min-width: 225px; letter-spacing: 0.2px;">
+          <div style="font-weight: 400; color: #334155; letter-spacing: 0.3px;">POLATLAR YAZILIM &amp; BİLGİSAYAR</div>
+          <div style="font-weight: 400; color: #334155; letter-spacing: 0.3px;">MÜHENDİSLİĞİ LTD.ŞTİ.</div>
           <div>Gsm : ${escapeHtml(companyPhone || '0 533 608 23 53')}</div>
           <div>Web : www.polatlaryazilim.com</div>
           <div>e-Mail : bilgi@polatlaryazilim.com</div>
@@ -374,56 +374,56 @@ export const generateQuotationPdfHtml = (
       </div>
 
       <!-- 2. TEKLİF ÇİZGİSİ VE KIRMIZI ALANDAKİ GİBİ CARİ İSMİ & TARİH/BELGE NO BLOĞU -->
-      <div style="text-align: right; border-bottom: 1.5px solid #94a3b8; padding-bottom: 3px; margin-bottom: 10px;">
-        <span style="font-size: 18px; font-weight: 800; color: #718096; letter-spacing: 0.5px;">Teklif</span>
+      <div style="text-align: right; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 12px;">
+        <span style="font-size: 17px; font-weight: 300; color: #64748b; letter-spacing: 1.8px;">Teklif</span>
       </div>
 
       <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
         <tr>
           <!-- Sol Taraf: Kırmızı Alan İçerisine Alınan Cari İsmi Formatı -->
           <td style="width: 58%; vertical-align: top; padding-right: 16px;">
-            <div style="font-size: 13px; font-weight: 900; color: #0f172a; line-height: 1.35; text-transform: uppercase;">
+            <div style="font-size: 12.5px; font-weight: 500; color: #0f172a; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.4px;">
               ${escapeHtml(quote.cariName)}
             </div>
             ${
               quote.cariContactPerson
-                ? `<div style="font-size: 11px; color: #334155; margin-top: 6px;"><strong>Yetkili :</strong> ${escapeHtml(quote.cariContactPerson)}</div>`
+                ? `<div style="font-size: 10.5px; font-weight: 300; color: #475569; margin-top: 6px; letter-spacing: 0.15px;"><span style="font-weight: 500; color: #334155;">Yetkili :</span> ${escapeHtml(quote.cariContactPerson)}</div>`
                 : ''
             }
             ${
               quote.cariPhone
-                ? `<div style="font-size: 11px; color: #334155; margin-top: 2px;"><strong>Tel :</strong> ${escapeHtml(quote.cariPhone)}</div>`
+                ? `<div style="font-size: 10.5px; font-weight: 300; color: #475569; margin-top: 2px; letter-spacing: 0.15px;"><span style="font-weight: 500; color: #334155;">Tel :</span> ${escapeHtml(quote.cariPhone)}</div>`
                 : ''
             }
             ${
               quote.cariAddress
-                ? `<div style="font-size: 11px; color: #334155; margin-top: 2px;">${escapeHtml(quote.cariAddress)}</div>`
+                ? `<div style="font-size: 10.5px; font-weight: 300; color: #475569; margin-top: 2px; letter-spacing: 0.15px;">${escapeHtml(quote.cariAddress)}</div>`
                 : ''
             }
             ${
               quote.cariTaxInfo
-                ? `<div style="font-size: 11px; color: #0f172a; margin-top: 14px;">V.Dairesi / V.No : ${escapeHtml(quote.cariTaxInfo)}</div>`
+                ? `<div style="font-size: 10.5px; font-weight: 300; color: #334155; margin-top: 12px; letter-spacing: 0.15px;"><span style="font-weight: 500; color: #0f172a;">V.Dairesi / V.No :</span> ${escapeHtml(quote.cariTaxInfo)}</div>`
                 : ''
             }
           </td>
 
           <!-- Sağ Taraf: Tarih / Belge No / Termin Tarihi -->
           <td style="width: 42%; vertical-align: top;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 11px; color: #0f172a;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; color: #1e293b;">
               <tr>
-                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; width: 120px; white-space: nowrap;">TARİH :</td>
-                <td style="padding: 3px 0; font-weight: 600;">${formattedDate}</td>
+                <td style="padding: 3px 8px 3px 0; font-weight: 500; color: #475569; text-align: right; width: 125px; white-space: nowrap; letter-spacing: 0.4px;">TARİH :</td>
+                <td style="padding: 3px 0; font-weight: 400; color: #0f172a;">${formattedDate}</td>
               </tr>
               <tr>
-                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">BELGE NO :</td>
-                <td style="padding: 3px 0; font-weight: 700;">${escapeHtml(quote.quoteNumber)}</td>
+                <td style="padding: 3px 8px 3px 0; font-weight: 500; color: #475569; text-align: right; white-space: nowrap; letter-spacing: 0.4px;">BELGE NO :</td>
+                <td style="padding: 3px 0; font-weight: 400; color: #0f172a;">${escapeHtml(quote.quoteNumber)}</td>
               </tr>
               ${
                 formattedValidUntil
                   ? `
               <tr>
-                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">TERMİN / GEÇERLİLİK :</td>
-                <td style="padding: 3px 0; font-weight: 600;">${formattedValidUntil}</td>
+                <td style="padding: 3px 8px 3px 0; font-weight: 500; color: #475569; text-align: right; white-space: nowrap; letter-spacing: 0.4px;">TERMİN / GEÇERLİLİK :</td>
+                <td style="padding: 3px 0; font-weight: 400; color: #0f172a;">${formattedValidUntil}</td>
               </tr>
               `
                   : ''
@@ -432,8 +432,8 @@ export const generateQuotationPdfHtml = (
                 quote.title
                   ? `
               <tr>
-                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">KONU :</td>
-                <td style="padding: 3px 0; font-weight: 700;">${escapeHtml(quote.title)}</td>
+                <td style="padding: 3px 8px 3px 0; font-weight: 500; color: #475569; text-align: right; white-space: nowrap; letter-spacing: 0.4px;">KONU :</td>
+                <td style="padding: 3px 0; font-weight: 400; color: #0f172a;">${escapeHtml(quote.title)}</td>
               </tr>
               `
                   : ''
@@ -442,8 +442,8 @@ export const generateQuotationPdfHtml = (
                 quote.preparedBy
                   ? `
               <tr>
-                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">HAZIRLAYAN :</td>
-                <td style="padding: 3px 0;">${escapeHtml(quote.preparedBy)}</td>
+                <td style="padding: 3px 8px 3px 0; font-weight: 500; color: #475569; text-align: right; white-space: nowrap; letter-spacing: 0.4px;">HAZIRLAYAN :</td>
+                <td style="padding: 3px 0; font-weight: 300; color: #334155;">${escapeHtml(quote.preparedBy)}</td>
               </tr>
               `
                   : ''
@@ -457,8 +457,8 @@ export const generateQuotationPdfHtml = (
       ${
         quote.description
           ? `
-        <div style="margin-bottom: 16px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 11px 14px; font-size: 11.5px; color: #0c4a6e; line-height: 1.45; white-space: pre-wrap;">
-          <strong style="display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #0284c7; margin-bottom: 3px;">TEKLİF AÇIKLAMASI:</strong>${escapeHtml(quote.description)}
+        <div style="margin-bottom: 16px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 11px 14px; font-size: 11px; font-weight: 300; color: #0c4a6e; line-height: 1.5; white-space: pre-wrap; letter-spacing: 0.15px;">
+          <span style="display: block; font-size: 9.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.9px; color: #0284c7; margin-bottom: 3px;">TEKLİF AÇIKLAMASI:</span>${escapeHtml(quote.description)}
         </div>
       `
           : ''
@@ -470,35 +470,35 @@ export const generateQuotationPdfHtml = (
           ${
             isPriceless
               ? `
-          <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-            <th style="padding: 9px 8px; text-align: center; width: 36px;">#</th>
+          <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: 1px;">
+            <th style="padding: 9px 8px; text-align: center; width: 36px; font-weight: 400;">#</th>
             ${
               hasAnyImage
-                ? `<th style="padding: 9px 6px; text-align: center; width: 68px;">Görsel</th>`
+                ? `<th style="padding: 9px 6px; text-align: center; width: 68px; font-weight: 400;">Görsel</th>`
                 : ''
             }
-            <th style="padding: 9px 12px; text-align: left;">Ürün / Hizmet Listesi</th>
-            <th style="padding: 9px 10px; text-align: center; width: 100px;">Miktar</th>
+            <th style="padding: 9px 12px; text-align: left; font-weight: 400;">Ürün / Hizmet Listesi</th>
+            <th style="padding: 9px 10px; text-align: center; width: 100px; font-weight: 400;">Miktar</th>
           </tr>
           `
               : `
-          <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-            <th style="padding: 9px 6px; text-align: center; width: 28px;">#</th>
-            <th style="padding: 9px 6px; text-align: center; width: 64px;">Görsel</th>
-            <th style="padding: 9px 10px; text-align: left;">Ürün / Hizmet Açıklaması</th>
-            <th style="padding: 9px 8px; text-align: center; width: 75px;">Miktar</th>
-            <th style="padding: 9px 8px; text-align: right; width: 95px;">Birim Fiyat</th>
+          <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: 1px;">
+            <th style="padding: 9px 6px; text-align: center; width: 28px; font-weight: 400;">#</th>
+            <th style="padding: 9px 6px; text-align: center; width: 64px; font-weight: 400;">Görsel</th>
+            <th style="padding: 9px 10px; text-align: left; font-weight: 400;">Ürün / Hizmet Açıklaması</th>
+            <th style="padding: 9px 8px; text-align: center; width: 75px; font-weight: 400;">Miktar</th>
+            <th style="padding: 9px 8px; text-align: right; width: 95px; font-weight: 400;">Birim Fiyat</th>
             ${
               hasAnyDiscount
-                ? `<th style="padding: 9px 6px; text-align: center; width: 55px;">İsk.</th>`
+                ? `<th style="padding: 9px 6px; text-align: center; width: 55px; font-weight: 400;">İsk.</th>`
                 : ''
             }
             ${
               quote.includeVat
-                ? `<th style="padding: 9px 6px; text-align: center; width: 50px;">KDV</th>`
+                ? `<th style="padding: 9px 6px; text-align: center; width: 50px; font-weight: 400;">KDV</th>`
                 : ''
             }
-            <th style="padding: 9px 10px; text-align: right; width: 105px;">Toplam</th>
+            <th style="padding: 9px 10px; text-align: right; width: 105px; font-weight: 400;">Toplam</th>
           </tr>
           `
           }
@@ -516,8 +516,8 @@ export const generateQuotationPdfHtml = (
       <div style="display: flex; justify-content: flex-end; margin-top: 14px; page-break-inside: avoid;">
         <table style="width: 290px; border-collapse: collapse; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden; background-color: #f8fafc;">
           <tr style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 7px 12px; font-size: 11px; font-weight: 700; color: #475569;">Ara Toplam:</td>
-            <td style="padding: 7px 12px; font-size: 11.5px; font-weight: 800; color: #0f172a; text-align: right;">
+            <td style="padding: 7px 12px; font-size: 10.5px; font-weight: 300; color: #475569; letter-spacing: 0.2px;">Ara Toplam:</td>
+            <td style="padding: 7px 12px; font-size: 11px; font-weight: 400; color: #0f172a; text-align: right;">
               ${fmt(quote.subtotal)}
             </td>
           </tr>
@@ -525,8 +525,8 @@ export const generateQuotationPdfHtml = (
             quote.discountTotal > 0
               ? `
             <tr style="border-bottom: 1px solid #e2e8f0;">
-              <td style="padding: 7px 12px; font-size: 11px; font-weight: 700; color: #e11d48;">Toplam İskonto:</td>
-              <td style="padding: 7px 12px; font-size: 11.5px; font-weight: 800; color: #e11d48; text-align: right;">
+              <td style="padding: 7px 12px; font-size: 10.5px; font-weight: 300; color: #e11d48; letter-spacing: 0.2px;">Toplam İskonto:</td>
+              <td style="padding: 7px 12px; font-size: 11px; font-weight: 400; color: #e11d48; text-align: right;">
                 -${fmt(quote.discountTotal)}
               </td>
             </tr>
@@ -537,8 +537,8 @@ export const generateQuotationPdfHtml = (
             quote.includeVat
               ? `
             <tr style="border-bottom: 1px solid #e2e8f0;">
-              <td style="padding: 7px 12px; font-size: 11px; font-weight: 700; color: #475569;">Hesaplanan KDV:</td>
-              <td style="padding: 7px 12px; font-size: 11.5px; font-weight: 800; color: #334155; text-align: right;">
+              <td style="padding: 7px 12px; font-size: 10.5px; font-weight: 300; color: #475569; letter-spacing: 0.2px;">Hesaplanan KDV:</td>
+              <td style="padding: 7px 12px; font-size: 11px; font-weight: 400; color: #334155; text-align: right;">
                 ${fmt(quote.vatTotal)}
               </td>
             </tr>
@@ -546,10 +546,10 @@ export const generateQuotationPdfHtml = (
               : ''
           }
           <tr style="background: linear-gradient(90deg, #0f172a 0%, #0284c7 100%); color: #ffffff;">
-            <td style="padding: 10px 12px; font-size: 12px; font-weight: 900; text-transform: uppercase;">
+            <td style="padding: 10px 12px; font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.8px;">
               GENEL TOPLAM ${quote.includeVat ? '(KDV DAHİL)' : ''}:
             </td>
-            <td style="padding: 10px 12px; font-size: 14px; font-weight: 900; text-align: right; white-space: nowrap;">
+            <td style="padding: 10px 12px; font-size: 13px; font-weight: 500; text-align: right; white-space: nowrap; letter-spacing: 0.4px;">
               ${fmt(quote.grandTotal)}
             </td>
           </tr>
@@ -1349,7 +1349,14 @@ export const QuotationsSection: React.FC = () => {
       wrapper.innerHTML = htmlString;
       document.body.appendChild(wrapper);
 
-      // Wait briefly for any embedded images to decode
+      // Wait briefly for web fonts and any embedded images to decode
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // ignore
+        }
+      }
       const imgs = Array.from(wrapper.querySelectorAll('img'));
       await Promise.all(
         imgs.map(
@@ -1422,9 +1429,12 @@ export const QuotationsSection: React.FC = () => {
       <head>
         <meta charset="utf-8" />
         <title>POLATLAR Teklif - ${escapeHtml(quote.quoteNumber)} - ${escapeHtml(quote.cariName)}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
         <style>
           @page { size: A4 portrait; margin: 10mm; }
-          body { margin: 0; padding: 0; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { margin: 0; padding: 0; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: 'Montserrat', 'Inter', 'Plus Jakarta Sans', sans-serif; font-weight: 300; }
         </style>
       </head>
       <body>${htmlContent}</body>
