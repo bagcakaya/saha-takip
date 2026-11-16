@@ -54,7 +54,7 @@ export async function forceHardRefresh(): Promise<void> {
 
   try {
     // 3. Bust browser HTTP cache for index.html
-    await fetch(`${window.location.origin}/index.html?_ refresh=${Date.now()}`, {
+    await fetch(`${window.location.origin}/index.html?_refresh=${Date.now()}`, {
       cache: 'reload',
       headers: {
         Pragma: 'no-cache',

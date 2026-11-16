@@ -1,13 +1,12 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v12';
+const CACHE_NAME = 'saha-takip-pwa-v13';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json?v=12',
-  '/favicon.png?v=12',
-  '/icon.png?v=12',
-  '/polatlar-erp-horizontal.png?v=12',
+  '/manifest.json',
+  '/favicon.png',
+  '/icon.png',
 ];
 
 self.addEventListener('message', (event) => {
@@ -18,12 +17,12 @@ self.addEventListener('message', (event) => {
 
 // Install Event
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE).catch(() => {});
     })
   );
-  self.skipWaiting();
 });
 
 // Activate Event
@@ -52,39 +51,38 @@ self.addEventListener('activate', (event) => {
       } catch (e) {
         // ignore
       }
+      await self.clients.claim();
     })()
   );
-  self.clients.claim();
 });
 
-// Fetch Event (Network First with no-store for HTML navigation so updates arrive immediately)
+// Fetch Event (100% iOS Safari / WebKit safe Network-First with Cache Fallback)
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (!event.request.url.startsWith(self.location.origin)) return;
 
-  const isHtmlNav =
-    event.request.mode === 'navigate' ||
-    (event.request.headers.get('accept') || '').includes('text/html');
-
   event.respondWith(
-    fetch(event.request, isHtmlNav ? { cache: 'no-store' } : undefined)
-      .then((response) => {
+    (async () => {
+      try {
+        const response = await fetch(event.request);
         if (response && response.status === 200 && response.type === 'basic') {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
+            cache.put(event.request, responseClone).catch(() => {});
+          }).catch(() => {});
         }
         return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          if (isHtmlNav) {
-            return caches.match('/index.html');
-          }
-        });
-      })
+      } catch (err) {
+        const cachedResponse = await caches.match(event.request);
+        if (cachedResponse) return cachedResponse;
+        const accept = event.request.headers.get('accept') || '';
+        if (event.request.mode === 'navigate' || accept.includes('text/html')) {
+          const fallbackHtml = await caches.match('/index.html');
+          if (fallbackHtml) return fallbackHtml;
+        }
+        throw err;
+      }
+    })()
   );
 });
 
