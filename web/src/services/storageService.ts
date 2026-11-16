@@ -23,7 +23,7 @@ import {
   DepartmentSalaryConfig,
   AccountingDataPayload,
 } from '../types/storage';
-import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
+import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS, DEFAULT_QUOTATION_FOOTER_TEMPLATES } from '../constants/defaultAccounting';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
 import { supabase } from './supabaseClient';
 import * as XLSX from 'xlsx';
@@ -4661,6 +4661,35 @@ export const StorageService = {
         validCached && Array.isArray(validCached.fixedExpenses) ? validCached.fixedExpenses : [];
       const finalFixed = cloudFixed.length === 0 && cachedFixed.length > 0 ? cachedFixed : cloudFixed;
 
+      const cloudQuotations = Array.isArray(cloudData.quotations) ? cloudData.quotations : [];
+      const cachedQuotations =
+        validCached && Array.isArray(validCached.quotations) ? validCached.quotations : [];
+      const finalQuotations =
+        cloudQuotations.length === 0 && cachedQuotations.length > 0 ? cachedQuotations : cloudQuotations;
+
+      const cloudProducts = Array.isArray(cloudData.quotationProducts) ? cloudData.quotationProducts : [];
+      const cachedProducts =
+        validCached && Array.isArray(validCached.quotationProducts) ? validCached.quotationProducts : [];
+      const finalProducts =
+        cloudProducts.length === 0 && cachedProducts.length > 0 ? cachedProducts : cloudProducts;
+
+      const cloudFooters = Array.isArray(cloudData.quotationFooterTemplates)
+        ? cloudData.quotationFooterTemplates
+        : [];
+      const cachedFooters =
+        validCached && Array.isArray(validCached.quotationFooterTemplates)
+          ? validCached.quotationFooterTemplates
+          : [];
+      const finalFooters =
+        cloudFooters.length > 0
+          ? cloudFooters
+          : cachedFooters.length > 0
+          ? cachedFooters
+          : DEFAULT_QUOTATION_FOOTER_TEMPLATES;
+
+      const finalSettings =
+        cloudData.quotationSettings || validCached?.quotationSettings || undefined;
+
       const merged: AccountingDataPayload = {
         transactions: finalTxs,
         categories:
@@ -4683,12 +4712,18 @@ export const StorageService = {
             : [],
         debtsReceivables: finalDebts,
         fixedExpenses: finalFixed,
+        quotations: finalQuotations,
+        quotationProducts: finalProducts,
+        quotationFooterTemplates: finalFooters,
+        quotationSettings: finalSettings,
       };
       await saveItem(localKey, merged);
       if (
         (cloudTxs.length === 0 && finalTxs.length > 0) ||
         (cloudDebts.length === 0 && finalDebts.length > 0) ||
-        (cloudFixed.length === 0 && finalFixed.length > 0)
+        (cloudFixed.length === 0 && finalFixed.length > 0) ||
+        (cloudQuotations.length === 0 && finalQuotations.length > 0) ||
+        (cloudProducts.length === 0 && finalProducts.length > 0)
       ) {
         saveChunkedSlot(slotId, merged).catch(() => {});
       }
@@ -4709,12 +4744,21 @@ export const StorageService = {
         dailyBalances: Array.isArray(validCached.dailyBalances) ? validCached.dailyBalances : [],
         debtsReceivables: Array.isArray(validCached.debtsReceivables) ? validCached.debtsReceivables : [],
         fixedExpenses: Array.isArray(validCached.fixedExpenses) ? validCached.fixedExpenses : [],
+        quotations: Array.isArray(validCached.quotations) ? validCached.quotations : [],
+        quotationProducts: Array.isArray(validCached.quotationProducts) ? validCached.quotationProducts : [],
+        quotationFooterTemplates:
+          Array.isArray(validCached.quotationFooterTemplates) && validCached.quotationFooterTemplates.length > 0
+            ? validCached.quotationFooterTemplates
+            : DEFAULT_QUOTATION_FOOTER_TEMPLATES,
+        quotationSettings: validCached.quotationSettings,
       };
       if (
         recovered.transactions.length > 0 ||
         recovered.dailyBalances.length > 0 ||
         (recovered.debtsReceivables && recovered.debtsReceivables.length > 0) ||
-        (recovered.fixedExpenses && recovered.fixedExpenses.length > 0)
+        (recovered.fixedExpenses && recovered.fixedExpenses.length > 0) ||
+        (recovered.quotations && recovered.quotations.length > 0) ||
+        (recovered.quotationProducts && recovered.quotationProducts.length > 0)
       ) {
         saveChunkedSlot(slotId, recovered).catch(() => {});
       }
@@ -4729,6 +4773,9 @@ export const StorageService = {
         dailyBalances: [],
         debtsReceivables: [],
         fixedExpenses: [],
+        quotations: [],
+        quotationProducts: [],
+        quotationFooterTemplates: DEFAULT_QUOTATION_FOOTER_TEMPLATES,
       };
       await saveItem(localKey, initial);
       return initial;
@@ -4741,6 +4788,9 @@ export const StorageService = {
       dailyBalances: [],
       debtsReceivables: [],
       fixedExpenses: [],
+      quotations: [],
+      quotationProducts: [],
+      quotationFooterTemplates: DEFAULT_QUOTATION_FOOTER_TEMPLATES,
     };
   },
 

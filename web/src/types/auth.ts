@@ -529,6 +529,14 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
         defaultAdmin: true,
       },
       {
+        id: 'quotations',
+        name: 'Teklif Modülü',
+        shortTitle: 'Teklifler & PDF',
+        description: 'Cari seçimi, görselli ürün kataloğu, belge altı koşulları ve kurumsal PDF fiyat teklifi hazırlama',
+        defaultStaff: false,
+        defaultAdmin: true,
+      },
+      {
         id: 'cash_register',
         name: 'Kasa & Günlük Mevcut',
         shortTitle: 'Kasa Takibi',

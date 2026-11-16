@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord, FixedExpenseRecord } from '../types/storage';
-import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS } from '../constants/defaultAccounting';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord, FixedExpenseRecord, QuotationRecord, QuotationProduct, QuotationFooterTemplate, QuotationSettings } from '../types/storage';
+import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS, DEFAULT_QUOTATION_FOOTER_TEMPLATES } from '../constants/defaultAccounting';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
 import { DEFAULT_STANDARD_TASKS } from '../constants/defaultTasks';
@@ -319,6 +319,22 @@ interface StorageContextType {
   bulkUpdateFixedExpenses: (items: FixedExpenseRecord[]) => Promise<void>;
   deleteFixedExpense: (id: string) => Promise<void>;
   toggleFixedExpenseStatus: (id: string, monthKey?: string) => Promise<void>;
+  addQuotation: (
+    item: Omit<QuotationRecord, 'id' | 'createdAt'>
+  ) => Promise<QuotationRecord>;
+  updateQuotation: (item: QuotationRecord) => Promise<void>;
+  deleteQuotation: (id: string) => Promise<void>;
+  addQuotationProduct: (
+    product: Omit<QuotationProduct, 'id' | 'createdAt'>
+  ) => Promise<QuotationProduct>;
+  updateQuotationProduct: (product: QuotationProduct) => Promise<void>;
+  deleteQuotationProduct: (id: string) => Promise<void>;
+  addQuotationFooterTemplate: (
+    tpl: Omit<QuotationFooterTemplate, 'id' | 'createdAt'>
+  ) => Promise<QuotationFooterTemplate>;
+  updateQuotationFooterTemplate: (tpl: QuotationFooterTemplate) => Promise<void>;
+  deleteQuotationFooterTemplate: (id: string) => Promise<void>;
+  updateQuotationSettings: (settings: QuotationSettings) => Promise<void>;
   refreshAccountingData: () => Promise<void>;
 }
 
@@ -4752,6 +4768,151 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.saveAccountingData(updatedPayload);
   };
 
+  const addQuotation = async (
+    item: Omit<QuotationRecord, 'id' | 'createdAt'>
+  ): Promise<QuotationRecord> => {
+    const newItem: QuotationRecord = {
+      ...item,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotations: [newItem, ...(accountingData.quotations || [])],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+    return newItem;
+  };
+
+  const updateQuotation = async (item: QuotationRecord): Promise<void> => {
+    const updatedList = (accountingData.quotations || []).map((q) =>
+      q.id === item.id ? { ...item, updatedAt: Date.now() } : q
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotations: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteQuotation = async (id: string): Promise<void> => {
+    const updatedList = (accountingData.quotations || []).filter((q) => q.id !== id);
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotations: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const addQuotationProduct = async (
+    product: Omit<QuotationProduct, 'id' | 'createdAt'>
+  ): Promise<QuotationProduct> => {
+    const newProd: QuotationProduct = {
+      ...product,
+      id: generateId(),
+      createdAt: Date.now(),
+      createdBy: user?.id,
+      createdByName: user?.name,
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationProducts: [newProd, ...(accountingData.quotationProducts || [])],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+    return newProd;
+  };
+
+  const updateQuotationProduct = async (product: QuotationProduct): Promise<void> => {
+    const updatedList = (accountingData.quotationProducts || []).map((p) =>
+      p.id === product.id ? { ...product, updatedAt: Date.now() } : p
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationProducts: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteQuotationProduct = async (id: string): Promise<void> => {
+    const updatedList = (accountingData.quotationProducts || []).filter((p) => p.id !== id);
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationProducts: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const addQuotationFooterTemplate = async (
+    tpl: Omit<QuotationFooterTemplate, 'id' | 'createdAt'>
+  ): Promise<QuotationFooterTemplate> => {
+    const existingList =
+      accountingData.quotationFooterTemplates && accountingData.quotationFooterTemplates.length > 0
+        ? accountingData.quotationFooterTemplates
+        : DEFAULT_QUOTATION_FOOTER_TEMPLATES;
+    const newTpl: QuotationFooterTemplate = {
+      ...tpl,
+      id: generateId(),
+      createdAt: Date.now(),
+    };
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationFooterTemplates: [...existingList, newTpl],
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+    return newTpl;
+  };
+
+  const updateQuotationFooterTemplate = async (tpl: QuotationFooterTemplate): Promise<void> => {
+    const existingList =
+      accountingData.quotationFooterTemplates && accountingData.quotationFooterTemplates.length > 0
+        ? accountingData.quotationFooterTemplates
+        : DEFAULT_QUOTATION_FOOTER_TEMPLATES;
+    const updatedList = existingList.map((t) =>
+      t.id === tpl.id ? { ...tpl, updatedAt: Date.now() } : t
+    );
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationFooterTemplates: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const deleteQuotationFooterTemplate = async (id: string): Promise<void> => {
+    const existingList =
+      accountingData.quotationFooterTemplates && accountingData.quotationFooterTemplates.length > 0
+        ? accountingData.quotationFooterTemplates
+        : DEFAULT_QUOTATION_FOOTER_TEMPLATES;
+    const updatedList = existingList.filter((t) => t.id !== id);
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationFooterTemplates: updatedList,
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
+  const updateQuotationSettings = async (settings: QuotationSettings): Promise<void> => {
+    const updatedPayload: AccountingDataPayload = {
+      ...accountingData,
+      quotationSettings: {
+        ...(accountingData.quotationSettings || {}),
+        ...settings,
+      },
+    };
+    setAccountingData(updatedPayload);
+    await StorageService.saveAccountingData(updatedPayload);
+  };
+
   const refreshAccountingData = async (): Promise<void> => {
     try {
       const data = await StorageService.getAccountingData();
@@ -8445,6 +8606,16 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         bulkUpdateFixedExpenses,
         deleteFixedExpense,
         toggleFixedExpenseStatus,
+        addQuotation,
+        updateQuotation,
+        deleteQuotation,
+        addQuotationProduct,
+        updateQuotationProduct,
+        deleteQuotationProduct,
+        addQuotationFooterTemplate,
+        updateQuotationFooterTemplate,
+        deleteQuotationFooterTemplate,
+        updateQuotationSettings,
         refreshAccountingData,
         checkInStaff,
         checkOutStaff,

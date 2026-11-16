@@ -659,6 +659,100 @@ export interface FixedExpenseRecord {
   createdByName?: string;
 }
 
+export type QuotationCurrency = 'TRY' | 'USD' | 'EUR';
+export type QuotationStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'expired';
+
+export interface QuotationProduct {
+  id: string;
+  code?: string; // Ürün / Stok Kodu (Örn: URN-001)
+  name: string; // Ürün / Hizmet Adı
+  description?: string; // Ürün Özellikleri / Açıklaması
+  unitPrice: number; // Birim Fiyat
+  currency?: QuotationCurrency; // Para Birimi (Varsayılan TRY)
+  unit?: string; // Birim (Adet, Set, Paket, Lisans, Metre, Hizmet vb.)
+  vatRate?: number; // KDV Oranı (%20, %10, %1, %0)
+  imageUrl?: string; // Ürün Görseli (Kamera veya Galeriden base64)
+  category?: string; // Kategori / Grup
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
+export interface QuotationLineItem {
+  id: string;
+  productId?: string; // Katalogdan seçildiyse ürün ID
+  code?: string; // Ürün kodu
+  name: string; // Ürün / Hizmet Adı
+  description?: string; // Ürün detayı / teknik açıklama
+  quantity: number; // Miktar
+  unit: string; // Adet, Set, Lisans vb.
+  unitPrice: number; // Birim Fiyat
+  discountPercent?: number; // İskonto Oranı (%)
+  vatRate: number; // KDV Oranı (%)
+  lineTotal: number; // İskonto düşülmüş net satır toplamı (KDV hariç)
+  imageUrl?: string; // Ürün görseli (Kamera veya Galeri)
+}
+
+export interface QuotationFooterTemplate {
+  id: string;
+  title: string; // Örn: "Ödeme Koşulları", "Teslimat Koşulları", "Termin Tarihi"
+  category?: 'payment' | 'delivery' | 'lead_time' | 'warranty' | 'validity' | 'general';
+  content: string; // Şablon metni
+  isDefaultSelected?: boolean; // Yeni tekliflerde otomatik seçili gelsin mi?
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface QuotationFooterTermItem {
+  id: string;
+  title: string; // Örn: "Ödeme Koşulları", "Teslimat Koşulları", "Termin Tarihi"
+  content: string; // Bu teklif için geçerli açıklama
+}
+
+export interface QuotationSettings {
+  customLogoUrl?: string; // Teklif üst başlığı için özel firma logosu (yoksa company.logoUrl veya POLATLAR kurumsal logosu kullanılır)
+  companyFullTitle?: string; // Örn: "POLATLAR TEKNOLOJİ & GÜVENLİK SİSTEMLERİ"
+  companyAddress?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  companyTaxOffice?: string;
+  defaultDescription?: string; // Varsayılan teklif ön yazısı
+}
+
+export interface QuotationRecord {
+  id: string;
+  quoteNumber: string; // Örn: TKL-2026-001
+  title?: string; // Teklif Başlığı / Konusu
+  cariId?: string; // Carilerden seçildiyse ID
+  cariName: string; // Cari Adı (Carilerden seçilebilir veya manuel yazarak girilebilir)
+  cariContactPerson?: string; // İlgili / Yetkili Kişi
+  cariPhone?: string; // Cari Telefonu
+  cariAddress?: string; // Cari Adresi
+  cariTaxInfo?: string; // Vergi Dairesi / Vergi veya T.C. No
+  date: string; // Teklif Tarihi (YYYY-MM-DD)
+  validUntil?: string; // Geçerlilik Tarihi (YYYY-MM-DD)
+  currency: QuotationCurrency; // 'TRY' | 'USD' | 'EUR'
+  description?: string; // Teklif Açıklaması / Ön Yazı
+  items: QuotationLineItem[]; // Ürün / Hizmet Kalemleri
+  subtotal: number; // Ara Toplam (KDV Hariç)
+  discountTotal: number; // Toplam İskonto Tutarı
+  vatTotal: number; // Toplam KDV Tutarı
+  grandTotal: number; // Genel Toplam
+  includeVat: boolean; // KDV Hesaplansın mı?
+  selectedFooterIds?: string[]; // Seçilen belge altı yazı şablon ID'leri
+  footerTerms: QuotationFooterTermItem[]; // Belge altında görünecek seçili maddeler (Ödeme, Teslimat, Termin vb.)
+  customFooterNote?: string; // Ekstra özel belge altı notu
+  status: QuotationStatus; // 'draft' | 'sent' | 'approved' | 'rejected' | 'expired'
+  preparedBy?: string; // Hazırlayan Yetkili Adı
+  preparedByPhone?: string; // Hazırlayan İletişim
+  companyLogoUrl?: string; // Teklif logosu
+  createdAt: number;
+  updatedAt?: number;
+  createdBy?: string;
+  createdByName?: string;
+}
+
 export interface AccountingDataPayload {
   transactions: AccountingTransaction[];
   categories: AccountingCategory[];
@@ -666,6 +760,10 @@ export interface AccountingDataPayload {
   dailyBalances: DailyCashBalance[];
   debtsReceivables?: DebtReceivableRecord[];
   fixedExpenses?: FixedExpenseRecord[];
+  quotations?: QuotationRecord[];
+  quotationProducts?: QuotationProduct[];
+  quotationFooterTemplates?: QuotationFooterTemplate[];
+  quotationSettings?: QuotationSettings;
 }
 
 // ==========================================
