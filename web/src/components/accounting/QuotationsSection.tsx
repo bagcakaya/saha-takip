@@ -149,13 +149,13 @@ const compressProductImage = (file: File, maxDim = 420): Promise<string> => {
           resolve(e.target?.result as string);
           return;
         }
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
+        ctx.clearRect(0, 0, width, height);
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
-        resolve(dataUrl);
+        // Atılan görsel formatı ne olursa olsun (JPG, PNG, BMP, HEIC vb.) otomatik WEBP formatına çevrilir
+        const webpDataUrl = canvas.toDataURL('image/webp', 0.8);
+        resolve(webpDataUrl);
       };
       img.onerror = () => reject(new Error('Görsel yüklenemedi.'));
       img.src = e.target?.result as string;
@@ -779,11 +779,13 @@ export const QuotationsSection: React.FC = () => {
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.clearRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(video, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-      applySelectedImage(dataUrl);
+      // Kameradan çekilen fotoğraf da doğrudan WEBP formatına çevrilir
+      const webpDataUrl = canvas.toDataURL('image/webp', 0.8);
+      applySelectedImage(webpDataUrl);
     }
     stopCameraStream();
     setIsLiveCameraOpen(false);
@@ -3305,8 +3307,13 @@ export const QuotationsSection: React.FC = () => {
                 </div>
 
                 <div className="space-y-2 flex-1">
-                  <div className="text-xs font-black text-slate-800 dark:text-slate-200">
-                    Ürün Görseli (Kamera veya Galeri)
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                      Ürün Görseli (Kamera veya Galeri)
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-black">
+                      Otomatik WEBP Sıkıştırma
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -3326,6 +3333,12 @@ export const QuotationsSection: React.FC = () => {
                       <span>Galeriden Seç</span>
                     </button>
                   </div>
+                  {prodImage && (
+                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                      ✓ Görsel WEBP formatına dönüştürüldü (~
+                      {Math.max(1, Math.round((prodImage.length * 0.75) / 1024))} KB)
+                    </div>
+                  )}
                 </div>
               </div>
 
