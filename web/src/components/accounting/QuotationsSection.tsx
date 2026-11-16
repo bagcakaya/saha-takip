@@ -42,6 +42,7 @@ import {
 import {
   DEFAULT_QUOTATION_FOOTER_TEMPLATES,
   POLATLAR_CORPORATE_LOGO_SVG_DATA_URI,
+  POLATLAR_NAVY_LOGO_DATA_URI,
 } from '../../constants/defaultAccounting';
 
 // Safely resolve html2pdf in ESM/CommonJS/UMD bundler environments
@@ -172,13 +173,12 @@ export const generateQuotationPdfHtml = (
   companyAddress?: string,
   companyPhone?: string
 ): string => {
-  const sym = CURRENCY_SYMBOLS[quote.currency || 'TRY'] || '₺';
   const fmt = (val: number) => formatMoney(val, quote.currency || 'TRY');
 
   const formattedDate = quote.date
     ? new Date(quote.date).toLocaleDateString('tr-TR', {
         day: '2-digit',
-        month: 'long',
+        month: '2-digit',
         year: 'numeric',
       })
     : new Date().toLocaleDateString('tr-TR');
@@ -186,7 +186,7 @@ export const generateQuotationPdfHtml = (
   const formattedValidUntil = quote.validUntil
     ? new Date(quote.validUntil).toLocaleDateString('tr-TR', {
         day: '2-digit',
-        month: 'long',
+        month: '2-digit',
         year: 'numeric',
       })
     : '';
@@ -297,103 +297,120 @@ export const generateQuotationPdfHtml = (
     `
       : '';
 
+  const pdfLogoSrc =
+    logoUrl && logoUrl !== POLATLAR_CORPORATE_LOGO_SVG_DATA_URI
+      ? logoUrl
+      : POLATLAR_NAVY_LOGO_DATA_URI;
+
   return `
-    <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; background: #ffffff; width: 750px; margin: 0 auto; padding: 24px 28px; box-sizing: border-box;">
-      <!-- 1. EN ÜSTTE POLATLAR YAZILIM KURUMSAL LOGO VE TEKLİF BAŞLIĞI -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0284c7; padding-bottom: 16px; margin-bottom: 18px;">
-        <div style="display: flex; align-items: center; gap: 16px;">
-          <div style="background: #0f172a; padding: 10px 18px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #1e293b;">
+    <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; background: #ffffff; width: 750px; margin: 0 auto; padding: 28px 32px; box-sizing: border-box;">
+      <!-- 1. EN ÜSTTE POLATLAR YAZILIM KURUMSAL LOGO VE FİRMA BİLGİLERİ -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px;">
+        <div style="padding-top: 4px;">
+          <div style="border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; padding: 8px 4px; display: inline-block;">
             <img
-              src="${logoUrl}"
+              src="${pdfLogoSrc}"
               alt="POLATLAR YAZILIM Logo"
-              style="height: 46px; width: auto; max-width: 190px; object-fit: contain; display: block;"
+              style="height: 64px; width: auto; max-width: 240px; object-fit: contain; display: block;"
             />
           </div>
-          <div>
-            <div style="font-size: 21px; font-weight: 900; color: #0f172a; letter-spacing: 0.6px; text-transform: uppercase;">
-              ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
-            </div>
-            ${
-              companyAddress
-                ? `<div style="font-size: 10px; color: #475569; margin-top: 2px;">${escapeHtml(companyAddress)}</div>`
-                : ''
-            }
-            ${
-              companyPhone
-                ? `<div style="font-size: 10px; color: #475569; font-weight: 700;">Tel: ${escapeHtml(companyPhone)}</div>`
-                : ''
-            }
+          <div style="font-size: 13px; font-weight: 900; color: #003870; letter-spacing: 0.8px; margin-top: 6px; text-transform: uppercase;">
+            ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
           </div>
         </div>
 
-        <div style="text-align: right;">
-          <div style="display: inline-block; background: linear-gradient(135deg, #0f172a 0%, #0284c7 100%); color: #ffffff; padding: 6px 16px; border-radius: 8px; font-size: 15px; font-weight: 900; letter-spacing: 1px;">
-            FİYAT TEKLİFİ
-          </div>
-          <div style="margin-top: 8px; font-size: 11px; color: #334155; line-height: 1.5;">
-            <div><strong>Teklif No:</strong> <span style="color: #0284c7; font-weight: 800;">${escapeHtml(quote.quoteNumber)}</span></div>
-            <div><strong>Tarih:</strong> ${formattedDate}</div>
-            ${
-              formattedValidUntil
-                ? `<div><strong>Geçerlilik:</strong> ${formattedValidUntil}</div>`
-                : ''
-            }
-          </div>
+        <div style="text-align: left; font-size: 10.5px; color: #475569; line-height: 1.45; min-width: 225px;">
+          <div style="font-weight: 800; color: #334155;">POLATLAR YAZILIM &amp; BİLGİSAYAR</div>
+          <div style="font-weight: 800; color: #334155;">MÜHENDİSLİĞİ LTD.ŞTİ.</div>
+          <div>Gsm : ${escapeHtml(companyPhone || '0 533 608 23 53')}</div>
+          <div>Web : www.polatlaryazilim.com</div>
+          <div>e-Mail : bilgi@polatlaryazilim.com</div>
+          <div>Vergi Dairesi : K.K.V.D.</div>
+          <div>VKN : 732 166 3218</div>
+          ${
+            companyAddress
+              ? `<div style="margin-top: 2px;">Adres : ${escapeHtml(companyAddress)}</div>`
+              : ''
+          }
         </div>
       </div>
 
-      <!-- 2. CARİ (MÜŞTERİ) BİLGİLERİ VE TEKLİF KONUSU KARTI -->
-      <table style="width: 100%; border-collapse: separate; border-spacing: 10px 0; margin: 0 -10px 16px -10px;">
+      <!-- 2. TEKLİF ÇİZGİSİ VE KIRMIZI ALANDAKİ GİBİ CARİ İSMİ & TARİH/BELGE NO BLOĞU -->
+      <div style="text-align: right; border-bottom: 1.5px solid #94a3b8; padding-bottom: 3px; margin-bottom: 10px;">
+        <span style="font-size: 18px; font-weight: 800; color: #718096; letter-spacing: 0.5px;">Teklif</span>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
         <tr>
-          <td style="width: 58%; background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0284c7; border-radius: 10px; padding: 12px 14px; vertical-align: top;">
-            <div style="font-size: 9.5px; font-weight: 800; color: #0284c7; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;">
-              MÜŞTERİ / CARİ BİLGİLERİ
-            </div>
-            <div style="font-size: 14px; font-weight: 900; color: #0f172a; margin-bottom: 4px;">
-              SAYIN: ${escapeHtml(quote.cariName)}
+          <!-- Sol Taraf: Kırmızı Alan İçerisine Alınan Cari İsmi Formatı -->
+          <td style="width: 58%; vertical-align: top; padding-right: 16px;">
+            <div style="font-size: 13px; font-weight: 900; color: #0f172a; line-height: 1.35; text-transform: uppercase;">
+              ${escapeHtml(quote.cariName)}
             </div>
             ${
               quote.cariContactPerson
-                ? `<div style="font-size: 11px; color: #334155; margin-bottom: 2px;"><strong>Yetkili:</strong> ${escapeHtml(quote.cariContactPerson)}</div>`
+                ? `<div style="font-size: 11px; color: #334155; margin-top: 6px;"><strong>Yetkili :</strong> ${escapeHtml(quote.cariContactPerson)}</div>`
                 : ''
             }
             ${
               quote.cariPhone
-                ? `<div style="font-size: 11px; color: #334155; margin-bottom: 2px;"><strong>Telefon:</strong> ${escapeHtml(quote.cariPhone)}</div>`
-                : ''
-            }
-            ${
-              quote.cariTaxInfo
-                ? `<div style="font-size: 11px; color: #334155; margin-bottom: 2px;"><strong>Vergi / T.C. No:</strong> ${escapeHtml(quote.cariTaxInfo)}</div>`
+                ? `<div style="font-size: 11px; color: #334155; margin-top: 2px;"><strong>Tel :</strong> ${escapeHtml(quote.cariPhone)}</div>`
                 : ''
             }
             ${
               quote.cariAddress
-                ? `<div style="font-size: 10.5px; color: #475569; margin-top: 3px;"><strong>Adres:</strong> ${escapeHtml(quote.cariAddress)}</div>`
+                ? `<div style="font-size: 11px; color: #334155; margin-top: 2px;">${escapeHtml(quote.cariAddress)}</div>`
+                : ''
+            }
+            ${
+              quote.cariTaxInfo
+                ? `<div style="font-size: 11px; color: #0f172a; margin-top: 14px;">V.Dairesi / V.No : ${escapeHtml(quote.cariTaxInfo)}</div>`
                 : ''
             }
           </td>
 
-          <td style="width: 42%; background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0f172a; border-radius: 10px; padding: 12px 14px; vertical-align: top;">
-            <div style="font-size: 9.5px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;">
-              TEKLİF DETAYLARI
-            </div>
-            ${
-              quote.title
-                ? `<div style="font-size: 12px; font-weight: 800; color: #0f172a; margin-bottom: 5px;">Konu: ${escapeHtml(quote.title)}</div>`
-                : ''
-            }
-            <div style="font-size: 11px; color: #334155; margin-bottom: 3px;">
-              <strong>Hazırlayan:</strong> ${escapeHtml(quote.preparedBy || quote.createdByName || 'POLATLAR Yetkilisi')}
-            </div>
-            ${
-              quote.preparedByPhone
-                ? `<div style="font-size: 11px; color: #334155; margin-bottom: 3px;"><strong>İletişim:</strong> ${escapeHtml(quote.preparedByPhone)}</div>`
-                : ''
-            }
-            <div style="font-size: 11px; color: #334155;">
-              <strong>Para Birimi:</strong> ${quote.currency || 'TRY'} (${sym})
-            </div>
+          <!-- Sağ Taraf: Tarih / Belge No / Termin Tarihi -->
+          <td style="width: 42%; vertical-align: top;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px; color: #0f172a;">
+              <tr>
+                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; width: 120px; white-space: nowrap;">TARİH :</td>
+                <td style="padding: 3px 0; font-weight: 600;">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">BELGE NO :</td>
+                <td style="padding: 3px 0; font-weight: 700;">${escapeHtml(quote.quoteNumber)}</td>
+              </tr>
+              ${
+                formattedValidUntil
+                  ? `
+              <tr>
+                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">TERMİN / GEÇERLİLİK :</td>
+                <td style="padding: 3px 0; font-weight: 600;">${formattedValidUntil}</td>
+              </tr>
+              `
+                  : ''
+              }
+              ${
+                quote.title
+                  ? `
+              <tr>
+                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">KONU :</td>
+                <td style="padding: 3px 0; font-weight: 700;">${escapeHtml(quote.title)}</td>
+              </tr>
+              `
+                  : ''
+              }
+              ${
+                quote.preparedBy
+                  ? `
+              <tr>
+                <td style="padding: 3px 8px 3px 0; font-weight: 800; text-align: right; white-space: nowrap;">HAZIRLAYAN :</td>
+                <td style="padding: 3px 0;">${escapeHtml(quote.preparedBy)}</td>
+              </tr>
+              `
+                  : ''
+              }
+            </table>
           </td>
         </tr>
       </table>
