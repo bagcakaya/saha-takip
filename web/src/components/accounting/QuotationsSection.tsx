@@ -230,6 +230,9 @@ export const generateQuotationPdfHtml = (
                   : ''
               }
             </td>
+            <td style="padding: 10px 10px; text-align: center; font-size: 12px; font-weight: 800; color: #1e293b; white-space: nowrap; width: 100px;">
+              ${item.quantity} ${escapeHtml(item.unit || 'Adet')}
+            </td>
           </tr>
         `;
       }
@@ -475,6 +478,7 @@ export const generateQuotationPdfHtml = (
                 : ''
             }
             <th style="padding: 9px 12px; text-align: left;">Ürün / Hizmet Listesi</th>
+            <th style="padding: 9px 10px; text-align: center; width: 100px;">Miktar</th>
           </tr>
           `
               : `
