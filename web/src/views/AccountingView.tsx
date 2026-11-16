@@ -673,28 +673,6 @@ export const AccountingView: React.FC = () => {
       {/* ========================================================= */}
       {activeModule === 'menu' && (
         <div className="space-y-6 pt-2 pb-8">
-          {/* Üst Bilgi Başlığı */}
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-                <Calculator className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                    Muhasebe Modülü
-                  </h1>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                    {activeCompanyName}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  İşlem yapmak istediğiniz muhasebe modülünü seçiniz: Gelir/Gider, Borçlar/Alacaklar, Sabit Masraflar veya Teklif Modülü
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Dairesel İkon Launcher Butonları (Ana Menü & Personel Takibi Stili) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 max-w-3xl mx-auto gap-6 py-4">
             {isSubModulePermitted('accounting', 'income_expense', user, company) && (

@@ -171,8 +171,10 @@ export const generateQuotationPdfHtml = (
   logoUrl: string,
   companyFullTitle: string,
   companyAddress?: string,
-  companyPhone?: string
+  companyPhone?: string,
+  forceHidePrices?: boolean
 ): string => {
+  const isPriceless = Boolean(forceHidePrices ?? quote.hidePrices);
   const fmt = (val: number) => formatMoney(val, quote.currency || 'TRY');
 
   const formattedDate = quote.date
@@ -191,13 +193,46 @@ export const generateQuotationPdfHtml = (
       })
     : '';
 
-  const hasAnyDiscount = (quote.items || []).some((it) => (it.discountPercent || 0) > 0);
+  const hasAnyDiscount = !isPriceless && (quote.items || []).some((it) => (it.discountPercent || 0) > 0);
+  const hasAnyImage = (quote.items || []).some((it) => Boolean(it.imageUrl));
 
   const itemRowsHtml = (quote.items || [])
     .map((item, idx) => {
       const imgCell = item.imageUrl
         ? `<img src="${item.imageUrl}" alt="${escapeHtml(item.name)}" style="width: 52px; height: 52px; object-fit: contain; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; padding: 2px; display: block; margin: 0 auto;" />`
         : `<div style="width: 52px; height: 52px; border-radius: 8px; border: 1px dashed #cbd5e1; background: #f8fafc; color: #94a3b8; font-size: 9px; font-weight: bold; display: flex; align-items: center; justify-content: center; text-align: center; margin: 0 auto;">GÖRSEL<br/>YOK</div>`;
+
+      if (isPriceless) {
+        return `
+          <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; background-color: ${
+            idx % 2 === 1 ? '#f8fafc' : '#ffffff'
+          };">
+            <td style="padding: 10px 8px; text-align: center; font-weight: 800; color: #475569; font-size: 11.5px; width: 36px;">
+              ${idx + 1}
+            </td>
+            ${
+              hasAnyImage
+                ? `<td style="padding: 8px 6px; text-align: center; width: 68px;">${imgCell}</td>`
+                : ''
+            }
+            <td style="padding: 10px 12px;">
+              <div style="font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.35;">
+                ${escapeHtml(item.name)}
+              </div>
+              ${
+                item.code
+                  ? `<div style="font-size: 9.5px; font-weight: 700; color: #0284c7; margin-top: 2px;">Stok/Ürün Kodu: ${escapeHtml(item.code)}</div>`
+                  : ''
+              }
+              ${
+                item.description
+                  ? `<div style="font-size: 10.5px; color: #475569; margin-top: 3px; white-space: pre-wrap; line-height: 1.35;">${escapeHtml(item.description)}</div>`
+                  : ''
+              }
+            </td>
+          </tr>
+        `;
+      }
 
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; background-color: ${
@@ -429,6 +464,20 @@ export const generateQuotationPdfHtml = (
       <!-- 4. ÜRÜN VE HİZMET KALEMLERİ TABLOSU -->
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden;">
         <thead>
+          ${
+            isPriceless
+              ? `
+          <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
+            <th style="padding: 9px 8px; text-align: center; width: 36px;">#</th>
+            ${
+              hasAnyImage
+                ? `<th style="padding: 9px 6px; text-align: center; width: 68px;">Görsel</th>`
+                : ''
+            }
+            <th style="padding: 9px 12px; text-align: left;">Ürün / Hizmet Listesi</th>
+          </tr>
+          `
+              : `
           <tr style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #ffffff; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
             <th style="padding: 9px 6px; text-align: center; width: 28px;">#</th>
             <th style="padding: 9px 6px; text-align: center; width: 64px;">Görsel</th>
@@ -447,13 +496,19 @@ export const generateQuotationPdfHtml = (
             }
             <th style="padding: 9px 10px; text-align: right; width: 105px;">Toplam</th>
           </tr>
+          `
+          }
         </thead>
         <tbody>
           ${itemRowsHtml}
         </tbody>
       </table>
 
-      <!-- 5. FİNANSAL ÖZET TABLOSU -->
+      <!-- 5. FİNANSAL ÖZET TABLOSU (SADECE FİYATLI TASARIMDA GÖSTERİLİR) -->
+      ${
+        isPriceless
+          ? ''
+          : `
       <div style="display: flex; justify-content: flex-end; margin-top: 14px; page-break-inside: avoid;">
         <table style="width: 290px; border-collapse: collapse; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden; background-color: #f8fafc;">
           <tr style="border-bottom: 1px solid #e2e8f0;">
@@ -496,6 +551,8 @@ export const generateQuotationPdfHtml = (
           </tr>
         </table>
       </div>
+      `
+      }
 
       <!-- 6. BELGE ALTI YAZILAR (ÖDEME, TESLİMAT, TERMİN VB.) -->
       ${footerTermsHtml}
@@ -625,6 +682,7 @@ export const QuotationsSection: React.FC = () => {
   });
   const [currency, setCurrency] = useState<QuotationCurrency>('TRY');
   const [includeVat, setIncludeVat] = useState<boolean>(true);
+  const [hidePrices, setHidePrices] = useState<boolean>(false);
   const [description, setDescription] = useState('');
   const [lineItems, setLineItems] = useState<QuotationLineItem[]>([createEmptyLineItem()]);
   const [selectedFooterTerms, setSelectedFooterTerms] = useState<QuotationFooterTermItem[]>([]);
@@ -926,6 +984,7 @@ export const QuotationsSection: React.FC = () => {
     setValidUntil(valid.toISOString().split('T')[0]);
     setCurrency('TRY');
     setIncludeVat(true);
+    setHidePrices(false);
     setDescription(
       quotationSettings.defaultDescription ||
         'Firmamızdan talep etmiş olduğunuz ürün ve hizmetlere ilişkin hazırlanan fiyat teklifimiz aşağıda bilgilerinize sunulmuştur.'
@@ -962,6 +1021,7 @@ export const QuotationsSection: React.FC = () => {
     setValidUntil(q.validUntil || '');
     setCurrency(q.currency || 'TRY');
     setIncludeVat(q.includeVat !== false);
+    setHidePrices(Boolean(q.hidePrices));
     setDescription(q.description || '');
     setLineItems(
       q.items && q.items.length > 0
@@ -1193,6 +1253,7 @@ export const QuotationsSection: React.FC = () => {
       vatTotal: calculatedTotals.vatTotal,
       grandTotal: calculatedTotals.grandTotal,
       includeVat,
+      hidePrices,
       selectedFooterIds: selectedFooterTerms.map((f) => f.id),
       footerTerms: selectedFooterTerms,
       customFooterNote: customFooterNote.trim() || undefined,
@@ -1228,16 +1289,18 @@ export const QuotationsSection: React.FC = () => {
   };
 
   // Download Quotation as PDF using html2pdf.js
-  const handleDownloadPdf = async (quote: QuotationRecord) => {
+  const handleDownloadPdf = async (quote: QuotationRecord, forceHidePrices?: boolean) => {
     let wrapper: HTMLDivElement | null = null;
     try {
       setIsDownloadingPdfId(quote.id);
+      const isPricelessMode = Boolean(forceHidePrices ?? quote.hidePrices);
       const htmlString = generateQuotationPdfHtml(
         quote,
         activePolatlarLogo,
         activeCompanyFullTitle,
         quotationSettings.companyAddress,
-        quotationSettings.companyPhone
+        quotationSettings.companyPhone,
+        isPricelessMode
       );
 
       wrapper = document.createElement('div');
@@ -1274,7 +1337,8 @@ export const QuotationsSection: React.FC = () => {
         .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s-_]/g, '')
         .trim()
         .replace(/\s+/g, '_');
-      const filename = `POLATLAR_Teklif_${quote.quoteNumber}_${safeCari}.pdf`;
+      const modeSuffix = isPricelessMode ? '_Urun_Listesi' : '';
+      const filename = `POLATLAR_Teklif_${quote.quoteNumber}_${safeCari}${modeSuffix}.pdf`;
 
       const h2p = getHtml2Pdf();
       if (typeof h2p === 'function') {
@@ -1309,13 +1373,14 @@ export const QuotationsSection: React.FC = () => {
   };
 
   // Print Quotation via hidden iframe / print dialog
-  const handlePrintQuotation = (quote: QuotationRecord) => {
+  const handlePrintQuotation = (quote: QuotationRecord, forceHidePrices?: boolean) => {
     const htmlContent = generateQuotationPdfHtml(
       quote,
       activePolatlarLogo,
       activeCompanyFullTitle,
       quotationSettings.companyAddress,
-      quotationSettings.companyPhone
+      quotationSettings.companyPhone,
+      forceHidePrices
     );
     const fullDoc = `
       <!DOCTYPE html>
@@ -1815,7 +1880,9 @@ export const QuotationsSection: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs font-black bg-white/15 px-2 py-0.5 rounded-lg">
-                            {formatMoney(quote.grandTotal, quote.currency)}
+                            {quote.hidePrices
+                              ? '📋 Fiyatsız Liste'
+                              : formatMoney(quote.grandTotal, quote.currency)}
                           </span>
                           <ChevronDown
                             className={`w-4 h-4 transition-transform duration-200 ${
@@ -1968,12 +2035,23 @@ export const QuotationsSection: React.FC = () => {
 
                             <button
                               type="button"
-                              onClick={() => handleDownloadPdf(quote)}
+                              onClick={() => handleDownloadPdf(quote, false)}
                               disabled={isDownloading}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
                             >
                               <Download className="w-3.5 h-3.5" />
-                              <span>PDF İndir</span>
+                              <span>Fiyatlı PDF</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadPdf(quote, true)}
+                              disabled={isDownloading}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer"
+                              title="Fiyatsız sadece ürün isimlerinden oluşan liste PDF'i indir"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Fiyatsız Liste PDF</span>
                             </button>
 
                             <button
@@ -2543,11 +2621,39 @@ export const QuotationsSection: React.FC = () => {
 
               {/* BÖLÜM 2: TEKLİF BİLGİLERİ & TEKLİF AÇIKLAMASI */}
               <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/90 dark:border-slate-800 space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileCheck2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                    2. Teklif Bilgileri ve Teklif Açıklaması
-                  </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <FileCheck2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                      2. Teklif Bilgileri, Tasarım Formatı ve Açıklama
+                    </h3>
+                  </div>
+
+                  {/* Teklif Tasarım Formatı Seçici: Fiyatlı vs Fiyatsız Ürün Listesi */}
+                  <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setHidePrices(false)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        !hidePrices
+                          ? 'bg-sky-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      💰 Fiyatlı Teklif Tasarımı
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHidePrices(true)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        hidePrices
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      📋 Fiyatsız Liste Tasarımı (Sadece Ürün İsimleri)
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -3662,7 +3768,37 @@ export const QuotationsSection: React.FC = () => {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Önizleme İçinde Fiyatlı / Fiyatsız Tasarım Geçiş Anahtarı */}
+                <div className="inline-flex items-center p-0.5 rounded-xl bg-slate-800 border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewQuote((prev) => (prev ? { ...prev, hidePrices: false } : null))
+                    }
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                      !previewQuote.hidePrices
+                        ? 'bg-sky-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    💰 Fiyatlı
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewQuote((prev) => (prev ? { ...prev, hidePrices: true } : null))
+                    }
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                      previewQuote.hidePrices
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    📋 Fiyatsız Liste
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => handleDownloadPdf(previewQuote)}

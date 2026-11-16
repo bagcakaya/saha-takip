@@ -740,6 +740,7 @@ export interface QuotationRecord {
   vatTotal: number; // Toplam KDV Tutarı
   grandTotal: number; // Genel Toplam
   includeVat: boolean; // KDV Hesaplansın mı?
+  hidePrices?: boolean; // true ise Fiyatsız Ürün Listesi tasarımı (hiçbir fiyat bilgisi gösterilmez)
   selectedFooterIds?: string[]; // Seçilen belge altı yazı şablon ID'leri
   footerTerms: QuotationFooterTermItem[]; // Belge altında görünecek seçili maddeler (Ödeme, Teslimat, Termin vb.)
   customFooterNote?: string; // Ekstra özel belge altı notu
