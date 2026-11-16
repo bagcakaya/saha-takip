@@ -154,9 +154,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           <div className="flex items-center gap-3">
             <div className="relative">
               <img
-                src="/icon.png"
-                alt="İş Takip Logo"
-                className="w-11 h-11 rounded-2xl object-contain shadow-xs border border-slate-200 dark:border-slate-700 bg-white p-0.5"
+                src="/icon.png?v=12"
+                alt="POLATLAR YAZILIM Logo"
+                className="w-11 h-11 rounded-2xl object-cover shadow-md border border-slate-700/80 bg-[#0a192f]"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}

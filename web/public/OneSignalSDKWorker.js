@@ -1,12 +1,13 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v11';
+const CACHE_NAME = 'saha-takip-pwa-v12';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/favicon.png',
-  '/icon.png',
+  '/manifest.json?v=12',
+  '/favicon.png?v=12',
+  '/icon.png?v=12',
+  '/polatlar-erp-horizontal.png?v=12',
 ];
 
 self.addEventListener('message', (event) => {

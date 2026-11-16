@@ -636,11 +636,15 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           </div>
         </div>
 
-        {/* Sağ Taraf: Sağa Yaslı Logo / Fotoğraf Alanı */}
+        {/* Sağ Taraf: Sağa Yaslı Kurumsal Logo / Fotoğraf Alanı */}
         <div className="shrink-0 flex items-center justify-end">
-          {company?.logoUrl ? (
+          {company?.logoUrl || activeCompanyCode === 'POLATLAR' ? (
             <div
-              className={`relative group/logo flex items-center justify-center w-24 sm:w-28 md:w-32 h-24 sm:h-28 md:h-32 rounded-2xl bg-white/10 border border-white/20 shadow-xl overflow-hidden transition-all hover:border-white/40 ${
+              className={`relative group/logo flex items-center justify-center ${
+                !company?.logoUrl || activeCompanyCode === 'POLATLAR'
+                  ? 'w-36 sm:w-48 md:w-56 h-20 sm:h-24 md:h-28 bg-[#071120] border border-slate-700/80'
+                  : 'w-24 sm:w-28 md:w-32 h-24 sm:h-28 md:h-32 bg-white/10 border border-white/20'
+              } rounded-2xl shadow-xl overflow-hidden transition-all hover:border-white/40 ${
                 canManageLogo ? 'cursor-pointer' : ''
               }`}
               onClick={() => {
@@ -651,10 +655,16 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               title={canManageLogo ? 'Fotoğrafı / Logoyu Değiştirmek İçin Tıklayın' : `${activeCompanyName} Logosu`}
             >
               <img
-                src={company.logoUrl}
+                src={
+                  activeCompanyCode === 'POLATLAR'
+                    ? '/polatlar-erp-horizontal.png?v=12'
+                    : company?.logoUrl || '/polatlar-erp-horizontal.png?v=12'
+                }
                 alt={`${activeCompanyName} Logosu`}
                 className={`w-full h-full ${
-                  (company.logoFit || 'cover') === 'contain' ? 'object-contain p-1' : 'object-cover'
+                  activeCompanyCode === 'POLATLAR' || (company?.logoFit || 'cover') === 'contain'
+                    ? 'object-contain p-1.5'
+                    : 'object-cover'
                 } filter drop-shadow-md select-none transition-transform duration-200 group-hover/logo:scale-105`}
               />
 

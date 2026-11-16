@@ -207,9 +207,9 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <img
-                src="/icon.png"
-                alt="İş Takip Logo"
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain shadow-xs border border-slate-200/80 dark:border-slate-700 bg-white shrink-0"
+                src="/icon.png?v=12"
+                alt="POLATLAR YAZILIM Logo"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover shadow-md border border-slate-700/80 bg-[#0a192f] shrink-0"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}

@@ -152,9 +152,9 @@ export const LoginView: React.FC = () => {
           <div className="inline-block relative">
             <div className="absolute inset-0 rounded-2xl bg-blue-500/30 blur-lg animate-pulse" />
             <img
-              src="/icon.png"
-              alt="İş Takip Sistemi"
-              className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain mx-auto shadow-xl border border-white/30 bg-white/95 p-1"
+              src="/icon.png?v=12"
+              alt="POLATLAR YAZILIM — İş Takip Sistemi"
+              className="relative w-18 h-18 sm:w-22 sm:h-22 rounded-2xl object-cover mx-auto shadow-2xl border border-white/25 bg-[#0a192f]"
             />
           </div>
 

@@ -8419,11 +8419,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const link = document.querySelector<HTMLLinkElement>("link[rel*='icon']");
         if (link) {
           if (badgeCount <= 0) {
-            link.href = '/favicon.png';
+            link.href = '/favicon.png?v=12';
           } else {
             const img = new Image();
             img.crossOrigin = 'anonymous';
-            img.src = '/favicon.png';
+            img.src = '/favicon.png?v=12';
             img.onload = () => {
               try {
                 const canvas = document.createElement('canvas');
