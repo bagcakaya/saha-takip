@@ -499,29 +499,6 @@ export const generateQuotationPdfHtml = (
 
       <!-- 6. BELGE ALTI YAZILAR (ÖDEME, TESLİMAT, TERMİN VB.) -->
       ${footerTermsHtml}
-
-      <!-- 7. İMZA VE KAŞE ALANI -->
-      <table style="width: 100%; border-collapse: collapse; margin-top: 26px; page-break-inside: avoid;">
-        <tr>
-          <td style="width: 45%; text-align: center; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 10px; background-color: #fcfcfd;">
-            <div style="font-size: 10.5px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 38px;">
-              TEKLİFİ VEREN FİRMA (KAŞE / İMZA)
-            </div>
-            <div style="border-top: 1px solid #cbd5e1; padding-top: 5px; font-size: 10.5px; font-weight: 800; color: #0284c7;">
-              ${escapeHtml(companyFullTitle || 'POLATLAR YAZILIM')}
-            </div>
-          </td>
-          <td style="width: 10%;"></td>
-          <td style="width: 45%; text-align: center; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 10px; background-color: #fcfcfd;">
-            <div style="font-size: 10.5px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 38px;">
-              MÜŞTERİ ONAYI (KAŞE / İMZA / TARİH)
-            </div>
-            <div style="border-top: 1px solid #cbd5e1; padding-top: 5px; font-size: 10.5px; font-weight: 800; color: #334155;">
-              ${escapeHtml(quote.cariName)}
-            </div>
-          </td>
-        </tr>
-      </table>
     </div>
   `;
 };
