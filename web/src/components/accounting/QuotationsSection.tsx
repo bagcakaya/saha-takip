@@ -1125,10 +1125,6 @@ export const QuotationsSection: React.FC = () => {
     );
   };
 
-  const handleAddLineItem = () => {
-    setLineItems((prev) => [...prev, createEmptyLineItem()]);
-  };
-
   const handleRemoveLineItem = (id: string) => {
     setLineItems((prev) => (prev.length > 1 ? prev.filter((i) => i.id !== id) : prev));
   };
@@ -2817,15 +2813,6 @@ export const QuotationsSection: React.FC = () => {
                     >
                       <Package className="w-3.5 h-3.5" />
                       <span>Kayıtlı Ürünlerden Seç ({products.length})</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleAddLineItem}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-black shadow-sm cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>+ Yeni Satır Ekle</span>
                     </button>
                   </div>
                 </div>
