@@ -2847,7 +2847,7 @@ export const QuotationsSection: React.FC = () => {
                       key={item.id}
                       className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 shadow-2xs space-y-3"
                     >
-                      <div className="flex flex-col lg:flex-row items-stretch lg:items-start gap-3.5">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3.5">
                         {/* Sol: Ürün Görseli (Kamera & Galeri İzinli) */}
                         <div className="flex sm:flex-col items-center gap-2 shrink-0">
                           <div className="relative w-20 h-20 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
@@ -2904,8 +2904,8 @@ export const QuotationsSection: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Orta: Ürün Adı, Kodu ve Teknik Açıklaması */}
-                        <div className="flex-1 space-y-2 min-w-0">
+                        {/* Sağ Gövde: Üstte Tam Genişlik Ürün Adı/Kodu/Açıklama, Altta Miktar & Fiyatlandırma */}
+                        <div className="flex-1 space-y-2.5 min-w-0">
                           <div className="flex flex-col sm:flex-row gap-2">
                             <div className="w-full sm:w-28 shrink-0">
                               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
@@ -2919,7 +2919,7 @@ export const QuotationsSection: React.FC = () => {
                                 className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200"
                               />
                             </div>
-                            <div className="flex-1">
+                            <div className="flex-1 min-w-0">
                               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
                                 Ürün / Hizmet Adı *
                               </label>
@@ -2944,117 +2944,117 @@ export const QuotationsSection: React.FC = () => {
                               className="w-full px-3 py-1.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/70 text-xs text-slate-700 dark:text-slate-300"
                             />
                           </div>
-                        </div>
 
-                        {/* Sağ: Miktar, Birim, Birim Fiyat, KDV Dahil, İskonto, KDV */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-[62px_78px_98px_minmax(126px,1fr)_66px_72px] lg:w-[550px] gap-2 shrink-0 items-end">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                              Miktar
-                            </label>
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="any"
-                              value={item.quantity}
-                              onChange={(e) =>
-                                updateLineItem(item.id, {
-                                  quantity: parseFloat(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-center text-slate-900 dark:text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                              Birim
-                            </label>
-                            <select
-                              value={item.unit}
-                              onChange={(e) => updateLineItem(item.id, { unit: e.target.value })}
-                              className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
-                            >
-                              {UNIT_OPTIONS.map((u) => (
-                                <option key={u} value={u}>
-                                  {u}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                              Birim Fiyat ({CURRENCY_SYMBOLS[currency]})
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={item.unitPrice || ''}
-                              onChange={(e) =>
-                                updateLineItem(item.id, {
-                                  unitPrice: parseFloat(e.target.value) || 0,
-                                })
-                              }
-                              placeholder="0.00"
-                              className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-right text-slate-900 dark:text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-0.5 whitespace-nowrap">
-                              KDV Dahil ({CURRENCY_SYMBOLS[currency]})
-                            </label>
-                            <div
-                              className="w-full px-2.5 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 text-xs font-black text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap"
-                              title="Birim Fiyat + KDV Dahil Tutarı"
-                            >
-                              {formatMoney(
-                                (Number(item.unitPrice) || 0) *
-                                  (1 + (Number(item.vatRate ?? 20) || 0) / 100),
-                                currency
-                              )}
+                          {/* Miktar, Birim, Birim Fiyat, KDV Dahil, İskonto, KDV */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-[72px_92px_1fr_1.15fr_76px_82px] gap-2 items-end pt-0.5">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                Miktar
+                              </label>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={item.quantity}
+                                onChange={(e) =>
+                                  updateLineItem(item.id, {
+                                    quantity: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-center text-slate-900 dark:text-white"
+                              />
                             </div>
-                          </div>
 
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                              İskonto %
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="any"
-                              value={item.discountPercent || ''}
-                              onChange={(e) =>
-                                updateLineItem(item.id, {
-                                  discountPercent: parseFloat(e.target.value) || 0,
-                                })
-                              }
-                              placeholder="0"
-                              className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-center text-rose-600 dark:text-rose-400"
-                            />
-                          </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                Birim
+                              </label>
+                              <select
+                                value={item.unit}
+                                onChange={(e) => updateLineItem(item.id, { unit: e.target.value })}
+                                className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                              >
+                                {UNIT_OPTIONS.map((u) => (
+                                  <option key={u} value={u}>
+                                    {u}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
 
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                              KDV %
-                            </label>
-                            <select
-                              value={item.vatRate}
-                              onChange={(e) =>
-                                updateLineItem(item.id, { vatRate: Number(e.target.value) })
-                              }
-                              className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
-                            >
-                              {VAT_OPTIONS.map((v) => (
-                                <option key={v} value={v}>
-                                  %{v}
-                                </option>
-                              ))}
-                            </select>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                Birim Fiyat ({CURRENCY_SYMBOLS[currency]})
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.unitPrice || ''}
+                                onChange={(e) =>
+                                  updateLineItem(item.id, {
+                                    unitPrice: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                placeholder="0.00"
+                                className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-right text-slate-900 dark:text-white"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-0.5 whitespace-nowrap">
+                                KDV Dahil ({CURRENCY_SYMBOLS[currency]})
+                              </label>
+                              <div
+                                className="w-full px-2.5 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 text-xs font-black text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap"
+                                title="Birim Fiyat + KDV Dahil Tutarı"
+                              >
+                                {formatMoney(
+                                  (Number(item.unitPrice) || 0) *
+                                    (1 + (Number(item.vatRate ?? 20) || 0) / 100),
+                                  currency
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                İskonto %
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="any"
+                                value={item.discountPercent || ''}
+                                onChange={(e) =>
+                                  updateLineItem(item.id, {
+                                    discountPercent: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                placeholder="0"
+                                className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-center text-rose-600 dark:text-rose-400"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                KDV %
+                              </label>
+                              <select
+                                value={item.vatRate}
+                                onChange={(e) =>
+                                  updateLineItem(item.id, { vatRate: Number(e.target.value) })
+                                }
+                                className="w-full px-2 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                              >
+                                {VAT_OPTIONS.map((v) => (
+                                  <option key={v} value={v}>
+                                    %{v}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
                       </div>
