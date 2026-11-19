@@ -2946,8 +2946,8 @@ export const QuotationsSection: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Sağ: Miktar, Birim, Birim Fiyat, İskonto, KDV, Tutar */}
-                        <div className="grid grid-cols-2 sm:grid-cols-5 lg:w-[430px] gap-2 shrink-0 items-end">
+                        {/* Sağ: Miktar, Birim, Birim Fiyat, KDV Dahil, İskonto, KDV */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:w-[545px] gap-2 shrink-0 items-end">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
                               Miktar
@@ -3000,6 +3000,22 @@ export const QuotationsSection: React.FC = () => {
                               placeholder="0.00"
                               className="w-full px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-right text-slate-900 dark:text-white"
                             />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-0.5 whitespace-nowrap">
+                              KDV Dahil ({CURRENCY_SYMBOLS[currency]})
+                            </label>
+                            <div
+                              className="w-full px-2 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 text-xs font-black text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                              title="Birim Fiyat + KDV Dahil Tutarı"
+                            >
+                              {formatMoney(
+                                (Number(item.unitPrice) || 0) *
+                                  (1 + (Number(item.vatRate ?? 20) || 0) / 100),
+                                currency
+                              )}
+                            </div>
                           </div>
 
                           <div>
@@ -3066,6 +3082,15 @@ export const QuotationsSection: React.FC = () => {
                             Satır Tutarı:{' '}
                             <span className="text-sm font-black text-slate-900 dark:text-white">
                               {formatMoney(item.lineTotal, currency)}
+                            </span>
+                            <span className="ml-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+                              (KDV Dahil:{' '}
+                              {formatMoney(
+                                (Number(item.lineTotal) || 0) *
+                                  (1 + (Number(item.vatRate ?? 20) || 0) / 100),
+                                currency
+                              )}
+                              )
                             </span>
                           </div>
                           {lineItems.length > 1 && (
