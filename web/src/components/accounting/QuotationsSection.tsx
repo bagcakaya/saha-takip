@@ -2268,6 +2268,13 @@ export const QuotationsSection: React.FC = () => {
                           + %{prod.vatRate ?? 20} KDV
                         </span>
                       </span>
+                      <span className="text-[11px] font-extrabold text-sky-600 dark:text-sky-400 block mt-0.5">
+                        KDV Dahil:{' '}
+                        {formatMoney(
+                          (Number(prod.unitPrice) || 0) * (1 + (prod.vatRate ?? 20) / 100),
+                          prod.currency || 'TRY'
+                        )}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -3424,10 +3431,23 @@ export const QuotationsSection: React.FC = () => {
                             <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
                               {formatMoney(unitPrice, prod.currency || 'TRY')} / {prod.unit || 'Adet'}
                             </span>
+                            <span className="text-[11px] font-bold text-sky-600 dark:text-sky-400">
+                              (KDV Dahil:{' '}
+                              {formatMoney(
+                                unitPrice * (1 + (prod.vatRate ?? 20) / 100),
+                                prod.currency || 'TRY'
+                              )}
+                              )
+                            </span>
                             {selectedQty > 1 && (
                               <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-black">
                                 {selectedQty} {prod.unit || 'Adet'} Toplam:{' '}
-                                {formatMoney(calculatedLineTotal, prod.currency || 'TRY')}
+                                {formatMoney(calculatedLineTotal, prod.currency || 'TRY')} (KDV Dahil:{' '}
+                                {formatMoney(
+                                  calculatedLineTotal * (1 + (prod.vatRate ?? 20) / 100),
+                                  prod.currency || 'TRY'
+                                )}
+                                )
                               </span>
                             )}
                           </div>
@@ -3696,6 +3716,35 @@ export const QuotationsSection: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* KDV Dahil Fiyat Önizleme Kutusu */}
+              {(() => {
+                const basePrice = parseFloat(String(prodPrice).replace(',', '.')) || 0;
+                const vatRateNum = Number(prodVat) || 0;
+                const vatAmount = basePrice * (vatRateNum / 100);
+                const vatIncludedPrice = basePrice + vatAmount;
+                return (
+                  <div className="p-3.5 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        KDV Hariç: <span className="font-black text-slate-900 dark:text-white">{formatMoney(basePrice, prodCurrency)}</span>
+                        {' '}+ %{vatRateNum} KDV (<span className="font-black text-slate-800 dark:text-slate-200">{formatMoney(vatAmount, prodCurrency)}</span>)
+                      </div>
+                      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        Seçilen birim ({prodUnit || 'Adet'}) ve KDV oranına göre otomatik hesaplanır
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                        KDV Dahil Fiyat (1 {prodUnit || 'Adet'})
+                      </span>
+                      <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400">
+                        {formatMoney(vatIncludedPrice, prodCurrency)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
