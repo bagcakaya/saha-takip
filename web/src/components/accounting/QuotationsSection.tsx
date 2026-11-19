@@ -1374,8 +1374,7 @@ export const QuotationsSection: React.FC = () => {
         .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s_-]/g, '')
         .trim()
         .replace(/\s+/g, '_');
-      const modeSuffix = isPricelessMode ? '_Urun_Listesi' : '';
-      const filename = `${safeCari || 'Teklif'}${modeSuffix}.pdf`;
+      const filename = `${safeCari || 'Teklif'}.pdf`;
 
       const h2p = getHtml2Pdf();
       if (typeof h2p === 'function') {
@@ -1394,7 +1393,15 @@ export const QuotationsSection: React.FC = () => {
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
         };
-        await h2p().set(opt).from(targetElement).save();
+        const pdfBlob: Blob = await h2p().set(opt).from(targetElement).outputPdf('blob');
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       } else {
         handlePrintQuotation(quote, forceHidePrices);
       }
@@ -1411,12 +1418,11 @@ export const QuotationsSection: React.FC = () => {
 
   // Print Quotation via hidden iframe / print dialog
   const handlePrintQuotation = (quote: QuotationRecord, forceHidePrices?: boolean) => {
-    const isPricelessMode = Boolean(forceHidePrices ?? quote.hidePrices);
     const safeCari = (quote.cariName || 'Teklif')
       .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s_-]/g, '')
       .trim()
       .replace(/\s+/g, '_');
-    const printTitle = `${safeCari || 'Teklif'}${isPricelessMode ? '_Urun_Listesi' : ''}`;
+    const printTitle = safeCari || 'Teklif';
 
     const htmlContent = generateQuotationPdfHtml(
       quote,
