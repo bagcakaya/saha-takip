@@ -12,6 +12,9 @@ registerServiceWorker();
 // Initialize OneSignal Web Push
 OneSignalService.init();
 
+// Mark app as mounted for index.html white-screen recovery watchdog
+(window as unknown as { __SAHA_TAKIP_MOUNTED__?: boolean }).__SAHA_TAKIP_MOUNTED__ = true;
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

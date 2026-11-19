@@ -10,13 +10,101 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="İş Takip Sistemi - Görev takibi, saha kurulum kontrol ve tutanak yönetim sistemi" />
-    <link rel="manifest" href="/manifest.json?v=12" />
-    <link rel="icon" type="image/png" href="/favicon.png?v=12" />
-    <link rel="apple-touch-icon" href="/icon.png?v=12" />
+    <link rel="manifest" href="/manifest.json?v=14" />
+    <link rel="icon" type="image/png" href="/favicon.png?v=14" />
+    <link rel="apple-touch-icon" href="/icon.png?v=14" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>İş Takip Sistemi</title>
+    <script>
+      (function () {
+        // Clean temporary cache-buster query params from address bar without reloading
+        try {
+          var u = new URL(window.location.href);
+          if (u.searchParams.has('_u') || u.searchParams.has('_recover')) {
+            u.searchParams.delete('_u');
+            u.searchParams.delete('_recover');
+            window.history.replaceState({}, '', u.pathname + (u.search || '') + (u.hash || ''));
+          }
+        } catch (e) {}
+
+        var recoverTriggered = false;
+        function clearCachesAndReload() {
+          if (recoverTriggered) return;
+          recoverTriggered = true;
+          var tasks = [];
+          try {
+            if ('caches' in window) {
+              tasks.push(
+                caches.keys().then(function (keys) {
+                  return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                })
+              );
+            }
+            if ('serviceWorker' in navigator) {
+              tasks.push(
+                navigator.serviceWorker.getRegistrations().then(function (regs) {
+                  return Promise.all(regs.map(function (r) { return r.unregister(); }));
+                })
+              );
+            }
+          } catch (e) {}
+          Promise.all(tasks).finally(function () {
+            var target = new URL(window.location.href);
+            target.searchParams.set('_recover', String(Date.now()));
+            window.location.replace(target.toString());
+          });
+        }
+
+        function showFallbackUi() {
+          var root = document.getElementById('root');
+          if (!root || root.children.length > 0 || window.__SAHA_TAKIP_MOUNTED__) return;
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0f172a;color:#f8fafc;font-family:Inter,system-ui,sans-serif;text-align:center;">' +
+            '<div style="max-width:420px;background:#1e293b;border:1px solid #334155;border-radius:20px;padding:28px 24px;box-shadow:0 20px 40px rgba(0,0,0,0.4);">' +
+            '<div style="font-size:20px;font-weight:700;margin-bottom:10px;">Uygulama Güncelleniyor</div>' +
+            '<div style="font-size:13px;color:#cbd5e1;line-height:1.5;margin-bottom:20px;">Tarayıcı önbelleği eski sürümde kalmış veya bağlantı geçici olarak kesilmiş olabilir. Önbelleği temizleyip yeniden yüklemek için aşağıdaki butona tıklayın.</div>' +
+            '<button id="__st_manual_recover" style="background:#0284c7;color:#fff;border:none;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">Önbelleği Temizle ve Yeniden Aç</button>' +
+            '</div></div>';
+          var btn = document.getElementById('__st_manual_recover');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              try { sessionStorage.removeItem('__st_auto_recover'); } catch (e) {}
+              recoverTriggered = false;
+              clearCachesAndReload();
+            });
+          }
+        }
+
+        function attemptAutoRecover() {
+          if (window.__SAHA_TAKIP_MOUNTED__) return;
+          var root = document.getElementById('root');
+          if (root && root.children.length > 0) return;
+          var last = 0;
+          try { last = Number(sessionStorage.getItem('__st_auto_recover') || '0'); } catch (e) {}
+          if (Date.now() - last > 20000) {
+            try { sessionStorage.setItem('__st_auto_recover', String(Date.now())); } catch (e) {}
+            clearCachesAndReload();
+          } else {
+            showFallbackUi();
+          }
+        }
+
+        window.addEventListener(
+          'error',
+          function (ev) {
+            var t = ev && ev.target;
+            if (t && t.tagName === 'SCRIPT' && t.src && t.src.indexOf('/assets/') !== -1) {
+              attemptAutoRecover();
+            }
+          },
+          true
+        );
+
+        setTimeout(attemptAutoRecover, 4500);
+      })();
+    </script>
   </head>
   <body class="antialiased select-none font-sans overflow-x-hidden">
     <div id="root"></div>

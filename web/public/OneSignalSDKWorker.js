@@ -1,9 +1,7 @@
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'saha-takip-pwa-v13';
+const CACHE_NAME = 'saha-takip-pwa-v14';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/favicon.png',
   '/icon.png',
@@ -20,7 +18,13 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE).catch(() => {});
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) =>
+          fetch(url, { cache: 'reload' })
+            .then((res) => (res && res.ok ? cache.put(url, res) : undefined))
+            .catch(() => {})
+        )
+      );
     })
   );
 });
@@ -56,15 +60,71 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event (100% iOS Safari / WebKit safe Network-First with Cache Fallback)
+// Fetch Event (iOS Safari / WebKit safe, never serves stale HTML or poisoned MIME types)
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (!event.request.url.startsWith(self.location.origin)) return;
+
+  const reqUrl = new URL(event.request.url);
+  // Never intercept API calls
+  if (reqUrl.pathname.startsWith('/api/')) return;
+
+  const accept = event.request.headers.get('accept') || '';
+  const isNavigate =
+    event.request.mode === 'navigate' ||
+    accept.includes('text/html') ||
+    reqUrl.pathname === '/' ||
+    reqUrl.pathname === '/index.html';
+  const isJsOrCss = /\.(js|mjs|css)(\?.*)?$/i.test(reqUrl.pathname);
+
+  if (isNavigate) {
+    event.respondWith(
+      (async () => {
+        try {
+          // Fetch fresh HTML via URL string (safe on iOS Safari WebKit & bypasses stale HTTP cache)
+          const freshResponse = await fetch(event.request.url, {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          });
+          const ct = (freshResponse.headers.get('content-type') || '').toLowerCase();
+          if (freshResponse && freshResponse.status === 200 && ct.includes('text/html')) {
+            const clone = freshResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('/index.html', clone).catch(() => {});
+            }).catch(() => {});
+            return freshResponse;
+          }
+          return freshResponse;
+        } catch (err) {
+          try {
+            const fallbackFetch = await fetch(event.request);
+            if (fallbackFetch && fallbackFetch.status === 200) return fallbackFetch;
+          } catch {}
+          const cachedHtml =
+            (await caches.match('/index.html')) || (await caches.match(event.request));
+          if (cachedHtml) return cachedHtml;
+          throw err;
+        }
+      })()
+    );
+    return;
+  }
 
   event.respondWith(
     (async () => {
       try {
         const response = await fetch(event.request);
+        const ct = (response.headers.get('content-type') || '').toLowerCase();
+
+        // Guard against SPA rewrite returning text/html for missing hashed .js/.css bundles
+        if (isJsOrCss && ct.includes('text/html')) {
+          return new Response('/* asset outdated */', {
+            status: 404,
+            statusText: 'Not Found',
+            headers: { 'Content-Type': 'text/plain' },
+          });
+        }
+
         if (response && response.status === 200 && response.type === 'basic') {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -74,11 +134,11 @@ self.addEventListener('fetch', (event) => {
         return response;
       } catch (err) {
         const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) return cachedResponse;
-        const accept = event.request.headers.get('accept') || '';
-        if (event.request.mode === 'navigate' || accept.includes('text/html')) {
-          const fallbackHtml = await caches.match('/index.html');
-          if (fallbackHtml) return fallbackHtml;
+        if (cachedResponse) {
+          const cachedCt = (cachedResponse.headers.get('content-type') || '').toLowerCase();
+          if (!(isJsOrCss && cachedCt.includes('text/html'))) {
+            return cachedResponse;
+          }
         }
         throw err;
       }
