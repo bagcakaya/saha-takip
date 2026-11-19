@@ -1668,7 +1668,7 @@ export const QuotationsSection: React.FC = () => {
   }, [products, productSearchQuery, catalogSearch, isCatalogPickerOpen]);
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-200">
+    <div className="space-y-5">
       {/* Gizli Galeri & Kamera Inputları */}
       <input
         ref={galleryInputRef}
@@ -2033,6 +2033,8 @@ export const QuotationsSection: React.FC = () => {
                                     <img
                                       src={it.imageUrl}
                                       alt={it.name}
+                                      loading="lazy"
+                                      decoding="async"
                                       className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 shrink-0"
                                     />
                                   ) : (
@@ -2232,6 +2234,8 @@ export const QuotationsSection: React.FC = () => {
                       <img
                         src={prod.imageUrl}
                         alt={prod.name}
+                        loading="lazy"
+                        decoding="async"
                         className="w-20 h-20 rounded-xl object-contain bg-white border border-slate-200 p-1 shrink-0"
                       />
                     ) : (
@@ -3429,6 +3433,8 @@ export const QuotationsSection: React.FC = () => {
                           <img
                             src={prod.imageUrl}
                             alt={prod.name}
+                            loading="lazy"
+                            decoding="async"
                             className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
                           />
                         ) : (

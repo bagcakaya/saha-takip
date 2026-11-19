@@ -4633,6 +4633,39 @@ export const StorageService = {
   },
 
   /**
+   * Fast local-only cache read for accounting data (including quotations & product catalog)
+   * so Muhasebe & Teklif Modülü hydrate in <5ms without waiting for cloud chunks.
+   */
+  async getCachedAccountingData(): Promise<AccountingDataPayload | null> {
+    const localKey = this.getStorageKey(ACCOUNTING_DATA_KEY);
+    const cached = await loadItem<AccountingDataPayload>(localKey);
+    if (!cached || typeof cached !== 'object' || Array.isArray(cached)) {
+      return null;
+    }
+    return {
+      transactions: Array.isArray(cached.transactions) ? cached.transactions : [],
+      categories:
+        Array.isArray(cached.categories) && cached.categories.length > 0
+          ? cached.categories
+          : DEFAULT_ACCOUNTING_CATEGORIES,
+      cashRegisters:
+        Array.isArray(cached.cashRegisters) && cached.cashRegisters.length > 0
+          ? cached.cashRegisters
+          : DEFAULT_CASH_REGISTERS,
+      dailyBalances: Array.isArray(cached.dailyBalances) ? cached.dailyBalances : [],
+      debtsReceivables: Array.isArray(cached.debtsReceivables) ? cached.debtsReceivables : [],
+      fixedExpenses: Array.isArray(cached.fixedExpenses) ? cached.fixedExpenses : [],
+      quotations: Array.isArray(cached.quotations) ? cached.quotations : [],
+      quotationProducts: Array.isArray(cached.quotationProducts) ? cached.quotationProducts : [],
+      quotationFooterTemplates:
+        Array.isArray(cached.quotationFooterTemplates) && cached.quotationFooterTemplates.length > 0
+          ? cached.quotationFooterTemplates
+          : DEFAULT_QUOTATION_FOOTER_TEMPLATES,
+      quotationSettings: cached.quotationSettings,
+    };
+  },
+
+  /**
    * Retrieves accounting data (transactions, categories, cash registers, daily balances)
    * Dedicated Slot 21 (21001 for POLATLAR, 21000 + companyId for others) + IndexedDB/localStorage cache
    */

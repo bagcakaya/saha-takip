@@ -849,8 +849,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (sData.assignments && sData.assignments.length > 0) setShiftAssignments(sData.assignments);
             }
           }).catch(() => {});
-          // Fast cached accounting data for company
-          StorageService.getAccountingData().then((acc) => {
+          // Fast cached accounting data for company (instant IndexedDB read, no cloud wait)
+          StorageService.getCachedAccountingData().then((acc) => {
             if (isMounted && acc) setAccountingData(acc);
           }).catch(() => {});
           // If cached data was loaded, unlock the UI immediately

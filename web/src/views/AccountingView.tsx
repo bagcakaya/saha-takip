@@ -82,7 +82,27 @@ export const AccountingView: React.FC = () => {
     branches,
   } = useStorage();
 
-  const [activeModule, setActiveModule] = useState<AccountingModule>('menu');
+  const [activeModule, setActiveModule] = useState<AccountingModule>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stateMod = window.history.state?.accountingModule;
+        if (
+          stateMod &&
+          ['income_expense', 'debts_receivables', 'fixed_expenses', 'quotations'].includes(stateMod)
+        ) {
+          return stateMod as AccountingModule;
+        }
+        const urlMod = new URLSearchParams(window.location.search).get('module');
+        if (
+          urlMod &&
+          ['income_expense', 'debts_receivables', 'fixed_expenses', 'quotations'].includes(urlMod)
+        ) {
+          return urlMod as AccountingModule;
+        }
+      } catch {}
+    }
+    return 'menu';
+  });
   const [activeTab, setActiveTab] = useState<AccountingTab>('transactions');
 
   const navigateToModule = (mod: AccountingModule) => {
@@ -209,6 +229,15 @@ export const AccountingView: React.FC = () => {
     let yearIncome = 0;
     let yearExpense = 0;
 
+    if (activeModule !== 'income_expense') {
+      return {
+        months,
+        yearIncome: 0,
+        yearExpense: 0,
+        yearNet: 0,
+      };
+    }
+
     transactions.forEach((tx) => {
       if (!tx.date) return;
       const parts = tx.date.split('-');
@@ -259,7 +288,7 @@ export const AccountingView: React.FC = () => {
       yearExpense,
       yearNet: yearIncome - yearExpense,
     };
-  }, [transactions, selectedDrawerYear, filterType, filterPaymentMethod, filterCategory, searchQuery]);
+  }, [activeModule, transactions, selectedDrawerYear, filterType, filterPaymentMethod, filterCategory, searchQuery]);
 
   // Tıklanan Ayın Detay Modalı Verisi
   const activeMonthDetail = useMemo(() => {
@@ -361,6 +390,7 @@ export const AccountingView: React.FC = () => {
   };
 
   const filteredTransactions = useMemo(() => {
+    if (activeModule !== 'income_expense') return [];
     return transactions.filter((t) => {
       // 1. Type
       if (filterType !== 'all' && t.type !== filterType) return false;
@@ -405,6 +435,7 @@ export const AccountingView: React.FC = () => {
       return true;
     });
   }, [
+    activeModule,
     transactions,
     filterType,
     filterPaymentMethod,
@@ -667,7 +698,7 @@ export const AccountingView: React.FC = () => {
   const quotations = accountingData.quotations || [];
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-200">
+    <div className="space-y-5">
       {/* ========================================================= */}
       {/* MUHASEBE ANA MENÜSÜ (4 MODÜL: GELİR/GİDER, BORÇLAR/ALACAKLAR, SABİT MASRAFLAR, TEKLİF MODÜLÜ) */}
       {/* ========================================================= */}
