@@ -1370,12 +1370,12 @@ export const QuotationsSection: React.FC = () => {
       await new Promise((r) => setTimeout(r, 120));
 
       const targetElement = (wrapper.firstElementChild as HTMLElement) || wrapper;
-      const safeCari = (quote.cariName || 'Musteri')
-        .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s-_]/g, '')
+      const safeCari = (quote.cariName || 'Teklif')
+        .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s_-]/g, '')
         .trim()
         .replace(/\s+/g, '_');
       const modeSuffix = isPricelessMode ? '_Urun_Listesi' : '';
-      const filename = `POLATLAR_Teklif_${quote.quoteNumber}_${safeCari}${modeSuffix}.pdf`;
+      const filename = `${safeCari || 'Teklif'}${modeSuffix}.pdf`;
 
       const h2p = getHtml2Pdf();
       if (typeof h2p === 'function') {
@@ -1396,11 +1396,11 @@ export const QuotationsSection: React.FC = () => {
         };
         await h2p().set(opt).from(targetElement).save();
       } else {
-        handlePrintQuotation(quote);
+        handlePrintQuotation(quote, forceHidePrices);
       }
     } catch (err) {
       console.error('Teklif PDF oluşturma hatası:', err);
-      handlePrintQuotation(quote);
+      handlePrintQuotation(quote, forceHidePrices);
     } finally {
       if (wrapper && wrapper.parentNode) {
         wrapper.parentNode.removeChild(wrapper);
@@ -1411,6 +1411,13 @@ export const QuotationsSection: React.FC = () => {
 
   // Print Quotation via hidden iframe / print dialog
   const handlePrintQuotation = (quote: QuotationRecord, forceHidePrices?: boolean) => {
+    const isPricelessMode = Boolean(forceHidePrices ?? quote.hidePrices);
+    const safeCari = (quote.cariName || 'Teklif')
+      .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s_-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const printTitle = `${safeCari || 'Teklif'}${isPricelessMode ? '_Urun_Listesi' : ''}`;
+
     const htmlContent = generateQuotationPdfHtml(
       quote,
       activePolatlarLogo,
@@ -1424,7 +1431,7 @@ export const QuotationsSection: React.FC = () => {
       <html lang="tr">
       <head>
         <meta charset="utf-8" />
-        <title>POLATLAR Teklif - ${escapeHtml(quote.quoteNumber)} - ${escapeHtml(quote.cariName)}</title>
+        <title>${escapeHtml(printTitle)}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -1446,13 +1453,16 @@ export const QuotationsSection: React.FC = () => {
     document.body.appendChild(iframe);
     const doc = iframe.contentWindow?.document;
     if (doc) {
+      const prevTitle = document.title;
       doc.open();
       doc.write(fullDoc);
       doc.close();
       setTimeout(() => {
+        document.title = printTitle;
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
         setTimeout(() => {
+          document.title = prevTitle;
           if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
         }, 2000);
       }, 350);
