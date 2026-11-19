@@ -2947,7 +2947,7 @@ export const QuotationsSection: React.FC = () => {
                         </div>
 
                         {/* Sağ: Miktar, Birim, Birim Fiyat, KDV Dahil, İskonto, KDV */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:w-[545px] gap-2 shrink-0 items-end">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-[62px_78px_98px_minmax(126px,1fr)_66px_72px] lg:w-[550px] gap-2 shrink-0 items-end">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
                               Miktar
@@ -3007,7 +3007,7 @@ export const QuotationsSection: React.FC = () => {
                               KDV Dahil ({CURRENCY_SYMBOLS[currency]})
                             </label>
                             <div
-                              className="w-full px-2 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 text-xs font-black text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                              className="w-full px-2.5 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 text-xs font-black text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap"
                               title="Birim Fiyat + KDV Dahil Tutarı"
                             >
                               {formatMoney(
