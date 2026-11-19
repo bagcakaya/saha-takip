@@ -3717,7 +3717,7 @@ export const QuotationsSection: React.FC = () => {
                 </div>
               </div>
 
-              {/* KDV Dahil Fiyat Önizleme Kutusu */}
+              {/* KDV Dahil Fiyat Alanı ve Özet Kutusu */}
               {(() => {
                 const basePrice = parseFloat(String(prodPrice).replace(',', '.')) || 0;
                 const vatRateNum = Number(prodVat) || 0;
@@ -3726,17 +3726,17 @@ export const QuotationsSection: React.FC = () => {
                 return (
                   <div className="p-3.5 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3">
                     <div className="space-y-0.5">
-                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
                         KDV Hariç: <span className="font-black text-slate-900 dark:text-white">{formatMoney(basePrice, prodCurrency)}</span>
                         {' '}+ %{vatRateNum} KDV (<span className="font-black text-slate-800 dark:text-slate-200">{formatMoney(vatAmount, prodCurrency)}</span>)
                       </div>
                       <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                        Seçilen birim ({prodUnit || 'Adet'}) ve KDV oranına göre otomatik hesaplanır
+                        1 {prodUnit || 'Adet'} için KDV dahil satış fiyatı
                       </div>
                     </div>
                     <div className="text-right">
                       <span className="block text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                        KDV Dahil Fiyat (1 {prodUnit || 'Adet'})
+                        KDV Dahil Fiyat
                       </span>
                       <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400">
                         {formatMoney(vatIncludedPrice, prodCurrency)}
