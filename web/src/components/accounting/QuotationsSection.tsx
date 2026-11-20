@@ -453,18 +453,7 @@ export const generateQuotationPdfHtml = (
         </tr>
       </table>
 
-      <!-- 3. TEKLİF AÇIKLAMASI / ÖN YAZI -->
-      ${
-        quote.description
-          ? `
-        <div style="margin-bottom: 16px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 11px 14px; font-size: 11px; font-weight: 300; color: #0c4a6e; line-height: 1.5; white-space: pre-wrap; letter-spacing: 0.15px;">
-          <span style="display: block; font-size: 9.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.9px; color: #0284c7; margin-bottom: 3px;">TEKLİF AÇIKLAMASI:</span>${escapeHtml(quote.description)}
-        </div>
-      `
-          : ''
-      }
-
-      <!-- 4. ÜRÜN VE HİZMET KALEMLERİ TABLOSU -->
+      <!-- 3. ÜRÜN VE HİZMET KALEMLERİ TABLOSU -->
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden;">
         <thead>
           ${
@@ -999,10 +988,7 @@ export const QuotationsSection: React.FC = () => {
     setCurrency('TRY');
     setIncludeVat(true);
     setHidePrices(false);
-    setDescription(
-      quotationSettings.defaultDescription ||
-        'Firmamızdan talep etmiş olduğunuz ürün ve hizmetlere ilişkin hazırlanan fiyat teklifimiz aşağıda bilgilerinize sunulmuştur.'
-    );
+    setDescription('');
     setLineItems([createEmptyLineItem()]);
     const defaultTerms: QuotationFooterTermItem[] = footerTemplates
       .filter((t) => t.isDefaultSelected)
@@ -2011,12 +1997,6 @@ export const QuotationsSection: React.FC = () => {
                           </div>
                         )}
 
-                        {quote.description && (
-                          <div className="p-2.5 rounded-xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/70 dark:border-sky-900/50 text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                            {quote.description}
-                          </div>
-                        )}
-
                         {/* Ürün Kalemleri Özeti */}
                         <div className="space-y-1.5">
                           <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">
@@ -2787,35 +2767,6 @@ export const QuotationsSection: React.FC = () => {
                       <option value="EUR">€ EUR (Euro)</option>
                     </select>
                   </div>
-                </div>
-
-                {/* Teklif Açıklaması / Ön Yazı */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Teklif Açıklaması / Ön Yazı (PDF'te Ürün Tablosunun Üstünde Çıkar)
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDescription(
-                            'Firmamızdan talep etmiş olduğunuz ürün ve hizmetlere ilişkin hazırlanan fiyat teklifimiz aşağıda bilgilerinize sunulmuştur. Teklifimizin uygun görülmesini temenni eder, iyi çalışmalar dileriz.'
-                          )
-                        }
-                        className="text-[11px] font-bold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
-                      >
-                        Standart Ön Yazı Doldur
-                      </button>
-                    </div>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Teklif hakkında genel açıklama, ön yazı veya kapsam bilgisi giriniz..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
                 </div>
               </div>
 
