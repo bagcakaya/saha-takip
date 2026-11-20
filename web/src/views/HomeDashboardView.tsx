@@ -182,8 +182,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
 
-          const mimeType = file.type === 'image/png' ? 'image/png' : 'image/webp';
-          const dataUrl = canvas.toDataURL(mimeType, 0.88);
+          const dataUrl = canvas.toDataURL('image/webp', 0.85);
           resolve(dataUrl);
         };
         img.onerror = () => reject(new Error('Resim yüklenemedi.'));
@@ -653,6 +652,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <img
                 src={company.logoUrl}
                 alt={`${activeCompanyName} Logosu`}
+                decoding="async"
+                fetchPriority="high"
                 className={`w-full h-full ${
                   (company.logoFit || 'cover') === 'contain' ? 'object-contain p-1' : 'object-cover'
                 } filter drop-shadow-md select-none transition-transform duration-200 group-hover/logo:scale-105`}

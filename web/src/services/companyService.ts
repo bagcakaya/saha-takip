@@ -1,10 +1,14 @@
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { Company, CompanyModulePermissions } from '../types/auth';
 import { supabase } from './supabaseClient';
 import { ServerConfigService } from './serverConfigService';
 import { SanitizeService } from './sanitizeService';
 
 const COMPANIES_STORAGE_KEY = '@saha_takip_companies_directory';
+const COMPANY_LOGO_KEY_PREFIX = '@saha_takip_company_logo_';
 const COMPANIES_SLOT_ID = 100;
+
+let memoryCompaniesCache: Company[] | null = null;
 
 export const DEFAULT_COMPANY: Company = {
   id: 1,
@@ -18,11 +22,33 @@ export const DEFAULT_COMPANY: Company = {
   isFrozen: false,
 };
 
+const hydrateCompanyLogosFromLocal = (list: Company[]): Company[] => {
+  return list.map((c) => {
+    if (!c || !c.code) return c;
+    const cleanCode = c.code.toUpperCase();
+    try {
+      const rawLogo = localStorage.getItem(`${COMPANY_LOGO_KEY_PREFIX}${cleanCode}`);
+      if (rawLogo) {
+        const parsed = JSON.parse(rawLogo) as { logoUrl?: string; logoFit?: 'cover' | 'contain' };
+        return {
+          ...c,
+          logoUrl: c.logoUrl || parsed.logoUrl,
+          logoFit: c.logoFit || parsed.logoFit,
+        };
+      }
+    } catch {}
+    return c;
+  });
+};
+
 export const CompanyService = {
   /**
-   * Retrieves all registered companies from local storage or defaults to POLATLAR
+   * Retrieves all registered companies synchronously from memory / local storage or defaults to POLATLAR
    */
   getCompaniesLocal(): Company[] {
+    if (memoryCompaniesCache && memoryCompaniesCache.length > 0) {
+      return memoryCompaniesCache;
+    }
     try {
       const data = localStorage.getItem(COMPANIES_STORAGE_KEY);
       if (data) {
@@ -30,25 +56,92 @@ export const CompanyService = {
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Guarantee POLATLAR is always present as company #1
           if (!parsed.some((c) => c.code === 'POLATLAR')) {
-            parsed.unshift(DEFAULT_COMPANY);
+            parsed.unshift({ ...DEFAULT_COMPANY });
           }
-          return parsed;
+          const hydrated = hydrateCompanyLogosFromLocal(parsed);
+          memoryCompaniesCache = hydrated;
+          return hydrated;
         }
       }
     } catch (e) {
       console.warn('Kurum listesi yerelden okunamadı:', e);
     }
-    return [DEFAULT_COMPANY];
+    const fallback = hydrateCompanyLogosFromLocal([{ ...DEFAULT_COMPANY }]);
+    return fallback;
   },
 
   /**
-   * Saves company directory to local storage
+   * Synchronously looks up a company from local cache (0ms latency for instant logo rendering)
+   */
+  getCompanyByCodeLocal(code: string): Company | null {
+    const cleanCode = (code || '').trim().toUpperCase();
+    if (!cleanCode) return null;
+    const list = this.getCompaniesLocal();
+    const found = list.find((c) => c.code.toUpperCase() === cleanCode);
+    if (found) return found;
+    if (cleanCode === 'POLATLAR') {
+      return hydrateCompanyLogosFromLocal([{ ...DEFAULT_COMPANY }])[0];
+    }
+    return null;
+  },
+
+  /**
+   * Reads companies from fast local IndexedDB cache (<5ms) when localStorage was evicted or exceeded quota
+   */
+  async getCompanyByCodeCached(code: string): Promise<Company | null> {
+    const cleanCode = (code || '').trim().toUpperCase();
+    if (!cleanCode) return null;
+    const syncMatch = this.getCompanyByCodeLocal(cleanCode);
+    if (syncMatch && syncMatch.logoUrl) {
+      return syncMatch;
+    }
+    try {
+      const idbList = await idbGet<Company[]>(COMPANIES_STORAGE_KEY);
+      if (Array.isArray(idbList) && idbList.length > 0) {
+        const hydrated = hydrateCompanyLogosFromLocal(idbList);
+        memoryCompaniesCache = hydrated;
+        const found = hydrated.find((c) => c.code.toUpperCase() === cleanCode);
+        if (found) return found;
+      }
+    } catch {}
+    return syncMatch;
+  },
+
+  /**
+   * Saves company directory to memory, IndexedDB, and local storage (with per-company logo backup)
    */
   saveCompaniesLocal(companies: Company[]): void {
+    memoryCompaniesCache = companies;
+
+    // 1. Persist full list (with base64 logos) to IndexedDB so quota never drops logos
+    idbSet(COMPANIES_STORAGE_KEY, companies).catch(() => {});
+
+    // 2. Persist individual company logos to dedicated keys
+    companies.forEach((c) => {
+      if (!c || !c.code) return;
+      const key = `${COMPANY_LOGO_KEY_PREFIX}${c.code.toUpperCase()}`;
+      try {
+        if (c.logoUrl) {
+          localStorage.setItem(
+            key,
+            JSON.stringify({ logoUrl: c.logoUrl, logoFit: c.logoFit || 'cover' })
+          );
+        } else {
+          localStorage.removeItem(key);
+        }
+      } catch {}
+    });
+
+    // 3. Persist directory to localStorage (fallback to lightweight directory without base64 if quota full)
     try {
       localStorage.setItem(COMPANIES_STORAGE_KEY, JSON.stringify(companies));
-    } catch (e) {
-      console.warn('Kurum listesi kaydedilemedi:', e);
+    } catch {
+      try {
+        const lightweight = companies.map(({ logoUrl: _logo, ...rest }) => rest);
+        localStorage.setItem(COMPANIES_STORAGE_KEY, JSON.stringify(lightweight));
+      } catch (e2) {
+        console.warn('Kurum listesi kaydedilemedi:', e2);
+      }
     }
   },
 

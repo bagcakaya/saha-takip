@@ -94,11 +94,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return [];
     }
   });
-  const [homeCompany, setHomeCompany] = useState<Company | null>(null);
-  const [viewingCompany, setViewingCompany] = useState<Company | null>(null);
-
-  const activeCompany = viewingCompany || homeCompany;
-
   const [user, setUser] = useState<User | null>(() => {
     try {
       const fromLocal = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -166,6 +161,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
 
+  // Synchronously initialize homeCompany & viewingCompany from local cache (0ms logo render on first frame)
+  const [homeCompany, setHomeCompany] = useState<Company | null>(() => {
+    if (!user?.companyCode) return null;
+    return CompanyService.getCompanyByCodeLocal(user.companyCode);
+  });
+
+  const [viewingCompany, setViewingCompany] = useState<Company | null>(() => {
+    if (!user || !isSuperAdmin(user)) return null;
+    try {
+      const savedViewing = localStorage.getItem(VIEWING_COMPANY_STORAGE_KEY);
+      if (savedViewing && savedViewing.trim().toUpperCase() !== 'POLATLAR') {
+        return CompanyService.getCompanyByCodeLocal(savedViewing);
+      }
+    } catch {}
+    return null;
+  });
+
+  const activeCompany = viewingCompany || homeCompany;
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(user));
 
   // Calculate real-time SaaS license status
@@ -209,6 +223,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Immediately apply cached company (0ms) so logo switches instantly without waiting for cloud
+    const cachedTarget = CompanyService.getCompanyByCodeLocal(cleanCode);
+    if (cachedTarget) {
+      setViewingCompany(cachedTarget);
+      try {
+        localStorage.setItem(VIEWING_COMPANY_STORAGE_KEY, cachedTarget.code);
+      } catch {}
+      StorageService.setCompany(cachedTarget.code, cachedTarget.id);
+      window.dispatchEvent(
+        new CustomEvent('saha:viewing-company-changed', { detail: { companyCode: cachedTarget.code } })
+      );
+    }
+
     const targetComp = await CompanyService.getCompanyByCode(cleanCode);
     if (targetComp) {
       setViewingCompany(targetComp);
@@ -216,15 +243,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem(VIEWING_COMPANY_STORAGE_KEY, targetComp.code);
       } catch {}
       StorageService.setCompany(targetComp.code, targetComp.id);
-      window.dispatchEvent(
-        new CustomEvent('saha:viewing-company-changed', { detail: { companyCode: targetComp.code } })
-      );
+      if (!cachedTarget) {
+        window.dispatchEvent(
+          new CustomEvent('saha:viewing-company-changed', { detail: { companyCode: targetComp.code } })
+        );
+      }
     }
   };
 
-  // Load company metadata whenever user changes
+  // Load company metadata whenever user changes (Instant local/IndexedDB hydration + background cloud sync)
   useEffect(() => {
     if (user?.companyCode) {
+      const localHome = CompanyService.getCompanyByCodeLocal(user.companyCode);
+      if (localHome) {
+        setHomeCompany((prev) => prev || localHome);
+      }
+      CompanyService.getCompanyByCodeCached(user.companyCode).then((cachedComp) => {
+        if (cachedComp) {
+          setHomeCompany((prev) => (!prev || !prev.logoUrl ? cachedComp : prev));
+        }
+      }).catch(() => {});
+
       CompanyService.getCompanyByCode(user.companyCode).then((comp) => {
         if (comp) {
           setHomeCompany(comp);
@@ -242,6 +281,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const savedViewing = localStorage.getItem(VIEWING_COMPANY_STORAGE_KEY);
           if (savedViewing && savedViewing.trim().toUpperCase() !== 'POLATLAR') {
+            const localViewing = CompanyService.getCompanyByCodeLocal(savedViewing);
+            if (localViewing) {
+              setViewingCompany((prev) => prev || localViewing);
+              StorageService.setCompany(localViewing.code, localViewing.id);
+            }
+            CompanyService.getCompanyByCodeCached(savedViewing).then((cachedV) => {
+              if (cachedV) {
+                setViewingCompany((prev) => (!prev || !prev.logoUrl ? cachedV : prev));
+              }
+            }).catch(() => {});
+
             CompanyService.getCompanyByCode(savedViewing).then((vComp) => {
               if (vComp) {
                 setViewingCompany(vComp);
@@ -749,9 +799,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateCompanyLogo = async (logoUrl: string | undefined, logoFit?: 'cover' | 'contain') => {
     const targetCompCode = (activeCompany?.code || user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    // Optimistically update active company state immediately (0ms UI feedback)
+    if (viewingCompany && viewingCompany.code.toUpperCase() === targetCompCode) {
+      setViewingCompany((prev) =>
+        prev
+          ? {
+              ...prev,
+              logoUrl,
+              logoFit: logoFit !== undefined ? logoFit : prev.logoFit || 'cover',
+            }
+          : prev
+      );
+    } else if (homeCompany && homeCompany.code.toUpperCase() === targetCompCode) {
+      setHomeCompany((prev) =>
+        prev
+          ? {
+              ...prev,
+              logoUrl,
+              logoFit: logoFit !== undefined ? logoFit : prev.logoFit || 'cover',
+            }
+          : prev
+      );
+    }
     const res = await CompanyService.updateCompanyLogo(targetCompCode, logoUrl, logoFit);
-    if (res.success) {
-      await refreshCompany();
+    if (res.success && res.company) {
+      if (viewingCompany && viewingCompany.code.toUpperCase() === targetCompCode) {
+        setViewingCompany(res.company);
+      } else if (user?.companyCode?.toUpperCase() === targetCompCode) {
+        setHomeCompany(res.company);
+      }
     }
     return res;
   };
