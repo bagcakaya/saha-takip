@@ -553,7 +553,30 @@ export const DeviceService = {
       ).trim().toUpperCase();
     }
 
-    // 2. Fetch current binding for this user strictly within this company
+    // 2. Fast-path (0ms): Check local device bindings cache first if current device is already bound to this user
+    try {
+      const STORAGE_BINDINGS_KEY = StorageService.getStorageKeyForCompany(
+        '@saha_takip_user_device_bindings',
+        targetComp
+      );
+      const rawLocal = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_BINDINGS_KEY) : null;
+      if (rawLocal) {
+        const localBindings = JSON.parse(rawLocal) as import('../types/storage').UserDeviceBinding[];
+        const cleanUser = (params.username || '').trim().toLowerCase();
+        const localMatch = Array.isArray(localBindings)
+          ? localBindings.find(
+              (b) => b.userId === params.userId || (cleanUser && b.username.toLowerCase() === cleanUser)
+            )
+          : null;
+        if (localMatch && localMatch.boundDeviceId === currentId) {
+          // Refresh bindings cache from cloud in the background without blocking check-in/check-out
+          this.getUserDeviceBindings(targetComp).catch(() => {});
+          return { allowed: true, binding: localMatch };
+        }
+      }
+    } catch {}
+
+    // 3. Fallback: Fetch current binding for this user strictly within this company from cloud
     const existingBinding = await this.getBindingForUser(params.userId, params.username, targetComp);
 
     // 3. First login or reset lock: automatically bind current device

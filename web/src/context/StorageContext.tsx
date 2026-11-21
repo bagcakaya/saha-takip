@@ -5043,6 +5043,67 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
+    const todayStr = ShiftReminderService.getTodayDateString();
+    const existingRecord = attendanceRecords.find(
+      (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
+    );
+
+    if (existingRecord) {
+      if (existingRecord.status === 'pending_checkin_approval') {
+        return {
+          success: false,
+          message: 'Bugün için zaten yönetici onayı bekleyen bir işe giriş talebiniz bulunmaktadır.',
+        };
+      }
+      return {
+        success: false,
+        message: 'Bugün için zaten aktif bir işe giriş kaydınız bulunmaktadır.',
+      };
+    }
+
+    // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR (0ms Anlık Giriş) ---
+    // Yönetici nerede olursa olsun "İşe Geldim" dediğinde GPS veya bulut yanıtı beklemeden anında (0ms) onaylı mesaiye başlar.
+    if (user.role === 'admin') {
+      const cachedAdminPos = LocationService.getCachedPosition(300000);
+      const newRecord: AttendanceRecord = {
+        id: generateId(),
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        companyCode: compCode,
+        date: todayStr,
+        checkInTime: Date.now(),
+        checkInLat: cachedAdminPos?.latitude || 0,
+        checkInLon: cachedAdminPos?.longitude || 0,
+        checkInAddress: cachedAdminPos?.address || 'Genel Yönetim',
+        checkInDistance: 0,
+        checkInOutside: false,
+        checkInApprovalStatus: 'approved',
+        status: 'checked_in',
+        notes: 'Yönetici mesaisi (30m kuralından ve şubeden muaf)',
+      };
+
+      const updated = [newRecord, ...attendanceRecords];
+      ApprovalShield.recordAttendance(newRecord);
+      setAttendanceRecords(updated);
+      const assignedForAdmin = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
+      ShiftReminderService.cancelShiftCheckinReminders(
+        user.id,
+        todayStr,
+        compCode,
+        assignedForAdmin?.shift?.startTime || assignedForAdmin?.assignment?.startTime
+      );
+      ShiftReminderService.resetCheckoutAlertsForUser(user.id, todayStr, compCode);
+      StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
+      FastActionAgent.enqueueAttendanceSync(compCode, updated);
+
+      return {
+        success: true,
+        distance: 0,
+        message: 'Yönetici mesainiz başarıyla onaylandı (30m ve şube sınırından muaftır).',
+      };
+    }
+
     let activeBranches = branches || [];
     if (activeBranches.length === 0) {
       try {
@@ -5068,7 +5129,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const hasBranches = activeBranches && activeBranches.length > 0;
     const hasWorkplace = !!(activeWorkplaceLocation && activeWorkplaceLocation.latitude && activeWorkplaceLocation.longitude);
 
-    if (!hasBranches && !hasWorkplace && user.role !== 'admin') {
+    if (!hasBranches && !hasWorkplace) {
       return {
         success: false,
         message: 'İş yeri veya şube konumu henüz yönetici tarafından belirlenmemiş. Lütfen yöneticiniz ile iletişime geçin.',
@@ -5086,33 +5147,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           message: err.message,
         };
       }
-      if (user.role !== 'admin') {
-        const isLocDisabled = !!err?.isLocationDisabled || err?.code === 1;
-        return {
-          success: false,
-          isLocationDisabled: isLocDisabled,
-          message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
-        };
-      }
-      // Yöneticiler için GPS açılamasa dahi mesai engellenmez
-      userPos = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
-    }
-
-    const todayStr = ShiftReminderService.getTodayDateString();
-    const existingRecord = attendanceRecords.find(
-      (r) => r.userId === user.id && r.date === todayStr && (r.status === 'checked_in' || r.status === 'pending_checkin_approval')
-    );
-
-    if (existingRecord) {
-      if (existingRecord.status === 'pending_checkin_approval') {
-        return {
-          success: false,
-          message: 'Bugün için zaten yönetici onayı bekleyen bir işe giriş talebiniz bulunmaktadır.',
-        };
-      }
+      const isLocDisabled = !!err?.isLocationDisabled || err?.code === 1;
       return {
         success: false,
-        message: 'Bugün için zaten aktif bir işe giriş kaydınız bulunmaktadır.',
+        isLocationDisabled: isLocDisabled,
+        message: err?.message || 'İşe giriş yapabilmek için konum servislerinin açık olması gerekmektedir. Lütfen cihazınızın konum servisini açın.',
       };
     }
 
@@ -5150,8 +5189,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               shiftCheckout10mNotificationId: sId,
               shiftCheckout20mNotificationId: aId,
             };
+            StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
             FastActionAgent.enqueueAttendanceSync(compCode, updated);
-            StorageService.saveAttendanceRecords(updated).catch(() => {});
             return updated;
           });
         }
@@ -5159,47 +5198,6 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('[ShiftReminder] Check-in reminder scheduling error:', err);
       });
     };
-
-    // --- YÖNETİCİ / ADMİN AYRICALIĞI: 20 METRE VE ŞUBE KURALINDAN TAMAMEN MUAFTIR ---
-    // Yönetici nerede olursa olsun "İşe Geldim" dediğinde anında onaylı mesaiye başlar. Şubeden konum almaz.
-    if (user.role === 'admin') {
-      const newRecord: AttendanceRecord = {
-        id: generateId(),
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-        companyCode: compCode,
-        date: todayStr,
-        checkInTime: Date.now(),
-        checkInLat: userPos?.latitude,
-        checkInLon: userPos?.longitude,
-        checkInAddress: userPos?.address || 'Genel Yönetim',
-        checkInDistance: 0,
-        checkInOutside: false,
-        checkInApprovalStatus: 'approved',
-        status: 'checked_in',
-        notes: 'Yönetici mesaisi (30m kuralından ve şubeden muaf)',
-      };
-
-      const updated = [newRecord, ...attendanceRecords];
-      setAttendanceRecords(updated);
-      const assignedForAdmin = ShiftReminderService.getAssignedShiftForToday(user.id, shifts, shiftAssignments);
-      ShiftReminderService.cancelShiftCheckinReminders(
-        user.id,
-        todayStr,
-        compCode,
-        assignedForAdmin?.shift?.startTime || assignedForAdmin?.assignment?.startTime
-      );
-      ShiftReminderService.resetCheckoutAlertsForUser(user.id, todayStr, compCode);
-      FastActionAgent.enqueueAttendanceSync(compCode, updated);
-      await StorageService.saveAttendanceRecords(updated);
-
-      return {
-        success: true,
-        distance: 0,
-        message: 'Yönetici mesainiz başarıyla onaylandı (30m ve şube sınırından muaftır).',
-      };
-    }
 
     // --- MULTI-BRANCH LOGIC ---
     if (hasBranches) {
@@ -5254,9 +5252,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
 
           const updated = [newRecord, ...attendanceRecords];
+          ApprovalShield.recordAttendance(newRecord);
           setAttendanceRecords(updated);
+          StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
-          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -5323,9 +5322,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
 
           const updated = [newRecord, ...attendanceRecords];
+          ApprovalShield.recordAttendance(newRecord);
           setAttendanceRecords(updated);
+          StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
-          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -5388,9 +5388,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
 
         const updated = [newRecord, ...attendanceRecords];
+        ApprovalShield.recordAttendance(newRecord);
         setAttendanceRecords(updated);
+        StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
-        await StorageService.saveAttendanceRecords(updated);
         registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
@@ -5438,9 +5439,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
 
           const updated = [newRecord, ...attendanceRecords];
+          ApprovalShield.recordAttendance(newRecord);
           setAttendanceRecords(updated);
+          StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
           FastActionAgent.enqueueAttendanceSync(compCode, updated);
-          await StorageService.saveAttendanceRecords(updated);
           registerShiftRemindersOnCheckIn(newRecord);
 
           FastActionAgent.enqueuePushNotification({
@@ -5512,9 +5514,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
 
         const updated = [newRecord, ...attendanceRecords];
+        ApprovalShield.recordAttendance(newRecord);
         setAttendanceRecords(updated);
+        StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
         FastActionAgent.enqueueAttendanceSync(compCode, updated);
-        await StorageService.saveAttendanceRecords(updated);
         registerShiftRemindersOnCheckIn(newRecord);
 
         FastActionAgent.enqueuePushNotification({
@@ -5593,9 +5596,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
 
       const updated = [newRecord, ...attendanceRecords];
+      ApprovalShield.recordAttendance(newRecord);
       setAttendanceRecords(updated);
+      StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
       FastActionAgent.enqueueAttendanceSync(compCode, updated);
-      await StorageService.saveAttendanceRecords(updated);
       registerShiftRemindersOnCheckIn(newRecord);
 
       FastActionAgent.enqueuePushNotification({
@@ -5636,9 +5640,10 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     const updated = [newRecord, ...attendanceRecords];
+    ApprovalShield.recordAttendance(newRecord);
     setAttendanceRecords(updated);
+    StorageService.saveAttendanceRecordsLocal(updated).catch(() => {});
     FastActionAgent.enqueueAttendanceSync(compCode, updated);
-    await StorageService.saveAttendanceRecords(updated);
     registerShiftRemindersOnCheckIn(newRecord);
 
     FastActionAgent.enqueuePushNotification({
@@ -5748,13 +5753,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         totalBreakMinutes = finalBreaks.reduce((acc, b) => acc + (b.durationMinutes || 0), 0);
       }
 
-      let adminPos: { latitude?: number; longitude?: number; address?: string } = { latitude: 0, longitude: 0, address: 'Genel Yönetim' };
-      try {
-        const pos = await LocationService.getFastOrWarmPosition();
-        if (pos) {
-          adminPos = { latitude: pos.latitude, longitude: pos.longitude, address: pos.address || 'Genel Yönetim' };
-        }
-      } catch {}
+      const cachedAdminPos = LocationService.getCachedPosition(300000);
+      const adminPos: { latitude?: number; longitude?: number; address?: string } = {
+        latitude: cachedAdminPos?.latitude || 0,
+        longitude: cachedAdminPos?.longitude || 0,
+        address: cachedAdminPos?.address || 'Genel Yönetim',
+      };
 
       const updatedRecord: AttendanceRecord = {
         ...record,
@@ -5778,8 +5782,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ApprovalShield.recordAttendance(updatedRecord);
       ApprovalShield.recordBreakState(updatedRecord);
       setAttendanceRecords(updatedRecords);
+      StorageService.saveAttendanceRecordsLocal(updatedRecords).catch(() => {});
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
-      await StorageService.saveAttendanceRecords(updatedRecords);
       ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
       return {
@@ -5980,8 +5984,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ApprovalShield.recordAttendance(updatedRecord);
       ApprovalShield.recordBreakState(updatedRecord);
       setAttendanceRecords(updatedRecords);
+      StorageService.saveAttendanceRecordsLocal(updatedRecords).catch(() => {});
       FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
-      await StorageService.saveAttendanceRecords(updatedRecords);
       ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
       SystemLogger.warn(
@@ -6051,8 +6055,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ApprovalShield.recordAttendance(updatedRecord);
     ApprovalShield.recordBreakState(updatedRecord);
     setAttendanceRecords(updatedRecords);
+    StorageService.saveAttendanceRecordsLocal(updatedRecords).catch(() => {});
     FastActionAgent.enqueueAttendanceSync(compCode, updatedRecords);
-    await StorageService.saveAttendanceRecords(updatedRecords);
     ShiftReminderService.cancelShiftCheckoutReminders(record, compCode, activeShiftEndTime);
 
     SystemLogger.info('MESAI_CIKIS', `${user.name}, ${targetName} şubesinden çıkış yaptı (${durationText}).`);

@@ -185,13 +185,13 @@ export const LocationService = {
     const gpsPromise = watchBestPosition(
       {
         enableHighAccuracy: true,
-        timeout: 6000,
-        maximumAge: isFreshCalibration ? 0 : 15000,
+        timeout: 5000,
+        maximumAge: isFreshCalibration ? 0 : 25000,
         ...options,
       },
-      isFreshCalibration ? 5500 : 5000,
-      isFreshCalibration ? 10 : 15,
-      isFreshCalibration ? 2200 : 1400
+      isFreshCalibration ? 5500 : 3500,
+      isFreshCalibration ? 10 : 28,
+      isFreshCalibration ? 2200 : 320
     ).catch((err) => {
       if (err?.code === 1) {
         permissionDeniedError = err;
@@ -204,7 +204,7 @@ export const LocationService = {
     // B. Yedek Ağ / Önbellek Konumu (Sadece GPS uydusu kapalı alanda kilitlenemezse kullanılır)
     const fastPromise = queryPosition({
       enableHighAccuracy: false,
-      timeout: 3500,
+      timeout: 2500,
       maximumAge: isFreshCalibration ? 0 : 60000,
     }).catch((err) => {
       if (err?.code === 1) {
@@ -216,11 +216,10 @@ export const LocationService = {
     });
 
     try {
-      // 1. Önce gerçek Yüksek Hassasiyetli GPS uydusunu bekle (2.6 saniye)
-      // Böylece Android cihazlarda ilk 50ms'de gelen 35-40m sapmalı kaba Wi-Fi konumu yerine gerçek GPS alınır!
+      // 1. Önce gerçek Yüksek Hassasiyetli GPS uydusunu bekle (normal girişte 1.1sn, kalibrasyonda 3.5sn)
       const gpsResult = await Promise.race([
         gpsPromise,
-        new Promise<null>((res) => setTimeout(() => res(null), isFreshCalibration ? 3500 : 2600)),
+        new Promise<null>((res) => setTimeout(() => res(null), isFreshCalibration ? 3500 : 1100)),
       ]);
 
       if (permissionDeniedError) {
@@ -351,17 +350,11 @@ export const LocationService = {
 
     lastVerifiedPositionWeb = { latitude, longitude, timestamp: now };
 
-    let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-    try {
-      const geocodePromise = LocationService.reverseGeocode(latitude, longitude);
-      const timeoutPromise = new Promise<string>((res) => setTimeout(() => res(''), 700));
-      const fastAddr = await Promise.race([geocodePromise, timeoutPromise]);
-      if (fastAddr) address = fastAddr;
-    } catch (e) {
-      console.warn('Reverse geocoding skipped/timeout:', e);
-    }
+    const coordFallback = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    const geocodeKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+    const cachedAddr = geocodeCache.get(geocodeKey);
+    const finalAddr = cachedAddr || coordFallback;
 
-    const finalAddr = address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
     recordBufferedPosition(latitude, longitude, accuracy, finalAddr);
     warmCachedPosition = {
       latitude,
@@ -370,6 +363,17 @@ export const LocationService = {
       address: finalAddr,
     };
     warmCachedTimestamp = now;
+
+    // Resolve street address in the background without blocking check-in/check-out button response
+    if (!cachedAddr) {
+      LocationService.reverseGeocode(latitude, longitude)
+        .then((resolvedAddr) => {
+          if (resolvedAddr && warmCachedPosition) {
+            warmCachedPosition.address = resolvedAddr;
+          }
+        })
+        .catch(() => {});
+    }
 
     return {
       latitude,
@@ -698,11 +702,9 @@ export const LocationService = {
             }
           }
 
-          let address = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-          try {
-            const cachedAddr = await LocationService.reverseGeocode(lat, lon);
-            if (cachedAddr) address = cachedAddr;
-          } catch {}
+          const coordFallback = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+          const geocodeKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+          const address = geocodeCache.get(geocodeKey) || warmCachedPosition?.address || coordFallback;
 
           recordBufferedPosition(lat, lon, acc, address);
 
@@ -735,6 +737,17 @@ export const LocationService = {
           };
           warmCachedTimestamp = now;
           lastVerifiedPositionWeb = { latitude: lat, longitude: lon, timestamp: now };
+
+          // Sokak adresini arka planda sessizce çöz (0ms GPS önbelleğini asla bekletme!)
+          if (!geocodeCache.has(geocodeKey)) {
+            LocationService.reverseGeocode(lat, lon)
+              .then((resolved) => {
+                if (resolved && warmCachedPosition) {
+                  warmCachedPosition.address = resolved;
+                }
+              })
+              .catch(() => {});
+          }
         },
         (err) => {
           // Arka plan izleme geçici uydu arama mesajları
@@ -766,19 +779,39 @@ export const LocationService = {
     return isPrewarmingActive;
   },
 
-  getCachedPosition(maxAgeMs = 45000): GeolocationResult | null {
-    if (warmCachedPosition && Date.now() - warmCachedTimestamp <= maxAgeMs) {
+  getCachedPosition(maxAgeMs = 120000): GeolocationResult | null {
+    const now = Date.now();
+    if (warmCachedPosition && now - warmCachedTimestamp <= maxAgeMs) {
       return warmCachedPosition;
+    }
+    if (recentPositionsBuffer.length > 0) {
+      const latest = recentPositionsBuffer[recentPositionsBuffer.length - 1];
+      if (now - latest.timestamp <= maxAgeMs) {
+        return {
+          latitude: latest.latitude,
+          longitude: latest.longitude,
+          accuracy: latest.accuracy,
+          address: latest.address || `${latest.latitude.toFixed(6)}, ${latest.longitude.toFixed(6)}`,
+        };
+      }
+    }
+    if (lastVerifiedPositionWeb && now - lastVerifiedPositionWeb.timestamp <= maxAgeMs) {
+      return {
+        latitude: lastVerifiedPositionWeb.latitude,
+        longitude: lastVerifiedPositionWeb.longitude,
+        accuracy: 25,
+        address: `${lastVerifiedPositionWeb.latitude.toFixed(6)}, ${lastVerifiedPositionWeb.longitude.toFixed(6)}`,
+      };
     }
     return null;
   },
 
   /**
    * Milisaniyelik Hızlı Konum Sağlayıcı (0ms Reflex):
-   * Eğer arka plan ajanı tarafından ısıtılmış taze konum varsa anında (0ms) döndürür.
+   * Eğer arka plan ajanı veya canlı mesafe kontrolü tarafından ısıtılmış taze konum varsa anında (0ms) döndürür.
    * Yoksa standart çok katmanlı aramayı çalıştırır.
    */
-  async getFastOrWarmPosition(options?: PositionOptions, maxAgeMs = 45000): Promise<GeolocationResult> {
+  async getFastOrWarmPosition(options?: PositionOptions, maxAgeMs = 120000): Promise<GeolocationResult> {
     const cached = LocationService.getCachedPosition(maxAgeMs);
     if (cached) {
       return cached;

@@ -3507,6 +3507,16 @@ export const StorageService = {
   },
 
   /**
+   * Instant (~2ms) local IndexedDB persistence for attendance records so check-in / check-out UI
+   * responds immediately while FastActionAgent syncs with cloud in the background.
+   */
+  async saveAttendanceRecordsLocal(records: AttendanceRecord[]): Promise<void> {
+    const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
+    const shieldedInput = ApprovalShield.applyToAttendance(records);
+    await saveItem(localKey, shieldedInput);
+  },
+
+  /**
    * Saves attendance records with multi-user concurrency and offline defense
    */
   async saveAttendanceRecords(
