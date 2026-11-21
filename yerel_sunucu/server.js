@@ -268,10 +268,87 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
     if (!Number.isInteger(slotId) || slotId <= 0) {
       return res.status(400).json({ error: 'Geçersiz slot ID' });
     }
-    const { tasks } = req.body;
-    const tasksJson = JSON.stringify(Array.isArray(tasks) ? tasks : []);
+    const { tasks, deletedRecordId, forceOverwrite } = req.body;
+    let finalTasksArray = Array.isArray(tasks) ? tasks : [];
 
     const pool = await getPool();
+
+    // Mesai Slotları (Slot 6 veya 6xxx) İçin Çoklu Cihaz Ezilme Koruması (Server-Side Concurrency Merge)
+    const isAttendanceSlot = slotId === 6 || (slotId >= 6000 && slotId < 7000);
+    if (isAttendanceSlot && !forceOverwrite && finalTasksArray.length > 0) {
+      try {
+        const incomingRaw =
+          typeof finalTasksArray[0] === 'string' ? finalTasksArray.join('') : JSON.stringify(finalTasksArray);
+        const incomingRecords = JSON.parse(incomingRaw);
+        if (Array.isArray(incomingRecords)) {
+          const existingRes = await pool
+            .request()
+            .input('id', sql.Int, slotId)
+            .query('SELECT tasks FROM dbo.standard_tasks WHERE id = @id');
+
+          if (existingRes.recordset.length > 0 && existingRes.recordset[0].tasks) {
+            let existingChunks = [];
+            try {
+              existingChunks = JSON.parse(existingRes.recordset[0].tasks);
+            } catch {
+              existingChunks = [existingRes.recordset[0].tasks];
+            }
+            const existingRaw = Array.isArray(existingChunks)
+              ? typeof existingChunks[0] === 'string'
+                ? existingChunks.join('')
+                : JSON.stringify(existingChunks)
+              : String(existingChunks);
+            const existingRecords = JSON.parse(existingRaw);
+
+            if (Array.isArray(existingRecords) && existingRecords.length > 0) {
+              const incomingIds = new Set(incomingRecords.map((r) => r && r.id).filter(Boolean));
+              const incomingActiveUserDates = new Set(
+                incomingRecords
+                  .filter((r) => r && r.userId && r.date && r.status !== 'completed')
+                  .map((r) => `${r.userId}_${r.date}`)
+              );
+
+              const preservedFromExisting = existingRecords.filter((er) => {
+                if (!er || !er.id) return false;
+                if (deletedRecordId && er.id === deletedRecordId) return false;
+                if (incomingIds.has(er.id)) return false;
+                if (
+                  er.userId &&
+                  er.date &&
+                  er.status !== 'completed' &&
+                  incomingActiveUserDates.has(`${er.userId}_${er.date}`)
+                ) {
+                  return false;
+                }
+                return true;
+              });
+
+              if (preservedFromExisting.length > 0 || deletedRecordId) {
+                const mergedRecords = [
+                  ...incomingRecords.filter((r) => !deletedRecordId || r?.id !== deletedRecordId),
+                  ...preservedFromExisting,
+                ].sort((a, b) => {
+                  if (a.date !== b.date) return String(b.date || '').localeCompare(String(a.date || ''));
+                  return (Number(b.checkInTime) || 0) - (Number(a.checkInTime) || 0);
+                });
+
+                const mergedJson = JSON.stringify(mergedRecords);
+                const rechunked = [];
+                for (let i = 0; i < mergedJson.length; i += 8000) {
+                  rechunked.push(mergedJson.slice(i, i + 8000));
+                }
+                finalTasksArray = rechunked;
+              }
+            }
+          }
+        }
+      } catch (mergeErr) {
+        console.warn('[Slot 6 Merge Guard] Birleştirme atlandı:', mergeErr.message);
+      }
+    }
+
+    const tasksJson = JSON.stringify(finalTasksArray);
+
     await pool
       .request()
       .input('id', sql.Int, slotId)

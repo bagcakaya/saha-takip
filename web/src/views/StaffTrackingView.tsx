@@ -1666,10 +1666,21 @@ const getDatesInRange = (startDateStr: string, endDateStr?: string): string[] =>
 
   const [isSystemLogsOpen, setIsSystemLogsOpen] = useState(false);
 
-  // Auto-refresh when entering 'workplace' (Merkez İş Yeri Lokasyonu) to guarantee latest cloud branches
+  // Auto-refresh when entering attendance sections ('checkin_checkout', 'breaks', 'summary', 'workplace') + live 6s polling
   useEffect(() => {
-    if (activeSection === 'workplace') {
+    if (
+      activeSection === 'workplace' ||
+      activeSection === 'checkin_checkout' ||
+      activeSection === 'breaks' ||
+      activeSection === 'summary'
+    ) {
       refreshAttendance();
+      const liveTimer = setInterval(() => {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          refreshAttendance();
+        }
+      }, 6000);
+      return () => clearInterval(liveTimer);
     }
   }, [activeSection]);
 

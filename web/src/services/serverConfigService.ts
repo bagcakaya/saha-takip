@@ -52,9 +52,10 @@ export function getResolvedApiUrl(targetBaseUrl: string, endpoint: string): stri
 }
 
 const CLOUD_DEFAULT_MIGRATION_KEY = '@saha_takip_default_cloud_v1';
+const LOCAL_SQL_DEFAULT_MIGRATION_KEY = '@saha_takip_default_local_sql_v2';
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  mode: 'cloud',
+  mode: 'local',
   localUrl: 'http://81.213.219.69:3001',
   lastTestedAt: undefined,
   lastTestSuccess: undefined,
@@ -69,27 +70,27 @@ export const ServerConfigService = {
     if (inMemoryConfig) return inMemoryConfig;
     try {
       if (typeof localStorage !== 'undefined') {
-        const cloudDefaultDone = localStorage.getItem(CLOUD_DEFAULT_MIGRATION_KEY);
-        if (!cloudDefaultDone) {
-          // Kullanıcı isteği: Bulut üzerinden devam edilsin ve varsayılan bulut olsun
+        const localSqlDefaultDone = localStorage.getItem(LOCAL_SQL_DEFAULT_MIGRATION_KEY);
+        if (!localSqlDefaultDone) {
+          localStorage.setItem(LOCAL_SQL_DEFAULT_MIGRATION_KEY, 'true');
           localStorage.setItem(CLOUD_DEFAULT_MIGRATION_KEY, 'true');
           const currentRaw = localStorage.getItem(SERVER_CONFIG_KEY);
           const currentParsed = currentRaw ? JSON.parse(currentRaw) : {};
-          const cloudConfig: ServerConfig = {
+          const localConfig: ServerConfig = {
             ...DEFAULT_SERVER_CONFIG,
             ...currentParsed,
-            mode: 'cloud',
+            mode: 'local',
             localUrl: normalizeServerUrl(currentParsed.localUrl || DEFAULT_SERVER_CONFIG.localUrl),
           };
-          localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(cloudConfig));
-          inMemoryConfig = cloudConfig;
+          localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(localConfig));
+          inMemoryConfig = localConfig;
           return inMemoryConfig;
         }
 
         const raw = localStorage.getItem(SERVER_CONFIG_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          const savedMode = (parsed.mode === 'local' || parsed.mode === 'cloud') ? parsed.mode : 'cloud';
+          const savedMode = (parsed.mode === 'local' || parsed.mode === 'cloud') ? parsed.mode : 'local';
           inMemoryConfig = {
             ...DEFAULT_SERVER_CONFIG,
             ...parsed,
@@ -225,8 +226,8 @@ export const ServerConfigService = {
   },
 
   async apiGet<T>(endpoint: string): Promise<{ data: T | null; error?: string }> {
-    const baseUrl = this.getActiveApiUrl();
-    if (!baseUrl) return { data: null, error: 'Not in local mode' };
+    const baseUrl = this.getActiveApiUrl() || this.getDualWriteApiUrl();
+    if (!baseUrl) return { data: null, error: 'No server URL configured' };
     const requestUrl = getResolvedApiUrl(baseUrl, endpoint);
     try {
       const res = await fetch(requestUrl, {
@@ -245,8 +246,8 @@ export const ServerConfigService = {
   },
 
   async apiPost<T>(endpoint: string, body: any): Promise<{ data: T | null; error?: string }> {
-    const baseUrl = this.getActiveApiUrl();
-    if (!baseUrl) return { data: null, error: 'Not in local mode' };
+    const baseUrl = this.getActiveApiUrl() || this.getDualWriteApiUrl();
+    if (!baseUrl) return { data: null, error: 'No server URL configured' };
     const requestUrl = getResolvedApiUrl(baseUrl, endpoint);
     try {
       const res = await fetch(requestUrl, {

@@ -151,8 +151,7 @@ export const CompanyService = {
   async fetchCompanies(): Promise<Company[]> {
     const local = this.getCompaniesLocal();
 
-    // 1. If in Local Server Mode (SQL Server Windows Server 2022)
-    if (ServerConfigService.isLocalMode()) {
+    const fetchFromLocalSql = async (): Promise<Company[] | null> => {
       try {
         const res = await ServerConfigService.apiGet<{ id: number; tasks: string[]; notFound?: boolean }>(
           `/api/standard_tasks/${COMPANIES_SLOT_ID}`
@@ -181,10 +180,15 @@ export const CompanyService = {
       } catch (err) {
         console.warn('Yerel sunucudan kurum listesi çekilemedi:', err);
       }
-      return local;
+      return null;
+    };
+
+    // 1. If in Local Server Mode (SQL Server Windows Server 2022)
+    if (ServerConfigService.isLocalMode()) {
+      return (await fetchFromLocalSql()) || local;
     }
 
-    // 2. Cloud Mode (Supabase Slot 100)
+    // 2. Cloud Mode (Supabase Slot 100) + Automatic SQL Server Fallback
     try {
       const { data, error } = await supabase
         .from('standard_tasks')
@@ -197,7 +201,6 @@ export const CompanyService = {
         const cloudCompanies: Company[] = JSON.parse(rawJson);
 
         if (Array.isArray(cloudCompanies) && cloudCompanies.length > 0) {
-          // Merge local & cloud by company code
           const map = new Map<string, Company>();
           map.set('POLATLAR', DEFAULT_COMPANY);
 
@@ -215,14 +218,13 @@ export const CompanyService = {
           return merged;
         }
       } else if (!error || error.code === 'PGRST116') {
-        // Slot does not exist yet -> Seed with local/default
         await this.syncToCloud(local);
       }
     } catch (e) {
       console.warn('Bulut kurum listesi çekilemedi:', e);
     }
 
-    return local;
+    return (await fetchFromLocalSql()) || local;
   },
 
   /**
@@ -236,15 +238,16 @@ export const CompanyService = {
       chunks.push(json.substring(i, i + chunkSize));
     }
 
-    // 1. Local Server Mode
+    // 1. Always write to Local SQL Server
+    try {
+      await ServerConfigService.apiPost(`/api/standard_tasks/${COMPANIES_SLOT_ID}`, {
+        tasks: chunks,
+      });
+    } catch (err) {
+      console.warn('Yerel sunucuya kurum listesi kaydedilemedi:', err);
+    }
+
     if (ServerConfigService.isLocalMode()) {
-      try {
-        await ServerConfigService.apiPost(`/api/standard_tasks/${COMPANIES_SLOT_ID}`, {
-          tasks: chunks,
-        });
-      } catch (err) {
-        console.warn('Yerel sunucuya kurum listesi kaydedilemedi:', err);
-      }
       return;
     }
 

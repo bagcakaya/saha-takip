@@ -4,6 +4,7 @@ import { supabase } from './supabaseClient';
 import { detectEnvironment, OneSignalService } from './oneSignalService';
 import { StorageService } from './storageService';
 import { UserService } from './userService';
+import { ServerConfigService } from './serverConfigService';
 
 const DEVICE_ID_KEY = '@saha_takip_device_id';
 const DEVICE_NAME_KEY = '@saha_takip_device_name';
@@ -254,29 +255,58 @@ export const DeviceService = {
     }
 
     let devices: RegisteredDevice[] = localData;
+    const slotId = StorageService.getSlotIdForCompany(8, targetComp);
 
-    try {
-      const slotId = StorageService.getSlotIdForCompany(8, targetComp);
-      const { data, error } = await supabase
-        .from('standard_tasks')
-        .select('tasks')
-        .eq('id', slotId)
-        .single();
-
-      if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-        const rawJson = data.tasks.join('');
-        const parsed: RegisteredDevice[] = JSON.parse(rawJson);
-        if (Array.isArray(parsed)) {
-          devices = parsed;
-          try {
-            localStorage.setItem(storageKey, JSON.stringify(parsed));
-          } catch {
-            // ignore
+    const loadFromLocalServer = async (): Promise<boolean> => {
+      try {
+        const res = await ServerConfigService.apiGet<{ tasks?: string[] | string; notFound?: boolean }>(
+          `/api/standard_tasks/${slotId}`
+        );
+        if (res.data && !res.data.notFound && res.data.tasks) {
+          const rawJson = Array.isArray(res.data.tasks) ? res.data.tasks.join('') : String(res.data.tasks);
+          const parsed: RegisteredDevice[] = JSON.parse(rawJson);
+          if (Array.isArray(parsed)) {
+            devices = parsed;
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(parsed));
+            } catch {}
+            return true;
           }
         }
+      } catch (e) {
+        console.warn('Local server fetch registered devices error:', e);
       }
-    } catch (e) {
-      console.warn('Cloud fetch registered devices error:', e);
+      return false;
+    };
+
+    if (ServerConfigService.isLocalMode()) {
+      await loadFromLocalServer();
+    } else {
+      let loadedFromCloud = false;
+      try {
+        const { data, error } = await supabase
+          .from('standard_tasks')
+          .select('tasks')
+          .eq('id', slotId)
+          .single();
+
+        if (!error && data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+          const rawJson = data.tasks.join('');
+          const parsed: RegisteredDevice[] = JSON.parse(rawJson);
+          if (Array.isArray(parsed)) {
+            devices = parsed;
+            loadedFromCloud = true;
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(parsed));
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('Cloud fetch registered devices error:', e);
+      }
+      if (!loadedFromCloud) {
+        await loadFromLocalServer();
+      }
     }
 
     // STRICT MULTI-TENANT FILTER:
@@ -332,7 +362,10 @@ export const DeviceService = {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
       const slotId = StorageService.getSlotIdForCompany(8, targetComp);
-      await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+      await ServerConfigService.apiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks });
+      if (!ServerConfigService.isLocalMode()) {
+        await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+      }
     } catch (err) {
       console.warn('Cloud save registered devices error:', err);
     }
@@ -376,8 +409,36 @@ export const DeviceService = {
       // ignore
     }
 
+    const slotId = StorageService.getSlotIdForCompany(9, targetComp);
+
+    const loadBindingsFromLocalServer = async (): Promise<import('../types/storage').UserDeviceBinding[] | null> => {
+      try {
+        const res = await ServerConfigService.apiGet<{ tasks?: string[] | string; notFound?: boolean }>(
+          `/api/standard_tasks/${slotId}`
+        );
+        if (res.data && !res.data.notFound && res.data.tasks) {
+          const rawJson = Array.isArray(res.data.tasks) ? res.data.tasks.join('') : String(res.data.tasks);
+          const parsed: import('../types/storage').UserDeviceBinding[] = JSON.parse(rawJson);
+          if (Array.isArray(parsed)) {
+            try {
+              localStorage.setItem(STORAGE_BINDINGS_KEY, JSON.stringify(parsed));
+            } catch {}
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Local server fetch user device bindings error:', e);
+      }
+      return null;
+    };
+
+    if (ServerConfigService.isLocalMode()) {
+      const localServerBindings = await loadBindingsFromLocalServer();
+      if (localServerBindings) return localServerBindings;
+      return localData;
+    }
+
     try {
-      const slotId = StorageService.getSlotIdForCompany(9, targetComp);
       const { data, error } = await supabase
         .from('standard_tasks')
         .select('tasks')
@@ -399,6 +460,9 @@ export const DeviceService = {
     } catch (e) {
       console.warn('Cloud fetch user device bindings error:', e);
     }
+
+    const fallbackBindings = await loadBindingsFromLocalServer();
+    if (fallbackBindings) return fallbackBindings;
 
     return localData;
   },
@@ -430,7 +494,10 @@ export const DeviceService = {
         chunks.push(rawJson.slice(i, i + chunkSize));
       }
       const slotId = StorageService.getSlotIdForCompany(9, targetComp);
-      await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+      await ServerConfigService.apiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks });
+      if (!ServerConfigService.isLocalMode()) {
+        await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
+      }
     } catch (err) {
       console.warn('Cloud save user device bindings error:', err);
     }

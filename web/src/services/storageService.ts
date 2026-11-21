@@ -284,7 +284,7 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
 }
 
 async function localApiGet<T>(endpoint: string): Promise<T | null> {
-  const apiUrl = ServerConfigService.getActiveApiUrl();
+  const apiUrl = ServerConfigService.getActiveApiUrl() || ServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return null;
   try {
     const controller = new AbortController();
@@ -315,6 +315,9 @@ const supabaseExtendedCols = {
 
 // Yerel Sunucu kapalıyken Bulut modunda gereksiz 502 spam'ini önleyen devre kesici (3 dk)
 let localDualWriteOfflineUntil = 0;
+
+// Supabase erişilemez olduğunda (DNS / ağ kesintisi) isteklerin 5-6sn bekleyip takılmasını önleyen devre kesici (10 dk)
+let supabaseOfflineUntil = 0;
 
 // Slot 3 ve Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
 let slot3WriteChain: Promise<void> = Promise.resolve();
@@ -401,8 +404,7 @@ function parseChunkedTasksValue<T>(rawTasks: any): T | null {
 
 // Helper to load chunked JSON from standard_tasks slot
 async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; notFound: boolean }> {
-  // 1. Yerel Sunucu (Local Mode) - Windows Server 2022 SQL Server
-  if (ServerConfigService.isLocalMode()) {
+  const loadFromLocalSql = async (): Promise<{ data: T | null; notFound: boolean }> => {
     const json = await localApiGet<any>(`/api/standard_tasks/${slotId}`);
     if (json && !json.notFound && json.tasks) {
       const parsed = parseChunkedTasksValue<T>(json.tasks);
@@ -412,9 +414,14 @@ async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; not
       return { data: null, notFound: true };
     }
     return { data: null, notFound: false };
+  };
+
+  // 1. Yerel Sunucu (Local Mode veya Supabase devre kesici aktifse) - Windows Server 2022 SQL Server
+  if (ServerConfigService.isLocalMode() || Date.now() < supabaseOfflineUntil) {
+    return loadFromLocalSql();
   }
 
-  // 2. Bulut (Supabase Cloud)
+  // 2. Bulut (Supabase Cloud) + Otomatik SQL Server Yedekleme (Fallback)
   try {
     const { data, error } = await supabase
       .from('standard_tasks')
@@ -429,14 +436,22 @@ async function loadChunkedSlot<T>(slotId: number): Promise<{ data: T | null; not
     if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
       return { data: null, notFound: true };
     }
+    if (error) {
+      supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+    }
   } catch {
-    // ignore
+    supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
   }
-  return { data: null, notFound: false };
+  return loadFromLocalSql();
 }
 
 // Helper to save chunked JSON to standard_tasks slot
-async function saveChunkedSlot(slotId: number, data: any, throwOnError = false): Promise<void> {
+async function saveChunkedSlot(
+  slotId: number,
+  data: any,
+  throwOnError = false,
+  options?: { deletedRecordId?: string; forceOverwrite?: boolean }
+): Promise<void> {
   // GÜVENLİK ZIRHI: POLATLAR harici kurumların sistem kök slotlarına (1-20, 21001, 22001, 23001) yazması engellenir
   const isPolatlarRootSlot =
     (slotId >= 1 && slotId <= 20) ||
@@ -458,18 +473,27 @@ async function saveChunkedSlot(slotId: number, data: any, throwOnError = false):
   }
 
   // DUAL-WRITE:
-  // 1. Yerel Sunucu (Local MSSQL Server) - Arka planda güvenle yazar
-  const localPromise = localApiPost(`/api/standard_tasks/${slotId}`, { tasks: chunks }).catch((err) => {
+  // 1. Yerel Sunucu (Local MSSQL Server) - Ana SQL Server veritabanına anında kaydet
+  const localBody: Record<string, any> = { tasks: chunks };
+  if (options?.deletedRecordId) localBody.deletedRecordId = options.deletedRecordId;
+  if (options?.forceOverwrite) localBody.forceOverwrite = true;
+
+  const localPromise = localApiPost(`/api/standard_tasks/${slotId}`, localBody).catch((err) => {
     console.warn(`[Dual-Write Yerel] Slot ${slotId} hata:`, err);
     return false;
   });
 
-  // 2. Supabase Bulut (Pro Plan) - Ana bulut veritabanına anında kaydet
-  // Büyük TOAST satırlarında PostgreSQL UPDATE 8sn statement_timeout (57014) verirse DELETE + INSERT ile aşılır
-  const cloudPromise = (async (): Promise<boolean> => {
+  // 2. Supabase Bulut (Erişilebilir ise arka planda eşitlenir; DNS/ağ hatasında devre kesici devreye girer)
+  const runCloudWrite = async (): Promise<boolean> => {
+    if (Date.now() < supabaseOfflineUntil) return false;
     try {
       const { error } = await supabase.from('standard_tasks').upsert({ id: slotId, tasks: chunks });
       if (!error) return true;
+
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+        return false;
+      }
 
       console.warn(`[Dual-Write Supabase] Slot ${slotId} upsert hata (${error.code}), delete+insert deneniyor:`, error.message);
       await supabase.from('standard_tasks').delete().eq('id', slotId);
@@ -481,23 +505,26 @@ async function saveChunkedSlot(slotId: number, data: any, throwOnError = false):
         if (!retryErr) return true;
       }
       console.warn(`[Dual-Write Supabase] Slot ${slotId} delete+insert hata:`, insErr);
-      if (throwOnError && !ServerConfigService.isLocalMode()) throw insErr;
       return false;
     } catch (err) {
+      supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
       console.warn(`[Dual-Write Supabase] Slot ${slotId} istisna:`, err);
-      if (throwOnError && !ServerConfigService.isLocalMode()) throw err;
       return false;
     }
-  })();
+  };
 
-  if (ServerConfigService.isLocalMode()) {
-    const [localRes] = await Promise.all([localPromise, cloudPromise]);
+  if (ServerConfigService.isLocalMode() || Date.now() < supabaseOfflineUntil) {
+    // Yerel SQL Server modunda yalnızca yerel sunucu yanıtını bekle (ölü Supabase DNS zaman aşımını bekleme!)
+    void runCloudWrite();
+    const localRes = await localPromise;
     if (!localRes && throwOnError) {
       throw new Error(`Yerel sunucu slot ${slotId} yazılamadı.`);
     }
   } else {
-    // Bulut modda (varsayılan) anında Supabase'e yazıp döner, yerel sunucu arka planda eşitlenir (0ms gecikme)
-    await cloudPromise;
+    const [localRes, cloudRes] = await Promise.all([localPromise, runCloudWrite()]);
+    if (!localRes && !cloudRes && throwOnError) {
+      throw new Error(`Sunucu slot ${slotId} yazılamadı.`);
+    }
   }
 }
 
@@ -3116,6 +3143,11 @@ export const StorageService = {
       if (!localRec || !localRec.id) continue;
 
       let cloudRec = cloudMap.get(localRec.id);
+      if (!cloudRec && localRec.userId && localRec.date && localRec.status !== 'completed') {
+        cloudRec = merged.find(
+          (m) => m.userId === localRec.userId && m.date === localRec.date && m.status !== 'completed'
+        );
+      }
 
       if (!cloudRec) {
         // Yerelde var ama bulutta henüz yok (Yeni giriş talebi, farklı vardiya veya çevrimdışı işe giriş)
@@ -3550,7 +3582,7 @@ export const StorageService = {
         }
       }
 
-      await saveChunkedSlot(slotId, finalToSave);
+      await saveChunkedSlot(slotId, finalToSave, false, options);
       this.clearPendingAttendanceSync(activeCompanyCode);
     } catch (err) {
       console.warn(`[saveAttendanceRecords] Bulut kaydı başarısız oldu veya çevrimdışı:`, err);
