@@ -43,7 +43,7 @@ function isAllowedRequest(req) {
   }
 
   if (/curl\/|python-requests|python-urllib|go-http-client|postmanruntime|insomnia|sqlmap|nikto/i.test(ua)) {
-    return false;
+    return clientToken.startsWith('saha-');
   }
 
   return (
@@ -112,6 +112,9 @@ export default async function handler(req, res) {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Saha-Client-Token'
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -138,12 +141,17 @@ export default async function handler(req, res) {
       headers: {
         Accept: 'application/json',
         'X-Saha-Client-Token': 'saha-edge-proxy-v2',
+        'Cache-Control': 'no-cache',
       },
     };
 
-    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
+    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body !== undefined && req.body !== null) {
       fetchOptions.headers['Content-Type'] = 'application/json';
-      fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      fetchOptions.body = Buffer.isBuffer(req.body)
+        ? req.body.toString('utf8')
+        : typeof req.body === 'string'
+        ? req.body
+        : JSON.stringify(req.body);
     }
 
     const controller = new AbortController();

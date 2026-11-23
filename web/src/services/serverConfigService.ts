@@ -232,8 +232,10 @@ export const ServerConfigService = {
     try {
       const res = await fetch(requestUrl, {
         method: 'GET',
+        cache: 'no-store',
         headers: {
           Accept: 'application/json',
+          'Cache-Control': 'no-cache',
           'X-Saha-Client-Token': 'saha-web-client-v2',
         },
       });

@@ -291,8 +291,10 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
     const timer = setTimeout(() => controller.abort(), 15000);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
+      cache: 'no-store',
       headers: {
         Accept: 'application/json',
+        'Cache-Control': 'no-cache',
         'X-Saha-Client-Token': 'saha-web-client-v2',
       },
       signal: controller.signal,
@@ -3143,7 +3145,7 @@ export const StorageService = {
       if (!localRec || !localRec.id) continue;
 
       let cloudRec = cloudMap.get(localRec.id);
-      if (!cloudRec && localRec.userId && localRec.date && localRec.status !== 'completed') {
+      if (!cloudRec && localRec.userId && localRec.date) {
         cloudRec = merged.find(
           (m) => m.userId === localRec.userId && m.date === localRec.date && m.status !== 'completed'
         );
@@ -3156,9 +3158,14 @@ export const StorageService = {
         hasCloudUpdates = true;
         missingCount++;
       } else {
-        // İki tarafta da aynı ID'li kayıt var. Yerelde daha güncel çıkış, mola veya onay bilgisi var mı kontrol et
+        // İki tarafta da aynı ID'li (veya aynı gün aktif) kayıt var. Yerelde daha güncel çıkış, mola veya onay bilgisi var mı kontrol et
         let localHasNewerData = false;
         const updated = { ...cloudRec };
+        if (localRec.id && cloudRec.id !== localRec.id) {
+          updated.id = localRec.id;
+          if (localRec.checkInTime) updated.checkInTime = localRec.checkInTime;
+          localHasNewerData = true;
+        }
 
         // 1. Çıkış bilgisi (yerelde çıkış yapılmış ama buluta henüz gitmemişse)
         if (localRec.checkOutTime && !cloudRec.checkOutTime) {
@@ -3582,7 +3589,7 @@ export const StorageService = {
         }
       }
 
-      await saveChunkedSlot(slotId, finalToSave, false, options);
+      await saveChunkedSlot(slotId, finalToSave, true, options);
       this.clearPendingAttendanceSync(activeCompanyCode);
     } catch (err) {
       console.warn(`[saveAttendanceRecords] Bulut kaydı başarısız oldu veya çevrimdışı:`, err);

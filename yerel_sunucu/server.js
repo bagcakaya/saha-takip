@@ -302,9 +302,9 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
 
             if (Array.isArray(existingRecords) && existingRecords.length > 0) {
               const incomingIds = new Set(incomingRecords.map((r) => r && r.id).filter(Boolean));
-              const incomingActiveUserDates = new Set(
+              const incomingUserDates = new Set(
                 incomingRecords
-                  .filter((r) => r && r.userId && r.date && r.status !== 'completed')
+                  .filter((r) => r && r.userId && r.date)
                   .map((r) => `${r.userId}_${r.date}`)
               );
 
@@ -316,7 +316,7 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
                   er.userId &&
                   er.date &&
                   er.status !== 'completed' &&
-                  incomingActiveUserDates.has(`${er.userId}_${er.date}`)
+                  incomingUserDates.has(`${er.userId}_${er.date}`)
                 ) {
                   return false;
                 }
