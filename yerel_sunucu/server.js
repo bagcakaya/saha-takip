@@ -507,7 +507,7 @@ app.get('/api/tables/:table', async (req, res) => {
     validateTable(tableName);
 
     const pool = await getPool();
-    const result = await pool.request().query(`SELECT * FROM dbo.[${tableName}]`);
+    const result = await pool.request().query(`SELECT * FROM dbo.[${tableName}] ORDER BY created_at DESC`);
 
     // Array / JSON alanlarını parse ederek döndür
     const formatted = result.recordset.map((row) => {

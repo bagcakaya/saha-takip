@@ -414,10 +414,10 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
   }
   const apiUrl = ServerConfigService.getActiveApiUrl() || ServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return null;
+  const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
     const res = await fetch(resolvedUrl, {
       cache: 'no-store',
       headers: {
@@ -431,6 +431,21 @@ async function localApiGet<T>(endpoint: string): Promise<T | null> {
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn(`[Yerel Sunucu] GET ${endpoint} hatası:`, err);
+    if (resolvedUrl.startsWith('/api/proxy')) {
+      try {
+        const directUrl = `${apiUrl.replace(/\/+$/, '')}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+        const directRes = await fetch(directUrl, {
+          cache: 'no-store',
+          headers: {
+            Accept: 'application/json',
+            'X-Saha-Client-Token': 'saha-web-client-v2',
+          },
+        });
+        if (directRes.ok) return await directRes.json();
+      } catch {
+        // ignore direct HTTP fallback error under strict HTTPS mixed-content
+      }
+    }
   }
   return null;
 }
@@ -512,6 +527,32 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
       localDualWriteOfflineUntil = Date.now() + 3 * 60 * 1000;
     }
     console.warn(`[Yerel Sunucu Dual-Write] POST ${endpoint} atlandı/hata:`, err);
+    const resolvedCheck = getResolvedApiUrl(apiUrl, endpoint);
+    if (resolvedCheck.startsWith('/api/proxy')) {
+      try {
+        const directUrl = `${apiUrl.replace(/\/+$/, '')}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+        const bodyJson = JSON.stringify(body);
+        const directRes = await fetch(directUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Saha-Client-Token': 'saha-web-client-v2',
+          },
+          body: bodyJson,
+          keepalive: bodyJson.length < 58000,
+        });
+        if (directRes.ok) {
+          if (pendingSqlWritesMap.has(dedupKey)) {
+            pendingSqlWritesMap.delete(dedupKey);
+            persistPendingSqlWrites();
+          }
+          return true;
+        }
+      } catch {
+        // ignore direct HTTP fallback error
+      }
+    }
   }
 
   // Yazma başarısız olduysa (veya çevrimdışı / Wi-Fi geçiş anıysa) Garantili Yazma Kuyruğuna al
@@ -1199,18 +1240,34 @@ export const StorageService = {
             };
           });
 
-          const shielded = ApprovalShield.applyToLocations(cloudLocations);
+          const localCached = (await loadItem<LocationItem[]>(localKey)) || [];
+          const cloudIds = new Set(cloudLocations.map((l) => l.id));
+          const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const unsyncedLocal = localCached.filter(
+            (lc) => lc && lc.id && !cloudIds.has(lc.id) && Number(lc.createdAt) >= recentCutoff
+          );
+
+          const shielded = ApprovalShield.applyToLocations([...unsyncedLocal, ...cloudLocations]).sort(
+            (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+          );
           await saveItem(localKey, shielded);
+          if (unsyncedLocal.length > 0) {
+            this.saveLocations(shielded).catch(() => {});
+          }
           return shielded;
         }
 
         if (fallbackLocations.length > 0) {
-          const shielded = ApprovalShield.applyToLocations(fallbackLocations);
+          const shielded = ApprovalShield.applyToLocations(fallbackLocations).sort(
+            (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+          );
           await saveItem(localKey, shielded);
           return shielded;
         }
 
-        return ApprovalShield.applyToLocations((await loadItem<LocationItem[]>(localKey)) || []);
+        return ApprovalShield.applyToLocations((await loadItem<LocationItem[]>(localKey)) || []).sort(
+          (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+        );
       }
 
       // 2. Primary POLATLAR table in Supabase
@@ -1762,12 +1819,29 @@ export const StorageService = {
           const missingFromTable = fallbackNotes
             .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
             .map(mergeFallbackWithLocal);
+          const serverAndSlotIds = new Set([...dataIds, ...fallbackNotes.map((fb) => fb.id)]);
+          const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const unsyncedLocal = localCached.filter(
+            (lc) =>
+              lc &&
+              lc.id &&
+              !deletedIds.has(lc.id) &&
+              !serverAndSlotIds.has(lc.id) &&
+              Number(lc.createdAt) >= recentCutoff
+          );
+
           const finalNotes = ApprovalShield.applyToNotes([
+            ...unsyncedLocal,
             ...mergedNotes.filter((n) => !deletedIds.has(n.id)),
             ...missingFromTable,
-          ]);
+          ]).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 
           await saveItem(localKey, finalNotes);
+          if (unsyncedLocal.length > 0) {
+            for (const unsyncedNote of unsyncedLocal) {
+              this.saveSingleNote(unsyncedNote).catch(() => {});
+            }
+          }
           this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
           return finalNotes;
         }
@@ -1777,13 +1851,15 @@ export const StorageService = {
             fallbackNotes
               .filter((fb) => !deletedIds.has(fb.id))
               .map(mergeFallbackWithLocal)
-          );
+          ).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
           await saveItem(localKey, filtered);
           this.scheduleNotesCloudSelfHeal(filtered, fallbackMap, localCachedMap, cloudSlotReached);
           return filtered;
         }
 
-        return ApprovalShield.applyToNotes(localCached.filter((n) => !deletedIds.has(n.id)));
+        return ApprovalShield.applyToNotes(localCached.filter((n) => !deletedIds.has(n.id))).sort(
+          (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+        );
       }
 
       // 3. Try fetching from Supabase native notes table
@@ -2615,20 +2691,38 @@ export const StorageService = {
             };
           });
 
+          const localCached = (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
           const cloudIds = new Set(cloudItems.map((c) => c.id));
           const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
-          const mergedItems = ApprovalShield.applyToReturnWarranty([...cloudItems, ...missingFallback]);
+          const serverAndSlotIds = new Set([...cloudIds, ...fallbackItems.map((f) => f.id)]);
+          const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const unsyncedLocal = localCached.filter(
+            (lc) => lc && lc.id && !serverAndSlotIds.has(lc.id) && Number(lc.createdAt) >= recentCutoff
+          );
+
+          const mergedItems = ApprovalShield.applyToReturnWarranty([
+            ...unsyncedLocal,
+            ...cloudItems,
+            ...missingFallback,
+          ]).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 
           await saveItem(localKey, mergedItems);
+          if (unsyncedLocal.length > 0) {
+            this.saveReturnWarrantyItems(mergedItems).catch(() => {});
+          }
           return mergedItems;
         }
 
         if (fallbackItems.length > 0) {
-          const shielded = ApprovalShield.applyToReturnWarranty(fallbackItems);
+          const shielded = ApprovalShield.applyToReturnWarranty(fallbackItems).sort(
+            (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+          );
           await saveItem(localKey, shielded);
           return shielded;
         }
-        return ApprovalShield.applyToReturnWarranty((await loadItem<ReturnWarrantyItem[]>(localKey)) || []);
+        return ApprovalShield.applyToReturnWarranty((await loadItem<ReturnWarrantyItem[]>(localKey)) || []).sort(
+          (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+        );
       }
 
       // 2. Primary POLATLAR table in Supabase
@@ -2902,19 +2996,51 @@ export const StorageService = {
           const cloudServices: ServiceItem[] = res.map(mapRowToService);
           const rowIds = new Set(cloudServices.map((s) => s.id));
           const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
-          const merged = ApprovalShield.applyToServices([...cloudServices, ...missingFromSlot]);
+          const serverAndSlotIds = new Set([...rowIds, ...fallbackServices.map((s) => s.id)]);
+          const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const unsyncedLocal = localCached.filter(
+            (lc) => lc && lc.id && !serverAndSlotIds.has(lc.id) && Number(lc.createdAt) >= recentCutoff
+          );
+
+          const merged = ApprovalShield.applyToServices([
+            ...unsyncedLocal,
+            ...cloudServices,
+            ...missingFromSlot,
+          ]).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 
           await saveItem(localKey, merged);
+
+          if (unsyncedLocal.length > 0) {
+            console.log(`[Servis Otomatik Eşitleme] Cihaz hafızasındaki ${unsyncedLocal.length} adet gönderilmemiş servis sunucuya aktarılıyor...`);
+            for (const unsyncedSrv of unsyncedLocal) {
+              this.saveSingleService(unsyncedSrv).catch(() => {});
+            }
+          }
+
           return merged;
         }
 
         if (fallbackServices.length > 0) {
-          const shielded = ApprovalShield.applyToServices(fallbackServices);
+          const slotIds = new Set(fallbackServices.map((s) => s.id));
+          const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+          const unsyncedLocal = localCached.filter(
+            (lc) => lc && lc.id && !slotIds.has(lc.id) && Number(lc.createdAt) >= recentCutoff
+          );
+          const shielded = ApprovalShield.applyToServices([...unsyncedLocal, ...fallbackServices]).sort(
+            (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+          );
           await saveItem(localKey, shielded);
+          if (unsyncedLocal.length > 0) {
+            for (const unsyncedSrv of unsyncedLocal) {
+              this.saveSingleService(unsyncedSrv).catch(() => {});
+            }
+          }
           return shielded;
         }
 
-        return ApprovalShield.applyToServices(localCached);
+        return ApprovalShield.applyToServices(localCached).sort(
+          (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+        );
       }
 
       // 2. Primary POLATLAR table in Supabase
