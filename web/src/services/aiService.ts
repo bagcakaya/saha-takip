@@ -74,6 +74,52 @@ export interface AiContextData {
     totalAmount: number;
     notes?: string;
   }>;
+  quotations?: Array<{
+    id: string;
+    quotationNo: string;
+    cariName: string;
+    date: string;
+    validUntil?: string;
+    status: string;
+    grandTotal: number;
+    subTotal: number;
+    taxTotal: number;
+    itemCount: number;
+    itemsSummary?: string;
+  }>;
+  quotationProducts?: Array<{
+    id: string;
+    code?: string;
+    name: string;
+    unit: string;
+    unitPrice: number;
+    taxRate: number;
+  }>;
+  debtReceivables?: Array<{
+    id: string;
+    type: 'debt' | 'receivable';
+    title: string;
+    cariName?: string;
+    amount: number;
+    dueDate?: string;
+    status: 'pending' | 'paid';
+  }>;
+  fixedExpenses?: Array<{
+    id: string;
+    title: string;
+    amount: number;
+    dayOfMonth?: number;
+    status?: string;
+  }>;
+  returnWarrantyItems?: Array<{
+    id: string;
+    type: 'return' | 'warranty';
+    companyName: string;
+    cariName?: string;
+    productName?: string;
+    serialNumber?: string;
+    status?: string;
+  }>;
   systemSummary?: {
     today: string;
     pendingNotesCount: number;
@@ -86,6 +132,9 @@ export interface AiContextData {
     todayCash?: number;
     todayBank?: number;
     todayCreditCard?: number;
+    quotationsCount?: number;
+    catalogProductsCount?: number;
+    pendingReturnsCount?: number;
   };
 }
 
@@ -98,37 +147,73 @@ export type AiActionType =
   | 'general_chat';       // Genel asistan sohbeti
 
 export type AiModelId =
+  | 'claude-3-7-sonnet'
+  | 'gpt-4.1'
   | 'gemini-2.5-pro'
+  | 'groq-llama-4-maverick'
+  | 'groq-qwen-qwq-32b'
   | 'gemini-2.5-flash'
-  | 'gemini-2.0-flash'
   | 'groq-llama-3.3-70b'
   | 'groq-deepseek-r1'
+  | 'gemini-2.0-flash'
   | 'local-nlp';
 
 export interface AiModelOption {
   id: AiModelId;
   name: string;
   badge: string;
-  provider: 'gemini' | 'groq' | 'local_nlp';
+  provider: 'gemini' | 'groq' | 'openai_or' | 'local_nlp';
   description: string;
   freeQuotaNote: string;
 }
 
 export const AI_MODEL_OPTIONS: AiModelOption[] = [
   {
+    id: 'claude-3-7-sonnet',
+    name: 'Claude 3.7 Sonnet (Thinking)',
+    badge: '👑 Claude 3.7 Sonnet',
+    provider: 'openai_or',
+    description: 'Anthropic\'in en üst düzey derin düşünme (Extended Thinking), ERP, teklif ve finansal muhakeme modeli.',
+    freeQuotaNote: 'OpenRouter / Anthropic (Yedek: Gemini/Groq)',
+  },
+  {
+    id: 'gpt-4.1',
+    name: 'OpenAI GPT-4.1 & o3-mini',
+    badge: '💎 OpenAI GPT-4.1',
+    provider: 'openai_or',
+    description: 'OpenAI\'nin en gelişmiş amiral gemisi modeli. Çok adımlı muhasebe, puantaj, teklif ve iş emri analizi.',
+    freeQuotaNote: 'OpenAI / OpenRouter (Yedek: Gemini/Groq)',
+  },
+  {
     id: 'gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro',
-    badge: '🧠 Gemini 2.5 Pro',
+    name: 'Gemini 2.5 Pro Max (1M Token)',
+    badge: '🧠 Gemini 2.5 Pro Max',
     provider: 'gemini',
-    description: 'En üst düzey akıl yürütme (reasoning), karmaşık muhasebe/puantaj analizi. (Kota dolarsa 2.5 Flash\'a otomatik geçer)',
+    description: 'Google\'ın 1 Milyon token hafızalı en üst düzey akıl yürütme (Deep Thinking) ve ERP analiz modeli.',
     freeQuotaNote: 'Google AI Studio Ücretsiz Kota',
+  },
+  {
+    id: 'groq-llama-4-maverick',
+    name: 'Llama 4 Maverick 17B-128E',
+    badge: '🌌 Llama 4 Maverick',
+    provider: 'groq',
+    description: 'Meta\'nın en yeni Llama 4 (128 Uzmanlı MoE) üst düzey modeli. Groq LPU üzerinde ~600 kelime/sn hızında çalışır.',
+    freeQuotaNote: 'Groq Cloud Ücretsiz Kota',
+  },
+  {
+    id: 'groq-qwen-qwq-32b',
+    name: 'Qwen QwQ-32B (Derin Muhakeme)',
+    badge: '🧮 Qwen QwQ-32B',
+    provider: 'groq',
+    description: 'Matematik, muhasebe, teklif, kasa, maaş ve puantaj hesaplamalarında uzman derin düşünme (CoT) modeli.',
+    freeQuotaNote: 'Groq Cloud Ücretsiz Kota',
   },
   {
     id: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
     badge: '🚀 Gemini 2.5 Flash',
     provider: 'gemini',
-    description: 'Yeni nesil hibrit model. 1.5 Flash\'tan çok daha zeki, çok hızlı ve geniş ücretsiz kullanım hakkı.',
+    description: 'Yeni nesil hibrit model. Çok zeki, çok hızlı ve geniş ücretsiz kullanım hakkı.',
     freeQuotaNote: 'Günde 1.500 İstek Ücretsiz',
   },
   {
@@ -148,20 +233,12 @@ export const AI_MODEL_OPTIONS: AiModelOption[] = [
     freeQuotaNote: 'Groq Cloud Ücretsiz Kota',
   },
   {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
-    badge: '⚡ Gemini 2.0 Flash',
-    provider: 'gemini',
-    description: 'Düşük gecikmeli hızlı standart Google Gemini 2.0 modeli.',
-    freeQuotaNote: 'Günde 1.500 İstek Ücretsiz',
-  },
-  {
     id: 'local-nlp',
-    name: 'Dahili Akıllı Kural Motoru',
-    badge: '🛡️ Yerel NLP (Çevrimdışı)',
+    name: 'Dahili ERP Zekâ Motoru v2',
+    badge: '🛡️ Yerel ERP Zekâsı (Hazır)',
     provider: 'local_nlp',
-    description: 'API anahtarı veya internet gerektirmeden sıfır token ile çalışan yerleşik Türkçe kural motoru.',
-    freeQuotaNote: 'Sınırsız & Anahtarsız',
+    description: 'API anahtarı veya internet gerektirmeden Teklifler, Katalog, Muhasebe, Puantaj, Maaş ve Servisleri analiz eden gelişmiş Türkçe ERP motoru.',
+    freeQuotaNote: 'Sınırsız & Anahtarsız (Anında Çalışır)',
   },
 ];
 
@@ -170,7 +247,7 @@ export interface AiParsedResponse {
   title: string;
   explanation: string;
   confidence: number;
-  provider: 'gemini' | 'groq' | 'local_nlp';
+  provider: 'gemini' | 'groq' | 'openai_or' | 'local_nlp';
   modelLabel?: string;
   data: {
     // create_note fields:
@@ -215,6 +292,7 @@ export interface AiParsedResponse {
 
 const STORAGE_KEY_GEMINI = '@saha_takip_gemini_api_key';
 const STORAGE_KEY_GROQ = '@saha_takip_groq_api_key';
+const STORAGE_KEY_OPENAI_OR = '@saha_takip_openai_or_api_key';
 const STORAGE_KEY_SELECTED_MODEL = '@saha_takip_ai_selected_model';
 
 export const AiService = {
@@ -269,9 +347,12 @@ export const AiService = {
   setApiKey(key: string): void {
     if (typeof localStorage !== 'undefined') {
       const trimmed = (key || '').trim();
-      // Eğer kullanıcı yanlışlıkla gsk_ ile başlayan Groq anahtarını buraya yapıştırdıysa otomatik Groq'a da kaydet
       if (trimmed.startsWith('gsk_')) {
         localStorage.setItem(STORAGE_KEY_GROQ, trimmed);
+        return;
+      }
+      if (trimmed.startsWith('sk-')) {
+        localStorage.setItem(STORAGE_KEY_OPENAI_OR, trimmed);
         return;
       }
       if (trimmed) {
@@ -307,6 +388,10 @@ export const AiService = {
         localStorage.setItem(STORAGE_KEY_GEMINI, trimmed);
         return;
       }
+      if (trimmed.startsWith('sk-')) {
+        localStorage.setItem(STORAGE_KEY_OPENAI_OR, trimmed);
+        return;
+      }
       if (trimmed) {
         localStorage.setItem(STORAGE_KEY_GROQ, trimmed);
       } else {
@@ -316,10 +401,44 @@ export const AiService = {
   },
 
   /**
-   * Kullanıcının girdiği isteği seçili modele göre işler:
-   * 1. Seçili model Gemini ise (2.5 Pro / 2.5 Flash / 2.0 Flash) Google AI Studio API'sine sorar.
-   * 2. Seçili model Groq ise (Llama 3.3 70B / DeepSeek R1 70B) Groq Cloud LPU API'sine sorar.
-   * 3. Seçili modelin anahtarı yoksa diğer sağlayıcıyı dener, o da yoksa dahili Akıllı Kural Motorunu (Local NLP) çalıştırır.
+   * OpenAI / OpenRouter / Claude API anahtarını alır
+   */
+  getOpenAiOrKey(): string {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY_OPENAI_OR);
+      if (stored && stored.trim()) return stored.trim();
+    }
+    try {
+      const envKey = (import.meta as any).env?.VITE_OPENAI_API_KEY || (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+      if (envKey && typeof envKey === 'string' && envKey.trim()) return envKey.trim();
+    } catch {}
+    return '';
+  },
+
+  /**
+   * OpenAI / OpenRouter / Claude API anahtarını kaydeder
+   */
+  setOpenAiOrKey(key: string): void {
+    if (typeof localStorage !== 'undefined') {
+      const trimmed = (key || '').trim();
+      if (trimmed.startsWith('AIza')) {
+        localStorage.setItem(STORAGE_KEY_GEMINI, trimmed);
+        return;
+      }
+      if (trimmed.startsWith('gsk_')) {
+        localStorage.setItem(STORAGE_KEY_GROQ, trimmed);
+        return;
+      }
+      if (trimmed) {
+        localStorage.setItem(STORAGE_KEY_OPENAI_OR, trimmed);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_OPENAI_OR);
+      }
+    }
+  },
+
+  /**
+   * Kullanıcının girdiği isteği seçili modele göre işler (Çoklu Sağlayıcı & Akıllı Fallback):
    */
   async processCommand(userPrompt: string, context: AiContextData): Promise<AiParsedResponse> {
     const trimmed = userPrompt.trim();
@@ -330,7 +449,7 @@ export const AiService = {
         explanation: 'Lütfen bir komut, soru veya iş emri metni giriniz.',
         confidence: 0,
         provider: 'local_nlp',
-        modelLabel: 'Dahili Akıllı Kural Motoru',
+        modelLabel: 'Dahili ERP Zekâ Motoru v2',
         data: {},
       };
     }
@@ -338,13 +457,36 @@ export const AiService = {
     const selectedModel = this.getSelectedModel();
     const geminiKey = this.getApiKey();
     const groqKey = this.getGroqApiKey();
+    const openAiOrKey = this.getOpenAiOrKey();
 
     if (selectedModel === 'local-nlp') {
       return this.parseWithLocalRules(trimmed, context);
     }
 
-    // 1. Kullanıcı Groq modeli seçtiyse önce Groq dene
-    if (selectedModel.startsWith('groq-')) {
+    // 1. Kullanıcı Claude 3.7 Sonnet veya OpenAI GPT-4.1 seçtiyse
+    if (selectedModel === 'claude-3-7-sonnet' || selectedModel === 'gpt-4.1') {
+      if (openAiOrKey) {
+        try {
+          const res = await this.callOpenAiOrOpenRouterApi(trimmed, context, openAiOrKey, selectedModel);
+          if (res) return res;
+        } catch (err) {
+          console.warn('[AiService] OpenAI/OpenRouter çağrısı başarısız oldu, yedek modele geçiliyor:', err);
+        }
+      }
+      if (geminiKey) {
+        try {
+          const res = await this.callGeminiApi(trimmed, context, geminiKey, 'gemini-2.5-pro');
+          if (res) return res;
+        } catch {}
+      }
+      if (groqKey) {
+        try {
+          const res = await this.callGroqApi(trimmed, context, groqKey, 'groq-llama-4-maverick');
+          if (res) return res;
+        } catch {}
+      }
+    } else if (selectedModel.startsWith('groq-')) {
+      // 2. Kullanıcı Groq modeli seçtiyse (Llama 4 Maverick / Qwen QwQ-32B / Llama 3.3 70B / DeepSeek R1)
       if (groqKey) {
         try {
           const groqResult = await this.callGroqApi(trimmed, context, groqKey, selectedModel);
@@ -353,15 +495,20 @@ export const AiService = {
           console.warn('[AiService] Groq API çağrısı başarısız oldu, yedek modele geçiliyor:', err);
         }
       }
-      // Groq anahtarı yoksa ama Gemini anahtarı varsa Gemini ile yanıtla
       if (geminiKey) {
         try {
-          const geminiFallback = await this.callGeminiApi(trimmed, context, geminiKey, 'gemini-2.5-flash');
+          const geminiFallback = await this.callGeminiApi(trimmed, context, geminiKey, 'gemini-2.5-pro');
           if (geminiFallback) return geminiFallback;
         } catch {}
       }
+      if (openAiOrKey) {
+        try {
+          const orFallback = await this.callOpenAiOrOpenRouterApi(trimmed, context, openAiOrKey, 'claude-3-7-sonnet');
+          if (orFallback) return orFallback;
+        } catch {}
+      }
     } else {
-      // 2. Kullanıcı Gemini modeli seçtiyse önce Gemini dene
+      // 3. Kullanıcı Gemini modeli seçtiyse (Gemini 2.5 Pro Max / 2.5 Flash / 2.0 Flash)
       if (geminiKey) {
         try {
           const geminiResult = await this.callGeminiApi(trimmed, context, geminiKey, selectedModel);
@@ -370,16 +517,21 @@ export const AiService = {
           console.warn('[AiService] Gemini API çağrısı başarısız oldu, yedek modele geçiliyor:', err);
         }
       }
-      // Gemini anahtarı yoksa ama Groq anahtarı varsa Groq ile yanıtla
       if (groqKey) {
         try {
-          const groqFallback = await this.callGroqApi(trimmed, context, groqKey, 'groq-llama-3.3-70b');
+          const groqFallback = await this.callGroqApi(trimmed, context, groqKey, 'groq-llama-4-maverick');
           if (groqFallback) return groqFallback;
+        } catch {}
+      }
+      if (openAiOrKey) {
+        try {
+          const orFallback = await this.callOpenAiOrOpenRouterApi(trimmed, context, openAiOrKey, 'gpt-4.1');
+          if (orFallback) return orFallback;
         } catch {}
       }
     }
 
-    // Yerel Kural Tabanlı Doğal Dil Ayrıştırıcısı (Sıfır Token / Çevrimdışı Çalışır)
+    // Yerel Kural Tabanlı ERP Zekâ Motoru v2 (Sıfır Token / Çevrimdışı Çalışır)
     return this.parseWithLocalRules(trimmed, context);
   },
 
@@ -440,6 +592,11 @@ Sistemdeki Canlı Veriler:
     odemeler: s.payments,
   }))
 )}
+- Hazırlanan Teklifler: ${JSON.stringify((context.quotations || []).slice(0, 25))}
+- Kayıtlı Ürün Kataloğu: ${JSON.stringify((context.quotationProducts || []).slice(0, 40))}
+- Borç & Alacak Kayıtları: ${JSON.stringify((context.debtReceivables || []).slice(0, 25))}
+- Sabit Giderler: ${JSON.stringify((context.fixedExpenses || []).slice(0, 25))}
+- İade & Garanti Kayıtları: ${JSON.stringify((context.returnWarrantyItems || []).slice(0, 25))}
 - Sistem Canlı Özeti: ${JSON.stringify(context.systemSummary || {})}
 
 GÖREVİN:
@@ -599,26 +756,42 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
   },
 
   /**
-   * Groq Cloud LPU REST API Çağrısı (Llama 3.3 70B & DeepSeek R1 Distill Llama 70B - Ücretsiz Tier)
+   * Groq Cloud LPU REST API Çağrısı (Llama 4 Maverick, Qwen QwQ-32B, Llama 3.3 70B & DeepSeek R1 70B - Ücretsiz Tier)
    */
   async callGroqApi(
     userPrompt: string,
     context: AiContextData,
     groqKey: string,
-    preferredModel: AiModelId = 'groq-llama-3.3-70b'
+    preferredModel: AiModelId = 'groq-llama-4-maverick'
   ): Promise<AiParsedResponse | null> {
     const systemInstruction = this.buildSystemInstruction(context);
 
-    const models =
-      preferredModel === 'groq-deepseek-r1'
-        ? [
-            { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 70B (Groq)', useJsonFormat: false },
-            { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
-          ]
-        : [
-            { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
-            { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Groq)', useJsonFormat: true },
-          ];
+    let models: Array<{ id: string; label: string; useJsonFormat: boolean }>;
+    if (preferredModel === 'groq-llama-4-maverick') {
+      models = [
+        { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick 17B-128E (Groq)', useJsonFormat: true },
+        { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout 17B-16E (Groq)', useJsonFormat: true },
+        { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+      ];
+    } else if (preferredModel === 'groq-qwen-qwq-32b') {
+      models = [
+        { id: 'qwen-qwq-32b', label: 'Qwen QwQ-32B (Groq)', useJsonFormat: false },
+        { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 70B (Groq)', useJsonFormat: false },
+        { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+      ];
+    } else if (preferredModel === 'groq-deepseek-r1') {
+      models = [
+        { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 70B (Groq)', useJsonFormat: false },
+        { id: 'qwen-qwq-32b', label: 'Qwen QwQ-32B (Groq)', useJsonFormat: false },
+        { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+      ];
+    } else {
+      models = [
+        { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', useJsonFormat: true },
+        { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick (Groq)', useJsonFormat: true },
+        { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Groq)', useJsonFormat: true },
+      ];
+    }
 
     for (const modelObj of models) {
       try {
@@ -660,7 +833,7 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
           actionType: parsed.actionType || 'general_chat',
           title: parsed.title || 'Yapay Zeka Yanıtı',
           explanation: parsed.explanation || parsed.data?.answer || 'İşleminiz hazırlandı.',
-          confidence: parsed.confidence || 0.96,
+          confidence: parsed.confidence || 0.98,
           provider: 'groq',
           modelLabel: modelObj.label,
           data: parsed.data || {},
@@ -670,6 +843,90 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
       }
     }
 
+    return null;
+  },
+
+  /**
+   * OpenAI (GPT-4.1 / GPT-4o / o3-mini) ve OpenRouter (Claude 3.7 Sonnet / GPT-4.1 / Ücretsiz Frontier Modeller) REST API Çağrısı
+   */
+  async callOpenAiOrOpenRouterApi(
+    userPrompt: string,
+    context: AiContextData,
+    apiKey: string,
+    preferredModel: AiModelId = 'claude-3-7-sonnet'
+  ): Promise<AiParsedResponse | null> {
+    const systemInstruction = this.buildSystemInstruction(context);
+    const isOpenRouter = apiKey.startsWith('sk-or-');
+    const endpoint = isOpenRouter
+      ? 'https://openrouter.ai/api/v1/chat/completions'
+      : 'https://api.openai.com/v1/chat/completions';
+
+    const candidateModels = isOpenRouter
+      ? preferredModel === 'claude-3-7-sonnet'
+        ? [
+            { id: 'anthropic/claude-3.7-sonnet', label: 'Claude 3.7 Sonnet' },
+            { id: 'openai/gpt-4.1', label: 'OpenAI GPT-4.1' },
+            { id: 'google/gemini-2.5-pro-exp-03-25:free', label: 'Gemini 2.5 Pro (OpenRouter)' },
+            { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1 671B (OpenRouter)' },
+          ]
+        : [
+            { id: 'openai/gpt-4.1', label: 'OpenAI GPT-4.1' },
+            { id: 'anthropic/claude-3.7-sonnet', label: 'Claude 3.7 Sonnet' },
+            { id: 'google/gemini-2.5-pro-exp-03-25:free', label: 'Gemini 2.5 Pro (OpenRouter)' },
+            { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1 671B (OpenRouter)' },
+          ]
+      : [
+          { id: 'gpt-4.1', label: 'OpenAI GPT-4.1' },
+          { id: 'gpt-4o', label: 'OpenAI GPT-4o' },
+          { id: 'o3-mini', label: 'OpenAI o3-mini' },
+          { id: 'gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
+        ];
+
+    for (const modelObj of candidateModels) {
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        };
+        if (isOpenRouter) {
+          headers['HTTP-Referer'] = 'https://saha-takip-beige.vercel.app';
+          headers['X-Title'] = 'Saha Takip 360 ERP';
+        }
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: modelObj.id,
+            temperature: 0.1,
+            messages: [
+              { role: 'system', content: systemInstruction },
+              { role: 'user', content: `Kullanıcı Komutu:\n"${userPrompt}"` },
+            ],
+          }),
+        });
+
+        if (!response.ok) continue;
+        const json = await response.json();
+        const content = json?.choices?.[0]?.message?.content;
+        if (!content) continue;
+
+        const parsed = this.extractJsonFromText(content);
+        if (!parsed) continue;
+
+        return {
+          actionType: parsed.actionType || 'general_chat',
+          title: parsed.title || 'Yapay Zeka Yanıtı',
+          explanation: parsed.explanation || parsed.data?.answer || 'İşleminiz hazırlandı.',
+          confidence: parsed.confidence || 0.99,
+          provider: 'openai_or',
+          modelLabel: modelObj.label,
+          data: parsed.data || {},
+        };
+      } catch (e) {
+        console.warn(`[AiService] ${modelObj.id} hata:`, e);
+      }
+    }
     return null;
   },
 
@@ -1180,6 +1437,101 @@ Aşağıdaki 'actionType' seçeneklerinden en uygun olanını seç:
         return {
           actionType: 'system_query',
           title: 'Kasa ve Muhasebe Durumu',
+          explanation: ans,
+          confidence: 0.95,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 4b. TEKLİF & ÜRÜN KATALOĞU SORULARI
+      const isQuotationQuery =
+        lower.includes('teklif') ||
+        lower.includes('katalog') ||
+        lower.includes('ürün') ||
+        lower.includes('stok') ||
+        lower.includes('fiyat');
+
+      if (isQuotationQuery) {
+        const quotes = context.quotations || [];
+        const prods = context.quotationProducts || [];
+        let ans = `📄 **Teklif Modülü & Ürün Kataloğu Raporu:**\n\n`;
+
+        if (quotes.length > 0) {
+          const totalQuoteVal = quotes.reduce((sum, q) => sum + (Number(q.grandTotal) || 0), 0);
+          ans += `📋 **Hazırlanan Teklifler (${quotes.length} Adet — Toplam Hacim: ${totalQuoteVal.toLocaleString('tr-TR')} ₺):**\n`;
+          quotes.slice(0, 10).forEach((q, idx) => {
+            ans += `${idx + 1}. **${q.cariName}** (${q.quotationNo || '-'}) ➔ **${(Number(q.grandTotal) || 0).toLocaleString('tr-TR')} ₺** (KDV Dahil) | ${q.itemCount} Kalem | Tarih: ${q.date}\n`;
+          });
+          ans += '\n';
+        } else {
+          ans += `• Sistemde henüz kayıtlı teklif bulunmuyor.\n\n`;
+        }
+
+        if (prods.length > 0) {
+          ans += `📦 **Kayıtlı Ürün Kataloğu (${prods.length} Ürün):**\n`;
+          prods.slice(0, 12).forEach((p) => {
+            const vatInc = (Number(p.unitPrice) || 0) * (1 + (Number(p.taxRate) ?? 20) / 100);
+            ans += `• **${p.name}** ${p.code ? `(${p.code})` : ''}: Birim Fiyat: ${(Number(p.unitPrice) || 0).toLocaleString('tr-TR')} ₺ | **KDV Dahil: ${vatInc.toLocaleString('tr-TR')} ₺** (%${p.taxRate ?? 20} KDV)\n`;
+          });
+        }
+
+        return {
+          actionType: 'system_query',
+          title: 'Teklifler & Ürün Kataloğu',
+          explanation: ans,
+          confidence: 0.96,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 4c. BORÇ & ALACAK VE SABİT GİDERLER SORULARI
+      const isDebtOrFixedQuery =
+        lower.includes('borç') ||
+        lower.includes('alacak') ||
+        lower.includes('sabit gider') ||
+        lower.includes('kira') ||
+        lower.includes('verecek');
+
+      if (isDebtOrFixedQuery) {
+        const drs = context.debtReceivables || [];
+        const fixed = context.fixedExpenses || [];
+        const pendingDebts = drs.filter((d) => d.type === 'debt' && d.status !== 'paid');
+        const pendingRecs = drs.filter((d) => d.type === 'receivable' && d.status !== 'paid');
+        const totalDebt = pendingDebts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+        const totalRec = pendingRecs.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+        const totalFixed = fixed.reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+
+        let ans = `⚖️ **Borç / Alacak ve Sabit Giderler Raporu:**\n\n`;
+        ans += `• 🔴 **Bekleyen Toplam Borç (${pendingDebts.length} Kayıt):** ${totalDebt.toLocaleString('tr-TR')} ₺\n`;
+        ans += `• 🟢 **Bekleyen Toplam Alacak (${pendingRecs.length} Kayıt):** ${totalRec.toLocaleString('tr-TR')} ₺\n`;
+        ans += `• 📅 **Aylık Sabit Giderler (${fixed.length} Kalem):** ${totalFixed.toLocaleString('tr-TR')} ₺\n`;
+
+        return {
+          actionType: 'system_query',
+          title: 'Borç / Alacak & Sabit Giderler',
+          explanation: ans,
+          confidence: 0.95,
+          provider: 'local_nlp',
+          data: { answer: ans },
+        };
+      }
+
+      // 4d. İADE & GARANTİ SORULARI
+      if (lower.includes('iade') || lower.includes('garanti')) {
+        const rets = context.returnWarrantyItems || [];
+        const pendingRets = rets.filter((r) => r.status !== 'completed');
+        let ans = `🛡️ **İade & Garanti Durum Raporu:**\n\n`;
+        ans += `• ⏳ **Takip Bekleyen Ürünler:** ${pendingRets.length} adet\n`;
+        ans += `• ✅ **Geri Dönen / Tamamlanan:** ${rets.length - pendingRets.length} adet\n\n`;
+        pendingRets.slice(0, 8).forEach((r, idx) => {
+          ans += `${idx + 1}. **${r.cariName || r.companyName}** (${r.type === 'warranty' ? 'Garanti' : 'İade'}): ${r.productName || ''}${r.serialNumber ? ` | Seri No: ${r.serialNumber}` : ''}\n`;
+        });
+
+        return {
+          actionType: 'system_query',
+          title: 'İade & Garanti Raporu',
           explanation: ans,
           confidence: 0.95,
           provider: 'local_nlp',

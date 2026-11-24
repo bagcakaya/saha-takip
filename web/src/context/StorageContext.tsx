@@ -360,6 +360,8 @@ const SEEN_APPROVAL_LOCATIONS_KEY = (userId: string, compCode?: string) => `@see
 const SEEN_ADMIN_REMINDERS_KEY = (userId: string, compCode?: string) => `@seen_admin_reminders_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_REMINDER_READS_KEY = (userId: string, compCode?: string) => `@seen_reminder_reads_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_COMPLETED_RETURNS_KEY = (userId: string, compCode?: string) => `@seen_completed_returns_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_ATTENDANCE_EVENTS_KEY = (userId: string, compCode?: string) => `@seen_att_events_${sanitizeCompCode(compCode)}_${userId}`;
+const SEEN_LEAVE_REQUESTS_KEY = (userId: string, compCode?: string) => `@seen_leave_reqs_${sanitizeCompCode(compCode)}_${userId}`;
 const SEEN_INITIALIZED_KEY = (userId: string, compCode?: string) => `@seen_initialized_${sanitizeCompCode(compCode)}_${userId}`;
 
 // Bellek içi (0ms) + LocalStorage destekli bildirim tekilleştirme havuzu.
@@ -425,6 +427,8 @@ const seedExistingRecordsAsSeen = (
     notes?: GeneralNote[] | null;
     returns?: ReturnWarrantyItem[] | null;
     reminders?: AdminReminder[] | null;
+    attendance?: AttendanceRecord[] | null;
+    leaves?: LeaveRequest[] | null;
   }
 ) => {
   const now = Date.now();
@@ -433,6 +437,8 @@ const seedExistingRecordsAsSeen = (
   const nts = data.notes || [];
   const returns = data.returns || [];
   const reminders = data.reminders || [];
+  const attendance = data.attendance || [];
+  const leaves = data.leaves || [];
 
   if (locs.length > 0) {
     const seenLocs = getStoredSet(SEEN_LOCATIONS_KEY(userId, compCode));
@@ -535,6 +541,38 @@ const seedExistingRecordsAsSeen = (
     });
     saveStoredSet(SEEN_ADMIN_REMINDERS_KEY(userId, compCode), seenAdminReminders);
     saveStoredSet(SEEN_REMINDER_READS_KEY(userId, compCode), seenReminderReads);
+  }
+
+  if (attendance.length > 0) {
+    const seenAtt = getStoredSet(SEEN_ATTENDANCE_EVENTS_KEY(userId, compCode));
+    attendance.forEach((rec) => {
+      if (!rec || !rec.id) return;
+      seenAtt.add(`in_${rec.id}`);
+      if (rec.checkOutTime || rec.status === 'completed' || rec.status === 'pending_checkout_approval') {
+        seenAtt.add(`out_${rec.id}_${rec.checkOutTime || rec.status}`);
+      }
+      if (Array.isArray(rec.breaks)) {
+        rec.breaks.forEach((b) => {
+          if (b?.id || b?.startTime) {
+            seenAtt.add(`brk_start_${rec.id}_${b.id || b.startTime}`);
+            if (b.endTime) {
+              seenAtt.add(`brk_end_${rec.id}_${b.id || b.startTime}_${b.endTime}`);
+            }
+          }
+        });
+      }
+    });
+    saveStoredSet(SEEN_ATTENDANCE_EVENTS_KEY(userId, compCode), seenAtt);
+  }
+
+  if (leaves.length > 0) {
+    const seenLeaves = getStoredSet(SEEN_LEAVE_REQUESTS_KEY(userId, compCode));
+    leaves.forEach((lr) => {
+      if (lr && lr.id) {
+        seenLeaves.add(`leave_${lr.id}_${lr.status || 'pending'}`);
+      }
+    });
+    saveStoredSet(SEEN_LEAVE_REQUESTS_KEY(userId, compCode), seenLeaves);
   }
 
   try {
@@ -817,6 +855,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             notes: cached.notes,
             returns: cached.returnWarranty,
             reminders: cached.adminReminders,
+            attendance: cached.attendanceRecords,
+            leaves: cached.leaveRequests,
           });
           if (cached.locations && cached.locations.length > 0) setAllLocations(cached.locations);
           if (cached.standardTasks && cached.standardTasks.length > 0) setStandardTasks(cached.standardTasks);
@@ -908,6 +948,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           notes: nts,
           returns,
           reminders,
+          attendance: attRecs,
+          leaves: leaveReqs,
         });
 
         setAllLocations(migratedLocs || []);
@@ -1219,17 +1261,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       refreshCloudShifts();
     }, 20000);
 
-    // Yerel Sunucu (Local Mode) Canlı Kalp Atışı (Live Heartbeat Sync - her 12 saniyede bir)
+    // Yerel Sunucu (Local Mode) Canlı Kalp Atışı (Live Heartbeat Sync - her 5 saniyede bir anlık bildirim ve durum eşitleme)
     const localSyncTimer = setInterval(async () => {
       if (!isMounted || !ServerConfigService.isLocalMode()) return;
       try {
-        const [freshNotes, freshLocs, freshServices, freshReturns, freshAtt, freshShifts] = await Promise.all([
+        const [freshNotes, freshLocs, freshServices, freshReturns, freshAtt, freshShifts, freshLeaves] = await Promise.all([
           StorageService.getNotes(),
           StorageService.getLocations(),
           StorageService.getServices(),
           StorageService.getReturnWarrantyItems(),
           StorageService.getAttendanceRecords(),
           StorageService.getShiftData(),
+          StorageService.getLeaveRequests(),
         ]);
         if (isMounted) {
           if (freshNotes && freshNotes.length > 0) setAllNotes((prev) => mergeNotesPreservingReads(freshNotes, prev));
@@ -1237,6 +1280,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (freshServices && freshServices.length > 0) setAllServices((prev) => mergeServicesPreservingMedia(freshServices, prev));
           if (freshReturns && freshReturns.length > 0) setReturnWarrantyItems(freshReturns);
           if (freshAtt && freshAtt.length > 0) setAttendanceRecords(freshAtt);
+          if (freshLeaves && freshLeaves.length > 0) setLeaveRequests(freshLeaves);
           if (freshShifts) {
             setShifts(freshShifts.definitions || []);
             setShiftAssignments(freshShifts.assignments || []);
@@ -1245,7 +1289,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch (err) {
         // silent heartbeat
       }
-    }, 12000);
+    }, 5000);
 
     return () => {
       isMounted = false;
@@ -2090,6 +2134,158 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
   }, [allLocations, user, dataCompanyCode, showUniqueToast]);
+
+  // Check incoming staff attendance events (Check-in, Check-out, Break Start/End) for Admin (Live In-App Toast + Chime + OS Alert)
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || !isInitialSyncCompleteRef.current || !isUserAdmin(user) || dataCompanyCode.toUpperCase() !== compCode || attendanceRecords.length === 0) return;
+
+    const storageKey = SEEN_ATTENDANCE_EVENTS_KEY(user.id, compCode);
+    const seenAtt = getStoredSet(storageKey);
+    let seenChanged = false;
+    const minLiveTime = sessionStartTimeRef.current - 90000;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    attendanceRecords.forEach((rec) => {
+      if (!rec || !rec.id || rec.userId === user.id) return;
+      const recComp = (rec.companyCode || compCode).trim().toUpperCase();
+      if (recComp !== compCode) return;
+
+      // 1. Yeni İşe Giriş Bildirimi
+      const inKey = `in_${rec.id}`;
+      if (!seenAtt.has(inKey) && !firedInAppAlertsRef.current.has(inKey)) {
+        seenAtt.add(inKey);
+        firedInAppAlertsRef.current.add(inKey);
+        seenChanged = true;
+
+        if (rec.date === todayStr && rec.checkInTime && rec.checkInTime >= minLiveTime) {
+          const timeStr = new Date(rec.checkInTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+          const isPending = rec.status === 'pending_checkin_approval' || rec.checkInApprovalStatus === 'pending';
+          const title = isPending ? '⚠️ Konum Dışı Mesai Başladı (Onay Bekliyor)' : '🟢 Personel İşe Giriş Yaptı';
+          const body = isPending
+            ? `${rec.userName}, saat ${timeStr} itibarıyla konum dışında mesaiye başladı ve onayınızı bekliyor.`
+            : `${rec.userName}, saat ${timeStr} itibarıyla iş yerine giriş yaptı.`;
+          NotificationService.sendNotification(title, body, '/?tab=staff_tracking', {
+            tag: `att_in_${rec.id}`,
+            skipIfVisible: false,
+          });
+          showUniqueToast(inKey, { title, body, tab: 'staff_tracking' });
+        }
+      }
+
+      // 2. İşten Çıkış Bildirimi
+      if (rec.checkOutTime || rec.status === 'completed' || rec.status === 'pending_checkout_approval') {
+        const outKey = `out_${rec.id}_${rec.checkOutTime || rec.status}`;
+        if (!seenAtt.has(outKey) && !firedInAppAlertsRef.current.has(outKey)) {
+          seenAtt.add(outKey);
+          firedInAppAlertsRef.current.add(outKey);
+          seenChanged = true;
+
+          if (rec.date === todayStr && (!rec.checkOutTime || rec.checkOutTime >= minLiveTime)) {
+            const timeStr = rec.checkOutTime
+              ? new Date(rec.checkOutTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+              : new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+            const isPendingOut = rec.status === 'pending_checkout_approval' || rec.checkOutApprovalStatus === 'pending';
+            const title = isPendingOut ? '⚠️ Konum Dışı İşten Çıkış Onay Talebi' : '🔴 Personel İşten Çıkış Yaptı';
+            const body = isPendingOut
+              ? `${rec.userName}, saat ${timeStr} itibarıyla konum dışı işten çıkış onay talebi gönderdi.`
+              : `${rec.userName}, saat ${timeStr} itibarıyla işten çıkış yaptı.`;
+            NotificationService.sendNotification(title, body, '/?tab=staff_tracking', {
+              tag: `att_out_${rec.id}`,
+              skipIfVisible: false,
+            });
+            showUniqueToast(outKey, { title, body, tab: 'staff_tracking' });
+          }
+        }
+      }
+
+      // 3. Mola Başlangıç & Bitiş Bildirimleri
+      if (Array.isArray(rec.breaks)) {
+        rec.breaks.forEach((b) => {
+          if (!b) return;
+          const bId = b.id || b.startTime;
+          if (!bId) return;
+
+          const bStartKey = `brk_start_${rec.id}_${bId}`;
+          if (!seenAtt.has(bStartKey) && !firedInAppAlertsRef.current.has(bStartKey)) {
+            seenAtt.add(bStartKey);
+            firedInAppAlertsRef.current.add(bStartKey);
+            seenChanged = true;
+
+            if (rec.date === todayStr && b.startTime && b.startTime >= minLiveTime && !b.endTime) {
+              const tStr = new Date(b.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+              const title = '☕ Personel Molaya Çıktı';
+              const body = `${rec.userName}, saat ${tStr} itibarıyla molaya çıktı.${b.note ? ` (${b.note})` : ''}`;
+              NotificationService.sendNotification(title, body, '/?tab=staff_tracking', {
+                tag: bStartKey,
+                skipIfVisible: false,
+              });
+              showUniqueToast(bStartKey, { title, body, tab: 'staff_tracking' });
+            }
+          }
+
+          if (b.endTime) {
+            const bEndKey = `brk_end_${rec.id}_${bId}_${b.endTime}`;
+            if (!seenAtt.has(bEndKey) && !firedInAppAlertsRef.current.has(bEndKey)) {
+              seenAtt.add(bEndKey);
+              firedInAppAlertsRef.current.add(bEndKey);
+              seenChanged = true;
+
+              if (rec.date === todayStr && b.endTime >= minLiveTime) {
+                const tStr = new Date(b.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                const title = '🔄 Personel Moladan Döndü';
+                const body = `${rec.userName}, saat ${tStr} itibarıyla molasını tamamlayıp mesaiye döndü (${b.durationMinutes || 1} dk).`;
+                NotificationService.sendNotification(title, body, '/?tab=staff_tracking', {
+                  tag: bEndKey,
+                  skipIfVisible: false,
+                });
+                showUniqueToast(bEndKey, { title, body, tab: 'staff_tracking' });
+              }
+            }
+          }
+        });
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(storageKey, seenAtt);
+    }
+  }, [attendanceRecords, user, dataCompanyCode, showUniqueToast]);
+
+  // Check incoming staff leave requests for Admin (Live In-App Toast + Chime + OS Alert)
+  useEffect(() => {
+    const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();
+    if (!user || !isInitialSyncCompleteRef.current || !isUserAdmin(user) || dataCompanyCode.toUpperCase() !== compCode || leaveRequests.length === 0) return;
+
+    const storageKey = SEEN_LEAVE_REQUESTS_KEY(user.id, compCode);
+    const seenLeaves = getStoredSet(storageKey);
+    let seenChanged = false;
+    const minLiveTime = sessionStartTimeRef.current - 90000;
+
+    leaveRequests.forEach((lr) => {
+      if (!lr || !lr.id || lr.userId === user.id) return;
+      const lrKey = `leave_${lr.id}_${lr.status || 'pending'}`;
+      if (!seenLeaves.has(lrKey) && !firedInAppAlertsRef.current.has(lrKey)) {
+        seenLeaves.add(lrKey);
+        firedInAppAlertsRef.current.add(lrKey);
+        seenChanged = true;
+
+        if (lr.status === 'pending' && (!lr.requestedAt || lr.requestedAt >= minLiveTime)) {
+          const title = `📝 Yeni İzin Talebi: ${lr.userName}`;
+          const body = `${lr.userName}, ${lr.durationText || ''} ${lr.leaveType === 'hourly' ? 'Saatlik' : 'Günlük'} izin talebinde bulundu. Neden: ${lr.reason || '-'}`;
+          NotificationService.sendNotification(title, body, '/?tab=staff_tracking', {
+            tag: `leave_req_${lr.id}`,
+            skipIfVisible: false,
+          });
+          showUniqueToast(lrKey, { title, body, tab: 'staff_tracking' });
+        }
+      }
+    });
+
+    if (seenChanged) {
+      saveStoredSet(storageKey, seenLeaves);
+    }
+  }, [leaveRequests, user, dataCompanyCode, showUniqueToast]);
 
   const dismissToast = () => {
     setActiveToast(null);

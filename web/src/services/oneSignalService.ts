@@ -788,13 +788,54 @@ export const OneSignalService = {
     }
 
     // Known hardware player IDs belonging to POLATLAR to prevent cross-tenant contamination
-    const polatlarSubs = [
-      '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
-      '2dfc8e02-5d2f-44b1-a38d-43c0d0b46872',
+    const polatlarAdminSubs = [
+      '934477f9-0222-4544-be6d-a0c7e08134e6',
+      'e217bcd6-63d5-4896-a677-99fd6e2ba5fe',
       '49243a90-8287-4363-8e19-3408dded8e7d',
+      '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
+      'c14ca5fa-c0b5-40a2-9300-9e36f5ae4d71',
+    ];
+    const polatlarSubs = [
+      ...polatlarAdminSubs,
+      '2dfc8e02-5d2f-44b1-a38d-43c0d0b46872',
       'f6404c9d-7e09-45cb-8912-b641db201343',
+      'f8318d97-802a-4416-8f07-1010e61a5ca7',
     ];
     const nesaAdminSub = '875842fa-942b-4d3a-be08-72be011c1372';
+
+    // 0ms fast device registry reader (reads localStorage immediately, refreshes in background, max 1000ms wait if empty)
+    const getFastRegisteredDevices = async (comp: string) => {
+      let cachedList: any[] = [];
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const storageKey =
+            comp === 'POLATLAR'
+              ? '@saha_takip_registered_devices'
+              : `@saha_takip_registered_devices_${comp}`;
+          const raw = localStorage.getItem(storageKey) || localStorage.getItem('@saha_takip_registered_devices');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) cachedList = parsed;
+          }
+        } catch {}
+      }
+      if (cachedList.length > 0) {
+        // Refresh cache in background without delaying push dispatch
+        DeviceService.getRegisteredDevices(comp).catch(() => {});
+        return cachedList;
+      }
+      try {
+        const res = await Promise.race([
+          DeviceService.getRegisteredDevices(comp),
+          new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 1000)),
+        ]);
+        return Array.isArray(res) ? res : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const fastRegDevices = await getFastRegisteredDevices(targetCompanyCode);
 
     // Collect any cached hardware player IDs for target user IDs
     const cachedSubIds: string[] = [];
@@ -849,28 +890,21 @@ export const OneSignalService = {
       }
     }
 
-    // Also include any registered devices for these users from DeviceService
-    if (cleanIds.length > 0) {
-      try {
-        const regDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
-        if (Array.isArray(regDevices)) {
-          regDevices.forEach((d) => {
-            if (d.pushSubscriptionId && d.userId && cleanIds.includes(d.userId)) {
-              if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(d.pushSubscriptionId)) {
-                return;
-              }
-              if (targetCompanyCode === 'POLATLAR' && d.pushSubscriptionId === nesaAdminSub) {
-                return;
-              }
-              if (!cleanSubIds.includes(d.pushSubscriptionId) && !cachedSubIds.includes(d.pushSubscriptionId)) {
-                cachedSubIds.push(d.pushSubscriptionId);
-              }
-            }
-          });
+    // Also include any registered devices for these users from fastRegDevices
+    if (cleanIds.length > 0 && Array.isArray(fastRegDevices)) {
+      fastRegDevices.forEach((d) => {
+        if (d.pushSubscriptionId && d.userId && cleanIds.includes(d.userId)) {
+          if (targetCompanyCode !== 'POLATLAR' && polatlarSubs.includes(d.pushSubscriptionId)) {
+            return;
+          }
+          if (targetCompanyCode === 'POLATLAR' && d.pushSubscriptionId === nesaAdminSub) {
+            return;
+          }
+          if (!cleanSubIds.includes(d.pushSubscriptionId) && !cachedSubIds.includes(d.pushSubscriptionId)) {
+            cachedSubIds.push(d.pushSubscriptionId);
+          }
         }
-      } catch {
-        // ignore
-      }
+      });
     }
 
     let allHardwareSubIds = Array.from(new Set([...cleanSubIds, ...cachedSubIds]));
@@ -1007,20 +1041,17 @@ export const OneSignalService = {
         }
 
         let registryCompanySubIds: string[] = [];
-        try {
-          const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
-          if (Array.isArray(registeredDevices)) {
-            registryCompanySubIds = registeredDevices
-              .filter(
-                (d) =>
-                  d.pushSubscriptionId &&
-                  (!d.userId || !cleanExcludeUserIds.includes(d.userId)) &&
-                  !cleanExcludeSubIds.includes(d.pushSubscriptionId)
-              )
-              .map((d) => d.pushSubscriptionId!)
-              .filter(Boolean);
-          }
-        } catch {}
+        if (Array.isArray(fastRegDevices)) {
+          registryCompanySubIds = fastRegDevices
+            .filter(
+              (d) =>
+                d.pushSubscriptionId &&
+                (!d.userId || !cleanExcludeUserIds.includes(d.userId)) &&
+                !cleanExcludeSubIds.includes(d.pushSubscriptionId)
+            )
+            .map((d) => d.pushSubscriptionId!)
+            .filter(Boolean);
+        }
 
         if (targetCompanyCode !== 'POLATLAR') {
           registryCompanySubIds = registryCompanySubIds.filter((sub) => !polatlarSubs.includes(sub));
@@ -1123,23 +1154,26 @@ export const OneSignalService = {
           adminUserIds = adminUserIds.filter((id) => !cleanExcludeUserIds.includes(id));
         }
 
-        // Strategy A: Direct Device Registry Push (Fetches actual active admin devices for this company)
+        // Strategy A: Direct Device Registry Push (0ms from fastRegDevices + known company admin subs)
         let registryAdminSubIds: string[] = [];
-        try {
-          const registeredDevices = await DeviceService.getRegisteredDevices(targetCompanyCode);
-          if (Array.isArray(registeredDevices)) {
-            registryAdminSubIds = registeredDevices
-              .filter(
-                (d) =>
-                  (d.userRole === 'admin' || (d.userId && adminUserIds.includes(d.userId))) &&
-                  d.pushSubscriptionId &&
-                  (!d.userId || !cleanExcludeUserIds.includes(d.userId))
-              )
-              .map((d) => d.pushSubscriptionId!)
-              .filter(Boolean);
-          }
-        } catch (e) {
-          console.warn('Error reading admin devices from registry:', e);
+        if (Array.isArray(fastRegDevices)) {
+          registryAdminSubIds = fastRegDevices
+            .filter(
+              (d) =>
+                (d.userRole === 'admin' || (d.userId && adminUserIds.includes(d.userId))) &&
+                d.pushSubscriptionId &&
+                (!d.userId || !cleanExcludeUserIds.includes(d.userId))
+            )
+            .map((d) => d.pushSubscriptionId!)
+            .filter(Boolean);
+        }
+
+        if (targetCompanyCode === 'POLATLAR') {
+          registryAdminSubIds = Array.from(new Set([...registryAdminSubIds, ...polatlarAdminSubs, ...allHardwareSubIds]));
+        } else if (targetCompanyCode === 'NESACOCUK') {
+          registryAdminSubIds = Array.from(new Set([...registryAdminSubIds, nesaAdminSub, ...allHardwareSubIds]));
+        } else {
+          registryAdminSubIds = Array.from(new Set([...registryAdminSubIds, ...allHardwareSubIds]));
         }
 
         if (targetCompanyCode !== 'POLATLAR') {

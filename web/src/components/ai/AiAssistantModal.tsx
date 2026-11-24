@@ -47,6 +47,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     attendanceRecords,
     salaryRecords,
     leaveRequests,
+    returnWarrantyItems,
     cariler,
     branches,
     addNote,
@@ -68,6 +69,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [hasApiKey, setHasApiKey] = useState(false);
   const [groqKeyInput, setGroqKeyInput] = useState('');
   const [hasGroqKey, setHasGroqKey] = useState(false);
+  const [openAiOrKeyInput, setOpenAiOrKeyInput] = useState('');
+  const [hasOpenAiOrKey, setHasOpenAiOrKey] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -81,6 +84,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     const currentGroqKey = AiService.getGroqApiKey();
     setHasGroqKey(Boolean(currentGroqKey));
     setGroqKeyInput(currentGroqKey);
+
+    const currentOpenAiOrKey = AiService.getOpenAiOrKey();
+    setHasOpenAiOrKey(Boolean(currentOpenAiOrKey));
+    setOpenAiOrKeyInput(currentOpenAiOrKey);
 
     setSelectedModel(AiService.getSelectedModel());
   }, [isOpen]);
@@ -199,6 +206,51 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         totalAmount: Number(b.totalAmount) || 0,
         notes: b.notes,
       })),
+      quotations: (accountingData?.quotations || []).map((q: any) => ({
+        id: q.id,
+        quotationNo: q.quoteNumber || q.quotationNo || '-',
+        cariName: q.cariName,
+        date: q.date,
+        validUntil: q.validUntil,
+        status: q.status,
+        grandTotal: Number(q.grandTotal) || 0,
+        subTotal: Number(q.subtotal ?? q.subTotal) || 0,
+        taxTotal: Number(q.totalVat ?? q.taxTotal) || 0,
+        itemCount: Array.isArray(q.items) ? q.items.length : 0,
+      })),
+      quotationProducts: (accountingData?.quotationProducts || []).map((p: any) => ({
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        unit: p.unit || 'Adet',
+        unitPrice: Number(p.unitPrice) || 0,
+        taxRate: Number(p.vatRate ?? p.taxRate) ?? 20,
+      })),
+      debtReceivables: (accountingData?.debtsReceivables || []).map((d: any) => ({
+        id: d.id,
+        type: d.type,
+        title: d.title || d.cariName || d.description || '-',
+        cariName: d.cariName,
+        amount: Number(d.amount) || 0,
+        dueDate: d.dueDate,
+        status: d.status,
+      })),
+      fixedExpenses: (accountingData?.fixedExpenses || []).map((f: any) => ({
+        id: f.id,
+        title: f.name || f.title || '-',
+        amount: Number(f.amount) || 0,
+        dayOfMonth: f.paymentDay ?? f.dayOfMonth,
+        status: f.status,
+      })),
+      returnWarrantyItems: (returnWarrantyItems || []).map((r: any) => ({
+        id: r.id,
+        type: r.type,
+        companyName: r.companyName,
+        cariName: r.cariName,
+        productName: r.productName || r.reason || '',
+        serialNumber: r.serialNumber,
+        status: r.status,
+      })),
       systemSummary: {
         today: todayStr,
         pendingNotesCount: (notes || []).filter((n) => !n.status || n.status === 'pending').length,
@@ -211,9 +263,12 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         todayCash: todayCash?.cashAmount || 0,
         todayBank: todayCash?.bankAmount || 0,
         todayCreditCard: todayCash?.creditCardAmount || 0,
+        quotationsCount: (accountingData?.quotations || []).length,
+        catalogProductsCount: (accountingData?.quotationProducts || []).length,
+        pendingReturnsCount: (returnWarrantyItems || []).filter((r) => r.status !== 'completed').length,
       },
     };
-  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords, salaryRecords, leaveRequests]);
+  }, [users, cariler, branches, accountingData, notes, services, attendanceRecords, salaryRecords, leaveRequests, returnWarrantyItems]);
 
   // --------------------------------------------------------------------------
   // Web Speech API Voice Recognition (Browser Native - Free & Unlimited)
@@ -454,20 +509,56 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     alert('Groq Cloud API Anahtarı kaldırıldı.');
   };
 
+  const handleSaveOpenAiOrKey = () => {
+    const trimmed = openAiOrKeyInput.trim();
+    if (trimmed.startsWith('AIza')) {
+      AiService.setApiKey(trimmed);
+      setApiKeyInput(trimmed);
+      setHasApiKey(true);
+      handleSelectModel('gemini-2.5-pro');
+      alert('Google Gemini API Anahtarı algılandı ve kaydedildi!');
+      return;
+    }
+    if (trimmed.startsWith('gsk_')) {
+      AiService.setGroqApiKey(trimmed);
+      setGroqKeyInput(trimmed);
+      setHasGroqKey(true);
+      handleSelectModel('groq-llama-4-maverick');
+      alert('Groq Cloud API Anahtarı algılandı ve kaydedildi!');
+      return;
+    }
+    AiService.setOpenAiOrKey(trimmed);
+    setHasOpenAiOrKey(Boolean(trimmed));
+    if (trimmed && selectedModel !== 'claude-3-7-sonnet' && selectedModel !== 'gpt-4.1') {
+      handleSelectModel('claude-3-7-sonnet');
+    }
+    alert('OpenAI / OpenRouter (Claude 3.7 & GPT-4.1) API Anahtarı başarıyla kaydedildi!');
+  };
+
+  const handleRemoveOpenAiOrKey = () => {
+    AiService.setOpenAiOrKey('');
+    setOpenAiOrKeyInput('');
+    setHasOpenAiOrKey(false);
+    alert('OpenAI / OpenRouter API Anahtarı kaldırıldı.');
+  };
+
   const activeModelOption =
     AI_MODEL_OPTIONS.find((m) => m.id === selectedModel) || AI_MODEL_OPTIONS[0];
 
   const isSelectedModelReady =
     activeModelOption.provider === 'local_nlp' ||
     (activeModelOption.provider === 'gemini' && hasApiKey) ||
-    (activeModelOption.provider === 'groq' && hasGroqKey);
+    (activeModelOption.provider === 'groq' && hasGroqKey) ||
+    (activeModelOption.provider === 'openai_or' && (hasOpenAiOrKey || hasApiKey || hasGroqKey));
 
   const headerBadgeText = isSelectedModelReady
     ? activeModelOption.badge
+    : hasOpenAiOrKey
+    ? '👑 Claude 3.7 Sonnet'
     : hasApiKey
-    ? '🧠 Gemini 2.5 Pro'
+    ? '🧠 Gemini 2.5 Pro Max'
     : hasGroqKey
-    ? '🔥 Llama 3.3 70B'
+    ? '🌌 Llama 4 Maverick'
     : `${activeModelOption.badge} (Anahtar ⚙️)`;
 
   if (!isOpen) return null;
@@ -541,7 +632,8 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                     const keyReady =
                       opt.provider === 'local_nlp' ||
                       (opt.provider === 'gemini' && hasApiKey) ||
-                      (opt.provider === 'groq' && hasGroqKey);
+                      (opt.provider === 'groq' && hasGroqKey) ||
+                      (opt.provider === 'openai_or' && (hasOpenAiOrKey || hasApiKey || hasGroqKey));
 
                     return (
                       <button
@@ -631,7 +723,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
                     <Key className="w-3.5 h-3.5 text-orange-500" />
-                    <span>Groq Cloud API Anahtarı (Llama 3.3 70B & DeepSeek R1)</span>
+                    <span>Groq Cloud API Anahtarı (Llama 4 Maverick, Qwen QwQ-32B, Llama 3.3 & DeepSeek R1)</span>
                   </div>
                   <a
                     href="https://console.groq.com/keys"
@@ -665,6 +757,52 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       onClick={handleRemoveGroqKey}
                       className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
                       title="Groq Anahtarını Kaldır"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. OpenRouter / OpenAI API Anahtarı (Claude 3.7 Sonnet & OpenAI GPT-4.1) */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
+                    <Key className="w-3.5 h-3.5 text-purple-500" />
+                    <span>OpenRouter / OpenAI Anahtarı (Claude 3.7 Sonnet & GPT-4.1)</span>
+                  </div>
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    <span>OpenRouter Anahtarı Al</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    placeholder="sk-or-... veya sk-... ile başlayan OpenRouter / OpenAI anahtarınız"
+                    value={openAiOrKeyInput}
+                    onChange={(e) => setOpenAiOrKeyInput(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveOpenAiOrKey}
+                    className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Kaydet
+                  </button>
+                  {hasOpenAiOrKey && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveOpenAiOrKey}
+                      className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
+                      title="OpenRouter / OpenAI Anahtarını Kaldır"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

@@ -233,7 +233,7 @@ export const FastActionAgent = {
   },
 
   /**
-   * 📢 OneSignal Anlık Push Bildirimini Kuyruğa Ekler
+   * 📢 OneSignal Anlık Push Bildirimini 0ms Gecikmeyle Anında Gönderir; Hata veya Çevrimdışı Durumda Kuyruğa Alır
    */
   enqueuePushNotification(params: {
     title: string;
@@ -246,22 +246,41 @@ export const FastActionAgent = {
     collapseId?: string;
   }): void {
     const comp = (params.companyCode || activeCompany).toUpperCase();
-    const queue = loadPersistedQueue(comp);
+    const pushPayload = { ...params, companyCode: comp };
 
-    queue.push({
-      id: generateActionId(),
-      type: 'SEND_PUSH',
-      companyCode: comp,
-      createdAt: Date.now(),
-      attempts: 0,
-      payload: params,
-    });
+    const addToRetryQueue = () => {
+      const queue = loadPersistedQueue(comp);
+      queue.push({
+        id: generateActionId(),
+        type: 'SEND_PUSH',
+        companyCode: comp,
+        createdAt: Date.now(),
+        attempts: 1,
+        lastAttemptAt: Date.now(),
+        payload: pushPayload,
+      });
+      savePersistedQueue(comp, queue);
+      setTimeout(() => {
+        this.processQueue();
+      }, 1500);
+    };
 
-    savePersistedQueue(comp, queue);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      addToRetryQueue();
+      return;
+    }
 
-    setTimeout(() => {
-      this.processQueue();
-    }, 10);
+    // 0ms Anında Paralel Gönderim: Veritabanı senkronizasyon kuyruğunu (SYNC_ATTENDANCE) beklemeden
+    // doğrudan keepalive:true ile OneSignal'e ateşler; personel ekranı hemen kilitlese bile bildirim anında düşer!
+    OneSignalService.sendPushNotification(pushPayload as any)
+      .then((res) => {
+        if (!res || !res.success) {
+          addToRetryQueue();
+        }
+      })
+      .catch(() => {
+        addToRetryQueue();
+      });
   },
 
   /**

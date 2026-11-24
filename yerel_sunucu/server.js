@@ -1141,6 +1141,78 @@ app.post('/api/send-notification', async (req, res) => {
       }
     }
 
+    if (payload.targetMode === 'admin' && !payload.include_player_ids && !payload.include_aliases) {
+      const targetCompany = String(payload.companyCode || 'POLATLAR').trim().toUpperCase();
+      const baseAdminClean = { ...payload };
+      delete baseAdminClean.filters;
+
+      const adminFilters = payload.filters || [
+        { field: 'tag', key: 'company_code', relation: '=', value: targetCompany },
+        { field: 'tag', key: 'role', relation: '=', value: 'admin' },
+      ];
+      const adminChannels = [{ ...baseAdminClean, filters: adminFilters }];
+
+      let knownAdminUsers = [];
+      let knownAdminPlayers = [];
+      if (targetCompany === 'POLATLAR') {
+        knownAdminUsers = ['admin-root', 'admin-1', 'mtjsnufrp8pfa'];
+        knownAdminPlayers = [
+          '934477f9-0222-4544-be6d-a0c7e08134e6',
+          'e217bcd6-63d5-4896-a677-99fd6e2ba5fe',
+          '49243a90-8287-4363-8e19-3408dded8e7d',
+          '89bcd97c-28f4-4b7e-a70f-fb3748004de8',
+          'c14ca5fa-c0b5-40a2-9300-9e36f5ae4d71',
+        ];
+      } else if (targetCompany === 'NESACOCUK') {
+        knownAdminUsers = ['mukze67k3ajwq'];
+        knownAdminPlayers = ['875842fa-942b-4d3a-be08-72be011c1372'];
+      }
+
+      if (knownAdminPlayers.length > 0) {
+        adminChannels.push({
+          ...baseAdminClean,
+          include_player_ids: knownAdminPlayers,
+        });
+      }
+      if (knownAdminUsers.length > 0) {
+        adminChannels.push({
+          ...baseAdminClean,
+          include_aliases: { external_id: knownAdminUsers },
+          target_channel: 'push',
+        });
+      }
+
+      const adminIdsCollected = [];
+      let lastAdminData = null;
+      await Promise.all(
+        adminChannels.map(async (ch) => {
+          try {
+            const r = await fetch('https://onesignal.com/api/v1/notifications', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                Authorization: `Basic ${apiKey}`,
+              },
+              body: JSON.stringify(ch),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (d && d.id) {
+              adminIdsCollected.push(d.id);
+              lastAdminData = d;
+            }
+          } catch {}
+        })
+      );
+
+      if (adminIdsCollected.length > 0) {
+        return res.json({
+          id: adminIdsCollected.join(','),
+          ids: adminIdsCollected,
+          recipients: lastAdminData?.recipients || 1,
+        });
+      }
+    }
+
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
       headers: {
