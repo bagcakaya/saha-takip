@@ -142,7 +142,19 @@ export const NotificationStatusCard: React.FC<NotificationStatusCardProps> = ({
         }
       }
 
-      // 2. Trigger instant local service worker notification for immediate foreground feedback
+      // 2. Trigger instant local notification + audio chime + in-app toast for immediate foreground feedback
+      try {
+        window.dispatchEvent(
+          new CustomEvent('saha:show-toast', {
+            detail: {
+              title: '🔔 İş Takip Test Bildirimi',
+              body: `${user.name}, canlı sesli ve görsel bildirim sisteminiz başarıyla aktif!`,
+            },
+          })
+        );
+      } catch {
+        // ignore
+      }
       if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
         try {
           const reg = await navigator.serviceWorker.ready;

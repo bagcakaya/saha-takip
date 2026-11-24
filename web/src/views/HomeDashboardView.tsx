@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Building2,
   ClipboardList,
@@ -89,12 +89,19 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const activeCompanyName = company?.name || (activeCompanyCode === 'POLATLAR' ? 'Polatlar' : activeCompanyCode);
   const isViewingOtherCompany = isSuperAdmin(user) && activeCompanyCode !== 'POLATLAR';
 
-  const [permission, setPermission] = useState<NotificationPermission>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission;
-    }
-    return 'default';
-  });
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    NotificationService.getEffectivePermission()
+  );
+
+  useEffect(() => {
+    const handleNotifEnabled = () => {
+      setPermission('granted');
+    };
+    window.addEventListener('saha:notifications-enabled', handleNotifEnabled);
+    return () => {
+      window.removeEventListener('saha:notifications-enabled', handleNotifEnabled);
+    };
+  }, []);
 
   const handleRequestNotifications = async () => {
     if (typeof window === 'undefined') return;
@@ -118,15 +125,19 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
 
     try {
       await NotificationService.requestPermission();
-      const granted = await OneSignalService.requestPermission();
-      if ('Notification' in window) {
-        setPermission(Notification.permission);
-      }
-      if (granted || Notification.permission === 'granted') {
-        alert('🔔 Bildirimler başarıyla açıldı! Artık telefonunuz kilitliyken de anlık iş emirleri ve güncellemeleri alacaksınız.');
-      }
+      setPermission('granted');
+      OneSignalService.requestPermission(
+        user ? { id: user.id, name: user.name, role: user.role } : undefined
+      ).catch(() => {});
+      NotificationService.sendNotification(
+        '🔔 Bildirimler Aktif Edildi',
+        'Canlı iş emri, servis ve personel mesai bildirimleri sesli ve görsel olarak aktif edildi.',
+        undefined,
+        { skipIfVisible: false, tag: `notif_enabled_${Date.now()}` }
+      ).catch(() => {});
     } catch (e) {
       console.error(e);
+      setPermission('granted');
     }
   };
 

@@ -4,26 +4,83 @@ let activeAlarmInterval: any = null;
 let activeAlarmTimeout: any = null;
 let activeAudioCtx: any = null;
 
+const LIVE_ALERTS_STORAGE_KEY = '@saha_takip_live_alerts_enabled';
+
 export const NotificationService = {
   /**
-   * Requests browser notification permission
+   * Returns true if browser notifications are granted OR live in-app audio/toast alerts were enabled by the user.
    */
-  async requestPermission(): Promise<boolean> {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      return false;
-    }
-    if (Notification.permission === 'granted') {
+  isLiveAlertsEnabled(): boolean {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       return true;
     }
-    if (Notification.permission !== 'denied') {
-      try {
-        const status = await Notification.requestPermission();
-        return status === 'granted';
-      } catch (e) {
-        console.warn('Notification permission request error:', e);
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem(LIVE_ALERTS_STORAGE_KEY) === 'true') {
+        return true;
       }
+    } catch {
+      // ignore
     }
     return false;
+  },
+
+  /**
+   * Returns effective permission state ('granted' once the user clicks "Bildirimleri Aç" on HTTP or HTTPS).
+   */
+  getEffectivePermission(): NotificationPermission {
+    if (this.isLiveAlertsEnabled()) {
+      return 'granted';
+    }
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  },
+
+  /**
+   * Requests browser notification permission and unlocks live audio/visual notifications (works on both HTTP and HTTPS).
+   */
+  async requestPermission(): Promise<boolean> {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    // 1. Persist live alerts opt-in & unlock Web Audio immediately on user gesture
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(LIVE_ALERTS_STORAGE_KEY, 'true');
+      }
+    } catch {
+      // ignore
+    }
+    this.playChime();
+
+    // Notify all listening UI banners immediately so they close at 0ms
+    try {
+      window.dispatchEvent(new CustomEvent('saha:notifications-enabled'));
+    } catch {
+      // ignore
+    }
+
+    // 2. Request native browser OS notification permission when available
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        return true;
+      }
+      if (Notification.permission !== 'denied') {
+        try {
+          const status = await Notification.requestPermission();
+          if (status === 'granted') {
+            return true;
+          }
+        } catch (e) {
+          console.warn('Notification permission request error:', e);
+        }
+      }
+    }
+
+    // Return true because live SQL heartbeat + Web Audio chime + in-app toast alerts are now enabled
+    return true;
   },
 
   /**
@@ -298,13 +355,6 @@ export const NotificationService = {
 
     this.playChime();
 
-    // If document is actively focused and visible, in-app toast handles the alert.
-    // Avoid spawning an OS desktop tray popup right over the active tab by default.
-    const shouldSkipIfVisible = options?.skipIfVisible !== false;
-    if (shouldSkipIfVisible && typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      return;
-    }
-
     let targetUrl = url;
     let targetTab: string | null = null;
     let targetFilter: string | null = null;
@@ -322,6 +372,30 @@ export const NotificationService = {
       targetUrl = targetFilter
         ? `/?tab=${targetTab}&filter=${targetFilter}`
         : `/?tab=${targetTab}`;
+    }
+
+    if (options?.skipIfVisible === false) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('saha:show-toast', {
+            detail: {
+              title,
+              body,
+              tab: targetTab || undefined,
+              filter: targetFilter || undefined,
+            },
+          })
+        );
+      } catch {
+        // ignore
+      }
+    }
+
+    // If document is actively focused and visible, in-app toast handles the alert.
+    // Avoid spawning an OS desktop tray popup right over the active tab by default.
+    const shouldSkipIfVisible = options?.skipIfVisible !== false;
+    if (shouldSkipIfVisible && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      return;
     }
 
     const payloadData = {

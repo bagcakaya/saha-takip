@@ -15,27 +15,36 @@ export const PwaInstallPrompt: React.FC = () => {
   const [isIos, setIsIos] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
 
-  const [notificationState, setNotificationState] = useState<NotificationPermission>('default');
+  const [notificationState, setNotificationState] = useState<NotificationPermission>(() =>
+    NotificationService.getEffectivePermission()
+  );
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Detect iOS Safari
+      // Detect iOS Safari & Desktop
       const userAgent = window.navigator.userAgent.toLowerCase();
       const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
+      const isMobileDevice = /iphone|ipad|ipod|android/.test(userAgent);
       setIsIos(isIosDevice);
 
-      if ('Notification' in window) {
-        setNotificationState(Notification.permission);
-      }
+      setNotificationState(NotificationService.getEffectivePermission());
 
-      // Check if already in standalone (installed / Home Screen) mode
+      // Check if already in standalone (installed / Home Screen) mode or Desktop PC
       const isStandalone =
+        !isMobileDevice ||
         window.matchMedia('(display-mode: standalone)').matches ||
         (window.navigator as unknown as { standalone?: boolean }).standalone === true;
 
       if (isStandalone) {
         setIsInstalled(true);
       }
+
+      const handleNotifEnabled = () => {
+        setNotificationState('granted');
+        setIsDismissed(true);
+      };
+
+      window.addEventListener('saha:notifications-enabled', handleNotifEnabled);
 
       // Android/Chrome beforeinstallprompt event
       const handleBeforeInstall = (e: Event) => {
@@ -51,6 +60,7 @@ export const PwaInstallPrompt: React.FC = () => {
       });
 
       return () => {
+        window.removeEventListener('saha:notifications-enabled', handleNotifEnabled);
         window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       };
     }
@@ -83,19 +93,16 @@ export const PwaInstallPrompt: React.FC = () => {
       return;
     }
 
-    const granted = await NotificationService.requestPermission();
-    await OneSignalService.requestPermission();
-    if (granted) {
-      setNotificationState('granted');
-      NotificationService.sendNotification(
-        '🔔 Bildirimler Aktif Edildi',
-        'Yöneticinizin size ileteceği tüm iş emirleri telefonunuza anında bildirim olarak düşecektir.'
-      );
-    } else {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        setNotificationState(Notification.permission);
-      }
-    }
+    await NotificationService.requestPermission();
+    setNotificationState('granted');
+    setIsDismissed(true);
+    OneSignalService.requestPermission().catch(() => {});
+    NotificationService.sendNotification(
+      '🔔 Bildirimler Aktif Edildi',
+      'Canlı iş emri, servis ve personel mesai bildirimleri sesli ve görsel olarak aktif edildi.',
+      undefined,
+      { skipIfVisible: false, tag: `notif_enabled_${Date.now()}` }
+    ).catch(() => {});
   };
 
   // If dismissed by user or already fully installed with notifications

@@ -849,13 +849,14 @@ export const PersonalNotesSection: React.FC = () => {
   const [quickReminderTime, setQuickReminderTime] = useState('');
   const [quickReminderRepeat, setQuickReminderRepeat] = useState<string>('none');
   const [hasPermission, setHasPermission] = useState<boolean>(() => {
-    return typeof Notification !== 'undefined' && Notification.permission === 'granted';
+    return NotificationService.isLiveAlertsEnabled();
   });
 
   useEffect(() => {
-    if (typeof Notification !== 'undefined') {
-      setHasPermission(Notification.permission === 'granted');
-    }
+    setHasPermission(NotificationService.isLiveAlertsEnabled());
+    const handleNotifEnabled = () => setHasPermission(true);
+    window.addEventListener('saha:notifications-enabled', handleNotifEnabled);
+    return () => window.removeEventListener('saha:notifications-enabled', handleNotifEnabled);
   }, []);
 
   const quickInputRef = useRef<HTMLInputElement | null>(null);
@@ -1053,8 +1054,15 @@ export const PersonalNotesSection: React.FC = () => {
           <button
             type="button"
             onClick={async () => {
-              const ok = await OneSignalService.requestPermission(user || undefined);
-              if (ok) setHasPermission(true);
+              await NotificationService.requestPermission();
+              setHasPermission(true);
+              OneSignalService.requestPermission(user || undefined).catch(() => {});
+              NotificationService.sendNotification(
+                '🔔 Bildirimler Aktif Edildi',
+                'Not ve hatırlatıcı alarmlarınız sesli ve görsel olarak aktif edildi.',
+                undefined,
+                { skipIfVisible: false, tag: `notif_enabled_${Date.now()}` }
+              ).catch(() => {});
             }}
             className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition text-center"
           >

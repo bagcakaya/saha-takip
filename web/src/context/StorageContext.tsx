@@ -1365,6 +1365,18 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  // Global custom event listener for direct in-app toast triggers
+  useEffect(() => {
+    const handleShowToast = (e: Event) => {
+      const detail = (e as CustomEvent<{ title: string; body: string; tab?: TabType; filter?: string }>).detail;
+      if (detail?.title) {
+        setActiveToast(detail);
+      }
+    };
+    window.addEventListener('saha:show-toast', handleShowToast);
+    return () => window.removeEventListener('saha:show-toast', handleShowToast);
+  }, []);
+
   // Check incoming direct notes & timed reminders per user device
   useEffect(() => {
     const compCode = (user?.companyCode || 'POLATLAR').trim().toUpperCase();

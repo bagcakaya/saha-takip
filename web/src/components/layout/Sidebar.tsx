@@ -35,6 +35,7 @@ import { WeatherService } from '../../services/weatherService';
 import { WeatherData, isUserAdmin, isSuperAdmin, canUserManageServerConfig, canUserManageInstitutionsAndBranches, isModulePermitted } from '../../types/auth';
 import { getRemainingDays } from '../../utils/dateUtils';
 import { NotificationStatusModal } from '../common/NotificationStatusModal';
+import { NotificationService } from '../../services/notificationService';
 import { CariListModal } from '../common/CariListModal';
 import { ServerSettingsModal } from '../auth/ServerSettingsModal';
 import { ServerConfigService } from '../../services/serverConfigService';
@@ -97,12 +98,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     };
   }, []);
 
-  const [permission] = useState<NotificationPermission>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission;
-    }
-    return 'default';
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    return NotificationService.getEffectivePermission();
   });
+
+  useEffect(() => {
+    const handleNotifEnabled = () => setPermission('granted');
+    window.addEventListener('saha:notifications-enabled', handleNotifEnabled);
+    return () => window.removeEventListener('saha:notifications-enabled', handleNotifEnabled);
+  }, []);
 
 
 

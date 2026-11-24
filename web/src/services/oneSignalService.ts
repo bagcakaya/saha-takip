@@ -63,11 +63,41 @@ export interface SubscriptionDetails {
 export const OneSignalService = {
   initialized: false,
 
+  isLocalHttpOrigin(): boolean {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1'
+    );
+  },
+
+  isLiveAlertsOptedIn(): boolean {
+    if (typeof window !== 'undefined' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      return true;
+    }
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('@saha_takip_live_alerts_enabled') === 'true') {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  },
+
   /**
    * Initializes OneSignal Web SDK with unified worker
    */
   init(): void {
     if (typeof window === 'undefined' || this.initialized) return;
+
+    // On plain HTTP IP origins (e.g. http://81.213.219.69:3001), OneSignal Web SDK v16 refuses to init.
+    // Skip loading the external SDK script on HTTP IPs and rely on the 5-second SQL Live Heartbeat + Web Audio/Notification engine.
+    if (this.isLocalHttpOrigin()) {
+      this.initialized = true;
+      return;
+    }
 
     // Only initialize if App ID is provided
     if (!ONESIGNAL_CONFIG.APP_ID || ONESIGNAL_CONFIG.APP_ID === 'YOUR_ONESIGNAL_APP_ID') {
@@ -309,6 +339,42 @@ export const OneSignalService = {
 
     detectEnvironment();
 
+    // Fast path for Local HTTP IP Origin (e.g., http://81.213.219.69:3001)
+    if (this.isLocalHttpOrigin()) {
+      let targetUser = user;
+      if (!targetUser) {
+        try {
+          const stored = localStorage.getItem('@gorev_tamamlama_auth_user');
+          if (stored) targetUser = JSON.parse(stored);
+        } catch {
+          // ignore
+        }
+      }
+      const deviceId = DeviceService.getCurrentDeviceId();
+      const sqlSubId =
+        localStorage.getItem('@saha_takip_last_sub_id') ||
+        `SQL-CANLI-${deviceId}`;
+      try {
+        localStorage.setItem('@saha_takip_live_alerts_enabled', 'true');
+        localStorage.setItem('@saha_takip_last_sub_id', sqlSubId);
+        localStorage.setItem('@saha_takip_last_healed', new Date().toISOString());
+        if (targetUser?.id) {
+          localStorage.setItem(`@saha_takip_sub_${targetUser.id}`, sqlSubId);
+        }
+        window.dispatchEvent(new CustomEvent('saha:notifications-enabled'));
+      } catch {
+        // ignore
+      }
+      if (targetUser?.id) {
+        DeviceService.syncCurrentDevice({
+          user: targetUser,
+          pushSubscriptionId: sqlSubId,
+          pushStatus: 'connected',
+        }).catch(() => {});
+      }
+      return this.getSubscriptionDetails();
+    }
+
     // 1. Service Worker Health Check & Update
     if ('serviceWorker' in navigator) {
       try {
@@ -451,21 +517,34 @@ export const OneSignalService = {
     const deviceId = DeviceService.getCurrentDeviceId();
     const deviceName = DeviceService.getCurrentDeviceName();
 
+    const liveOptIn = this.isLiveAlertsOptedIn();
+    const effectivePermission: NotificationPermission | 'unsupported' = liveOptIn
+      ? 'granted'
+      : typeof Notification !== 'undefined'
+      ? Notification.permission
+      : 'unsupported';
+
+    const storedSubId =
+      typeof localStorage !== 'undefined'
+        ? localStorage.getItem('@saha_takip_last_sub_id') ||
+          (this.isLocalHttpOrigin() && liveOptIn ? `SQL-CANLI-${deviceId}` : null)
+        : null;
+
     const fallback: SubscriptionDetails = {
-      isSupported: typeof Notification !== 'undefined' && 'serviceWorker' in navigator,
-      permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
-      isSubscribed: false,
-      subscriptionId: typeof localStorage !== 'undefined' ? localStorage.getItem('@saha_takip_last_sub_id') : null,
+      isSupported: true,
+      permission: effectivePermission,
+      isSubscribed: effectivePermission === 'granted' && !!storedSubId,
+      subscriptionId: storedSubId,
       userId: null,
       isStandalone: env.isStandalone,
       platform: env.platform,
-      serviceWorkerActive: swActive,
+      serviceWorkerActive: swActive || this.isLocalHttpOrigin(),
       lastHealedAt: lastHealed,
       deviceId,
       deviceName,
     };
 
-    if (typeof window === 'undefined') return fallback;
+    if (typeof window === 'undefined' || this.isLocalHttpOrigin()) return fallback;
 
     return new Promise((resolve) => {
       // Safety timeout: Never hang more than 2.5 seconds
@@ -536,6 +615,15 @@ export const OneSignalService = {
   async requestPermission(user?: { id: string; name: string; role: string }): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('@saha_takip_live_alerts_enabled', 'true');
+      }
+      window.dispatchEvent(new CustomEvent('saha:notifications-enabled'));
+    } catch {
+      // ignore
+    }
+
     // 1. Native browser permission check first (avoids SDK hanging on already-granted)
     let hasGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted';
 
@@ -546,6 +634,12 @@ export const OneSignalService = {
       } catch (err) {
         console.warn('Native requestPermission error:', err);
       }
+    }
+
+    // Fast path for Local HTTP IP Origin (e.g., http://81.213.219.69:3001)
+    if (this.isLocalHttpOrigin()) {
+      await this.selfHealSubscription(user).catch(() => {});
+      return true;
     }
 
     // 2. Firmly ensure SDK push opt-in and user credentials without hanging
