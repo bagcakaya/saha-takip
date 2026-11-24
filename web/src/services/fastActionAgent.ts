@@ -16,7 +16,7 @@ export interface QueuedAction {
 }
 
 const QUEUE_STORAGE_PREFIX = '@fast_action_queue_';
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 120;
 
 let activeCompany = 'POLATLAR';
 let isRunning = false;
@@ -377,7 +377,7 @@ export const FastActionAgent = {
 
           try {
             if (action.type === 'SYNC_ATTENDANCE') {
-              await StorageService.saveAttendanceRecords(action.payload.records);
+              await StorageService.saveAttendanceRecords(action.payload.records, { throwOnError: true });
             } else if (action.type === 'SEND_PUSH') {
               const pushRes = await OneSignalService.sendPushNotification(action.payload);
               if (!pushRes || !pushRes.success) {

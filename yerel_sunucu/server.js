@@ -259,6 +259,52 @@ app.get('/api/standard_tasks/:id', async (req, res) => {
   }
 });
 
+const serverAutoPushSentKeys = new Map();
+
+function scheduleGuaranteedAdminPush(eventKey, title, message, tab = 'staff_tracking', filter = '') {
+  if (!eventKey || serverAutoPushSentKeys.has(eventKey)) return;
+  serverAutoPushSentKeys.set(eventKey, Date.now());
+  if (serverAutoPushSentKeys.size > 500) {
+    const now = Date.now();
+    for (const [k, t] of serverAutoPushSentKeys.entries()) {
+      if (now - t > 24 * 60 * 60 * 1000) serverAutoPushSentKeys.delete(k);
+    }
+  }
+
+  // 1.5sn bekle: İstemci telefon 0ms bildirimini zaten ulaştırdıysa serverRecentNotifications mükerrer gönderimi engeller;
+  // ancak istemci telefon ekranı hemen kilitlendiği için bildirim yolda kesildiyse sunucu devreye girip yöneticiye kesin ulaştırır!
+  setTimeout(async () => {
+    try {
+      for (const existingKey of serverRecentNotifications.keys()) {
+        if (existingKey.includes(title) || existingKey.includes(eventKey)) {
+          return;
+        }
+      }
+      const targetUrl = filter
+        ? `https://saha-takip-beige.vercel.app/?tab=${tab}&filter=${filter}`
+        : `https://saha-takip-beige.vercel.app/?tab=${tab}`;
+      await fetch(`http://127.0.0.1:${PORT}/api/send-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          message,
+          targetMode: 'admin',
+          url: targetUrl,
+          collapse_id: eventKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60),
+          filters: [
+            { field: 'tag', key: 'role', relation: '=', value: 'admin' },
+            { operator: 'OR' },
+            { field: 'tag', key: 'role', relation: '=', value: 'super_admin' },
+          ],
+        }),
+      });
+    } catch (e) {
+      // ignore background fallback push error
+    }
+  }, 1500);
+}
+
 app.post('/api/standard_tasks/:id', async (req, res) => {
   try {
     if (!checkIpRateLimit(req, 'slot_write', 300)) {
@@ -301,9 +347,87 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
             const existingRecords = JSON.parse(existingRaw);
 
             if (Array.isArray(existingRecords) && existingRecords.length > 0) {
-              const incomingIds = new Set(incomingRecords.map((r) => r && r.id).filter(Boolean));
+              const existingMap = new Map();
+              existingRecords.forEach((er) => {
+                if (er && er.id) existingMap.set(er.id, er);
+              });
+
+              const todayIso = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+              // 1. Gelen kayıtları veritabanındaki mevcut kayıtlarla alan bazında birleştir (Eski önbellek yeni çıkışı/onayı ezemez!)
+              const upgradedIncoming = incomingRecords
+                .filter((r) => r && r.id && (!deletedRecordId || r.id !== deletedRecordId))
+                .map((inc) => {
+                  const ex = existingMap.get(inc.id);
+                  if (!ex) {
+                    // Bugün yeni giriş yapıldıysa sunucu garantili yönetici bildirimi planla
+                    if (inc.date === todayIso && inc.userRole !== 'admin') {
+                      const isPending = inc.status === 'pending_checkin_approval' || inc.checkInApprovalStatus === 'pending';
+                      scheduleGuaranteedAdminPush(
+                        `att_in_${inc.id}`,
+                        isPending ? '⚠️ Konum Dışı Giriş Onayı' : '🟢 Personel İşe Giriş Yaptı',
+                        `${inc.userName || 'Personel'}, ${inc.branchName || 'şube'} konumundan mesaiye giriş yaptı.`,
+                        'staff_tracking'
+                      );
+                    }
+                    return inc;
+                  }
+
+                  const mergedRec = { ...ex, ...inc };
+
+                  // Eğer sunucuda çıkış yapılmışsa (completed), başka bir cihazın eski önbelleği çıkışı silemez!
+                  if (ex.checkOutTime && !inc.checkOutTime) {
+                    mergedRec.checkOutTime = ex.checkOutTime;
+                    mergedRec.checkOutLat = ex.checkOutLat;
+                    mergedRec.checkOutLon = ex.checkOutLon;
+                    mergedRec.checkOutAddress = ex.checkOutAddress;
+                    mergedRec.checkOutDistance = ex.checkOutDistance;
+                    mergedRec.checkOutOutside = ex.checkOutOutside;
+                    mergedRec.checkOutApprovalStatus = ex.checkOutApprovalStatus;
+                    mergedRec.status = ex.status;
+                    mergedRec.workDurationMinutes = ex.workDurationMinutes;
+                    mergedRec.isOnBreak = false;
+                  } else if (!ex.checkOutTime && inc.checkOutTime && inc.date === todayIso && inc.userRole !== 'admin') {
+                    // Yeni çıkış yapıldıysa sunucu garantili yönetici bildirimi planla
+                    const isPendingOut = inc.status === 'pending_checkout_approval' || inc.checkOutApprovalStatus === 'pending';
+                    scheduleGuaranteedAdminPush(
+                      `att_out_${inc.id}`,
+                      isPendingOut ? '⚠️ Konum Dışı Çıkış Onayı' : '🔴 Personel İşten Çıkış Yaptı',
+                      `${inc.userName || 'Personel'} mesaisini tamamladı ve işten çıkış yaptı.`,
+                      'staff_tracking'
+                    );
+                  }
+
+                  // Eğer sunucuda yönetici onay/ret kararı varsa, eski 'pending' onu ezemez
+                  if (
+                    (ex.checkInApprovalStatus === 'approved' || ex.checkInApprovalStatus === 'rejected') &&
+                    inc.checkInApprovalStatus === 'pending'
+                  ) {
+                    mergedRec.checkInApprovalStatus = ex.checkInApprovalStatus;
+                    mergedRec.checkInApprovedBy = ex.checkInApprovedBy;
+                    mergedRec.checkInApprovedAt = ex.checkInApprovedAt;
+                    if (ex.status === 'checked_in' && inc.status === 'pending_checkin_approval') {
+                      mergedRec.status = 'checked_in';
+                    }
+                  }
+                  if (
+                    (ex.checkOutApprovalStatus === 'approved' || ex.checkOutApprovalStatus === 'rejected') &&
+                    inc.checkOutApprovalStatus === 'pending'
+                  ) {
+                    mergedRec.checkOutApprovalStatus = ex.checkOutApprovalStatus;
+                    mergedRec.checkOutApprovedBy = ex.checkOutApprovedBy;
+                    mergedRec.checkOutApprovedAt = ex.checkOutApprovedAt;
+                    if (ex.status === 'completed' && inc.status === 'pending_checkout_approval') {
+                      mergedRec.status = 'completed';
+                    }
+                  }
+
+                  return mergedRec;
+                });
+
+              const incomingIds = new Set(upgradedIncoming.map((r) => r.id));
               const incomingUserDates = new Set(
-                incomingRecords
+                upgradedIncoming
                   .filter((r) => r && r.userId && r.date)
                   .map((r) => `${r.userId}_${r.date}`)
               );
@@ -323,22 +447,17 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
                 return true;
               });
 
-              if (preservedFromExisting.length > 0 || deletedRecordId) {
-                const mergedRecords = [
-                  ...incomingRecords.filter((r) => !deletedRecordId || r?.id !== deletedRecordId),
-                  ...preservedFromExisting,
-                ].sort((a, b) => {
-                  if (a.date !== b.date) return String(b.date || '').localeCompare(String(a.date || ''));
-                  return (Number(b.checkInTime) || 0) - (Number(a.checkInTime) || 0);
-                });
+              const mergedRecords = [...upgradedIncoming, ...preservedFromExisting].sort((a, b) => {
+                if (a.date !== b.date) return String(b.date || '').localeCompare(String(a.date || ''));
+                return (Number(b.checkInTime) || 0) - (Number(a.checkInTime) || 0);
+              });
 
-                const mergedJson = JSON.stringify(mergedRecords);
-                const rechunked = [];
-                for (let i = 0; i < mergedJson.length; i += 8000) {
-                  rechunked.push(mergedJson.slice(i, i + 8000));
-                }
-                finalTasksArray = rechunked;
+              const mergedJson = JSON.stringify(mergedRecords);
+              const rechunked = [];
+              for (let i = 0; i < mergedJson.length; i += 8000) {
+                rechunked.push(mergedJson.slice(i, i + 8000));
               }
+              finalTasksArray = rechunked;
             }
           }
         }
@@ -770,6 +889,33 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               INSERT (id, username, password, name, role, created_at, updated_at)
               VALUES (@id, @username, @password, @name, @role, @created_at, SYSUTCDATETIME());
           `);
+      }
+
+      if (
+        safeRows.length === 1 &&
+        row.status === 'pending_approval' &&
+        (tableName === 'notes' || tableName === 'locations' || tableName === 'services')
+      ) {
+        const staffName = row.completed_by_name || row.created_by_name || 'Personel';
+        const label =
+          tableName === 'notes'
+            ? row.cari_name || String(row.content || '').slice(0, 45)
+            : tableName === 'locations'
+            ? row.name || row.cari_name || 'Kurulum'
+            : row.company_name || row.cari_name || 'Servis';
+        const tab =
+          tableName === 'notes' ? 'notes' : tableName === 'locations' ? 'installations' : 'services';
+        scheduleGuaranteedAdminPush(
+          `appr_${tableName}_${row.id}_${row.completed_at || ''}`,
+          tableName === 'notes'
+            ? '⏳ İş Emri Onay Bekliyor'
+            : tableName === 'locations'
+            ? '⏳ Kurulum Onay Bekliyor'
+            : '⏳ Servis Onay Bekliyor',
+          `${staffName}, "${label}" kaydını tamamladı ve onayınıza gönderdi.`,
+          tab,
+          'pending_approval'
+        );
       }
     }
 

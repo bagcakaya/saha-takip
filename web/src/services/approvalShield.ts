@@ -1,4 +1,11 @@
-import { AttendanceRecord, LeaveRequest } from '../types/storage';
+import {
+  AttendanceRecord,
+  LeaveRequest,
+  GeneralNote,
+  LocationItem,
+  ServiceItem,
+  ReturnWarrantyItem,
+} from '../types/storage';
 
 export interface ShieldedAttendanceApproval {
   recordId: string;
@@ -26,16 +33,56 @@ export interface ShieldedLeaveApproval {
   reviewedBy?: string;
   reviewedAt?: number;
   reviewNote?: string;
+  fullRequest?: LeaveRequest;
+  resolvedAt: number;
+}
+
+export interface ShieldedEntityMutation<T> {
+  id: string;
+  item: T;
+  isDeleted?: boolean;
   resolvedAt: number;
 }
 
 const ATTENDANCE_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_att';
 const LEAVE_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_leave';
-const SHIELD_TTL_MS = 5 * 60 * 1000; // 5 dakika boyunca onay/ret kesin korumalıdır
+const NOTE_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_note';
+const LOCATION_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_loc';
+const SERVICE_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_srv';
+const RETURN_SHIELD_STORAGE_KEY = '@saha_takip_approval_shield_ret';
+const SHIELD_TTL_MS = 5 * 60 * 1000; // 5 dakika boyunca tüm kayıt, onay, ret ve durum değişiklikleri kesin korumalıdır
+
+function statusRank(status?: string): number {
+  switch (status) {
+    case 'processed':
+      return 4;
+    case 'approved':
+    case 'rejected':
+    case 'delivered':
+    case 'cancelled':
+    case 'completed':
+      return 3;
+    case 'pending_approval':
+    case 'pending_checkout_approval':
+    case 'received':
+      return 2;
+    case 'checked_in':
+    case 'pending_checkin_approval':
+    case 'sent':
+    case 'pending':
+    default:
+      return 1;
+  }
+}
 
 class ApprovalShieldService {
   private attMap = new Map<string, ShieldedAttendanceApproval>();
+  private attFullMap = new Map<string, AttendanceRecord>();
   private leaveMap = new Map<string, ShieldedLeaveApproval>();
+  private noteMap = new Map<string, ShieldedEntityMutation<GeneralNote>>();
+  private locMap = new Map<string, ShieldedEntityMutation<LocationItem>>();
+  private srvMap = new Map<string, ShieldedEntityMutation<ServiceItem>>();
+  private retMap = new Map<string, ShieldedEntityMutation<ReturnWarrantyItem>>();
 
   constructor() {
     this.loadFromStorage();
@@ -68,6 +115,27 @@ class ApprovalShieldService {
           });
         }
       }
+
+      const loadEntityMap = <T extends { id: string }>(
+        storageKey: string,
+        targetMap: Map<string, ShieldedEntityMutation<T>>
+      ) => {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((entry: ShieldedEntityMutation<T>) => {
+            if (entry && entry.id && now - entry.resolvedAt < SHIELD_TTL_MS) {
+              targetMap.set(entry.id, entry);
+            }
+          });
+        }
+      };
+
+      loadEntityMap(NOTE_SHIELD_STORAGE_KEY, this.noteMap);
+      loadEntityMap(LOCATION_SHIELD_STORAGE_KEY, this.locMap);
+      loadEntityMap(SERVICE_SHIELD_STORAGE_KEY, this.srvMap);
+      loadEntityMap(RETURN_SHIELD_STORAGE_KEY, this.retMap);
     } catch {
       // ignore
     }
@@ -78,6 +146,22 @@ class ApprovalShieldService {
     try {
       localStorage.setItem(ATTENDANCE_SHIELD_STORAGE_KEY, JSON.stringify(Array.from(this.attMap.values())));
       localStorage.setItem(LEAVE_SHIELD_STORAGE_KEY, JSON.stringify(Array.from(this.leaveMap.values())));
+
+      const stripPhotos = <T extends Record<string, any>>(entries: ShieldedEntityMutation<T>[]) =>
+        entries.map((e) => {
+          if (!e.item) return e;
+          const copy: Record<string, any> = { ...e.item };
+          delete copy.photos;
+          delete copy.completionPhotos;
+          delete copy.serialNumberPhoto;
+          delete copy.trackingCodePhoto;
+          return { ...e, item: copy };
+        });
+
+      localStorage.setItem(NOTE_SHIELD_STORAGE_KEY, JSON.stringify(stripPhotos(Array.from(this.noteMap.values()))));
+      localStorage.setItem(LOCATION_SHIELD_STORAGE_KEY, JSON.stringify(stripPhotos(Array.from(this.locMap.values()))));
+      localStorage.setItem(SERVICE_SHIELD_STORAGE_KEY, JSON.stringify(stripPhotos(Array.from(this.srvMap.values()))));
+      localStorage.setItem(RETURN_SHIELD_STORAGE_KEY, JSON.stringify(stripPhotos(Array.from(this.retMap.values()))));
     } catch {
       // ignore
     }
@@ -87,6 +171,7 @@ class ApprovalShieldService {
 
   recordAttendance(record: AttendanceRecord): void {
     if (!record || !record.id) return;
+    this.attFullMap.set(record.id, { ...record });
     const prev = this.attMap.get(record.id);
     const item: ShieldedAttendanceApproval = {
       recordId: record.id,
@@ -182,10 +267,11 @@ class ApprovalShieldService {
   }
 
   applyToAttendance(records: AttendanceRecord[]): AttendanceRecord[] {
-    if (!records || records.length === 0) return records;
+    const safeRecords = Array.isArray(records) ? records : [];
     const now = Date.now();
+    const seenIds = new Set<string>();
 
-    return records
+    const mapped = safeRecords
       .filter((rec) => {
         if (!rec || !rec.id) return false;
         const shielded = this.attMap.get(rec.id);
@@ -199,6 +285,7 @@ class ApprovalShieldService {
       })
       .map((rec) => {
         if (!rec || !rec.id) return rec;
+        seenIds.add(rec.id);
         const shielded = this.attMap.get(rec.id);
         if (!shielded) return rec;
 
@@ -277,6 +364,22 @@ class ApprovalShieldService {
 
         return result;
       });
+
+    for (const [id, shielded] of this.attMap.entries()) {
+      if (!seenIds.has(id) && !shielded.isDeleted && now - shielded.resolvedAt <= SHIELD_TTL_MS) {
+        const fullRec = this.attFullMap.get(id);
+        if (fullRec) {
+          mapped.unshift({
+            ...fullRec,
+            status: shielded.status ?? fullRec.status,
+            checkOutTime: shielded.checkOutTime ?? fullRec.checkOutTime,
+            workDurationMinutes: shielded.workDurationMinutes ?? fullRec.workDurationMinutes,
+          });
+        }
+      }
+    }
+
+    return mapped;
   }
 
   // Alias for backward compatibility
@@ -294,6 +397,7 @@ class ApprovalShieldService {
       reviewedBy: request.reviewedBy,
       reviewedAt: request.reviewedAt,
       reviewNote: request.reviewNote,
+      fullRequest: { ...request },
       resolvedAt: Date.now(),
     };
     this.leaveMap.set(request.id, item);
@@ -313,11 +417,13 @@ class ApprovalShieldService {
   }
 
   applyToLeaveRequests(requests: LeaveRequest[]): LeaveRequest[] {
-    if (!requests || requests.length === 0) return requests;
+    const safeList = Array.isArray(requests) ? requests : [];
     const now = Date.now();
+    const seenIds = new Set<string>();
 
-    return requests.map((req) => {
+    const updated = safeList.map((req) => {
       if (!req || !req.id) return req;
+      seenIds.add(req.id);
       const shielded = this.leaveMap.get(req.id);
       if (!shielded) return req;
 
@@ -334,6 +440,140 @@ class ApprovalShieldService {
         reviewNote: shielded.reviewNote ?? req.reviewNote,
       };
     });
+
+    for (const [id, shielded] of this.leaveMap.entries()) {
+      if (!seenIds.has(id) && shielded.fullRequest && now - shielded.resolvedAt <= SHIELD_TTL_MS) {
+        updated.unshift(shielded.fullRequest);
+      }
+    }
+
+    return updated;
+  }
+
+  // =================== İŞ EMRİ (NOTE), KURULUM (LOCATION), SERVİS & İADE ZIRHI ===================
+
+  private applyGenericEntityShield<T extends { id: string; status?: string; photos?: string[]; completionPhotos?: string[] }>(
+    list: T[],
+    map: Map<string, ShieldedEntityMutation<T>>
+  ): T[] {
+    const safeList = Array.isArray(list) ? list : [];
+    const now = Date.now();
+    const seenIds = new Set<string>();
+
+    const filteredAndMapped = safeList
+      .filter((item) => {
+        if (!item || !item.id) return false;
+        const shielded = map.get(item.id);
+        if (shielded && shielded.isDeleted) {
+          if (now - shielded.resolvedAt <= SHIELD_TTL_MS) return false;
+          map.delete(item.id);
+        }
+        return true;
+      })
+      .map((item) => {
+        seenIds.add(item.id);
+        const shielded = map.get(item.id);
+        if (!shielded || !shielded.item) return item;
+        if (now - shielded.resolvedAt > SHIELD_TTL_MS) {
+          map.delete(item.id);
+          return item;
+        }
+        const sItem = shielded.item;
+        // Eğer sunucudan gelen durum daha ileri bir aşamadaysa (örn: personel pending_approval iken yönetici approved yaptıysa) sunucuyu koru
+        if (item.status && sItem.status && statusRank(item.status) > statusRank(sItem.status)) {
+          return item;
+        }
+        return {
+          ...item,
+          ...sItem,
+          photos:
+            Array.isArray(sItem.photos) && sItem.photos.length > 0
+              ? sItem.photos
+              : item.photos || [],
+          completionPhotos:
+            Array.isArray(sItem.completionPhotos) && sItem.completionPhotos.length > 0
+              ? sItem.completionPhotos
+              : item.completionPhotos || [],
+        };
+      });
+
+    // Henüz sunucu yanıtına yansımamış yeni kayıtları listenin başına ekle
+    for (const [id, shielded] of map.entries()) {
+      if (
+        !seenIds.has(id) &&
+        !shielded.isDeleted &&
+        shielded.item &&
+        now - shielded.resolvedAt <= SHIELD_TTL_MS
+      ) {
+        filteredAndMapped.unshift(shielded.item);
+      }
+    }
+
+    return filteredAndMapped;
+  }
+
+  recordNote(note: GeneralNote): void {
+    if (!note || !note.id) return;
+    this.noteMap.set(note.id, { id: note.id, item: { ...note }, isDeleted: false, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  recordNoteDeleted(id: string): void {
+    if (!id) return;
+    this.noteMap.set(id, { id, item: { id } as GeneralNote, isDeleted: true, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  applyToNotes(notes: GeneralNote[]): GeneralNote[] {
+    return this.applyGenericEntityShield(notes, this.noteMap);
+  }
+
+  recordLocation(loc: LocationItem): void {
+    if (!loc || !loc.id) return;
+    this.locMap.set(loc.id, { id: loc.id, item: { ...loc }, isDeleted: false, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  recordLocationDeleted(id: string): void {
+    if (!id) return;
+    this.locMap.set(id, { id, item: { id } as LocationItem, isDeleted: true, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  applyToLocations(locs: LocationItem[]): LocationItem[] {
+    return this.applyGenericEntityShield(locs, this.locMap);
+  }
+
+  recordService(srv: ServiceItem): void {
+    if (!srv || !srv.id) return;
+    this.srvMap.set(srv.id, { id: srv.id, item: { ...srv }, isDeleted: false, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  recordServiceDeleted(id: string): void {
+    if (!id) return;
+    this.srvMap.set(id, { id, item: { id } as ServiceItem, isDeleted: true, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  applyToServices(srvs: ServiceItem[]): ServiceItem[] {
+    return this.applyGenericEntityShield(srvs, this.srvMap);
+  }
+
+  recordReturnWarranty(ret: ReturnWarrantyItem): void {
+    if (!ret || !ret.id) return;
+    this.retMap.set(ret.id, { id: ret.id, item: { ...ret }, isDeleted: false, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  recordReturnWarrantyDeleted(id: string): void {
+    if (!id) return;
+    this.retMap.set(id, { id, item: { id } as ReturnWarrantyItem, isDeleted: true, resolvedAt: Date.now() });
+    this.persistToStorage();
+  }
+
+  applyToReturnWarranty(items: ReturnWarrantyItem[]): ReturnWarrantyItem[] {
+    return this.applyGenericEntityShield(items as any, this.retMap as any) as ReturnWarrantyItem[];
   }
 }
 

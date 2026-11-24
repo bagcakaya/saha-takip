@@ -283,7 +283,135 @@ async function saveItem<T>(key: string, value: T): Promise<void> {
   }
 }
 
+const GUARANTEED_SQL_WRITES_IDB_KEY = '@saha_guaranteed_sql_writes_v1';
+
+interface GuaranteedSqlWriteEntry {
+  key: string;
+  endpoint: string;
+  body: any;
+  updatedAt: number;
+}
+
+const pendingSqlWritesMap = new Map<string, GuaranteedSqlWriteEntry>();
+let pendingSqlWritesLoaded = false;
+let isFlushingSqlWrites = false;
+let sqlWriteRetryTimer: any = null;
+
+function buildSqlWriteDedupKey(endpoint: string, body: any): string {
+  if (endpoint.startsWith('/api/standard_tasks/')) {
+    return endpoint;
+  }
+  if (Array.isArray(body?.rows) && body.rows.length === 1 && body.rows[0]?.id) {
+    return `${endpoint}:${body.rows[0].id}`;
+  }
+  if (Array.isArray(body?.ids) && body.ids.length > 0) {
+    return `${endpoint}:${body.ids.join(',')}`;
+  }
+  return endpoint;
+}
+
+async function ensurePendingSqlWritesLoaded(): Promise<void> {
+  if (pendingSqlWritesLoaded) return;
+  pendingSqlWritesLoaded = true;
+  try {
+    const saved = await idbGet<GuaranteedSqlWriteEntry[]>(GUARANTEED_SQL_WRITES_IDB_KEY);
+    if (Array.isArray(saved)) {
+      const now = Date.now();
+      for (const entry of saved) {
+        if (entry && entry.key && entry.endpoint && now - entry.updatedAt < 48 * 60 * 60 * 1000) {
+          if (!pendingSqlWritesMap.has(entry.key)) {
+            pendingSqlWritesMap.set(entry.key, entry);
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function persistPendingSqlWrites(): void {
+  try {
+    idbSet(GUARANTEED_SQL_WRITES_IDB_KEY, Array.from(pendingSqlWritesMap.values())).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+function scheduleSqlWriteFlush(): void {
+  if (sqlWriteRetryTimer || pendingSqlWritesMap.size === 0) return;
+  sqlWriteRetryTimer = setTimeout(() => {
+    sqlWriteRetryTimer = null;
+    void flushPendingSqlWrites();
+  }, 4000);
+}
+
+async function flushPendingSqlWrites(): Promise<void> {
+  await ensurePendingSqlWritesLoaded();
+  if (isFlushingSqlWrites || pendingSqlWritesMap.size === 0) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  const apiUrl = ServerConfigService.getDualWriteApiUrl();
+  if (!apiUrl) return;
+
+  isFlushingSqlWrites = true;
+  try {
+    const entries = Array.from(pendingSqlWritesMap.values()).sort((a, b) => a.updatedAt - b.updatedAt);
+    for (const entry of entries) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        const resolvedUrl = getResolvedApiUrl(apiUrl, entry.endpoint);
+        const bodyJson = JSON.stringify(entry.body);
+        const res = await fetch(resolvedUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Saha-Client-Token': 'saha-web-client-v2',
+          },
+          body: bodyJson,
+          keepalive: bodyJson.length < 58000,
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const current = pendingSqlWritesMap.get(entry.key);
+          if (current && current.updatedAt <= entry.updatedAt) {
+            pendingSqlWritesMap.delete(entry.key);
+          }
+        }
+      } catch {
+        // leave in queue for next cycle
+      }
+    }
+    persistPendingSqlWrites();
+  } finally {
+    isFlushingSqlWrites = false;
+    if (pendingSqlWritesMap.size > 0) {
+      scheduleSqlWriteFlush();
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    void flushPendingSqlWrites();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void flushPendingSqlWrites();
+    }
+  });
+  setTimeout(() => {
+    void flushPendingSqlWrites();
+  }, 1500);
+}
+
 async function localApiGet<T>(endpoint: string): Promise<T | null> {
+  if (pendingSqlWritesMap.size > 0) {
+    await flushPendingSqlWrites().catch(() => {});
+  }
   const apiUrl = ServerConfigService.getActiveApiUrl() || ServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return null;
   try {
@@ -321,6 +449,10 @@ let localDualWriteOfflineUntil = 0;
 // Supabase erişilemez olduğunda (DNS / ağ kesintisi) isteklerin 5-6sn bekleyip takılmasını önleyen devre kesici (10 dk)
 let supabaseOfflineUntil = 0;
 
+function shouldUseSupabaseCloud(): boolean {
+  return !ServerConfigService.isLocalMode() && Date.now() >= supabaseOfflineUntil;
+}
+
 // Slot 3 ve Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
 let slot3WriteChain: Promise<void> = Promise.resolve();
 function enqueueSlot3Write(task: () => Promise<void>): Promise<void> {
@@ -344,11 +476,15 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
 
   const apiUrl = ServerConfigService.getDualWriteApiUrl();
   if (!apiUrl) return false;
+
+  const dedupKey = buildSqlWriteDedupKey(endpoint, body);
+
   try {
     const controller = new AbortController();
     const timeoutMs = isLocal ? 15000 : 12000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const resolvedUrl = getResolvedApiUrl(apiUrl, endpoint);
+    const bodyJson = JSON.stringify(body);
     const res = await fetch(resolvedUrl, {
       method: 'POST',
       headers: {
@@ -356,7 +492,8 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
         Accept: 'application/json',
         'X-Saha-Client-Token': 'saha-web-client-v2',
       },
-      body: JSON.stringify(body),
+      body: bodyJson,
+      keepalive: bodyJson.length < 58000,
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -364,13 +501,29 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
       localDualWriteOfflineUntil = Date.now() + 3 * 60 * 1000;
     } else if (res.ok) {
       localDualWriteOfflineUntil = 0;
+      if (pendingSqlWritesMap.has(dedupKey)) {
+        pendingSqlWritesMap.delete(dedupKey);
+        persistPendingSqlWrites();
+      }
+      return true;
     }
-    return res.ok;
   } catch (err) {
     if (!isLocal) {
       localDualWriteOfflineUntil = Date.now() + 3 * 60 * 1000;
     }
     console.warn(`[Yerel Sunucu Dual-Write] POST ${endpoint} atlandı/hata:`, err);
+  }
+
+  // Yazma başarısız olduysa (veya çevrimdışı / Wi-Fi geçiş anıysa) Garantili Yazma Kuyruğuna al
+  if (isLocal) {
+    pendingSqlWritesMap.set(dedupKey, {
+      key: dedupKey,
+      endpoint,
+      body,
+      updatedAt: Date.now(),
+    });
+    persistPendingSqlWrites();
+    scheduleSqlWriteFlush();
   }
   return false;
 }
@@ -1046,78 +1199,89 @@ export const StorageService = {
             };
           });
 
-          await saveItem(localKey, cloudLocations);
-          return cloudLocations;
+          const shielded = ApprovalShield.applyToLocations(cloudLocations);
+          await saveItem(localKey, shielded);
+          return shielded;
         }
 
         if (fallbackLocations.length > 0) {
-          await saveItem(localKey, fallbackLocations);
-          return fallbackLocations;
+          const shielded = ApprovalShield.applyToLocations(fallbackLocations);
+          await saveItem(localKey, shielded);
+          return shielded;
         }
 
-        return (await loadItem<LocationItem[]>(localKey)) || [];
+        return ApprovalShield.applyToLocations((await loadItem<LocationItem[]>(localKey)) || []);
       }
 
       // 2. Primary POLATLAR table in Supabase
-      try {
-        const { data, error } = await supabase
-          .from('locations')
-          .select('*')
-          .order('created_at', { ascending: false });
+      if (shouldUseSupabaseCloud()) {
+        try {
+          const { data, error } = await supabase
+            .from('locations')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          const cloudLocations: LocationItem[] = data.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            return {
-              id: row.id,
-              name: row.name,
-              cariName: (row as any).cari_name || fb?.cariName || undefined,
-              address: row.address || '',
-              notes: row.notes || '',
-              photos: Array.isArray(row.photos) && row.photos.length > 0 ? row.photos : fb?.photos || [],
-              latitude: row.latitude || undefined,
-              longitude: row.longitude || undefined,
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              tasks: Array.isArray(row.tasks) ? row.tasks : [],
-              status: (row as any).status || fb?.status || 'pending',
-              completedAt: (row as any).completed_at || fb?.completedAt,
-              completedBy: (row as any).completed_by || fb?.completedBy,
-              completedByName: (row as any).completed_by_name || fb?.completedByName,
-              completionNote: (row as any).completion_note || fb?.completionNote,
-              completionPhotos: Array.isArray((row as any).completion_photos)
-                ? (row as any).completion_photos
-                : fb?.completionPhotos || [],
-              approvedAt: (row as any).approved_at || fb?.approvedAt,
-              approvedBy: (row as any).approved_by || fb?.approvedBy,
-              approvedByName: (row as any).approved_by_name || fb?.approvedByName,
-              rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
-              rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
-              rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
-              rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
-            };
-          });
+          if (!error && data) {
+            const cloudLocations: LocationItem[] = data.map((row) => {
+              const fb = fallbackMap.get(row.id);
+              return {
+                id: row.id,
+                name: row.name,
+                cariName: (row as any).cari_name || fb?.cariName || undefined,
+                address: row.address || '',
+                notes: row.notes || '',
+                photos: Array.isArray(row.photos) && row.photos.length > 0 ? row.photos : fb?.photos || [],
+                latitude: row.latitude || undefined,
+                longitude: row.longitude || undefined,
+                createdAt: Number(row.created_at) || Date.now(),
+                createdBy: row.created_by || undefined,
+                createdByName: row.created_by_name || undefined,
+                tasks: Array.isArray(row.tasks) ? row.tasks : [],
+                status: (row as any).status || fb?.status || 'pending',
+                completedAt: (row as any).completed_at || fb?.completedAt,
+                completedBy: (row as any).completed_by || fb?.completedBy,
+                completedByName: (row as any).completed_by_name || fb?.completedByName,
+                completionNote: (row as any).completion_note || fb?.completionNote,
+                completionPhotos: Array.isArray((row as any).completion_photos)
+                  ? (row as any).completion_photos
+                  : fb?.completionPhotos || [],
+                approvedAt: (row as any).approved_at || fb?.approvedAt,
+                approvedBy: (row as any).approved_by || fb?.approvedBy,
+                approvedByName: (row as any).approved_by_name || fb?.approvedByName,
+                rejectedAt: (row as any).rejected_at || fb?.rejectedAt,
+                rejectedBy: (row as any).rejected_by || fb?.rejectedBy,
+                rejectedByName: (row as any).rejected_by_name || fb?.rejectedByName,
+                rejectionReason: (row as any).rejection_reason || fb?.rejectionReason,
+              };
+            });
 
-          await saveItem(localKey, cloudLocations);
-          return cloudLocations;
+            const shielded = ApprovalShield.applyToLocations(cloudLocations);
+            await saveItem(localKey, shielded);
+            return shielded;
+          }
+          if (error) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          }
+        } catch (e) {
+          supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          console.warn('Supabase locations fetch error:', e);
         }
-      } catch (e) {
-        console.warn('Supabase locations fetch error:', e);
       }
       if (fallbackLocations.length > 0) {
-        await saveItem(localKey, fallbackLocations);
-        return fallbackLocations;
+        const shielded = ApprovalShield.applyToLocations(fallbackLocations);
+        await saveItem(localKey, shielded);
+        return shielded;
       }
-      return (await loadItem<LocationItem[]>(localKey)) || [];
+      return ApprovalShield.applyToLocations((await loadItem<LocationItem[]>(localKey)) || []);
     }
 
     // Isolated chunked slot 11 for other companies
     const slotId = this.getSlotId(11);
     const { data: cloudData, notFound } = await loadChunkedSlot<LocationItem[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const shielded = ApprovalShield.applyToLocations(cloudData);
+      await saveItem(localKey, shielded);
+      return shielded;
     }
 
     if (notFound) {
@@ -1126,7 +1290,7 @@ export const StorageService = {
     }
 
     const localData = await loadItem<LocationItem[]>(localKey);
-    return Array.isArray(localData) ? localData : [];
+    return ApprovalShield.applyToLocations(Array.isArray(localData) ? localData : []);
   },
 
   /**
@@ -1134,12 +1298,14 @@ export const StorageService = {
    */
   async saveLocations(locations: LocationItem[]): Promise<void> {
     const localKey = this.getStorageKey(LOCATIONS_KEY);
+    locations.slice(0, 10).forEach((l) => ApprovalShield.recordLocation(l));
     await saveItem(localKey, locations);
 
     if (activeCompanyCode === 'POLATLAR') {
       const fullRows = locations.map((loc) => ({
         id: loc.id,
         name: loc.name,
+        cari_name: loc.cariName || null,
         address: loc.address || '',
         notes: loc.notes || '',
         photos: loc.photos || [],
@@ -1175,52 +1341,45 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut
-        writeOps.push(
-          (async () => {
-            try {
-              let useBasic = !supabaseExtendedCols.locations;
-              if (!useBasic) {
-                const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
-                if (upsertErr) {
-                  if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
-                    supabaseExtendedCols.locations = false;
+        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
+        if (shouldUseSupabaseCloud()) {
+          writeOps.push(
+            (async () => {
+              try {
+                let useBasic = !supabaseExtendedCols.locations;
+                if (!useBasic) {
+                  const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
+                  if (upsertErr) {
+                    if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                      supabaseExtendedCols.locations = false;
+                    }
+                    useBasic = true;
                   }
-                  useBasic = true;
                 }
-              }
-              if (useBasic) {
-                const basicRows = locations.map((loc) => ({
-                  id: loc.id,
-                  name: loc.name,
-                  address: loc.address || '',
-                  notes: loc.notes || '',
-                  photos: loc.photos || [],
-                  latitude: loc.latitude || null,
-                  longitude: loc.longitude || null,
-                  created_at: loc.createdAt,
-                  created_by: loc.createdBy || null,
-                  created_by_name: loc.createdByName || null,
-                  tasks: loc.tasks || [],
-                }));
-                await supabase.from('locations').upsert(basicRows);
-              }
-              const currentIds = locations.map((l) => l.id);
-              const { data: cloudData } = await supabase.from('locations').select('id');
-              if (cloudData) {
-                const idsToDelete = cloudData
-                  .map((c) => c.id)
-                  .filter((id) => !currentIds.includes(id));
-                if (idsToDelete.length > 0) {
-                  await supabase.from('locations').delete().in('id', idsToDelete);
+                if (useBasic) {
+                  const basicRows = locations.map((loc) => ({
+                    id: loc.id,
+                    name: loc.name,
+                    address: loc.address || '',
+                    notes: loc.notes || '',
+                    photos: loc.photos || [],
+                    latitude: loc.latitude || null,
+                    longitude: loc.longitude || null,
+                    created_at: loc.createdAt,
+                    created_by: loc.createdBy || null,
+                    created_by_name: loc.createdByName || null,
+                    tasks: loc.tasks || [],
+                  }));
+                  await supabase.from('locations').upsert(basicRows);
                 }
+              } catch (err) {
+                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+                console.warn('[Dual-Write Supabase] save locations error:', err);
               }
-            } catch (err) {
-              console.warn('[Dual-Write Supabase] save locations error:', err);
-            }
-          })()
-        );
-      } else {
+            })()
+          );
+        }
+      } else if (shouldUseSupabaseCloud()) {
         writeOps.push(Promise.resolve(supabase.from('locations').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(11, locations));
@@ -1235,6 +1394,7 @@ export const StorageService = {
    * Deletes a location by id across local cache, SQL Server, and cloud
    */
   async deleteLocation(id: string): Promise<void> {
+    ApprovalShield.recordLocationDeleted(id);
     const localKey = this.getStorageKey(LOCATIONS_KEY);
     const current = (await loadItem<LocationItem[]>(localKey)) || [];
     const updated = current.filter((l) => l.id !== id);
@@ -1247,15 +1407,17 @@ export const StorageService = {
           console.warn('[Dual-Write Yerel] deleteLocation hata:', err)
         )
       );
-      deleteOps.push(
-        Promise.resolve(
-          supabase
-            .from('locations')
-            .delete()
-            .eq('id', id)
-            .then(undefined, (e) => console.warn('deleteLocation Supabase error:', e))
-        )
-      );
+      if (shouldUseSupabaseCloud()) {
+        deleteOps.push(
+          Promise.resolve(
+            supabase
+              .from('locations')
+              .delete()
+              .eq('id', id)
+              .then(undefined, (e) => console.warn('deleteLocation Supabase error:', e))
+          )
+        );
+      }
       deleteOps.push(saveChunkedSlot(11, updated));
       await Promise.allSettled(deleteOps);
     } else {
@@ -1600,7 +1762,10 @@ export const StorageService = {
           const missingFromTable = fallbackNotes
             .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
             .map(mergeFallbackWithLocal);
-          const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
+          const finalNotes = ApprovalShield.applyToNotes([
+            ...mergedNotes.filter((n) => !deletedIds.has(n.id)),
+            ...missingFromTable,
+          ]);
 
           await saveItem(localKey, finalNotes);
           this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
@@ -1608,63 +1773,74 @@ export const StorageService = {
         }
 
         if (fallbackNotes.length > 0) {
-          const filtered = fallbackNotes
-            .filter((fb) => !deletedIds.has(fb.id))
-            .map(mergeFallbackWithLocal);
+          const filtered = ApprovalShield.applyToNotes(
+            fallbackNotes
+              .filter((fb) => !deletedIds.has(fb.id))
+              .map(mergeFallbackWithLocal)
+          );
           await saveItem(localKey, filtered);
           this.scheduleNotesCloudSelfHeal(filtered, fallbackMap, localCachedMap, cloudSlotReached);
           return filtered;
         }
 
-        return localCached.filter((n) => !deletedIds.has(n.id));
+        return ApprovalShield.applyToNotes(localCached.filter((n) => !deletedIds.has(n.id)));
       }
 
       // 3. Try fetching from Supabase native notes table
-      try {
-        const { data, error } = await supabase
-          .from('notes')
-          .select('*')
-          .order('created_at', { ascending: false });
+      if (shouldUseSupabaseCloud()) {
+        try {
+          const { data, error } = await supabase
+            .from('notes')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          // If any deleted rows are returned from Supabase, purge them in background
-          const zombieRows = data.filter((r) => deletedIds.has(r.id));
-          if (zombieRows.length > 0) {
-            const zombieIds = zombieRows.map((r) => r.id);
-            supabase.from('notes').delete().in('id', zombieIds).then(undefined, console.warn);
+          if (!error && data) {
+            // If any deleted rows are returned from Supabase, purge them in background
+            const zombieRows = data.filter((r) => deletedIds.has(r.id));
+            if (zombieRows.length > 0) {
+              const zombieIds = zombieRows.map((r) => r.id);
+              supabase.from('notes').delete().in('id', zombieIds).then(undefined, console.warn);
+            }
+
+            const validRows = data.filter((r) => !deletedIds.has(r.id));
+            const mergedNotes: GeneralNote[] = validRows.map((row) =>
+              this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
+            );
+
+            const dataIds = new Set(validRows.map((r) => r.id));
+            const missingFromTable = fallbackNotes
+              .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
+              .map(mergeFallbackWithLocal);
+            const finalNotes = ApprovalShield.applyToNotes([
+              ...mergedNotes.filter((n) => !deletedIds.has(n.id)),
+              ...missingFromTable,
+            ]);
+
+            await saveItem(localKey, finalNotes);
+            this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
+            return finalNotes;
           }
-
-          const validRows = data.filter((r) => !deletedIds.has(r.id));
-          const mergedNotes: GeneralNote[] = validRows.map((row) =>
-            this.mergeNoteRowWithFallback(row, fallbackMap.get(row.id), localCachedMap.get(row.id))
-          );
-
-          // Prevent dropping notes that exist in fallback (Slot 4) but not yet in notes table,
-          // ensuring we NEVER restore deleted ones!
-          const dataIds = new Set(validRows.map((r) => r.id));
-          const missingFromTable = fallbackNotes
-            .filter((fb) => !dataIds.has(fb.id) && !deletedIds.has(fb.id))
-            .map(mergeFallbackWithLocal);
-          const finalNotes = [...mergedNotes.filter((n) => !deletedIds.has(n.id)), ...missingFromTable];
-
-          await saveItem(localKey, finalNotes);
-          this.scheduleNotesCloudSelfHeal(finalNotes, fallbackMap, localCachedMap, cloudSlotReached);
-          return finalNotes;
+          if (error) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          }
+        } catch (e) {
+          supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          console.warn('Supabase notes fetch error:', e);
         }
-      } catch (e) {
-        console.warn('Supabase notes fetch error:', e);
       }
 
       if (fallbackNotes.length > 0) {
-        const filtered = fallbackNotes
-          .filter((fb) => !deletedIds.has(fb.id))
-          .map(mergeFallbackWithLocal);
+        const filtered = ApprovalShield.applyToNotes(
+          fallbackNotes
+            .filter((fb) => !deletedIds.has(fb.id))
+            .map(mergeFallbackWithLocal)
+        );
         await saveItem(localKey, filtered);
         this.scheduleNotesCloudSelfHeal(filtered, fallbackMap, localCachedMap, cloudSlotReached);
         return filtered;
       }
 
-      return localCached.filter((n) => !deletedIds.has(n.id));
+      return ApprovalShield.applyToNotes(localCached.filter((n) => !deletedIds.has(n.id)));
     }
 
     // Isolated chunked slot 4 for other companies
@@ -1674,7 +1850,9 @@ export const StorageService = {
       const rawCompanyNotes = cloudData.filter((n) => !deletedIds.has(n.id));
       const hydratedCompanyNotes = await hydrateNotesWithMediaShards(rawCompanyNotes, mediaCacheKey);
       const companyFallbackMap = new Map(hydratedCompanyNotes.map((n) => [n.id, n]));
-      const mergedCompanyNotes = hydratedCompanyNotes.map(mergeFallbackWithLocal);
+      const mergedCompanyNotes = ApprovalShield.applyToNotes(
+        hydratedCompanyNotes.map(mergeFallbackWithLocal)
+      );
       await saveItem(localKey, mergedCompanyNotes);
       this.scheduleNotesCloudSelfHeal(mergedCompanyNotes, companyFallbackMap, localCachedMap, true);
       return mergedCompanyNotes;
@@ -1693,7 +1871,7 @@ export const StorageService = {
       if (sanitized.length !== localData.length) {
         await saveItem(localKey, sanitized);
       }
-      return sanitized;
+      return ApprovalShield.applyToNotes(sanitized);
     }
 
     await saveItem(localKey, []);
@@ -1754,6 +1932,7 @@ export const StorageService = {
   async saveNotes(notes: GeneralNote[]): Promise<void> {
     const deletedIds = await this.getDeletedNoteIds();
     const cleanNotes = notes.filter((n) => !deletedIds.has(n.id));
+    cleanNotes.slice(0, 10).forEach((n) => ApprovalShield.recordNote(n));
     const localKey = this.getStorageKey(NOTES_KEY);
     const mediaCacheKey = this.getStorageKey(NOTE_MEDIA_CACHE_KEY);
     await saveItem(localKey, cleanNotes);
@@ -1812,57 +1991,47 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut
-        writeOps.push(
-          (async () => {
-            try {
-              const basicRows = cleanNotes.map((n) => ({
-                id: n.id,
-                content: n.content,
-                created_at: n.createdAt,
-                created_by: n.createdBy || null,
-                created_by_name: n.createdByName || null,
-                target_mode: n.targetMode || 'self',
-                target_user_ids: n.targetUserIds || [],
-                target_user_names: n.targetUserNames || [],
-                target_user_id: n.targetUserId || null,
-                target_user_name: n.targetUserName || null,
-                reminder_active: Boolean(n.reminderActive),
-                reminder_date: n.reminderDate || null,
-                notified: Boolean(n.notified),
-                status: n.status || 'pending',
-                completed_at: n.completedAt || null,
-                completed_by: n.completedBy || null,
-                completed_by_name: n.completedByName || null,
-                completion_note: n.completionNote || null,
-                approved_at: n.approvedAt || null,
-                approved_by: n.approvedBy || null,
-                approved_by_name: n.approvedByName || null,
-                rejected_at: n.rejectedAt || null,
-                rejected_by: n.rejectedBy || null,
-                rejected_by_name: n.rejectedByName || null,
-                rejection_reason: n.rejectionReason || null,
-              }));
-              await supabase.from('notes').upsert(basicRows);
-
-              const currentIds = cleanNotes.map((n) => n.id);
-              if (currentIds.length > 0) {
-                const { data: cloudData } = await supabase.from('notes').select('id');
-                if (cloudData) {
-                  const idsToDelete = cloudData
-                    .map((c) => c.id)
-                    .filter((id) => !currentIds.includes(id) || deletedIds.has(id));
-                  if (idsToDelete.length > 0) {
-                    await supabase.from('notes').delete().in('id', idsToDelete);
-                  }
-                }
+        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
+        if (shouldUseSupabaseCloud()) {
+          writeOps.push(
+            (async () => {
+              try {
+                const basicRows = cleanNotes.map((n) => ({
+                  id: n.id,
+                  content: n.content,
+                  created_at: n.createdAt,
+                  created_by: n.createdBy || null,
+                  created_by_name: n.createdByName || null,
+                  target_mode: n.targetMode || 'self',
+                  target_user_ids: n.targetUserIds || [],
+                  target_user_names: n.targetUserNames || [],
+                  target_user_id: n.targetUserId || null,
+                  target_user_name: n.targetUserName || null,
+                  reminder_active: Boolean(n.reminderActive),
+                  reminder_date: n.reminderDate || null,
+                  notified: Boolean(n.notified),
+                  status: n.status || 'pending',
+                  completed_at: n.completedAt || null,
+                  completed_by: n.completedBy || null,
+                  completed_by_name: n.completedByName || null,
+                  completion_note: n.completionNote || null,
+                  approved_at: n.approvedAt || null,
+                  approved_by: n.approvedBy || null,
+                  approved_by_name: n.approvedByName || null,
+                  rejected_at: n.rejectedAt || null,
+                  rejected_by: n.rejectedBy || null,
+                  rejected_by_name: n.rejectedByName || null,
+                  rejection_reason: n.rejectionReason || null,
+                }));
+                await supabase.from('notes').upsert(basicRows);
+              } catch (err) {
+                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+                console.warn('[Dual-Write Supabase] save notes error:', err);
               }
-            } catch (err) {
-              console.warn('[Dual-Write Supabase] save notes error:', err);
-            }
-          })()
-        );
-      } else {
+            })()
+          );
+        }
+      } else if (shouldUseSupabaseCloud()) {
         writeOps.push(Promise.resolve(supabase.from('notes').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(4, slot4List));
@@ -1876,6 +2045,7 @@ export const StorageService = {
    * Permanently deletes a note across local cache, database, and cloud slots
    */
   async deleteNote(id: string): Promise<void> {
+    ApprovalShield.recordNoteDeleted(id);
     await this.markNoteAsDeleted(id);
 
     // 1. Immediately update local storage & media cache
@@ -1901,15 +2071,17 @@ export const StorageService = {
           console.warn('[Dual-Write Yerel] deleteNote hata:', err)
         )
       );
-      deleteOps.push(
-        Promise.resolve(
-          supabase
-            .from('notes')
-            .delete()
-            .eq('id', id)
-            .then(undefined, (e) => console.warn('deleteNote Supabase error:', e))
-        )
-      );
+      if (shouldUseSupabaseCloud()) {
+        deleteOps.push(
+          Promise.resolve(
+            supabase
+              .from('notes')
+              .delete()
+              .eq('id', id)
+              .then(undefined, (e) => console.warn('deleteNote Supabase error:', e))
+          )
+        );
+      }
       deleteOps.push(
         enqueueSlot4Write(async () => {
           const { data: slot4Data } = await loadChunkedSlot<GeneralNote[]>(4);
@@ -2005,9 +2177,10 @@ export const StorageService = {
       } else {
         localUpdated = [noteForLocal, ...existing];
       }
+      ApprovalShield.recordNote(noteForLocal);
       await saveItem(localKey, localUpdated);
 
-      // 1. Önce atomik satır tablosuna (Supabase notes + Yerel MSSQL) yaz
+      // 1. Önce atomik satır tablosuna (Yerel MSSQL + aktifse Supabase notes) yaz
       if (activeCompanyCode === 'POLATLAR') {
         const row = this.mapNoteToRow(noteForLocal);
         const localSqlRow = {
@@ -2017,53 +2190,56 @@ export const StorageService = {
           read_by: noteForLocal.readBy || [],
         };
 
-        localApiPost('/api/tables/notes/upsert', { rows: [localSqlRow] }).catch((err) =>
+        await localApiPost('/api/tables/notes/upsert', { rows: [localSqlRow] }).catch((err) =>
           console.warn('[Dual-Write Yerel] saveSingleNote hata:', err)
         );
 
-        try {
-          let useBasic = !supabaseExtendedCols.notes;
-          if (!useBasic) {
-            const { error: singleErr } = await supabase.from('notes').upsert([row]);
-            if (singleErr) {
-              if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
-                supabaseExtendedCols.notes = false;
+        if (shouldUseSupabaseCloud()) {
+          try {
+            let useBasic = !supabaseExtendedCols.notes;
+            if (!useBasic) {
+              const { error: singleErr } = await supabase.from('notes').upsert([row]);
+              if (singleErr) {
+                if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
+                  supabaseExtendedCols.notes = false;
+                }
+                useBasic = true;
               }
-              useBasic = true;
             }
+            if (useBasic) {
+              const basicRow: any = {
+                id: noteForLocal.id,
+                content: noteForLocal.content,
+                created_at: noteForLocal.createdAt,
+                created_by: noteForLocal.createdBy || null,
+                created_by_name: noteForLocal.createdByName || null,
+                target_mode: noteForLocal.targetMode || 'self',
+                target_user_ids: noteForLocal.targetUserIds || [],
+                target_user_names: noteForLocal.targetUserNames || [],
+                target_user_id: noteForLocal.targetUserId || null,
+                target_user_name: noteForLocal.targetUserName || null,
+                reminder_active: Boolean(noteForLocal.reminderActive),
+                reminder_date: noteForLocal.reminderDate || null,
+                notified: Boolean(noteForLocal.notified),
+                status: noteForLocal.status || 'pending',
+                completed_at: noteForLocal.completedAt || null,
+                completed_by: noteForLocal.completedBy || null,
+                completed_by_name: noteForLocal.completedByName || null,
+                completion_note: noteForLocal.completionNote || null,
+                approved_at: noteForLocal.approvedAt || null,
+                approved_by: noteForLocal.approvedBy || null,
+                approved_by_name: noteForLocal.approvedByName || null,
+                rejected_at: noteForLocal.rejectedAt || null,
+                rejected_by: noteForLocal.rejectedBy || null,
+                rejected_by_name: noteForLocal.rejectedByName || null,
+                rejection_reason: noteForLocal.rejectionReason || null,
+              };
+              await supabase.from('notes').upsert([basicRow]);
+            }
+          } catch (err) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+            console.warn('saveSingleNote Supabase error:', err);
           }
-          if (useBasic) {
-            const basicRow: any = {
-              id: noteForLocal.id,
-              content: noteForLocal.content,
-              created_at: noteForLocal.createdAt,
-              created_by: noteForLocal.createdBy || null,
-              created_by_name: noteForLocal.createdByName || null,
-              target_mode: noteForLocal.targetMode || 'self',
-              target_user_ids: noteForLocal.targetUserIds || [],
-              target_user_names: noteForLocal.targetUserNames || [],
-              target_user_id: noteForLocal.targetUserId || null,
-              target_user_name: noteForLocal.targetUserName || null,
-              reminder_active: Boolean(noteForLocal.reminderActive),
-              reminder_date: noteForLocal.reminderDate || null,
-              notified: Boolean(noteForLocal.notified),
-              status: noteForLocal.status || 'pending',
-              completed_at: noteForLocal.completedAt || null,
-              completed_by: noteForLocal.completedBy || null,
-              completed_by_name: noteForLocal.completedByName || null,
-              completion_note: noteForLocal.completionNote || null,
-              approved_at: noteForLocal.approvedAt || null,
-              approved_by: noteForLocal.approvedBy || null,
-              approved_by_name: noteForLocal.approvedByName || null,
-              rejected_at: noteForLocal.rejectedAt || null,
-              rejected_by: noteForLocal.rejectedBy || null,
-              rejected_by_name: noteForLocal.rejectedByName || null,
-              rejection_reason: noteForLocal.rejectionReason || null,
-            };
-            await supabase.from('notes').upsert([basicRow]);
-          }
-        } catch (err) {
-          console.warn('saveSingleNote Supabase error:', err);
         }
       }
 
@@ -2441,82 +2617,90 @@ export const StorageService = {
 
           const cloudIds = new Set(cloudItems.map((c) => c.id));
           const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
-          const mergedItems = [...cloudItems, ...missingFallback];
+          const mergedItems = ApprovalShield.applyToReturnWarranty([...cloudItems, ...missingFallback]);
 
           await saveItem(localKey, mergedItems);
           return mergedItems;
         }
 
         if (fallbackItems.length > 0) {
-          await saveItem(localKey, fallbackItems);
-          return fallbackItems;
+          const shielded = ApprovalShield.applyToReturnWarranty(fallbackItems);
+          await saveItem(localKey, shielded);
+          return shielded;
         }
-        return (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
+        return ApprovalShield.applyToReturnWarranty((await loadItem<ReturnWarrantyItem[]>(localKey)) || []);
       }
 
       // 2. Primary POLATLAR table in Supabase
-      try {
-        const { data, error } = await supabase
-          .from('return_warranty')
-          .select('*')
-          .order('created_at', { ascending: false });
+      if (shouldUseSupabaseCloud()) {
+        try {
+          const { data, error } = await supabase
+            .from('return_warranty')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
-          const cloudItems: ReturnWarrantyItem[] = data.map((row) => {
-            const fb = fallbackMap.get(row.id);
-            return {
-              id: row.id,
-              type: row.type as any,
-              companyName: row.company_name,
-              cariName: fb?.cariName || (row as any).cari_name || undefined,
-              sentDate: row.sent_date,
-              serialNumber: row.serial_number || undefined,
-              trackingCode: row.tracking_code || undefined,
-              serialNumberPhoto: row.serial_number_photo || fb?.serialNumberPhoto || undefined,
-              trackingCodePhoto: row.tracking_code_photo || fb?.trackingCodePhoto || undefined,
-              notes: row.notes || undefined,
-              status: row.status as any,
-              reminderDate: row.reminder_date || undefined,
-              reminderActive: Boolean(row.reminder_active),
-              notified: Boolean(row.notified),
-              createdAt: Number(row.created_at) || Date.now(),
-              createdBy: row.created_by || undefined,
-              createdByName: row.created_by_name || undefined,
-              followUpNote: (row as any).follow_up_note || fb?.followUpNote || undefined,
-              followUpDate: (row as any).follow_up_date || fb?.followUpDate || undefined,
-              followUpByName: (row as any).follow_up_by_name || fb?.followUpByName || undefined,
-            };
-          });
+          if (!error && data) {
+            const fallbackMap = new Map(fallbackItems.map((i) => [i.id, i]));
+            const cloudItems: ReturnWarrantyItem[] = data.map((row) => {
+              const fb = fallbackMap.get(row.id);
+              return {
+                id: row.id,
+                type: row.type as any,
+                companyName: row.company_name,
+                cariName: fb?.cariName || (row as any).cari_name || undefined,
+                sentDate: row.sent_date,
+                serialNumber: row.serial_number || undefined,
+                trackingCode: row.tracking_code || undefined,
+                serialNumberPhoto: row.serial_number_photo || fb?.serialNumberPhoto || undefined,
+                trackingCodePhoto: row.tracking_code_photo || fb?.trackingCodePhoto || undefined,
+                notes: row.notes || undefined,
+                status: row.status as any,
+                reminderDate: row.reminder_date || undefined,
+                reminderActive: Boolean(row.reminder_active),
+                notified: Boolean(row.notified),
+                createdAt: Number(row.created_at) || Date.now(),
+                createdBy: row.created_by || undefined,
+                createdByName: row.created_by_name || undefined,
+                followUpNote: (row as any).follow_up_note || fb?.followUpNote || undefined,
+                followUpDate: (row as any).follow_up_date || fb?.followUpDate || undefined,
+                followUpByName: (row as any).follow_up_by_name || fb?.followUpByName || undefined,
+              };
+            });
 
-          // Merge any fallback items from slot 2 that aren't in return_warranty table yet
-          const cloudIds = new Set(cloudItems.map((c) => c.id));
-          const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
-          const mergedItems = [...cloudItems, ...missingFallback];
+            // Merge any fallback items from slot 2 that aren't in return_warranty table yet
+            const cloudIds = new Set(cloudItems.map((c) => c.id));
+            const missingFallback = fallbackItems.filter((f) => !cloudIds.has(f.id));
+            const mergedItems = ApprovalShield.applyToReturnWarranty([...cloudItems, ...missingFallback]);
 
-          if (mergedItems.length > 0) {
-            await saveItem(localKey, mergedItems);
-            return mergedItems;
+            if (mergedItems.length > 0) {
+              await saveItem(localKey, mergedItems);
+              return mergedItems;
+            }
           }
+          if (error) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          }
+        } catch {
+          supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
         }
-      } catch {
-        // ignore
       }
 
       if (fallbackItems.length > 0) {
-        await saveItem(localKey, fallbackItems);
-        return fallbackItems;
+        const shielded = ApprovalShield.applyToReturnWarranty(fallbackItems);
+        await saveItem(localKey, shielded);
+        return shielded;
       }
 
-      return (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
+      return ApprovalShield.applyToReturnWarranty((await loadItem<ReturnWarrantyItem[]>(localKey)) || []);
     }
 
     // Isolated slot 2 for other companies
     const slotId = this.getSlotId(2);
     const { data: cloudData, notFound } = await loadChunkedSlot<ReturnWarrantyItem[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const shielded = ApprovalShield.applyToReturnWarranty(cloudData);
+      await saveItem(localKey, shielded);
+      return shielded;
     }
 
     if (notFound) {
@@ -2525,7 +2709,7 @@ export const StorageService = {
     }
 
     const localData = await loadItem<ReturnWarrantyItem[]>(localKey);
-    return Array.isArray(localData) ? localData : [];
+    return ApprovalShield.applyToReturnWarranty(Array.isArray(localData) ? localData : []);
   },
 
   /**
@@ -2533,6 +2717,7 @@ export const StorageService = {
    */
   async saveReturnWarrantyItems(items: ReturnWarrantyItem[]): Promise<void> {
     const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
+    items.slice(0, 10).forEach((i) => ApprovalShield.recordReturnWarranty(i));
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
@@ -2563,7 +2748,6 @@ export const StorageService = {
       const writeOps: Promise<any>[] = [];
 
       if (fullRows.length > 0) {
-        // 1. Yerel Sunucu
         // 1. Yerel Sunucu (Dual-Write)
         writeOps.push(
           localApiPost('/api/tables/return_warranty/upsert', { rows: fullRows }).catch((err) =>
@@ -2571,58 +2755,50 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut
-        writeOps.push(
-          (async () => {
-            try {
-              let useBasic = !supabaseExtendedCols.return_warranty;
-              if (!useBasic) {
-                const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
-                if (upsertErr) {
-                  if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
-                    supabaseExtendedCols.return_warranty = false;
+        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
+        if (shouldUseSupabaseCloud()) {
+          writeOps.push(
+            (async () => {
+              try {
+                let useBasic = !supabaseExtendedCols.return_warranty;
+                if (!useBasic) {
+                  const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
+                  if (upsertErr) {
+                    if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                      supabaseExtendedCols.return_warranty = false;
+                    }
+                    useBasic = true;
                   }
-                  useBasic = true;
                 }
-              }
-              if (useBasic) {
-                const basicRows = items.map((item) => ({
-                  id: item.id,
-                  type: item.type,
-                  company_name: item.companyName,
-                  sent_date: item.sentDate,
-                  serial_number: item.serialNumber || null,
-                  tracking_code: item.trackingCode || null,
-                  serial_number_photo: item.serialNumberPhoto || null,
-                  tracking_code_photo: item.trackingCodePhoto || null,
-                  notes: item.notes || null,
-                  status: item.status,
-                  reminder_date: item.reminderDate || null,
-                  reminder_active: item.reminderActive,
-                  notified: item.notified || false,
-                  created_at: item.createdAt,
-                  created_by: item.createdBy || null,
-                  created_by_name: item.createdByName || null,
-                }));
-                await supabase.from('return_warranty').upsert(basicRows);
-              }
-
-              const currentIds = items.map((i) => i.id);
-              const { data: cloudData } = await supabase.from('return_warranty').select('id');
-              if (cloudData) {
-                const idsToDelete = cloudData
-                  .map((c) => c.id)
-                  .filter((id) => !currentIds.includes(id));
-                if (idsToDelete.length > 0) {
-                  await supabase.from('return_warranty').delete().in('id', idsToDelete);
+                if (useBasic) {
+                  const basicRows = items.map((item) => ({
+                    id: item.id,
+                    type: item.type,
+                    company_name: item.companyName,
+                    sent_date: item.sentDate,
+                    serial_number: item.serialNumber || null,
+                    tracking_code: item.trackingCode || null,
+                    serial_number_photo: item.serialNumberPhoto || null,
+                    tracking_code_photo: item.trackingCodePhoto || null,
+                    notes: item.notes || null,
+                    status: item.status,
+                    reminder_date: item.reminderDate || null,
+                    reminder_active: item.reminderActive,
+                    notified: item.notified || false,
+                    created_at: item.createdAt,
+                    created_by: item.createdBy || null,
+                    created_by_name: item.createdByName || null,
+                  }));
+                  await supabase.from('return_warranty').upsert(basicRows);
                 }
+              } catch (err) {
+                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+                console.warn('[Dual-Write Supabase] return_warranty error:', err);
               }
-            } catch (err) {
-              console.warn('[Dual-Write Supabase] return_warranty error:', err);
-            }
-          })()
-        );
-      } else {
+            })()
+          );
+        }
+      } else if (shouldUseSupabaseCloud()) {
         writeOps.push(Promise.resolve(supabase.from('return_warranty').delete().neq('id', '___')));
       }
       writeOps.push(saveChunkedSlot(2, items));
@@ -2636,6 +2812,7 @@ export const StorageService = {
    * Deletes a return warranty item across local cache and server
    */
   async deleteReturnWarrantyItem(id: string): Promise<void> {
+    ApprovalShield.recordReturnWarrantyDeleted(id);
     const localKey = this.getStorageKey(RETURN_WARRANTY_KEY);
     const current = (await loadItem<ReturnWarrantyItem[]>(localKey)) || [];
     const updated = current.filter((r) => r.id !== id);
@@ -2648,15 +2825,17 @@ export const StorageService = {
           console.warn('[Dual-Write Yerel] deleteReturnWarrantyItem hata:', err)
         )
       );
-      deleteOps.push(
-        Promise.resolve(
-          supabase
-            .from('return_warranty')
-            .delete()
-            .eq('id', id)
-            .then(undefined, (e) => console.warn('deleteReturnWarrantyItem Supabase error:', e))
-        )
-      );
+      if (shouldUseSupabaseCloud()) {
+        deleteOps.push(
+          Promise.resolve(
+            supabase
+              .from('return_warranty')
+              .delete()
+              .eq('id', id)
+              .then(undefined, (e) => console.warn('deleteReturnWarrantyItem Supabase error:', e))
+          )
+        );
+      }
       deleteOps.push(saveChunkedSlot(2, updated));
       await Promise.allSettled(deleteOps);
       return;
@@ -2723,54 +2902,62 @@ export const StorageService = {
           const cloudServices: ServiceItem[] = res.map(mapRowToService);
           const rowIds = new Set(cloudServices.map((s) => s.id));
           const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
-          const merged = [...cloudServices, ...missingFromSlot];
+          const merged = ApprovalShield.applyToServices([...cloudServices, ...missingFromSlot]);
 
           await saveItem(localKey, merged);
           return merged;
         }
 
         if (fallbackServices.length > 0) {
-          await saveItem(localKey, fallbackServices);
-          return fallbackServices;
+          const shielded = ApprovalShield.applyToServices(fallbackServices);
+          await saveItem(localKey, shielded);
+          return shielded;
         }
 
-        return localCached;
+        return ApprovalShield.applyToServices(localCached);
       }
 
       // 2. Primary POLATLAR table in Supabase
-      try {
-        const { data, error } = await supabase
-          .from('services')
-          .select('*')
-          .order('created_at', { ascending: false });
+      if (shouldUseSupabaseCloud()) {
+        try {
+          const { data, error } = await supabase
+            .from('services')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          const cloudServices: ServiceItem[] = data.map(mapRowToService);
-          const rowIds = new Set(cloudServices.map((s) => s.id));
-          const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
-          const merged = [...cloudServices, ...missingFromSlot];
+          if (!error && data) {
+            const cloudServices: ServiceItem[] = data.map(mapRowToService);
+            const rowIds = new Set(cloudServices.map((s) => s.id));
+            const missingFromSlot = fallbackServices.filter((s) => !rowIds.has(s.id));
+            const merged = ApprovalShield.applyToServices([...cloudServices, ...missingFromSlot]);
 
-          await saveItem(localKey, merged);
-          return merged;
+            await saveItem(localKey, merged);
+            return merged;
+          }
+          if (error) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          }
+        } catch {
+          supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
         }
-      } catch {
-        // ignore
       }
 
       if (fallbackServices.length > 0) {
-        await saveItem(localKey, fallbackServices);
-        return fallbackServices;
+        const shielded = ApprovalShield.applyToServices(fallbackServices);
+        await saveItem(localKey, shielded);
+        return shielded;
       }
 
-      return localCached;
+      return ApprovalShield.applyToServices(localCached);
     }
 
     // Isolated slot 3 for other companies
     const slotId = this.getSlotId(3);
     const { data: cloudData, notFound } = await loadChunkedSlot<ServiceItem[]>(slotId);
     if (cloudData && Array.isArray(cloudData)) {
-      await saveItem(localKey, cloudData);
-      return cloudData;
+      const shielded = ApprovalShield.applyToServices(cloudData);
+      await saveItem(localKey, shielded);
+      return shielded;
     }
 
     if (notFound) {
@@ -2778,7 +2965,7 @@ export const StorageService = {
       return [];
     }
 
-    return Array.isArray(localCached) ? localCached : [];
+    return ApprovalShield.applyToServices(Array.isArray(localCached) ? localCached : []);
   },
 
   mapServiceToRow(item: ServiceItem) {
@@ -2840,6 +3027,7 @@ export const StorageService = {
     const idx = existing.findIndex((s) => s.id === service.id);
 
     let localUpdated: ServiceItem[];
+    let mergedServiceForShield: ServiceItem = service;
     if (idx >= 0) {
       const prev = existing[idx];
       const mergedLocal: ServiceItem = {
@@ -2855,15 +3043,46 @@ export const StorageService = {
             ? service.completionPhotos
             : prev.completionPhotos || [],
       };
+      mergedServiceForShield = mergedLocal;
       localUpdated = [...existing];
       localUpdated[idx] = mergedLocal;
     } else {
       localUpdated = [service, ...existing];
     }
+    ApprovalShield.recordService(mergedServiceForShield);
     await saveItem(localKey, localUpdated);
 
-    // 1. ÖNCE canlı Slot 3'ü çekip SADECE bu servis kaydını birleştirerek kaydet
-    // (Böylece services tablosu Realtime tetiklendiğinde fotoğraflar bulutta %100 hazır olur!)
+    // 1. ÖNCE POLATLAR için tekil satırı Yerel MSSQL services tablosuna anında yaz
+    if (activeCompanyCode === 'POLATLAR') {
+      const row = this.mapServiceToRow(mergedServiceForShield);
+
+      await localApiPost('/api/tables/services/upsert', { rows: [row] }).catch((err) =>
+        console.warn('[Dual-Write Yerel] saveSingleService hata:', err)
+      );
+
+      if (shouldUseSupabaseCloud()) {
+        try {
+          let useBasic = !supabaseExtendedCols.services;
+          if (!useBasic) {
+            const { error: singleErr } = await supabase.from('services').upsert([row]);
+            if (singleErr) {
+              if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
+                supabaseExtendedCols.services = false;
+              }
+              useBasic = true;
+            }
+          }
+          if (useBasic) {
+            await supabase.from('services').upsert([this.mapServiceToBasicRow(mergedServiceForShield)]);
+          }
+        } catch (err) {
+          supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+          console.warn('saveSingleService Supabase error:', err);
+        }
+      }
+    }
+
+    // 2. Ardından canlı Slot 3'ü çekip SADECE bu servis kaydını birleştirerek kaydet
     const slotId = this.getSlotId(3);
     await enqueueSlot3Write(async () => {
       const { data: cloudSlot } = await loadChunkedSlot<ServiceItem[]>(slotId);
@@ -2914,33 +3133,6 @@ export const StorageService = {
     }).catch((err) => {
       console.warn('saveChunkedSlot 3 in saveSingleService error:', err);
     });
-
-    // 2. Ardından POLATLAR için tekil satırı Yerel MSSQL ve Supabase services tablosuna yaz
-    if (activeCompanyCode === 'POLATLAR') {
-      const row = this.mapServiceToRow(service);
-
-      localApiPost('/api/tables/services/upsert', { rows: [row] }).catch((err) =>
-        console.warn('[Dual-Write Yerel] saveSingleService hata:', err)
-      );
-
-      try {
-        let useBasic = !supabaseExtendedCols.services;
-        if (!useBasic) {
-          const { error: singleErr } = await supabase.from('services').upsert([row]);
-          if (singleErr) {
-            if (singleErr.code === 'PGRST204' || /column/i.test(singleErr.message || '')) {
-              supabaseExtendedCols.services = false;
-            }
-            useBasic = true;
-          }
-        }
-        if (useBasic) {
-          await supabase.from('services').upsert([this.mapServiceToBasicRow(service)]);
-        }
-      } catch (err) {
-        console.warn('saveSingleService Supabase error:', err);
-      }
-    }
   },
 
   /**
@@ -2948,9 +3140,19 @@ export const StorageService = {
    */
   async saveServices(items: ServiceItem[]): Promise<void> {
     const localKey = this.getStorageKey(SERVICES_KEY);
+    items.slice(0, 10).forEach((s) => ApprovalShield.recordService(s));
     await saveItem(localKey, items);
 
     if (activeCompanyCode === 'POLATLAR') {
+      const fullRows = items.map((item) => this.mapServiceToRow(item));
+
+      // 1. Yerel Sunucu (Dual-Write)
+      if (fullRows.length > 0) {
+        await localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
+          console.warn('[Dual-Write Yerel] services upsert hata:', err)
+        );
+      }
+
       await enqueueSlot3Write(async () => {
         const { data: cloudSlot } = await loadChunkedSlot<ServiceItem[]>(3);
         const cloudMap = new Map((cloudSlot || []).map((s) => [s.id, s]));
@@ -2973,48 +3175,31 @@ export const StorageService = {
         console.warn('saveChunkedSlot 3 in saveServices error:', err);
       });
 
-      const fullRows = items.map((item) => this.mapServiceToRow(item));
-
-      // 1. Yerel Sunucu (Dual-Write) - Arka planda güvenle yazar (UI'ı bekletmez)
-      if (fullRows.length > 0) {
-        localApiPost('/api/tables/services/upsert', { rows: fullRows }).catch((err) =>
-          console.warn('[Dual-Write Yerel] services upsert hata:', err)
-        );
-      }
-
-      // 2. Supabase Bulut tablosuna kaydet
-      if (fullRows.length > 0) {
-        try {
-          let useBasic = !supabaseExtendedCols.services;
-          if (!useBasic) {
-            const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
-            if (upsertErr) {
-              if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
-                supabaseExtendedCols.services = false;
+      // 2. Supabase Bulut tablosuna kaydet (yalnızca bulut modunda ve erişilebilir olduğunda)
+      if (shouldUseSupabaseCloud()) {
+        if (fullRows.length > 0) {
+          try {
+            let useBasic = !supabaseExtendedCols.services;
+            if (!useBasic) {
+              const { error: upsertErr } = await supabase.from('services').upsert(fullRows);
+              if (upsertErr) {
+                if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                  supabaseExtendedCols.services = false;
+                }
+                useBasic = true;
               }
-              useBasic = true;
             }
-          }
-          if (useBasic) {
-            const basicRows = items.map((item) => this.mapServiceToBasicRow(item));
-            await supabase.from('services').upsert(basicRows);
-          }
-
-          const currentIds = items.map((i) => i.id);
-          const { data: cloudData } = await supabase.from('services').select('id');
-          if (cloudData) {
-            const idsToDelete = cloudData
-              .map((c) => c.id)
-              .filter((id) => !currentIds.includes(id));
-            if (idsToDelete.length > 0) {
-              await supabase.from('services').delete().in('id', idsToDelete);
+            if (useBasic) {
+              const basicRows = items.map((item) => this.mapServiceToBasicRow(item));
+              await supabase.from('services').upsert(basicRows);
             }
+          } catch (err) {
+            supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+            console.warn('[Dual-Write Supabase] save services error:', err);
           }
-        } catch (err) {
-          console.warn('[Dual-Write Supabase] save services error:', err);
+        } else {
+          await supabase.from('services').delete().neq('id', '___');
         }
-      } else {
-        await supabase.from('services').delete().neq('id', '___');
       }
     } else {
       const slotId = this.getSlotId(3);
@@ -3028,6 +3213,7 @@ export const StorageService = {
    * Deletes a service item across local cache and server without wiping other services' photos in Slot 3
    */
   async deleteService(id: string): Promise<void> {
+    ApprovalShield.recordServiceDeleted(id);
     const localKey = this.getStorageKey(SERVICES_KEY);
     const current = (await loadItem<ServiceItem[]>(localKey)) || [];
     const updated = current.filter((s) => s.id !== id);
@@ -3041,15 +3227,17 @@ export const StorageService = {
           console.warn('[Dual-Write Yerel] deleteService hata:', err)
         )
       );
-      deleteOps.push(
-        Promise.resolve(
-          supabase
-            .from('services')
-            .delete()
-            .eq('id', id)
-            .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
-        )
-      );
+      if (shouldUseSupabaseCloud()) {
+        deleteOps.push(
+          Promise.resolve(
+            supabase
+              .from('services')
+              .delete()
+              .eq('id', id)
+              .then(undefined, (e) => console.warn('deleteService Supabase error:', e))
+          )
+        );
+      }
       deleteOps.push(
         enqueueSlot3Write(async () => {
           const { data: slot3Data } = await loadChunkedSlot<ServiceItem[]>(3);
@@ -3551,6 +3739,7 @@ export const StorageService = {
    */
   async saveAttendanceRecordsLocal(records: AttendanceRecord[]): Promise<void> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
+    records.slice(0, 5).forEach((r) => ApprovalShield.recordAttendance(r));
     const shieldedInput = ApprovalShield.applyToAttendance(records);
     await saveItem(localKey, shieldedInput);
   },
@@ -3560,10 +3749,13 @@ export const StorageService = {
    */
   async saveAttendanceRecords(
     records: AttendanceRecord[],
-    options?: { deletedRecordId?: string; forceOverwrite?: boolean }
+    options?: { deletedRecordId?: string; forceOverwrite?: boolean; throwOnError?: boolean }
   ): Promise<void> {
     const localKey = this.getStorageKey(ATTENDANCE_RECORDS_KEY);
     const slotId = this.getSlotId(6);
+    if (!options?.deletedRecordId) {
+      records.slice(0, 5).forEach((r) => ApprovalShield.recordAttendance(r));
+    }
     const shieldedInput = ApprovalShield.applyToAttendance(records);
 
     // 1. Önce anında yerel hafızaya yaz (0ms UI tepkisi)
@@ -3594,6 +3786,9 @@ export const StorageService = {
     } catch (err) {
       console.warn(`[saveAttendanceRecords] Bulut kaydı başarısız oldu veya çevrimdışı:`, err);
       this.markAttendancePendingSync(activeCompanyCode, shieldedInput);
+      if (options?.throwOnError) {
+        throw err;
+      }
     }
   },
 
