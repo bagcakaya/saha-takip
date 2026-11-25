@@ -641,6 +641,9 @@ export const ShiftReminderService = {
 
     for (const assignment of shiftAssignments) {
       if (!assignment || !assignment.userId) continue;
+      // İstemci cihaz sadece kendi oturumu açık olan kullanıcının vardiyasını denetler;
+      // başka bir cihazın (örn: eski önbellekli telefon veya yönetici PC) diğer personele mükerrer push atmasını kesin olarak engeller!
+      if (currentUser?.id && assignment.userId !== currentUser.id) continue;
 
       // 1. Bugün aktif vardiyası tanımlı mı kontrol et
       const assigned = this.getAssignedShiftForToday(assignment.userId, shifts, shiftAssignments);
@@ -655,8 +658,8 @@ export const ShiftReminderService = {
       // Vardiya başlangıcının üzerinden henüz 15 dakika geçmediyse bekle
       if (now < targetCheckIn15mMs) continue;
 
-      // Vardiya bittiyse veya başlangıçtan itibaren 6 saatten fazla geçtiyse eski kontrolleri es geç
-      if (now >= shiftEndMs || now - shiftStartMs > 6 * 60 * 60 * 1000) continue;
+      // +15dk vardiya giriş hatırlatması SADECE +15. dakika ile +30. dakika arasında çalışır (Saatler sonra ASLA tetiklenmez!)
+      if (now >= shiftEndMs || now - shiftStartMs > 30 * 60 * 1000) continue;
 
       const shiftStartStr = shift.startTime || assignment.startTime || '09:00';
       const cleanStartKey = normalizeShiftTimeKey(shiftStartStr, '0900');
@@ -717,10 +720,12 @@ export const ShiftReminderService = {
               shiftStartMinutes
             )
           ) {
+            markSentLocalCheckinAlert(todayStr, assignment.userId, '15m', cleanStartKey);
             continue;
           }
         } catch {
-          // Ağ hatası olursa yerel veriye göre devam et
+          // Canlı sunucu doğrulaması yapılamadıysa yanlış bildirim göndermemek için bu döngüyü atla
+          continue;
         }
 
         // Aynı gün aynı vardiya saati için ikinci kez bildirim gitmemesi adına hem yerel hem bulut Slot 23 anahtarını mühürle
@@ -754,27 +759,6 @@ export const ShiftReminderService = {
             });
           }
         }
-
-        // SADECE ilgili personelin telefonuna anında donanım push bildirimi gönder (Yöneticiye ASLA gitmez)
-        const pushParams = {
-          title,
-          message,
-          targetMode: 'custom' as const,
-          targetUserIds: [assignment.userId],
-          companyCode: staffCompany,
-          collapseId: `shift_in_15m_${todayStr}_${cleanStartKey}_${assignment.userId}`,
-          url: `${appUrl}/?tab=staff_tracking`,
-        };
-
-        OneSignalService.sendPushNotification(pushParams)
-          .then((res) => {
-            if (!res || !res.success) {
-              FastActionAgent.enqueuePushNotification(pushParams);
-            }
-          })
-          .catch(() => {
-            FastActionAgent.enqueuePushNotification(pushParams);
-          });
       } finally {
         inFlightAlertKeys.delete(cloudAlertKey);
       }
@@ -816,6 +800,7 @@ export const ShiftReminderService = {
 
     for (const assignment of shiftAssignments) {
       if (!assignment || !assignment.userId) continue;
+      if (currentUser?.id && assignment.userId !== currentUser.id) continue;
 
       // 1. Bugün aktif vardiyası tanımlı mı kontrol et
       const assigned = this.getAssignedShiftForToday(assignment.userId, shifts, shiftAssignments);
@@ -830,8 +815,8 @@ export const ShiftReminderService = {
       // Vardiya bitişinin üzerinden henüz 5 dakika geçmediyse kontrol etmeye gerek yok
       if (now < target5mMs) continue;
 
-      // Vardiya bitişi üzerinden 6 saatten fazla geçtiyse eski kontrolleri es geç
-      if (now - shiftEndMs > 6 * 60 * 60 * 1000) continue;
+      // Vardiya bitişi üzerinden 25 dakikadan fazla geçtiyse eski kontrolleri es geç
+      if (now - shiftEndMs > 25 * 60 * 1000) continue;
 
       const shiftEndStr = shift.endTime || assignment.endTime || '18:00';
       const cleanEndKey = normalizeShiftTimeKey(shiftEndStr, '1800');
@@ -919,7 +904,8 @@ export const ShiftReminderService = {
 
           activeRecord = liveStatus.activeRecord || activeRecord;
         } catch {
-          // Ağ hatası olursa mevcut yerel veriye göre devam et
+          // Canlı sunucu doğrulaması yapılamadıysa yanlış bildirim göndermemek için bu döngüyü atla
+          continue;
         }
 
         const appUrl =
@@ -955,22 +941,6 @@ export const ShiftReminderService = {
               });
             }
           }
-
-          // SADECE ilgili personelin telefonuna donanım push bildirimi gönder (Yöneticiye ASLA gitmez)
-          const pushParams5m = {
-            title,
-            message,
-            targetMode: 'custom' as const,
-            targetUserIds: [assignment.userId],
-            companyCode: staffCompany,
-            collapseId: `shift_5m_${todayStr}_${cleanEndKey}_${assignment.userId}`,
-            url: `${appUrl}/?tab=staff_tracking`,
-          };
-          OneSignalService.sendPushNotification(pushParams5m)
-            .then((res) => {
-              if (!res || !res.success) FastActionAgent.enqueuePushNotification(pushParams5m);
-            })
-            .catch(() => FastActionAgent.enqueuePushNotification(pushParams5m));
 
           if (activeRecord && onUpdateRecord) {
             onUpdateRecord({
@@ -1012,22 +982,6 @@ export const ShiftReminderService = {
               });
             }
           }
-
-          // SADECE ilgili personelin telefonuna donanım push bildirimi gönder (Yöneticiye ASLA gitmez)
-          const pushParams10m = {
-            title,
-            message,
-            targetMode: 'custom' as const,
-            targetUserIds: [assignment.userId],
-            companyCode: staffCompany,
-            collapseId: `shift_10m_${todayStr}_${cleanEndKey}_${assignment.userId}`,
-            url: `${appUrl}/?tab=staff_tracking`,
-          };
-          OneSignalService.sendPushNotification(pushParams10m)
-            .then((res) => {
-              if (!res || !res.success) FastActionAgent.enqueuePushNotification(pushParams10m);
-            })
-            .catch(() => FastActionAgent.enqueuePushNotification(pushParams10m));
 
           if (activeRecord && onUpdateRecord) {
             onUpdateRecord({

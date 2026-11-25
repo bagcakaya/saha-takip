@@ -582,11 +582,11 @@ async function runCloudShiftWatchdog() {
       const inCheckinWindow =
         clock.nowMs >= win.targetCheckIn15mMs &&
         clock.nowMs < win.shiftEndMs &&
-        clock.nowMs - win.shiftStartMs <= 6 * 60 * 60 * 1000;
+        clock.nowMs - win.shiftStartMs <= 30 * 60 * 1000;
 
       const inCheckoutWindow =
         clock.nowMs >= win.target5mMs &&
-        clock.nowMs - win.shiftEndMs <= 6 * 60 * 60 * 1000;
+        clock.nowMs - win.shiftEndMs <= 25 * 60 * 1000;
 
       if (inCheckinWindow || inCheckoutWindow) {
         activeCandidates.push({

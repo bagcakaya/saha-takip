@@ -14,10 +14,53 @@
  *    bulunduğu için internet dalgalanmalarında ASLA donmaz veya asılı kalmaz.
  */
 
+const fs = require('fs');
+const path = require('path');
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://tftzengmncgyuhccacrh.supabase.co';
 const SUPABASE_ANON_KEY =
   process.env.SUPABASE_ANON_KEY || 'sb_publishable_25IlzAkxESu2kVJhUQ15zQ_vw5nx265';
 const REMOTE_LOCAL_SERVER_URL = process.env.LOCAL_SERVER_URL || 'http://81.213.219.69:3001';
+
+const LOCAL_ALERT_CACHE_FILE = path.join(__dirname, 'shift_alerts_cache.json');
+const inMemorySentAlerts = new Map();
+
+function loadDiskAlertCache() {
+  try {
+    if (fs.existsSync(LOCAL_ALERT_CACHE_FILE)) {
+      const raw = fs.readFileSync(LOCAL_ALERT_CACHE_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const now = Date.now();
+        for (const [k, ts] of Object.entries(parsed)) {
+          if (typeof ts === 'number' && now - ts < 7 * 24 * 60 * 60 * 1000) {
+            inMemorySentAlerts.set(k, ts);
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function recordDiskAlertSent(key, ts = Date.now()) {
+  inMemorySentAlerts.set(key, ts);
+  try {
+    const obj = {};
+    const now = Date.now();
+    for (const [k, v] of inMemorySentAlerts.entries()) {
+      if (now - v < 7 * 24 * 60 * 60 * 1000) {
+        obj[k] = v;
+      }
+    }
+    fs.writeFileSync(LOCAL_ALERT_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  } catch {
+    // ignore
+  }
+}
+
+loadDiskAlertCache();
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || '03e50631-8d38-4796-a90f-ae524dab69fd';
 const _osKeyB64 =
@@ -213,14 +256,23 @@ async function readLocalSlot(port, slotId) {
             'X-Saha-Client-Token': 'saha-watchdog-v2',
           },
         },
-        3500
+        8000
       );
+      if (res.status === 404) {
+        return { __notFound: true, data: null };
+      }
       if (!res.ok) continue;
       const json = await res.json();
-      if (!json || json.notFound || !Array.isArray(json.tasks) || json.tasks.length === 0) continue;
+      if (!json) continue;
+      if (json.notFound) {
+        return { __notFound: true, data: null };
+      }
+      if (!Array.isArray(json.tasks) || json.tasks.length === 0) {
+        return [];
+      }
       if (typeof json.tasks[0] === 'string') {
         const raw = json.tasks.join('');
-        return raw ? JSON.parse(raw) : null;
+        return raw ? JSON.parse(raw) : [];
       }
       return json.tasks;
     } catch {
@@ -231,30 +283,20 @@ async function readLocalSlot(port, slotId) {
 }
 
 async function readAuthoritativeSlot(port, slotId) {
-  try {
-    return await readSupabaseSlot(slotId);
-  } catch {
-    return await readLocalSlot(port, slotId);
+  // Önce doğrudan Yerel SQL Sunucusundan (0ms gecikme, ölü Supabase zaman aşımı olmadan) oku
+  const localData = await readLocalSlot(port, slotId);
+  if (localData !== null) {
+    if (localData && typeof localData === 'object' && localData.__notFound) {
+      return null;
+    }
+    return localData;
   }
+  return null;
 }
 
 async function writeSupabaseAndLocalSlot(port, slotId, dataObj) {
   const chunks = chunkString(JSON.stringify(dataObj));
   const writeTasks = [
-    fetchWithTimeout(
-      `${SUPABASE_URL}/rest/v1/standard_tasks`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          Prefer: 'resolution=merge-duplicates',
-        },
-        body: JSON.stringify({ id: slotId, tasks: chunks }),
-      },
-      6000
-    ),
     fetchWithTimeout(
       `http://127.0.0.1:${port}/api/standard_tasks/${slotId}`,
       {
@@ -265,7 +307,7 @@ async function writeSupabaseAndLocalSlot(port, slotId, dataObj) {
         },
         body: JSON.stringify({ tasks: chunks }),
       },
-      3500
+      6000
     ).catch(async () => {
       if (REMOTE_LOCAL_SERVER_URL && !REMOTE_LOCAL_SERVER_URL.includes('127.0.0.1')) {
         await fetchWithTimeout(
@@ -278,7 +320,7 @@ async function writeSupabaseAndLocalSlot(port, slotId, dataObj) {
             },
             body: JSON.stringify({ tasks: chunks }),
           },
-          4000
+          6000
         );
       }
     }),
@@ -654,14 +696,16 @@ async function runShiftWatchdog(port = 3001) {
         );
         if (!win) continue;
 
+        // +15dk vardiya giriş hatırlatması SADECE +15. dakika ile +30. dakika arasında çalışır (Saatler sonra ASLA tetiklenmez!)
         const inCheckinWindow =
           clock.nowMs >= win.targetCheckIn15mMs &&
           clock.nowMs < win.shiftEndMs &&
-          clock.nowMs - win.shiftStartMs <= 6 * 60 * 60 * 1000;
+          clock.nowMs - win.shiftStartMs <= 30 * 60 * 1000;
 
+        // +5dk / +10dk vardiya çıkış hatırlatması SADECE vardiya bitişinden sonraki +5. dakika ile +25. dakika arasında çalışır
         const inCheckoutWindow =
           clock.nowMs >= win.target5mMs &&
-          clock.nowMs - win.shiftEndMs <= 6 * 60 * 60 * 1000;
+          clock.nowMs - win.shiftEndMs <= 25 * 60 * 1000;
 
         if (inCheckinWindow || inCheckoutWindow) {
           activeCandidates.push({
@@ -681,35 +725,70 @@ async function runShiftWatchdog(port = 3001) {
       const devSlotId = getSlotIdForCompany(8, company.code, company.id);
       const alertLogSlotId = getSlotIdForCompany(23, company.code, company.id);
 
-      const [attendanceRecords, leaveRequests, supaDevices, localDevices, rawAlertLogs] =
+      const [attendanceRecords, leaveRequests, localDevices, rawAlertLogs] =
         await Promise.all([
-          readAuthoritativeSlot(port, attSlotId).catch(() => []),
-          readAuthoritativeSlot(port, leaveSlotId).catch(() => []),
-          readSupabaseSlot(devSlotId).catch(() => []),
-          readLocalSlot(port, devSlotId).catch(() => []),
-          readAuthoritativeSlot(port, alertLogSlotId).catch(() => ({})),
+          readLocalSlot(port, attSlotId),
+          readLocalSlot(port, leaveSlotId),
+          readLocalSlot(port, devSlotId),
+          readLocalSlot(port, alertLogSlotId),
         ]);
 
+      // KESİN GÜVENLİK KURALI: Eğer veritabanından mesai kayıtları (Slot 6) veya bildirim günlüğü (Slot 23)
+      // okunamadıysa (ağ/timeout hatası nedeniyle null döndüyse) ASLA boş dizi/nesne varsayıp yanlış bildirim gönderme!
+      if (attendanceRecords === null || !Array.isArray(attendanceRecords)) {
+        console.warn(`>> [Vardiya Bekçisi] Slot ${attSlotId} okunamadı, yanlış bildirim önlemek için bu döngü atlandı.`);
+        continue;
+      }
+      if (company.code === 'POLATLAR' && attendanceRecords.length === 0) {
+        console.warn(`>> [Vardiya Bekçisi] POLATLAR Slot 6 boş döndü, yanlış bildirim önlemek için atlandı.`);
+        continue;
+      }
+      if (rawAlertLogs === null) {
+        console.warn(`>> [Vardiya Bekçisi] Slot ${alertLogSlotId} okunamadı, mükerrer bildirim önlemek için atlandı.`);
+        continue;
+      }
+
       const alertLogs =
-        rawAlertLogs && typeof rawAlertLogs === 'object' && !Array.isArray(rawAlertLogs)
+        rawAlertLogs && typeof rawAlertLogs === 'object' && !Array.isArray(rawAlertLogs) && !rawAlertLogs.__notFound
           ? { ...rawAlertLogs }
           : {};
+
+      // Bellek/disk önbelleğindeki tüm anahtarları alertLogs ile birleştir (Slot 23 sıfırlansa bile asla tekrar göndermez!)
+      for (const [memKey, memTs] of inMemorySentAlerts.entries()) {
+        if (!alertLogs[memKey]) {
+          alertLogs[memKey] = memTs;
+        }
+      }
+      for (const [slotKey, slotTs] of Object.entries(alertLogs)) {
+        if (typeof slotTs === 'number' && !inMemorySentAlerts.has(slotKey)) {
+          inMemorySentAlerts.set(slotKey, slotTs);
+        }
+      }
+
       let alertLogsDirty = false;
       let attendanceDirty = false;
-      const updatedAttendance = Array.isArray(attendanceRecords) ? [...attendanceRecords] : [];
+      const updatedAttendance = [...attendanceRecords];
 
       const getSubIdsForUser = (uid) => {
-        const subSet = new Set();
-        for (const list of [supaDevices, localDevices]) {
-          if (Array.isArray(list)) {
-            for (const d of list) {
-              if (d && d.userId === uid && d.pushSubscriptionId) {
-                subSet.add(d.pushSubscriptionId);
-              }
+        if (!Array.isArray(localDevices)) return [];
+        const userDevs = localDevices
+          .filter(
+            (d) =>
+              d &&
+              d.userId === uid &&
+              d.pushSubscriptionId &&
+              !String(d.pushSubscriptionId).startsWith('SQL-')
+          )
+          .sort((a, b) => {
+            // Önce PWA (isStandalone: true), sonra en son görülen (lastSeen) cihazı tercih et
+            if (Boolean(b.isStandalone) !== Boolean(a.isStandalone)) {
+              return b.isStandalone ? 1 : -1;
             }
-          }
-        }
-        return Array.from(subSet);
+            return new Date(b.lastSeen || 0).getTime() - new Date(a.lastSeen || 0).getTime();
+          });
+        if (userDevs.length === 0) return [];
+        // Aynı telefonda hem eski tarayıcı sekmesi (Samsung Browser) hem PWA (İş Takip) çift bildirim düşmesini önlemek için en güncel aktif aboneliği seç
+        return [userDevs[0].pushSubscriptionId];
       };
 
       const pruneOldAlertLogs = () => {
@@ -741,7 +820,7 @@ async function runShiftWatchdog(port = 3001) {
         if (inCheckinWindow) {
           const cleanStartKey = normalizeShiftTimeKey(shiftStartStr, '0900');
           const checkinKey = `checkin_15m_${clock.dateStr}_${cleanStartKey}_${uid}`;
-          if (!alertLogs[checkinKey]) {
+          if (!alertLogs[checkinKey] && !inMemorySentAlerts.has(checkinKey)) {
             const alreadyIn = isCheckedInOrExcused(
               updatedAttendance,
               leaveRequests,
@@ -752,6 +831,7 @@ async function runShiftWatchdog(port = 3001) {
             );
             if (!alreadyIn) {
               alertLogs[checkinKey] = clock.nowMs;
+              recordDiskAlertSent(checkinKey, clock.nowMs);
               pruneOldAlertLogs();
               await writeSupabaseAndLocalSlot(port, alertLogSlotId, alertLogs);
               alertLogsDirty = false;
@@ -781,10 +861,13 @@ async function runShiftWatchdog(port = 3001) {
           const needs5m =
             clock.nowMs >= target5mMs &&
             clock.nowMs < target10mMs &&
-            !alertLogs[key5m];
+            !alertLogs[key5m] &&
+            !inMemorySentAlerts.has(key5m);
           const needs10m =
             clock.nowMs >= target10mMs &&
-            !alertLogs[key10m];
+            clock.nowMs <= shiftEndMs + 25 * 60 * 1000 &&
+            !alertLogs[key10m] &&
+            !inMemorySentAlerts.has(key10m);
 
           if (needs5m || needs10m) {
             const checkoutStatus = evaluateUserCheckoutStatus(
@@ -802,6 +885,7 @@ async function runShiftWatchdog(port = 3001) {
 
               if (needs5m) {
                 alertLogs[key5m] = clock.nowMs;
+                recordDiskAlertSent(key5m, clock.nowMs);
                 pruneOldAlertLogs();
                 await writeSupabaseAndLocalSlot(port, alertLogSlotId, alertLogs);
                 alertLogsDirty = false;
@@ -828,6 +912,7 @@ async function runShiftWatchdog(port = 3001) {
                 dispatchedAlerts.push(key5m);
               } else if (needs10m) {
                 alertLogs[key10m] = clock.nowMs;
+                recordDiskAlertSent(key10m, clock.nowMs);
                 pruneOldAlertLogs();
                 await writeSupabaseAndLocalSlot(port, alertLogSlotId, alertLogs);
                 alertLogsDirty = false;
