@@ -12,7 +12,7 @@ function isTrustedHost(host) {
   const clean = String(host).toLowerCase().trim();
   return (
     clean === 'saha-takip-beige.vercel.app' ||
-    clean.endsWith('.vercel.app') ||
+    (clean.startsWith('saha-takip-') && clean.endsWith('.vercel.app')) ||
     clean === '81.213.219.69' ||
     clean === 'localhost' ||
     clean === '127.0.0.1'
@@ -121,6 +121,33 @@ export default async function handler(req, res) {
   if (!checkRateLimit(req, 180)) {
     res.status(429).json({ error: 'Too many notification requests' });
     return;
+  }
+
+  // Handle player tag & external_user_id sync on server side (keeps REST API key out of browser bundle)
+  if (req.method === 'POST' && (req.body?.action === 'sync_player' || (typeof req.body === 'string' && req.body.includes('"sync_player"')))) {
+    try {
+      const rawBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      if (rawBody.action === 'sync_player' && rawBody.playerId) {
+        const response = await fetch(`https://onesignal.com/api/v1/players/${encodeURIComponent(String(rawBody.playerId))}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Basic ' + getApiKey(),
+          },
+          body: JSON.stringify({
+            app_id: ONESIGNAL_APP_ID,
+            external_user_id: rawBody.externalUserId || undefined,
+            tags: rawBody.tags || {},
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        res.status(200).json({ success: true, data });
+        return;
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Player sync failed' });
+      return;
+    }
   }
 
   // Handle cancellation of scheduled notifications (supports single ID or comma-separated IDs)

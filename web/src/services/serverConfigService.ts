@@ -251,6 +251,13 @@ export const ServerConfigService = {
     const baseUrl = this.getActiveApiUrl() || this.getDualWriteApiUrl();
     if (!baseUrl) return { data: null, error: 'No server URL configured' };
     const requestUrl = getResolvedApiUrl(baseUrl, endpoint);
+    let actorRole = '';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const u = JSON.parse(localStorage.getItem('@gorev_tamamlama_auth_user') || '{}');
+        actorRole = String(u?.role || '');
+      }
+    } catch {}
     try {
       const res = await fetch(requestUrl, {
         method: 'POST',
@@ -258,6 +265,7 @@ export const ServerConfigService = {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'X-Saha-Client-Token': 'saha-web-client-v2',
+          'X-Saha-Actor-Role': actorRole,
         },
         body: JSON.stringify(body),
       });

@@ -463,17 +463,18 @@ export const OneSignalService = {
               await OneSignal.User.addTags(cleanTags).catch(() => {});
             }
 
-            // Also stamp OneSignal REST API directly to ensure player tags and external_user_id are permanently bound
-            if (subId && ONESIGNAL_CONFIG.REST_API_KEY && ONESIGNAL_CONFIG.APP_ID) {
-              fetch(`https://onesignal.com/api/v1/players/${subId}`, {
-                method: 'PUT',
+            // Also stamp OneSignal player tags and external_user_id securely via server-side /api/send-notification
+            if (subId && !String(subId).startsWith('SQL-') && ONESIGNAL_CONFIG.APP_ID) {
+              fetch('/api/send-notification', {
+                method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+                  'X-Saha-Client-Token': 'saha-web-client-v2',
                 },
                 body: JSON.stringify({
-                  app_id: ONESIGNAL_CONFIG.APP_ID,
-                  external_user_id: targetUser.id,
+                  action: 'sync_player',
+                  playerId: subId,
+                  externalUserId: targetUser.id,
                   tags: cleanTags,
                 }),
               }).catch(() => {});
@@ -794,12 +795,10 @@ export const OneSignalService = {
     }
     const targetCompanyCode = (detectedCompanyCode || 'POLATLAR').trim().toUpperCase();
 
-    // If API Key or App ID is not configured, skip
+    // If App ID is not configured, skip (REST API Key is managed server-side by /api/send-notification)
     if (
       !ONESIGNAL_CONFIG.APP_ID ||
-      ONESIGNAL_CONFIG.APP_ID === 'YOUR_ONESIGNAL_APP_ID' ||
-      !ONESIGNAL_CONFIG.REST_API_KEY ||
-      ONESIGNAL_CONFIG.REST_API_KEY === 'YOUR_ONESIGNAL_REST_API_KEY'
+      ONESIGNAL_CONFIG.APP_ID === 'YOUR_ONESIGNAL_APP_ID'
     ) {
       return { success: false, error: 'OneSignal yapılandırması eksik.' };
     }
@@ -1575,38 +1574,28 @@ export const OneSignalService = {
       console.warn('Proxy /api/send-notification unavailable or failed, falling back to direct REST:', proxyErr);
     }
 
-    // 2. Direct OneSignal REST API fallback
+    // 2. Fallback to Local SQL Server /api/send-notification proxy (or direct REST only if key present)
     try {
-      const directPayload = { ...cleanPayload };
-      delete directPayload.targetUserIds;
-      delete directPayload.targetSubscriptionIds;
-      delete directPayload.multiChannelGuarantee;
-      delete directPayload.bypassServerDedup;
-      const response = await fetch('https://onesignal.com/api/v1/notifications', {
+      const fallbackUrl =
+        typeof window !== 'undefined' && window.location.hostname !== '81.213.219.69'
+          ? '/api/proxy?endpoint=%2Fapi%2Fsend-notification&target=http%3A%2F%2F81.213.219.69%3A3001'
+          : 'http://81.213.219.69:3001/api/send-notification';
+      const response = await fetch(fallbackUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          Authorization: `Basic ${ONESIGNAL_CONFIG.REST_API_KEY}`,
+          'X-Saha-Client-Token': 'saha-web-client-v2',
         },
-        body: JSON.stringify(directPayload),
+        body: JSON.stringify(cleanPayload),
         keepalive: true,
       });
       const result = await response.json();
       if (result?.id) {
         return result;
       }
-      if (result && result.errors && (Array.isArray(result.errors) ? result.errors.length > 0 : Object.keys(result.errors).length > 0)) {
-        const errMsg = Array.isArray(result.errors)
-          ? result.errors.join(', ')
-          : typeof result.errors === 'object'
-          ? Object.values(result.errors).flat().join(', ')
-          : String(result.errors);
-        console.error('OneSignal API returned error:', result.errors);
-        throw new Error(errMsg);
-      }
-      throw new Error(result?.error || 'OneSignal REST API bildirim ID üretmedi.');
+      throw new Error(result?.error || 'Sunucu bildirim vekili ID üretmedi.');
     } catch (e) {
-      console.error('OneSignal REST API fetch failed:', e);
+      console.error('OneSignal fallback notification fetch failed:', e);
       throw e;
     }
   },

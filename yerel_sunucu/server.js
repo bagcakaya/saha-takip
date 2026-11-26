@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const { sql, getPool } = require('./db');
 const { runCloudSync } = require('./cloudSync');
@@ -20,6 +21,32 @@ function appendServerErrorLog(tag, err) {
   } catch {
     // ignore file logging errors
   }
+}
+
+function sendSafeServerError(res, tag, err) {
+  console.error(`${tag}:`, err);
+  appendServerErrorLog(tag, err);
+  return res.status(500).json({ error: 'Sunucu işlem hatası oluştu.' });
+}
+
+function sha256Hex(str) {
+  return crypto.createHash('sha256').update(String(str), 'utf8').digest('hex');
+}
+
+function ensureServerPasswordHashed(userId, rawPass) {
+  if (!rawPass) return '';
+  const trimmed = String(rawPass).trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('$s256$')) return trimmed;
+  const cleanUid = String(userId || 'default').trim();
+  const deterministicSalt = sha256Hex(`saha_pwd_salt_v1:${cleanUid}`).slice(0, 32);
+  const hash = sha256Hex(`${deterministicSalt}:${trimmed}`);
+  return `$s256$${deterministicSalt}$${hash}`;
+}
+
+function isUnprivilegedStaffRole(req) {
+  const actorRole = String(req.headers['x-saha-actor-role'] || '').toLowerCase().trim();
+  return actorRole === 'staff' || actorRole === 'user';
 }
 
 // Beklenmeyen hatalarda Node.js servisinin kapanmasını önleyen koruma kalkanı
@@ -41,7 +68,7 @@ function isTrustedHostName(host) {
   const clean = String(host).toLowerCase().trim();
   return (
     clean === 'saha-takip-beige.vercel.app' ||
-    clean.endsWith('.vercel.app') ||
+    (clean.startsWith('saha-takip-') && clean.endsWith('.vercel.app')) ||
     clean === '81.213.219.69' ||
     clean === 'localhost' ||
     clean === '127.0.0.1' ||
@@ -254,8 +281,7 @@ app.get('/api/standard_tasks/:id', async (req, res) => {
 
     res.json({ id: slotId, tasks: parsed, notFound: false });
   } catch (err) {
-    console.error('standard_tasks GET error:', err);
-    res.status(500).json({ error: err.message });
+    return sendSafeServerError(res, 'standard_tasks GET', err);
   }
 });
 
@@ -315,13 +341,14 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz slot ID' });
     }
     const { tasks, deletedRecordId, forceOverwrite } = req.body;
+    const safeForceOverwrite = Boolean(forceOverwrite) && !isUnprivilegedStaffRole(req);
     let finalTasksArray = Array.isArray(tasks) ? tasks : [];
 
     const pool = await getPool();
 
     // Mesai Slotları (Slot 6 veya 6xxx) İçin Çoklu Cihaz Ezilme Koruması (Server-Side Concurrency Merge)
     const isAttendanceSlot = slotId === 6 || (slotId >= 6000 && slotId < 7000);
-    if (isAttendanceSlot && !forceOverwrite && finalTasksArray.length > 0) {
+    if (isAttendanceSlot && !safeForceOverwrite && finalTasksArray.length > 0) {
       try {
         const incomingRaw =
           typeof finalTasksArray[0] === 'string' ? finalTasksArray.join('') : JSON.stringify(finalTasksArray);
@@ -484,8 +511,7 @@ app.post('/api/standard_tasks/:id', async (req, res) => {
 
     res.json({ success: true, id: slotId });
   } catch (err) {
-    console.error('standard_tasks POST error:', err);
-    res.status(500).json({ error: err.message });
+    return sendSafeServerError(res, 'standard_tasks POST', err);
   }
 });
 
@@ -509,9 +535,12 @@ app.get('/api/tables/:table', async (req, res) => {
     const pool = await getPool();
     const result = await pool.request().query(`SELECT * FROM dbo.[${tableName}] ORDER BY created_at DESC`);
 
-    // Array / JSON alanlarını parse ederek döndür
+    // Array / JSON alanlarını parse ederek döndür (app_users tablosunda açık metin şifre varsa anında SHA-256 özetine dönüştür)
     const formatted = result.recordset.map((row) => {
       const copy = { ...row };
+      if (tableName === 'app_users' && copy.password) {
+        copy.password = ensureServerPasswordHashed(copy.id, copy.password);
+      }
       for (const key of Object.keys(copy)) {
         if (typeof copy[key] === 'string' && (copy[key].startsWith('[') || copy[key].startsWith('{'))) {
           try {
@@ -526,8 +555,7 @@ app.get('/api/tables/:table', async (req, res) => {
 
     res.json(formatted);
   } catch (err) {
-    console.error(`GET /api/tables/${req.params.table} error:`, err);
-    res.status(500).json({ error: err.message });
+    return sendSafeServerError(res, `GET /api/tables/${req.params.table}`, err);
   }
 });
 
@@ -866,11 +894,12 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
               VALUES (@id, @type, @company_name, @sent_date, @serial_number, @tracking_code, @serial_number_photo, @tracking_code_photo, @notes, @status, @reminder_date, @reminder_active, @notified, @created_at, @created_by, @created_by_name, @cari_name, SYSUTCDATETIME());
           `);
       } else if (tableName === 'app_users') {
+        const hashedPass = ensureServerPasswordHashed(row.id, row.password || '');
         await pool
           .request()
           .input('id', sql.NVarChar(100), String(row.id))
           .input('username', sql.NVarChar(255), row.username || '')
-          .input('password', sql.NVarChar(255), row.password || '')
+          .input('password', sql.NVarChar(255), hashedPass)
           .input('name', sql.NVarChar(255), row.name || '')
           .input('role', sql.NVarChar(50), row.role || 'user')
           .input('created_at', sql.BigInt, row.created_at || Date.now())
@@ -921,14 +950,16 @@ app.post('/api/tables/:table/upsert', async (req, res) => {
 
     res.json({ success: true, count: rawRows.length });
   } catch (err) {
-    console.error(`POST /api/tables/${req.params.table}/upsert error:`, err);
-    res.status(500).json({ error: err.message });
+    return sendSafeServerError(res, `POST /api/tables/${req.params.table}/upsert`, err);
   }
 });
 
-// Tablodan kayıt sil (%100 Parametreli SQL - SQL Injection Korumalı)
+// Tablodan kayıt sil (%100 Parametreli SQL - SQL Injection & Yetkisiz Personel Silme Korumalı)
 app.post('/api/tables/:table/delete', async (req, res) => {
   try {
+    if (isUnprivilegedStaffRole(req)) {
+      return res.status(403).json({ error: 'Yetkisiz işlem: Yalnızca yönetici silme işlemi yapabilir.' });
+    }
     const tableName = req.params.table;
     validateTable(tableName);
 
@@ -960,8 +991,7 @@ app.post('/api/tables/:table/delete', async (req, res) => {
 
     res.json({ success: true, count: cleanIds.length });
   } catch (err) {
-    console.error(`POST /api/tables/${req.params.table}/delete error:`, err);
-    res.status(500).json({ error: err.message });
+    return sendSafeServerError(res, `POST /api/tables/${req.params.table}/delete`, err);
   }
 });
 
@@ -1069,6 +1099,28 @@ app.post('/api/send-notification', async (req, res) => {
     }
     const apiKey = getOneSignalApiKey();
     const appId = getOneSignalAppId();
+
+    // Cihaz Etiketleme & External User ID Eşitleme Talebi (REST API Anahtarını Tarayıcıdan Gizler)
+    if (payload.action === 'sync_player' && payload.playerId) {
+      try {
+        const response = await fetch(`https://onesignal.com/api/v1/players/${encodeURIComponent(String(payload.playerId))}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Basic ${apiKey}`,
+          },
+          body: JSON.stringify({
+            app_id: appId,
+            external_user_id: payload.externalUserId || undefined,
+            tags: payload.tags || {},
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        return res.json({ success: true, data });
+      } catch (err) {
+        return sendSafeServerError(res, 'sync_player', err);
+      }
+    }
 
     // Bildirim İptal Talebi (Tekil veya virgülle ayrılmış çoklu ID destekli)
     if (payload.action === 'cancel' && payload.id) {

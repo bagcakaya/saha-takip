@@ -9,7 +9,7 @@ function isTrustedHost(host) {
   const clean = String(host).toLowerCase().trim();
   return (
     clean === 'saha-takip-beige.vercel.app' ||
-    clean.endsWith('.vercel.app') ||
+    (clean.startsWith('saha-takip-') && clean.endsWith('.vercel.app')) ||
     clean === '81.213.219.69' ||
     clean === 'localhost' ||
     clean === '127.0.0.1'
@@ -109,7 +109,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Saha-Client-Token'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Saha-Client-Token, X-Saha-Actor-Role'
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -141,6 +141,7 @@ export default async function handler(req, res) {
       headers: {
         Accept: 'application/json',
         'X-Saha-Client-Token': 'saha-edge-proxy-v2',
+        'X-Saha-Actor-Role': String(req.headers?.['x-saha-actor-role'] || ''),
         'Cache-Control': 'no-cache',
       },
     };

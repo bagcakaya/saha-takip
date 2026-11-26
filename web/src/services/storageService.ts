@@ -483,6 +483,19 @@ function enqueueSlot4Write(task: () => Promise<void>): Promise<void> {
   return next;
 }
 
+function getActiveActorRole(): string {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('@gorev_tamamlama_auth_user');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return String(parsed?.role || '');
+      }
+    }
+  } catch {}
+  return '';
+}
+
 async function localApiPost(endpoint: string, body: any): Promise<boolean> {
   const isLocal = ServerConfigService.isLocalMode();
   if (!isLocal && Date.now() < localDualWriteOfflineUntil) {
@@ -506,6 +519,7 @@ async function localApiPost(endpoint: string, body: any): Promise<boolean> {
         'Content-Type': 'application/json',
         Accept: 'application/json',
         'X-Saha-Client-Token': 'saha-web-client-v2',
+        'X-Saha-Actor-Role': getActiveActorRole(),
       },
       body: bodyJson,
       keepalive: bodyJson.length < 58000,
