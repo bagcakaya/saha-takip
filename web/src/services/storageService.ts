@@ -465,7 +465,18 @@ let localDualWriteOfflineUntil = 0;
 let supabaseOfflineUntil = 0;
 
 function shouldUseSupabaseCloud(): boolean {
-  return !ServerConfigService.isLocalMode() && Date.now() >= supabaseOfflineUntil;
+  return Date.now() >= supabaseOfflineUntil;
+}
+
+function pushSupabaseOp(writeOps: Promise<any>[], opFactory: () => Promise<any>): void {
+  if (!shouldUseSupabaseCloud()) return;
+  const p = opFactory().catch((err) => {
+    supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
+    console.warn('[Dual-Write Supabase] Arka plan eşitleme uyarısı:', err);
+  });
+  if (!ServerConfigService.isLocalMode()) {
+    writeOps.push(p);
+  }
 }
 
 // Slot 3 ve Slot 4 yazma işlemlerini sıraya sokarak eşzamanlı tıklamalarda yarış durumunu (race condition) önler
@@ -1412,46 +1423,39 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
-        if (shouldUseSupabaseCloud()) {
-          writeOps.push(
-            (async () => {
-              try {
-                let useBasic = !supabaseExtendedCols.locations;
-                if (!useBasic) {
-                  const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
-                  if (upsertErr) {
-                    if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
-                      supabaseExtendedCols.locations = false;
-                    }
-                    useBasic = true;
-                  }
-                }
-                if (useBasic) {
-                  const basicRows = locations.map((loc) => ({
-                    id: loc.id,
-                    name: loc.name,
-                    address: loc.address || '',
-                    notes: loc.notes || '',
-                    photos: loc.photos || [],
-                    latitude: loc.latitude || null,
-                    longitude: loc.longitude || null,
-                    created_at: loc.createdAt,
-                    created_by: loc.createdBy || null,
-                    created_by_name: loc.createdByName || null,
-                    tasks: loc.tasks || [],
-                  }));
-                  await supabase.from('locations').upsert(basicRows);
-                }
-              } catch (err) {
-                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
-                console.warn('[Dual-Write Supabase] save locations error:', err);
+        // 2. Supabase Bulut (Dual-Write: Yerel modda arka planda, Bulut modunda eşzamanlı)
+        pushSupabaseOp(writeOps, async () => {
+          let useBasic = !supabaseExtendedCols.locations;
+          if (!useBasic) {
+            const { error: upsertErr } = await supabase.from('locations').upsert(fullRows);
+            if (upsertErr) {
+              if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                supabaseExtendedCols.locations = false;
               }
-            })()
-          );
-        }
-      } else if (shouldUseSupabaseCloud()) {
-        writeOps.push(Promise.resolve(supabase.from('locations').delete().neq('id', '___')));
+              useBasic = true;
+            }
+          }
+          if (useBasic) {
+            const basicRows = locations.map((loc) => ({
+              id: loc.id,
+              name: loc.name,
+              address: loc.address || '',
+              notes: loc.notes || '',
+              photos: loc.photos || [],
+              latitude: loc.latitude || null,
+              longitude: loc.longitude || null,
+              created_at: loc.createdAt,
+              created_by: loc.createdBy || null,
+              created_by_name: loc.createdByName || null,
+              tasks: loc.tasks || [],
+            }));
+            await supabase.from('locations').upsert(basicRows);
+          }
+        });
+      } else {
+        pushSupabaseOp(writeOps, async () => {
+          await supabase.from('locations').delete().neq('id', '___');
+        });
       }
       writeOps.push(saveChunkedSlot(11, locations));
       await Promise.allSettled(writeOps);
@@ -2081,48 +2085,41 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
-        if (shouldUseSupabaseCloud()) {
-          writeOps.push(
-            (async () => {
-              try {
-                const basicRows = cleanNotes.map((n) => ({
-                  id: n.id,
-                  content: n.content,
-                  created_at: n.createdAt,
-                  created_by: n.createdBy || null,
-                  created_by_name: n.createdByName || null,
-                  target_mode: n.targetMode || 'self',
-                  target_user_ids: n.targetUserIds || [],
-                  target_user_names: n.targetUserNames || [],
-                  target_user_id: n.targetUserId || null,
-                  target_user_name: n.targetUserName || null,
-                  reminder_active: Boolean(n.reminderActive),
-                  reminder_date: n.reminderDate || null,
-                  notified: Boolean(n.notified),
-                  status: n.status || 'pending',
-                  completed_at: n.completedAt || null,
-                  completed_by: n.completedBy || null,
-                  completed_by_name: n.completedByName || null,
-                  completion_note: n.completionNote || null,
-                  approved_at: n.approvedAt || null,
-                  approved_by: n.approvedBy || null,
-                  approved_by_name: n.approvedByName || null,
-                  rejected_at: n.rejectedAt || null,
-                  rejected_by: n.rejectedBy || null,
-                  rejected_by_name: n.rejectedByName || null,
-                  rejection_reason: n.rejectionReason || null,
-                }));
-                await supabase.from('notes').upsert(basicRows);
-              } catch (err) {
-                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
-                console.warn('[Dual-Write Supabase] save notes error:', err);
-              }
-            })()
-          );
-        }
-      } else if (shouldUseSupabaseCloud()) {
-        writeOps.push(Promise.resolve(supabase.from('notes').delete().neq('id', '___')));
+        // 2. Supabase Bulut (Dual-Write: Yerel modda arka planda, Bulut modunda eşzamanlı)
+        pushSupabaseOp(writeOps, async () => {
+          const basicRows = cleanNotes.map((n) => ({
+            id: n.id,
+            content: n.content,
+            created_at: n.createdAt,
+            created_by: n.createdBy || null,
+            created_by_name: n.createdByName || null,
+            target_mode: n.targetMode || 'self',
+            target_user_ids: n.targetUserIds || [],
+            target_user_names: n.targetUserNames || [],
+            target_user_id: n.targetUserId || null,
+            target_user_name: n.targetUserName || null,
+            reminder_active: Boolean(n.reminderActive),
+            reminder_date: n.reminderDate || null,
+            notified: Boolean(n.notified),
+            status: n.status || 'pending',
+            completed_at: n.completedAt || null,
+            completed_by: n.completedBy || null,
+            completed_by_name: n.completedByName || null,
+            completion_note: n.completionNote || null,
+            approved_at: n.approvedAt || null,
+            approved_by: n.approvedBy || null,
+            approved_by_name: n.approvedByName || null,
+            rejected_at: n.rejectedAt || null,
+            rejected_by: n.rejectedBy || null,
+            rejected_by_name: n.rejectedByName || null,
+            rejection_reason: n.rejectionReason || null,
+          }));
+          await supabase.from('notes').upsert(basicRows);
+        });
+      } else {
+        pushSupabaseOp(writeOps, async () => {
+          await supabase.from('notes').delete().neq('id', '___');
+        });
       }
       writeOps.push(saveChunkedSlot(4, slot4List));
       await Promise.allSettled(writeOps);
@@ -2284,7 +2281,8 @@ export const StorageService = {
           console.warn('[Dual-Write Yerel] saveSingleNote hata:', err)
         );
 
-        if (shouldUseSupabaseCloud()) {
+        const runSupabaseSingleNote = async () => {
+          if (!shouldUseSupabaseCloud()) return;
           try {
             let useBasic = !supabaseExtendedCols.notes;
             if (!useBasic) {
@@ -2330,6 +2328,11 @@ export const StorageService = {
             supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
             console.warn('saveSingleNote Supabase error:', err);
           }
+        };
+        if (ServerConfigService.isLocalMode()) {
+          void runSupabaseSingleNote();
+        } else {
+          await runSupabaseSingleNote();
         }
       }
 
@@ -2863,51 +2866,44 @@ export const StorageService = {
           )
         );
 
-        // 2. Supabase Bulut (yalnızca bulut modunda ve erişilebilir olduğunda)
-        if (shouldUseSupabaseCloud()) {
-          writeOps.push(
-            (async () => {
-              try {
-                let useBasic = !supabaseExtendedCols.return_warranty;
-                if (!useBasic) {
-                  const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
-                  if (upsertErr) {
-                    if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
-                      supabaseExtendedCols.return_warranty = false;
-                    }
-                    useBasic = true;
-                  }
-                }
-                if (useBasic) {
-                  const basicRows = items.map((item) => ({
-                    id: item.id,
-                    type: item.type,
-                    company_name: item.companyName,
-                    sent_date: item.sentDate,
-                    serial_number: item.serialNumber || null,
-                    tracking_code: item.trackingCode || null,
-                    serial_number_photo: item.serialNumberPhoto || null,
-                    tracking_code_photo: item.trackingCodePhoto || null,
-                    notes: item.notes || null,
-                    status: item.status,
-                    reminder_date: item.reminderDate || null,
-                    reminder_active: item.reminderActive,
-                    notified: item.notified || false,
-                    created_at: item.createdAt,
-                    created_by: item.createdBy || null,
-                    created_by_name: item.createdByName || null,
-                  }));
-                  await supabase.from('return_warranty').upsert(basicRows);
-                }
-              } catch (err) {
-                supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
-                console.warn('[Dual-Write Supabase] return_warranty error:', err);
+        // 2. Supabase Bulut (Dual-Write: Yerel modda arka planda, Bulut modunda eşzamanlı)
+        pushSupabaseOp(writeOps, async () => {
+          let useBasic = !supabaseExtendedCols.return_warranty;
+          if (!useBasic) {
+            const { error: upsertErr } = await supabase.from('return_warranty').upsert(fullRows);
+            if (upsertErr) {
+              if (upsertErr.code === 'PGRST204' || /column/i.test(upsertErr.message || '')) {
+                supabaseExtendedCols.return_warranty = false;
               }
-            })()
-          );
-        }
-      } else if (shouldUseSupabaseCloud()) {
-        writeOps.push(Promise.resolve(supabase.from('return_warranty').delete().neq('id', '___')));
+              useBasic = true;
+            }
+          }
+          if (useBasic) {
+            const basicRows = items.map((item) => ({
+              id: item.id,
+              type: item.type,
+              company_name: item.companyName,
+              sent_date: item.sentDate,
+              serial_number: item.serialNumber || null,
+              tracking_code: item.trackingCode || null,
+              serial_number_photo: item.serialNumberPhoto || null,
+              tracking_code_photo: item.trackingCodePhoto || null,
+              notes: item.notes || null,
+              status: item.status,
+              reminder_date: item.reminderDate || null,
+              reminder_active: item.reminderActive,
+              notified: item.notified || false,
+              created_at: item.createdAt,
+              created_by: item.createdBy || null,
+              created_by_name: item.createdByName || null,
+            }));
+            await supabase.from('return_warranty').upsert(basicRows);
+          }
+        });
+      } else {
+        pushSupabaseOp(writeOps, async () => {
+          await supabase.from('return_warranty').delete().neq('id', '___');
+        });
       }
       writeOps.push(saveChunkedSlot(2, items));
       await Promise.allSettled(writeOps);
@@ -3200,7 +3196,8 @@ export const StorageService = {
         console.warn('[Dual-Write Yerel] saveSingleService hata:', err)
       );
 
-      if (shouldUseSupabaseCloud()) {
+      const runSupabaseSingleService = async () => {
+        if (!shouldUseSupabaseCloud()) return;
         try {
           let useBasic = !supabaseExtendedCols.services;
           if (!useBasic) {
@@ -3219,6 +3216,11 @@ export const StorageService = {
           supabaseOfflineUntil = Date.now() + 10 * 60 * 1000;
           console.warn('saveSingleService Supabase error:', err);
         }
+      };
+      if (ServerConfigService.isLocalMode()) {
+        void runSupabaseSingleService();
+      } else {
+        await runSupabaseSingleService();
       }
     }
 
@@ -3315,8 +3317,9 @@ export const StorageService = {
         console.warn('saveChunkedSlot 3 in saveServices error:', err);
       });
 
-      // 2. Supabase Bulut tablosuna kaydet (yalnızca bulut modunda ve erişilebilir olduğunda)
-      if (shouldUseSupabaseCloud()) {
+      // 2. Supabase Bulut tablosuna kaydet (Dual-Write: Yerel modda arka planda, Bulut modunda eşzamanlı)
+      const runSupabaseServices = async () => {
+        if (!shouldUseSupabaseCloud()) return;
         if (fullRows.length > 0) {
           try {
             let useBasic = !supabaseExtendedCols.services;
@@ -3340,6 +3343,11 @@ export const StorageService = {
         } else {
           await supabase.from('services').delete().neq('id', '___');
         }
+      };
+      if (ServerConfigService.isLocalMode()) {
+        void runSupabaseServices();
+      } else {
+        await runSupabaseServices();
       }
     } else {
       const slotId = this.getSlotId(3);

@@ -1565,7 +1565,157 @@ function cleanupFileSystemLogs() {
   return { deletedFiles, prunedFiles };
 }
 
+async function ensureDatabaseSchema() {
+  try {
+    const pool = await getPool();
+    await pool.request().query(`
+      IF OBJECT_ID('dbo.standard_tasks', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.standard_tasks (
+          id INT NOT NULL PRIMARY KEY,
+          tasks NVARCHAR(MAX) NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID('dbo.locations', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.locations (
+          id NVARCHAR(100) NOT NULL PRIMARY KEY,
+          name NVARCHAR(255) NULL,
+          address NVARCHAR(500) NULL,
+          notes NVARCHAR(MAX) NULL,
+          photos NVARCHAR(MAX) NULL,
+          latitude FLOAT NULL,
+          longitude FLOAT NULL,
+          created_at BIGINT NULL,
+          created_by NVARCHAR(100) NULL,
+          created_by_name NVARCHAR(255) NULL,
+          tasks NVARCHAR(MAX) NULL,
+          status NVARCHAR(50) NULL,
+          completed_at BIGINT NULL,
+          completed_by NVARCHAR(100) NULL,
+          completed_by_name NVARCHAR(255) NULL,
+          completion_note NVARCHAR(MAX) NULL,
+          completion_photos NVARCHAR(MAX) NULL,
+          approved_at BIGINT NULL,
+          approved_by NVARCHAR(100) NULL,
+          approved_by_name NVARCHAR(255) NULL,
+          rejected_at BIGINT NULL,
+          rejected_by NVARCHAR(100) NULL,
+          rejected_by_name NVARCHAR(255) NULL,
+          rejection_reason NVARCHAR(MAX) NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID('dbo.notes', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.notes (
+          id NVARCHAR(100) NOT NULL PRIMARY KEY,
+          content NVARCHAR(MAX) NULL,
+          cari_name NVARCHAR(255) NULL,
+          created_at BIGINT NULL,
+          created_by NVARCHAR(100) NULL,
+          created_by_name NVARCHAR(255) NULL,
+          target_mode NVARCHAR(50) NULL,
+          target_user_ids NVARCHAR(MAX) NULL,
+          target_user_names NVARCHAR(MAX) NULL,
+          target_user_id NVARCHAR(100) NULL,
+          target_user_name NVARCHAR(255) NULL,
+          reminder_active BIT NULL,
+          reminder_date NVARCHAR(50) NULL,
+          notified BIT NULL,
+          status NVARCHAR(50) NULL,
+          completed_at BIGINT NULL,
+          completed_by NVARCHAR(100) NULL,
+          completed_by_name NVARCHAR(255) NULL,
+          completion_note NVARCHAR(MAX) NULL,
+          approved_at BIGINT NULL,
+          approved_by NVARCHAR(100) NULL,
+          approved_by_name NVARCHAR(255) NULL,
+          rejected_at BIGINT NULL,
+          rejected_by NVARCHAR(100) NULL,
+          rejected_by_name NVARCHAR(255) NULL,
+          rejection_reason NVARCHAR(MAX) NULL,
+          processed_at BIGINT NULL,
+          processed_by NVARCHAR(100) NULL,
+          processed_by_name NVARCHAR(255) NULL,
+          used_materials NVARCHAR(MAX) NULL,
+          photos NVARCHAR(MAX) NULL,
+          completion_photos NVARCHAR(MAX) NULL,
+          read_by NVARCHAR(MAX) NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID('dbo.services', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.services (
+          id NVARCHAR(100) NOT NULL PRIMARY KEY,
+          company_name NVARCHAR(255) NULL,
+          cari_name NVARCHAR(255) NULL,
+          location NVARCHAR(255) NULL,
+          latitude FLOAT NULL,
+          longitude FLOAT NULL,
+          work_done NVARCHAR(MAX) NULL,
+          [date] NVARCHAR(50) NULL,
+          photos NVARCHAR(MAX) NULL,
+          created_at BIGINT NULL,
+          created_by NVARCHAR(100) NULL,
+          created_by_name NVARCHAR(255) NULL,
+          status NVARCHAR(50) NULL,
+          completion_note NVARCHAR(MAX) NULL,
+          completion_photos NVARCHAR(MAX) NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID('dbo.return_warranty', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.return_warranty (
+          id NVARCHAR(100) NOT NULL PRIMARY KEY,
+          [type] NVARCHAR(50) NULL,
+          company_name NVARCHAR(255) NULL,
+          sent_date NVARCHAR(50) NULL,
+          serial_number NVARCHAR(100) NULL,
+          tracking_code NVARCHAR(100) NULL,
+          serial_number_photo NVARCHAR(MAX) NULL,
+          tracking_code_photo NVARCHAR(MAX) NULL,
+          notes NVARCHAR(MAX) NULL,
+          status NVARCHAR(50) NULL,
+          reminder_date NVARCHAR(50) NULL,
+          reminder_active BIT NULL,
+          notified BIT NULL,
+          created_at BIGINT NULL,
+          created_by NVARCHAR(100) NULL,
+          created_by_name NVARCHAR(255) NULL,
+          cari_name NVARCHAR(255) NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID('dbo.app_users', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.app_users (
+          id NVARCHAR(100) NOT NULL PRIMARY KEY,
+          username NVARCHAR(255) NULL,
+          password NVARCHAR(255) NULL,
+          name NVARCHAR(255) NULL,
+          role NVARCHAR(50) NULL,
+          created_at BIGINT NULL,
+          updated_at DATETIME2 DEFAULT SYSUTCDATETIME()
+        );
+      END;
+    `);
+    console.log('>> [SQL Şema Kontrolü] Tüm SahaTakipDB tabloları doğrulandı / hazır.');
+  } catch (err) {
+    console.warn('>> [SQL Şema Kontrolü Uyarısı]:', err.message);
+  }
+}
+
 async function runDatabaseAndLogMaintenance() {
+  await ensureDatabaseSchema();
   const fileStats = cleanupFileSystemLogs();
   let dbLogShrunk = false;
   let slot13PrunedCount = 0;
