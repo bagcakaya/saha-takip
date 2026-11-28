@@ -23,6 +23,7 @@ import {
   Calculator,
   Users,
   BarChart3,
+  CalendarClock,
 } from 'lucide-react';
 import { TabType } from '../components/layout/Header';
 import { isUserAdmin, isSuperAdmin, canUserManageLicenses, canUserManageInstitutionsAndBranches, isModulePermitted } from '../types/auth';
@@ -35,6 +36,7 @@ import { LicenseManagementModal } from '../components/licensing/LicenseManagemen
 import { CompanyLicenseDetailsModal } from '../components/licensing/CompanyLicenseDetailsModal';
 import { EmergencyLicenseAlertBanner } from '../components/licensing/EmergencyLicenseAlertBanner';
 import { CompanySelectModal } from '../components/common/CompanySelectModal';
+import { AppointmentsModal } from '../components/appointments/AppointmentsModal';
 import { getRemainingDays } from '../utils/dateUtils';
 
 interface HomeDashboardViewProps {
@@ -72,6 +74,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
     unreadLogsCount,
     timedFollowUps,
     personalNotes,
+    appointments,
     badgeCount,
     lastReadTime,
     markAllAsRead,
@@ -81,6 +84,25 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const [isCompanyLicenseModalOpen, setIsCompanyLicenseModalOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
+  const [isAppointmentsModalOpen, setIsAppointmentsModalOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('modal') === 'appointments' || params.get('filter') === 'appointments';
+      } catch {}
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleOpenAppointments = () => {
+      setIsAppointmentsModalOpen(true);
+    };
+    window.addEventListener('saha:open-appointments-modal', handleOpenAppointments);
+    return () => {
+      window.removeEventListener('saha:open-appointments-modal', handleOpenAppointments);
+    };
+  }, []);
 
   const canManageLicenses = canUserManageLicenses(user);
   const canManageInstitutionsAndBranches = canUserManageInstitutionsAndBranches(user);
@@ -153,6 +175,10 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
   const safeTimedFollowUps = Array.isArray(timedFollowUps) ? timedFollowUps : [];
   const safePersonalNotes = Array.isArray(personalNotes) ? personalNotes : [];
   const userPersonalNotes = safePersonalNotes.filter((n) => n && n.userId === user?.id);
+  const safeAppointments = Array.isArray(appointments) ? appointments : [];
+  const userPendingAppointmentsCount = safeAppointments.filter(
+    (a) => a && a.userId === user?.id && a.status === 'pending'
+  ).length;
 
   const isAdmin = isUserAdmin(user);
   const canManageLogo = isAdmin; // Firmaların Yöneticileri ile Süper Yöneticiler yapabilsin
@@ -380,6 +406,20 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
       badgeText: 'Cariler',
       action: () => onNavigate('cariler'),
       visible: isModulePermitted('cariler', user, company),
+    },
+    {
+      id: 'appointments',
+      title: 'Randevu & Hatırlatıcı',
+      shortTitle: 'Randevu',
+      description: 'Cari seçmeli veya manuel girişli, periyodik bildirim garantili randevu sistemi',
+      icon: CalendarClock,
+      gradient: 'bg-gradient-to-br from-cyan-500 via-teal-600 to-emerald-800',
+      borderColor: 'border-cyan-400/40',
+      glowColor: 'text-cyan-400',
+      badgeText: userPendingAppointmentsCount > 0 ? `${userPendingAppointmentsCount} Randevu` : 'Randevu',
+      activeCount: userPendingAppointmentsCount > 0 ? userPendingAppointmentsCount : undefined,
+      action: () => setIsAppointmentsModalOpen(true),
+      visible: isModulePermitted('appointments', user, company),
     },
     {
       id: 'staff_tracking',
@@ -643,6 +683,17 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
               <span className="text-[9px] font-bold text-slate-300 block uppercase">İade</span>
               <span className="text-sm sm:text-base font-black text-amber-400">{pendingReturns}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsAppointmentsModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-center min-w-[68px] transition cursor-pointer"
+              title="Randevu Modalını Aç"
+            >
+              <span className="text-[9px] font-bold text-cyan-300 block uppercase">Randevu</span>
+              <span className="text-sm sm:text-base font-black text-cyan-400">
+                {userPendingAppointmentsCount}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -789,6 +840,11 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           lastReadTime={lastReadTime}
           onMarkAllAsRead={markAllAsRead}
           onNavigate={(tab, filter) => {
+            if (filter === 'appointments') {
+              setIsNotificationListOpen(false);
+              setIsAppointmentsModalOpen(true);
+              return;
+            }
             onNavigate(tab);
             if (filter) {
               if (tab === 'staff_tracking') {
@@ -830,6 +886,12 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({ onNavigate
           onSelectCompany={(code) => switchViewingCompany(code)}
         />
       )}
+
+      {/* Ana Ekran Randevu & Periyodik Hatırlatıcı Modalı */}
+      <AppointmentsModal
+        isOpen={isAppointmentsModalOpen}
+        onClose={() => setIsAppointmentsModalOpen(false)}
+      />
     </div>
   );
 };

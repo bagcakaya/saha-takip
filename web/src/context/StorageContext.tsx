@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord, FixedExpenseRecord, QuotationRecord, QuotationProduct, QuotationFooterTemplate, QuotationSettings } from '../types/storage';
+import { LocationItem, TaskStatus, GeneralNote, BackupData, NoteTargetMode, ReturnWarrantyItem, ServiceItem, WorkplaceLocation, Branch, AttendanceRecord, BreakItem, AdminReminder, AdminReminderCategory, LeaveRequest, SecurityLogItem, TimedFollowUp, PersonalNote, AppointmentItem, ShiftDefinition, ShiftAssignment, JobApplication, JobApplicationStatus, StaffSalaryMonthRecord, SalaryPaymentItem, DepartmentSalaryConfig, AccountingDataPayload, AccountingTransaction, AccountingCategory, CashRegister, DailyCashBalance, CariItem, DebtReceivableRecord, FixedExpenseRecord, QuotationRecord, QuotationProduct, QuotationFooterTemplate, QuotationSettings } from '../types/storage';
 import { DEFAULT_ACCOUNTING_CATEGORIES, DEFAULT_CASH_REGISTERS, DEFAULT_QUOTATION_FOOTER_TEMPLATES } from '../constants/defaultAccounting';
 import { isUserAdmin, isSuperAdmin, canUserAddBranch, UserRole } from '../types/auth';
 import { StorageService } from '../services/storageService';
@@ -234,6 +234,24 @@ interface StorageContextType {
   deletePersonalNote: (id: string) => Promise<void>;
   togglePinPersonalNote: (id: string) => Promise<void>;
   refreshPersonalNotes: () => Promise<void>;
+  appointments: AppointmentItem[];
+  activeRingingAppointment: AppointmentItem | null;
+  addAppointment: (data: {
+    cariName: string;
+    isManualCari?: boolean;
+    description: string;
+    appointmentDate: string;
+    appointmentTime: string;
+    repeatMinutes: number;
+    repeatLabel?: string;
+    remindBeforeDue?: boolean;
+  }) => Promise<AppointmentItem>;
+  updateAppointment: (id: string, updates: Partial<AppointmentItem>) => Promise<void>;
+  deleteAppointment: (id: string) => Promise<void>;
+  completeAppointment: (id: string) => Promise<void>;
+  snoozeAppointment: (id: string, minutes?: number) => Promise<void>;
+  dismissAppointmentAlarm: () => void;
+  triggerAppointmentTestNotification: (cariName?: string, description?: string) => Promise<void>;
   shifts: ShiftDefinition[];
   shiftAssignments: ShiftAssignment[];
   createShift: (shift: Omit<ShiftDefinition, 'id' | 'createdAt' | 'updatedAt' | 'companyCode'> & { companyCode?: string }) => Promise<ShiftDefinition>;
@@ -699,6 +717,8 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [carilerTotal, setCarilerTotal] = useState<number>(0);
   const [timedFollowUps, setTimedFollowUps] = useState<TimedFollowUp[]>([]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
+  const [activeRingingAppointment, setActiveRingingAppointment] = useState<AppointmentItem | null>(null);
   const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
   const [shiftAssignments, setShiftAssignments] = useState<ShiftAssignment[]>([]);
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
@@ -882,6 +902,12 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setPersonalNotes(userCachedNotes);
             }
           }).catch(() => {});
+          // Fast cached appointments for company
+          StorageService.getAppointments().then((cachedAppts) => {
+            if (isMounted && cachedAppts && cachedAppts.length > 0) {
+              setAppointments(cachedAppts);
+            }
+          }).catch(() => {});
           // Fast cached shifts for company
           StorageService.getShiftData().then((sData) => {
             if (isMounted && sData) {
@@ -910,7 +936,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. NETWORK FETCH (Background synchronization)
       try {
-        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, shiftData, jobApps, salaries, deptSalaries, accData] = await Promise.all([
+        const [locs, tasks, nts, returns, srvs, wpLoc, branchList, attRecs, reminders, cariData, leaveReqs, secLogs, followUps, myPersonalNotes, appts, shiftData, jobApps, salaries, deptSalaries, accData] = await Promise.all([
           StorageService.getLocations(),
           StorageService.getStandardTasks(),
           StorageService.getNotes(),
@@ -925,6 +951,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           StorageService.getSecurityLogs(),
           StorageService.getTimedFollowUps(),
           StorageService.getPersonalNotes(user.id),
+          StorageService.getAppointments(),
           StorageService.getShiftData(),
           StorageService.getJobApplications(),
           StorageService.getSalaryRecords(),
@@ -977,6 +1004,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCarilerTotal(cariData?.total || 0);
         setTimedFollowUps(followUps || []);
         setPersonalNotes(myPersonalNotes || []);
+        setAppointments(appts || []);
         setShifts((shiftData && shiftData.definitions) || []);
         setShiftAssignments((shiftData && shiftData.assignments) || []);
         setJobApplications(jobApps || []);
@@ -1137,6 +1165,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (changedSlotId === StorageService.getSlotId(22)) {
               const deptSalaries = await StorageService.getDepartmentSalaries();
               if (isMounted) setDepartmentSalaries(deptSalaries || []);
+              return;
+            }
+            if (changedSlotId === StorageService.getSlotId(24)) {
+              const freshAppts = await StorageService.getAppointments();
+              if (isMounted) setAppointments(freshAppts || []);
               return;
             }
             if (changedSlotId === StorageService.getSlotId(1)) {
@@ -7941,12 +7974,561 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await StorageService.savePersonalNotes(user.id, updated);
   };
 
-  const togglePinPersonalNote = async (id: string) => {
+    const togglePinPersonalNote = async (id: string) => {
     if (!user) return;
     const target = personalNotes.find((n) => n.id === id);
     if (!target) return;
     await updatePersonalNote(id, { isPinned: !target.isPinned });
   };
+
+  // =========================================================================
+  // RANDEVU & PERİYODİK BİLDİRİM MOTORU (4 KATMANLI KESİN BİLDİRİM GARANTİSİ)
+  // =========================================================================
+  const parseAppointmentTimestamp = (dateStr?: string, timeStr?: string): number => {
+    if (!dateStr) return NaN;
+    const cleanTime = (timeStr || '09:00').trim();
+    const normalizedTime = cleanTime.length === 5 ? `${cleanTime}:00` : cleanTime;
+    return new Date(`${dateStr}T${normalizedTime}`).getTime();
+  };
+
+  const scheduleAppointmentCloudPushes = async (
+    item: AppointmentItem
+  ): Promise<{ dueNotifId?: string; nextNotifId?: string }> => {
+    const now = Date.now();
+    const dueTs = parseAppointmentTimestamp(item.appointmentDate, item.appointmentTime);
+    let dueNotifId: string | undefined;
+    let nextNotifId: string | undefined;
+    const targetComp = (item.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+
+    // 1. Tam Randevu Saatinde Bulut Push Zamanla (Telefon kilitli / uygulama kapalıyken çalar)
+    if (!item.dueNotified && !isNaN(dueTs) && dueTs > now + 15000) {
+      try {
+        const res = await OneSignalService.sendPushNotification({
+          title: `🔔 RANDEVU VAKTİ: ${item.cariName || 'Randevu'}`,
+          message: `📅 ${item.appointmentDate} Saat ${item.appointmentTime} randevunuzun vakti geldi!\n📝 ${item.description}`,
+          targetMode: 'custom',
+          targetUserIds: [item.userId],
+          companyCode: targetComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+          sendAfter: new Date(dueTs).toISOString(),
+          collapseId: `appt_due_${item.id}`,
+          multiChannelGuarantee: true,
+        });
+        if (res?.data?.id) {
+          dueNotifId = res.data.id;
+        }
+      } catch (e) {
+        console.warn('scheduleAppointmentCloudPushes due error:', e);
+      }
+    }
+
+    // 2. Bir Sonraki Periyodik Hatırlatma İçin Bulut Push Zamanla
+    if (
+      item.repeatMinutes > 0 &&
+      item.nextReminderAt &&
+      item.nextReminderAt > now + 15000 &&
+      (isNaN(dueTs) || Math.abs(item.nextReminderAt - dueTs) > 45000)
+    ) {
+      try {
+        const isBeforeDue = !isNaN(dueTs) && item.nextReminderAt < dueTs;
+        const remMinsToDue = !isNaN(dueTs) ? Math.max(1, Math.ceil((dueTs - item.nextReminderAt) / 60000)) : 0;
+        const remTimeText =
+          remMinsToDue >= 60
+            ? `${Math.floor(remMinsToDue / 60)} saat ${remMinsToDue % 60 > 0 ? (remMinsToDue % 60) + ' dk' : ''}`
+            : `${remMinsToDue} dk`;
+
+        const res = await OneSignalService.sendPushNotification({
+          title: isBeforeDue
+            ? `⏰ Randevu Hatırlatması: ${item.cariName || 'Randevu'}`
+            : `🚨 Randevu Takip Hatırlatması: ${item.cariName || 'Randevu'}`,
+          message: isBeforeDue
+            ? `🕒 Saat ${item.appointmentTime} randevunuza ${remTimeText} kaldı.\n📝 ${item.description}`
+            : `⏰ ${item.appointmentDate} ${item.appointmentTime} randevunuz henüz tamamlanmadı.\n📝 ${item.description}`,
+          targetMode: 'custom',
+          targetUserIds: [item.userId],
+          companyCode: targetComp,
+          url: 'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+          sendAfter: new Date(item.nextReminderAt).toISOString(),
+          collapseId: `appt_rem_${item.id}`,
+          multiChannelGuarantee: true,
+        });
+        if (res?.data?.id) {
+          nextNotifId = res.data.id;
+        }
+      } catch (e) {
+        console.warn('scheduleAppointmentCloudPushes nextReminder error:', e);
+      }
+    }
+
+    return { dueNotifId, nextNotifId };
+  };
+
+  const triggerAppointmentTestNotification = async (
+    cariName = 'Örnek Cari / Müşteri',
+    description = 'Randevu bildirim ve ses sistemi aktif!'
+  ): Promise<void> => {
+    await NotificationService.requestPermission().catch(() => {});
+    if (user) {
+      OneSignalService.requestPermission({
+        id: user.id,
+        name: user.name,
+        role: user.role,
+      }).catch(() => {});
+    }
+
+    NotificationService.playAlarmSound({ maxDurationSec: 4 });
+    const title = `🔔 Randevu Bildirimi: ${cariName}`;
+    const body = `📝 ${description}`;
+
+    await NotificationService.sendNotification(
+      title,
+      body,
+      'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+      {
+        tag: `appt_test_${Date.now()}`,
+        skipIfVisible: false,
+      }
+    ).catch(() => {});
+
+    setActiveToast({
+      title,
+      body,
+      tab: 'home',
+      filter: 'appointments',
+    });
+
+    if (user) {
+      const targetComp = (user.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+      OneSignalService.sendPushNotification({
+        title,
+        message: body,
+        targetMode: 'custom',
+        targetUserIds: [user.id],
+        companyCode: targetComp,
+        url: 'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+        collapseId: `test_appt_${Date.now()}`,
+        multiChannelGuarantee: true,
+      }).catch(() => {});
+    }
+  };
+
+  const addAppointment = async (data: {
+    cariName: string;
+    isManualCari?: boolean;
+    description: string;
+    appointmentDate: string;
+    appointmentTime: string;
+    repeatMinutes: number;
+    repeatLabel?: string;
+    remindBeforeDue?: boolean;
+  }): Promise<AppointmentItem> => {
+    if (!user) throw new Error('Oturum açmış kullanıcı bulunamadı.');
+    const now = Date.now();
+    const id = generateId();
+    const targetComp = (user.companyCode || compCode || 'POLATLAR').trim().toUpperCase();
+    const dueTs = parseAppointmentTimestamp(data.appointmentDate, data.appointmentTime);
+    const repeatMins = Math.max(0, Number(data.repeatMinutes) || 0);
+    const remindBefore = data.remindBeforeDue !== false;
+
+    let nextReminderAt: number | undefined;
+    if (repeatMins > 0) {
+      if (remindBefore || isNaN(dueTs) || dueTs <= now) {
+        nextReminderAt = now + repeatMins * 60 * 1000;
+      } else {
+        nextReminderAt = dueTs + repeatMins * 60 * 1000;
+      }
+    }
+
+    const newItem: AppointmentItem = {
+      id,
+      userId: user.id,
+      userName: user.name || user.username,
+      companyCode: targetComp,
+      cariName: data.cariName.trim() || 'Genel Randevu',
+      isManualCari: Boolean(data.isManualCari),
+      description: data.description.trim(),
+      appointmentDate: data.appointmentDate,
+      appointmentTime: data.appointmentTime,
+      repeatMinutes: repeatMins,
+      repeatLabel: data.repeatLabel,
+      remindBeforeDue: remindBefore,
+      nextReminderAt,
+      lastRemindedAt: now,
+      dueNotified: false,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const updatedList = [newItem, ...appointments];
+    setAppointments(updatedList);
+    await StorageService.saveAppointments(updatedList);
+
+    // Anında sesli + görsel onay bildirimi ver
+    NotificationService.playChime();
+    const confirmTitle = `📅 Randevu Kuruldu: ${newItem.cariName}`;
+    const confirmBody =
+      repeatMins > 0
+        ? `${newItem.appointmentDate} Saat ${newItem.appointmentTime} • ${data.repeatLabel || repeatMins + ' dk\'da bir'} bildirim gönderilecek.`
+        : `${newItem.appointmentDate} Saat ${newItem.appointmentTime} • Randevu saatinde bildirim gönderilecek.`;
+
+    NotificationService.sendNotification(
+      confirmTitle,
+      confirmBody,
+      'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+      {
+        tag: `appt_created_${id}`,
+        skipIfVisible: false,
+      }
+    ).catch(() => {});
+
+    setActiveToast({
+      title: confirmTitle,
+      body: confirmBody,
+      tab: 'home',
+      filter: 'appointments',
+    });
+
+    // Arka planda OneSignal bulut zamanlayıcılarını kur
+    scheduleAppointmentCloudPushes(newItem)
+      .then(({ dueNotifId, nextNotifId }) => {
+        if (dueNotifId || nextNotifId) {
+          setAppointments((prev) => {
+            const next = prev.map((a) =>
+              a.id === id
+                ? {
+                    ...a,
+                    onesignalDueNotificationId: dueNotifId || a.onesignalDueNotificationId,
+                    onesignalNextNotificationId: nextNotifId || a.onesignalNextNotificationId,
+                  }
+                : a
+            );
+            StorageService.saveAppointments(next).catch(() => {});
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
+
+    return newItem;
+  };
+
+  const updateAppointment = async (id: string, updates: Partial<AppointmentItem>): Promise<void> => {
+    const existing = appointments.find((a) => a.id === id);
+    if (!existing) return;
+
+    if (existing.onesignalDueNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalDueNotificationId).catch(() => {});
+    }
+    if (existing.onesignalNextNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalNextNotificationId).catch(() => {});
+    }
+
+    const now = Date.now();
+    const nextDate = updates.appointmentDate ?? existing.appointmentDate;
+    const nextTime = updates.appointmentTime ?? existing.appointmentTime;
+    const nextRepeatMins =
+      updates.repeatMinutes !== undefined ? Math.max(0, Number(updates.repeatMinutes) || 0) : existing.repeatMinutes;
+    const nextRemindBefore =
+      updates.remindBeforeDue !== undefined ? updates.remindBeforeDue : existing.remindBeforeDue !== false;
+    const dueTs = parseAppointmentTimestamp(nextDate, nextTime);
+    const scheduleChanged =
+      updates.appointmentDate !== undefined ||
+      updates.appointmentTime !== undefined ||
+      updates.repeatMinutes !== undefined ||
+      updates.remindBeforeDue !== undefined;
+
+    let nextReminderAt = updates.nextReminderAt ?? existing.nextReminderAt;
+    if (scheduleChanged) {
+      if (nextRepeatMins > 0) {
+        if (nextRemindBefore || isNaN(dueTs) || dueTs <= now) {
+          nextReminderAt = now + nextRepeatMins * 60 * 1000;
+        } else {
+          nextReminderAt = dueTs + nextRepeatMins * 60 * 1000;
+        }
+      } else {
+        nextReminderAt = undefined;
+      }
+    }
+
+    const mergedItem: AppointmentItem = {
+      ...existing,
+      ...updates,
+      repeatMinutes: nextRepeatMins,
+      remindBeforeDue: nextRemindBefore,
+      nextReminderAt,
+      dueNotified: scheduleChanged && dueTs > now ? false : (updates.dueNotified ?? existing.dueNotified),
+      onesignalDueNotificationId: undefined,
+      onesignalNextNotificationId: undefined,
+      updatedAt: now,
+    };
+
+    const nextList = appointments.map((a) => (a.id === id ? mergedItem : a));
+    setAppointments(nextList);
+    await StorageService.saveAppointments(nextList);
+
+    if (mergedItem.status === 'pending') {
+      scheduleAppointmentCloudPushes(mergedItem)
+        .then(({ dueNotifId, nextNotifId }) => {
+          if (dueNotifId || nextNotifId) {
+            setAppointments((prev) => {
+              const next = prev.map((a) =>
+                a.id === id
+                  ? {
+                      ...a,
+                      onesignalDueNotificationId: dueNotifId,
+                      onesignalNextNotificationId: nextNotifId,
+                    }
+                  : a
+              );
+              StorageService.saveAppointments(next).catch(() => {});
+              return next;
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  };
+
+  const deleteAppointment = async (id: string): Promise<void> => {
+    if (activeRingingAppointment?.id === id) {
+      NotificationService.stopAlarmSound();
+      setActiveRingingAppointment(null);
+    }
+    const existing = appointments.find((a) => a.id === id);
+    if (existing?.onesignalDueNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalDueNotificationId).catch(() => {});
+    }
+    if (existing?.onesignalNextNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalNextNotificationId).catch(() => {});
+    }
+    const nextList = appointments.filter((a) => a.id !== id);
+    setAppointments(nextList);
+    await StorageService.saveAppointments(nextList, { deletedId: id });
+  };
+
+  const completeAppointment = async (id: string): Promise<void> => {
+    if (activeRingingAppointment?.id === id) {
+      NotificationService.stopAlarmSound();
+      setActiveRingingAppointment(null);
+    }
+    const existing = appointments.find((a) => a.id === id);
+    if (existing?.onesignalDueNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalDueNotificationId).catch(() => {});
+    }
+    if (existing?.onesignalNextNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalNextNotificationId).catch(() => {});
+    }
+    const now = Date.now();
+    const nextList = appointments.map((a) =>
+      a.id === id
+        ? {
+            ...a,
+            status: 'completed' as const,
+            completedAt: now,
+            nextReminderAt: undefined,
+            dueNotified: true,
+            onesignalDueNotificationId: undefined,
+            onesignalNextNotificationId: undefined,
+            updatedAt: now,
+          }
+        : a
+    );
+    setAppointments(nextList);
+    await StorageService.saveAppointments(nextList);
+  };
+
+  const snoozeAppointment = async (id: string, minutes = 15): Promise<void> => {
+    NotificationService.stopAlarmSound();
+    setActiveRingingAppointment(null);
+    const existing = appointments.find((a) => a.id === id);
+    if (!existing) return;
+    if (existing.onesignalNextNotificationId) {
+      OneSignalService.cancelNotification(existing.onesignalNextNotificationId).catch(() => {});
+    }
+    const now = Date.now();
+    const nextRem = now + Math.max(1, minutes) * 60 * 1000;
+    const updatedItem: AppointmentItem = {
+      ...existing,
+      nextReminderAt: nextRem,
+      snoozedUntil: nextRem,
+      lastRemindedAt: now,
+      updatedAt: now,
+    };
+    const nextList = appointments.map((a) => (a.id === id ? updatedItem : a));
+    setAppointments(nextList);
+    await StorageService.saveAppointments(nextList);
+    scheduleAppointmentCloudPushes(updatedItem).catch(() => {});
+  };
+
+  const dismissAppointmentAlarm = () => {
+    NotificationService.stopAlarmSound();
+    setActiveRingingAppointment(null);
+  };
+
+  // Canlı Randevu & Periyodik Hatırlatıcı Kontrolcüsü (Her 5 saniyede bir + Arka Plan Web Worker)
+  useEffect(() => {
+    if (!user || !appointments || appointments.length === 0) return;
+
+    const checkAppointmentsReminders = () => {
+      const now = Date.now();
+      let mutated = false;
+      let ringingToSet: AppointmentItem | null = null;
+      const toReschedule: AppointmentItem[] = [];
+
+      const nextList = appointments.map((item) => {
+        if (!item || item.status !== 'pending' || item.userId !== user.id) {
+          return item;
+        }
+
+        const dueTs = parseAppointmentTimestamp(item.appointmentDate, item.appointmentTime);
+        const isDueReached = !item.dueNotified && !isNaN(dueTs) && now >= dueTs;
+        const isPeriodicReached =
+          item.repeatMinutes > 0 &&
+          Boolean(item.nextReminderAt) &&
+          now >= (item.nextReminderAt || 0);
+
+        if (!isDueReached && !isPeriodicReached) {
+          return item;
+        }
+
+        // Aynı randevu için son 40 saniye içinde zaten uyarı tetiklendiyse mükerrer çalma
+        if (item.lastRemindedAt && now - item.lastRemindedAt < 40000 && !isDueReached) {
+          return item;
+        }
+
+        mutated = true;
+        const intervalMs = item.repeatMinutes > 0 ? item.repeatMinutes * 60 * 1000 : 0;
+        let nextRemAt: number | undefined = undefined;
+        if (intervalMs > 0) {
+          nextRemAt = now + intervalMs;
+        }
+
+        const updatedItem: AppointmentItem = {
+          ...item,
+          dueNotified: isDueReached ? true : item.dueNotified,
+          lastRemindedAt: now,
+          nextReminderAt: nextRemAt,
+          updatedAt: now,
+        };
+
+        ringingToSet = updatedItem;
+        toReschedule.push(updatedItem);
+
+        const title = isDueReached
+          ? `🔔 RANDEVU VAKTİ GELDİ: ${item.cariName || 'Randevu'}`
+          : `⏰ Randevu Hatırlatması: ${item.cariName || 'Randevu'}`;
+
+        const diffMins = !isNaN(dueTs) ? Math.ceil((dueTs - now) / 60000) : 0;
+        const timeInfo =
+          diffMins > 0
+            ? `Randevu: ${item.appointmentDate} Saat ${item.appointmentTime} (${
+                diffMins >= 60
+                  ? `${Math.floor(diffMins / 60)} sa ${diffMins % 60} dk kaldı`
+                  : `${diffMins} dk kaldı`
+              })`
+            : `Randevu Zamanı: ${item.appointmentDate} Saat ${item.appointmentTime}`;
+
+        const body = `${timeInfo}\n📝 ${item.description}`;
+        const alertTag = `appt_${item.id}_${Math.floor(now / 45000)}`;
+
+        if (isDueReached) {
+          NotificationService.playAlarmSound({ maxDurationSec: 10 });
+        } else {
+          NotificationService.playChime();
+        }
+
+        NotificationService.sendNotification(
+          title,
+          body,
+          'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+          {
+            tag: alertTag,
+            skipIfVisible: false,
+          }
+        ).catch(() => {});
+
+        setActiveToast({
+          title,
+          body,
+          tab: 'home',
+          filter: 'appointments',
+        });
+
+        // Ayrıca anlık donanım push bildirimini de tetikle (telefon kilitliyse uyandırır)
+        OneSignalService.sendPushNotification({
+          title,
+          message: body,
+          targetMode: 'custom',
+          targetUserIds: [item.userId],
+          companyCode: (item.companyCode || compCode || 'POLATLAR').toUpperCase(),
+          url: 'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+          collapseId: alertTag,
+          multiChannelGuarantee: true,
+        }).catch(() => {});
+
+        return updatedItem;
+      });
+
+      if (mutated) {
+        if (ringingToSet) {
+          setActiveRingingAppointment(ringingToSet);
+        }
+        setAppointments(nextList);
+        StorageService.saveAppointments(nextList).catch(() => {});
+        for (const itemToSched of toReschedule) {
+          scheduleAppointmentCloudPushes(itemToSched).catch(() => {});
+        }
+      }
+    };
+
+    checkAppointmentsReminders();
+    const interval = setInterval(checkAppointmentsReminders, 5000);
+
+    // Arka plan sekme kısıtlamasından etkilenmeyen Web Worker zamanlayıcısı
+    let apptWorker: Worker | null = null;
+    let apptWorkerUrl: string | null = null;
+    if (typeof window !== 'undefined' && typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
+      try {
+        const blob = new Blob(['setInterval(function(){postMessage(1);},5000);'], {
+          type: 'application/javascript',
+        });
+        apptWorkerUrl = URL.createObjectURL(blob);
+        apptWorker = new Worker(apptWorkerUrl);
+        apptWorker.onmessage = () => {
+          checkAppointmentsReminders();
+        };
+      } catch {}
+    }
+
+    const onFocusOrVis = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        checkAppointmentsReminders();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocusOrVis);
+      document.addEventListener('visibilitychange', onFocusOrVis);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (apptWorker) {
+        try {
+          apptWorker.terminate();
+        } catch {}
+      }
+      if (apptWorkerUrl) {
+        try {
+          URL.revokeObjectURL(apptWorkerUrl);
+        } catch {}
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocusOrVis);
+        document.removeEventListener('visibilitychange', onFocusOrVis);
+      }
+    };
+  }, [appointments, user?.id, compCode]);
 
   // Check personal notes reminders while app is open / foreground
   useEffect(() => {
@@ -8723,6 +9305,15 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deletePersonalNote,
         togglePinPersonalNote,
         refreshPersonalNotes,
+        appointments,
+        activeRingingAppointment,
+        addAppointment,
+        updateAppointment,
+        deleteAppointment,
+        completeAppointment,
+        snoozeAppointment,
+        dismissAppointmentAlarm,
+        triggerAppointmentTestNotification,
         isLoading,
         activeToast,
         dismissToast,

@@ -500,7 +500,8 @@ async function dispatchDirectOneSignalMultiChannel(params) {
   const apiKey = getOneSignalApiKey();
   if (!apiKey) return false;
 
-  const targetUrl = 'https://saha-takip-beige.vercel.app/?tab=staff_tracking';
+  const targetUrl = params.targetUrl || 'https://saha-takip-beige.vercel.app/?tab=staff_tracking';
+  const targetTab = params.targetTab || 'staff_tracking';
   const baseBody = {
     app_id: ONESIGNAL_APP_ID,
     headings: { tr: params.title, en: params.title },
@@ -515,7 +516,7 @@ async function dispatchDirectOneSignalMultiChannel(params) {
     data: {
       url: targetUrl,
       launchURL: targetUrl,
-      tab: 'staff_tracking',
+      tab: targetTab,
       companyCode: params.companyCode,
     },
   };
@@ -565,7 +566,8 @@ async function dispatchDirectOneSignalMultiChannel(params) {
 }
 
 async function dispatchStaffShiftPush(port, params) {
-  const targetUrl = 'https://saha-takip-beige.vercel.app/?tab=staff_tracking';
+  const targetUrl = params.targetUrl || 'https://saha-takip-beige.vercel.app/?tab=staff_tracking';
+  const targetTab = params.targetTab || 'staff_tracking';
   const payload = {
     title: params.title,
     message: params.message,
@@ -581,7 +583,7 @@ async function dispatchStaffShiftPush(port, params) {
     data: {
       url: targetUrl,
       launchURL: targetUrl,
-      tab: 'staff_tracking',
+      tab: targetTab,
       companyCode: params.companyCode,
     },
   };
@@ -663,6 +665,126 @@ async function runShiftWatchdog(port = 3001) {
     } catch {}
 
     for (const company of companies) {
+      // --- 0. 7/24 OTONOM RANDEVU & PERİYODİK HATIRLATICI KONTROLÜ (Slot 24 -> 24001) ---
+      try {
+        const apptSlotId = getSlotIdForCompany(24, company.code, company.id);
+        const appointments = await readLocalSlot(port, apptSlotId);
+        if (Array.isArray(appointments) && appointments.length > 0) {
+          let apptDirty = false;
+          let cachedDevs = null;
+
+          const updatedAppts = [];
+          for (const item of appointments) {
+            if (!item || !item.id || item.status !== 'pending' || !item.userId) {
+              updatedAppts.push(item);
+              continue;
+            }
+            const cleanTime = String(item.appointmentTime || '09:00').trim();
+            const normTime = cleanTime.length === 5 ? `${cleanTime}:00` : cleanTime;
+            const dueTs = item.appointmentDate
+              ? Date.parse(`${item.appointmentDate}T${normTime}+03:00`)
+              : NaN;
+
+            const isDueReached = !item.dueNotified && !isNaN(dueTs) && clock.nowMs >= dueTs;
+            const repeatMins = Number(item.repeatMinutes) || 0;
+            const isPeriodicReached =
+              repeatMins > 0 &&
+              item.nextReminderAt &&
+              clock.nowMs >= Number(item.nextReminderAt);
+
+            if (!isDueReached && !isPeriodicReached) {
+              updatedAppts.push(item);
+              continue;
+            }
+
+            if (item.lastRemindedAt && clock.nowMs - Number(item.lastRemindedAt) < 40000 && !isDueReached) {
+              updatedAppts.push(item);
+              continue;
+            }
+
+            const dedupKey = isDueReached
+              ? `appt_due_${item.id}`
+              : `appt_rem_${item.id}_${Math.floor(clock.nowMs / 45000)}`;
+            if (inMemorySentAlerts.has(dedupKey)) {
+              updatedAppts.push(item);
+              continue;
+            }
+            recordDiskAlertSent(dedupKey, clock.nowMs);
+
+            if (cachedDevs === null) {
+              const devSlotId = getSlotIdForCompany(8, company.code, company.id);
+              cachedDevs = (await readLocalSlot(port, devSlotId)) || [];
+            }
+
+            const userDevs = Array.isArray(cachedDevs)
+              ? cachedDevs
+                  .filter(
+                    (d) =>
+                      d &&
+                      d.userId === item.userId &&
+                      d.pushSubscriptionId &&
+                      !String(d.pushSubscriptionId).startsWith('SQL-')
+                  )
+                  .sort((a, b) => {
+                    if (Boolean(b.isStandalone) !== Boolean(a.isStandalone)) {
+                      return b.isStandalone ? 1 : -1;
+                    }
+                    return new Date(b.lastSeen || 0).getTime() - new Date(a.lastSeen || 0).getTime();
+                  })
+              : [];
+            const subIds = userDevs.length > 0 ? [userDevs[0].pushSubscriptionId] : [];
+
+            const nextRemAt =
+              repeatMins > 0 ? clock.nowMs + repeatMins * 60 * 1000 : undefined;
+
+            const nextItem = {
+              ...item,
+              dueNotified: isDueReached ? true : item.dueNotified,
+              lastRemindedAt: clock.nowMs,
+              nextReminderAt: nextRemAt,
+              updatedAt: clock.nowMs,
+            };
+            updatedAppts.push(nextItem);
+            apptDirty = true;
+
+            const title = isDueReached
+              ? `🔔 RANDEVU VAKTİ GELDİ: ${item.cariName || 'Randevu'}`
+              : `⏰ Randevu Hatırlatması: ${item.cariName || 'Randevu'}`;
+            const diffMins = !isNaN(dueTs) ? Math.ceil((dueTs - clock.nowMs) / 60000) : 0;
+            const timeLabel =
+              diffMins > 0
+                ? `Randevu: ${item.appointmentDate} Saat ${item.appointmentTime} (${
+                    diffMins >= 60
+                      ? `${Math.floor(diffMins / 60)} sa ${diffMins % 60} dk kaldı`
+                      : `${diffMins} dk kaldı`
+                  })`
+                : `Randevu Zamanı: ${item.appointmentDate} Saat ${item.appointmentTime}`;
+            const message = `${timeLabel}\n📝 ${item.description || ''}`;
+
+            console.log(
+              `>> [Randevu Bekçisi] Bildirim gönderiliyor: ${item.userName || item.userId} - ${item.cariName}`
+            );
+            await dispatchStaffShiftPush(port, {
+              userId: item.userId,
+              subscriptionIds: subIds,
+              companyCode: company.code,
+              collapseId: dedupKey,
+              title,
+              message,
+              targetUrl: 'https://saha-takip-beige.vercel.app/?tab=home&modal=appointments',
+              targetTab: 'home',
+            });
+            dispatchedAlerts.push(dedupKey);
+          }
+
+          if (apptDirty) {
+            await writeSupabaseAndLocalSlot(port, apptSlotId, updatedAppts);
+          }
+        }
+      } catch (apptErr) {
+        console.warn('>> [Randevu Bekçisi Uyarısı]:', apptErr.message);
+      }
+
       const shiftSlotId = getSlotIdForCompany(18, company.code, company.id);
       let shiftData = null;
       try {

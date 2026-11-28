@@ -86,6 +86,7 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
     securityLogs,
     returnWarrantyItems,
     timedFollowUps,
+    appointments,
     adminReminders,
     markSecurityLogsAsRead,
   } = useStorage();
@@ -659,6 +660,25 @@ export const NotificationListModal: React.FC<NotificationListModalProps> = ({
       }
     });
   }
+
+  // 10. Kullanıcının Aktif / Vakti Gelen Randevuları (Hem Yönetici Hem Personel)
+  (appointments || []).forEach((appt) => {
+    if (!appt || appt.userId !== user.id || appt.status !== 'pending') return;
+    const ts = appt.lastRemindedAt || appt.createdAt || Date.now();
+    notifications.push({
+      id: `appt_${appt.id}_${ts}`,
+      type: 'reminder',
+      title: appt.dueNotified
+        ? `🔔 Randevu Vakti Geldi: ${appt.cariName || 'Randevu'}`
+        : `📅 Randevu Hatırlatıcısı: ${appt.cariName || 'Randevu'}`,
+      senderName: appt.userName || user.name || 'Randevu Sistemi',
+      senderRole: `${appt.appointmentDate} • ${appt.appointmentTime}`,
+      content: `${appt.cariName ? `[${appt.cariName}] ` : ''}${appt.description} (${appt.repeatLabel || (appt.repeatMinutes > 0 ? appt.repeatMinutes + ' dk\'da bir' : 'Randevu saatinde')})`,
+      createdAt: ts,
+      tab: 'home',
+      filter: 'appointments',
+    });
+  });
 
   // Sort newest first
   notifications.sort((a, b) => b.createdAt - a.createdAt);

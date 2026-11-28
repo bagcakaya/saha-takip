@@ -433,6 +433,15 @@ export const APP_FEATURE_MODULES: AppFeatureModule[] = [
     category: 'operations',
   },
   {
+    id: 'appointments',
+    name: 'Randevular',
+    shortTitle: 'Randevu',
+    description: 'Cari seçmeli veya manuel girişli, periyodik bildirim garantili randevu ve hatırlatıcı sistemi',
+    defaultStaff: true,
+    defaultAdmin: true,
+    category: 'operations',
+  },
+  {
     id: 'personal_notes',
     name: 'Kişisel Notlarım',
     shortTitle: 'Notlarım',

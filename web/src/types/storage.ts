@@ -96,6 +96,33 @@ export interface AdminReminder {
 
 export type PersonalNoteColor = 'amber' | 'blue' | 'emerald' | 'purple' | 'rose' | 'slate';
 
+export type AppointmentStatus = 'pending' | 'completed' | 'cancelled';
+
+export interface AppointmentItem {
+  id: string;
+  userId: string; // Randevuyu oluşturan / bildirim alacak kullanıcı ID
+  userName?: string; // Kullanıcı Adı
+  companyCode: string;
+  cariName: string; // Seçilen veya manuel yazılan Cari / Müşteri Adı
+   isManualCari?: boolean; // Manuel mi yazıldı yoksa listeden mi seçildi
+  description: string; // Randevu açıklaması / konusu
+  appointmentDate: string; // YYYY-MM-DD
+  appointmentTime: string; // HH:mm
+  repeatMinutes: number; // Kaç dakikada bir hatırlatılacağı (0 = sadece randevu saatinde, 15 = 15 dk'da bir, 60 = saatte bir vb.)
+  repeatLabel?: string; // Örn: "15 Dakikada Bir", "1 Saatte Bir"
+  remindBeforeDue?: boolean; // true ise randevu vaktine kadar da seçilen aralıkta hatırlatır ve tamamlanana kadar devam eder
+  nextReminderAt?: number; // Bir sonraki periyodik hatırlatma zamanı (timestamp ms)
+  lastRemindedAt?: number; // Son hatırlatma gönderilen zaman (timestamp ms)
+  dueNotified?: boolean; // Tam randevu saatindeki ana bildirim gönderildi mi?
+  snoozedUntil?: number; // Ertelendiyse erteleme bitiş zamanı (timestamp ms)
+  onesignalDueNotificationId?: string; // Tam randevu saati için OneSignal zamanlanmış bildirim ID'si
+  onesignalNextNotificationId?: string; // Bir sonraki periyodik hatırlatma için OneSignal zamanlanmış bildirim ID'si
+  status: AppointmentStatus;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PersonalNote {
   id: string;
   userId: string; // The user who owns this note (Strictly private)

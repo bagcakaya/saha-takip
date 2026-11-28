@@ -15,6 +15,7 @@ import {
   SecurityLogItem,
   TimedFollowUp,
   PersonalNote,
+  AppointmentItem,
   ShiftDefinition,
   ShiftAssignment,
   ShiftDataPayload,
@@ -46,6 +47,7 @@ const LEAVE_REQUESTS_KEY = '@saha_takip_leave_requests';
 const SECURITY_LOGS_KEY = '@saha_takip_security_logs';
 const TIMED_FOLLOW_UPS_KEY = '@saha_takip_timed_follow_ups';
 const PERSONAL_NOTES_KEY = '@saha_takip_personal_notes';
+const APPOINTMENTS_KEY = '@saha_takip_appointments';
 const SHIFT_DATA_KEY = '@saha_takip_shift_data';
 const SHIFT_ALERT_LOGS_KEY = '@saha_takip_shift_alert_logs';
 const JOB_APPLICATIONS_KEY = '@saha_takip_job_applications';
@@ -678,7 +680,8 @@ async function saveChunkedSlot(
     (slotId >= 1 && slotId <= 20) ||
     slotId === 21001 ||
     slotId === 22001 ||
-    slotId === 23001;
+    slotId === 23001 ||
+    slotId === 24001;
   if (activeCompanyCode !== 'POLATLAR' && isPolatlarRootSlot) {
     console.warn(
       `[GÜVENLİK İHLALİ] Kurum '${activeCompanyCode}' kök slot ${slotId}'e yazmaya yetkili değildir! İşlem engellendi.`
@@ -4695,6 +4698,92 @@ export const StorageService = {
       await saveChunkedSlot(slotId, items);
     } catch (e) {
       console.warn('Timed follow ups cloud save error:', e);
+    }
+  },
+
+  /**
+   * Retrieves appointments (Randevular) for current company (Slot 24 -> 24001 + IndexedDB cache)
+   */
+  async getAppointments(): Promise<AppointmentItem[]> {
+    const localKey = this.getStorageKey(APPOINTMENTS_KEY);
+    const slotId = this.getSlotId(24);
+    const localCached = (await loadItem<AppointmentItem[]>(localKey)) || [];
+
+    try {
+      const { data: cloudData, notFound } = await loadChunkedSlot<AppointmentItem[]>(slotId);
+      if (cloudData && Array.isArray(cloudData)) {
+        const localMap = new Map(localCached.map((a) => [a.id, a]));
+        const mergedCloud = cloudData
+          .filter((a) => a && a.id)
+          .map((ca) => {
+            const la = localMap.get(ca.id);
+            if (!la) return ca;
+            // Yerel veya sunucu bekçisi tarafından ilerletilmiş hatırlatma zamanlarını koru
+            const latestUpdated = (la.updatedAt || 0) > (ca.updatedAt || 0) ? la : ca;
+            return {
+              ...latestUpdated,
+              lastRemindedAt: Math.max(la.lastRemindedAt || 0, ca.lastRemindedAt || 0) || undefined,
+              dueNotified: Boolean(la.dueNotified || ca.dueNotified),
+              nextReminderAt:
+                (ca.lastRemindedAt || 0) > (la.lastRemindedAt || 0)
+                  ? ca.nextReminderAt
+                  : latestUpdated.nextReminderAt,
+            };
+          });
+
+        const cloudIds = new Set(mergedCloud.map((a) => a.id));
+        const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+        const unsyncedLocal = localCached.filter(
+          (la) => la && la.id && !cloudIds.has(la.id) && (la.createdAt || 0) >= recentCutoff
+        );
+
+        const finalItems = [...unsyncedLocal, ...mergedCloud].sort(
+          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+        );
+        await saveItem(localKey, finalItems);
+        if (unsyncedLocal.length > 0) {
+          saveChunkedSlot(slotId, finalItems).catch(() => {});
+        }
+        return finalItems;
+      }
+
+      if (activeCompanyCode !== 'POLATLAR' && notFound) {
+        await saveItem(localKey, localCached);
+        return localCached;
+      }
+    } catch (e) {
+      console.warn('Appointments cloud read error:', e);
+    }
+
+    return localCached;
+  },
+
+  /**
+   * Saves appointments (Randevular) to local cache and Slot 24 (24001)
+   */
+  async saveAppointments(
+    items: AppointmentItem[],
+    options?: { deletedId?: string }
+  ): Promise<void> {
+    const localKey = this.getStorageKey(APPOINTMENTS_KEY);
+    const cleaned = items.filter((a) => a && a.id && (!options?.deletedId || a.id !== options.deletedId));
+    await saveItem(localKey, cleaned);
+
+    try {
+      const slotId = this.getSlotId(24);
+      const { data: cloudData } = await loadChunkedSlot<AppointmentItem[]>(slotId);
+      let toSave = cleaned;
+      if (Array.isArray(cloudData) && cloudData.length > 0) {
+        const incomingMap = new Map(cleaned.map((a) => [a.id, a]));
+        const preservedOthers = cloudData.filter(
+          (ca) => ca && ca.id && !incomingMap.has(ca.id) && (!options?.deletedId || ca.id !== options.deletedId)
+        );
+        toSave = [...cleaned, ...preservedOthers].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        await saveItem(localKey, toSave);
+      }
+      await saveChunkedSlot(slotId, toSave);
+    } catch (e) {
+      console.warn('Appointments cloud save error:', e);
     }
   },
 

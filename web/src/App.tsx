@@ -30,6 +30,7 @@ import { PwaInstallPrompt } from './components/common/PwaInstallPrompt';
 import { ToastNotification } from './components/common/ToastNotification';
 import { NotificationListModal } from './components/common/NotificationListModal';
 import { CariAlarmRingingModal } from './components/timedFollowUps/CariAlarmRingingModal';
+import { AppointmentAlarmRingingModal } from './components/appointments/AppointmentAlarmRingingModal';
 import { AiFloatingButton } from './components/ai/AiFloatingButton';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -838,6 +839,14 @@ const MainApp: React.FC = () => {
         toast={activeToast}
         onClose={dismissToast}
         onClick={() => {
+          if (activeToast?.filter === 'appointments') {
+            navigateToTab('home');
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('saha:open-appointments-modal'));
+            }, 60);
+            dismissToast();
+            return;
+          }
           if (activeToast?.tab) {
             navigateToTab(activeToast.tab);
           } else {
@@ -874,6 +883,9 @@ const MainApp: React.FC = () => {
       {/* Global Ringing Alarm Modal for Managers */}
       {isAdmin && <CariAlarmRingingModal />}
 
+      {/* Global Ringing Alarm Modal for Appointments (All Users) */}
+      <AppointmentAlarmRingingModal />
+
       {/* Global Notification List Modal (Accessible from Header & Sidebar on any screen) */}
       {isNotificationsModalOpen && (
         <NotificationListModal
@@ -883,6 +895,13 @@ const MainApp: React.FC = () => {
           onMarkAllAsRead={markAllAsRead}
           onNavigate={(tab, filter) => {
             setIsNotificationsModalOpen(false);
+            if (filter === 'appointments') {
+              navigateToTab('home');
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('saha:open-appointments-modal'));
+              }, 60);
+              return;
+            }
             navigateToTab(tab, { filter });
             if (filter) {
               if (tab === 'staff_tracking') {

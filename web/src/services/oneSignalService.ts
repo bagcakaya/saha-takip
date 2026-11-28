@@ -767,6 +767,7 @@ export const OneSignalService = {
     sendAfter?: string;
     delaySeconds?: number;
     collapseId?: string;
+    multiChannelGuarantee?: boolean;
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     let {
       title,
