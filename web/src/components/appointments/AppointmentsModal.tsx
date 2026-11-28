@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Calendar,
-  Clock,
   Bell,
   Building2,
   Repeat,
@@ -14,9 +13,11 @@ import {
   CheckCircle2,
   Volume2,
   Sparkles,
-  ListFilter,
   PenTool,
   BellRing,
+  RotateCcw,
+  FolderOpen,
+  FolderCheck,
 } from 'lucide-react';
 import { AppointmentItem } from '../../types/storage';
 import { useStorage } from '../../context/StorageContext';
@@ -31,10 +32,10 @@ interface AppointmentsModalProps {
 }
 
 const REPEAT_PRESETS: { label: string; minutes: number; badge: string }[] = [
-  { label: '5 Dk\'da Bir', minutes: 5, badge: 'Çok Sık' },
-  { label: '10 Dk\'da Bir', minutes: 10, badge: 'Sık' },
-  { label: '15 Dk\'da Bir', minutes: 15, badge: 'Önerilen' },
-  { label: '30 Dk\'da Bir', minutes: 30, badge: 'Popüler' },
+  { label: "5 Dk'da Bir", minutes: 5, badge: 'Çok Sık' },
+  { label: "10 Dk'da Bir", minutes: 10, badge: 'Sık' },
+  { label: "15 Dk'da Bir", minutes: 15, badge: 'Önerilen' },
+  { label: "30 Dk'da Bir", minutes: 30, badge: 'Popüler' },
   { label: '1 Saatte Bir', minutes: 60, badge: 'Saatlik' },
   { label: '2 Saatte Bir', minutes: 120, badge: '2 Saat' },
   { label: '3 Saatte Bir', minutes: 180, badge: '3 Saat' },
@@ -95,8 +96,10 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
     triggerAppointmentTestNotification,
   } = useStorage();
 
-  const [cariMode, setCariMode] = useState<'select' | 'manual'>('select');
-  const [cariName, setCariName] = useState('');
+  // Tek ekranda hem Kayıtlı Cari Seçimi hem Manuel Cari Yazımı
+  const [selectedCariName, setSelectedCariName] = useState('');
+  const [manualCariName, setManualCariName] = useState('');
+
   const [description, setDescription] = useState('');
   const [appointmentDate, setAppointmentDate] = useState(() => getDefaultTimeInput(120).date);
   const [appointmentTime, setAppointmentTime] = useState(() => getDefaultTimeInput(120).time);
@@ -108,8 +111,8 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
   const [remindBeforeDue, setRemindBeforeDue] = useState<boolean>(true);
 
   const [editingItem, setEditingItem] = useState<AppointmentItem | null>(null);
-  const [activeTab, setActiveTab] = useState<'form' | 'list'>('form');
-  const [listFilter, setListFilter] = useState<'pending' | 'completed' | 'all'>('pending');
+  // 3 Ana Sekme: 'form' (Yeni Randevu), 'open' (Açık Randevular), 'closed' (Kapalı Randevular)
+  const [activeTab, setActiveTab] = useState<'form' | 'open' | 'closed'>('form');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -130,6 +133,15 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
     }
   }, [isOpen, editingItem]);
 
+  // Aktif Cari Adı: Manuel kutuya yazıldıysa manuel, listeden seçildiyse seçilen cari
+  const effectiveCariName = useMemo(() => {
+    if (manualCariName.trim()) return manualCariName.trim();
+    if (selectedCariName.trim()) return selectedCariName.trim();
+    return '';
+  }, [manualCariName, selectedCariName]);
+
+  const isManualCariActive = Boolean(manualCariName.trim());
+
   const effectiveRepeatMinutes = useMemo(() => {
     if (selectedRepeatPreset !== 'custom') {
       return selectedRepeatPreset;
@@ -146,36 +158,26 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
     return safe
       .filter((a) => a && a.userId === user.id)
       .sort((a, b) => {
-        if (a.status !== b.status) return a.status === 'pending' ? -1 : 1;
         const tA = getAppointmentTimestamp(a.appointmentDate, a.appointmentTime) || 0;
         const tB = getAppointmentTimestamp(b.appointmentDate, b.appointmentTime) || 0;
         return tA - tB;
       });
   }, [appointments, user]);
 
-  const pendingCount = useMemo(
-    () => myAppointments.filter((a) => a.status === 'pending').length,
-    [myAppointments]
-  );
-  const completedCount = useMemo(
-    () => myAppointments.filter((a) => a.status === 'completed').length,
+  // Açık Randevular: Tamamlandı denmeyen tüm randevular (vakti geçmiş olsa bile Tamamlandı denene kadar Açık Randevularda kalır!)
+  const openAppointments = useMemo(
+    () => myAppointments.filter((a) => a.status !== 'completed'),
     [myAppointments]
   );
 
-  const filteredList = useMemo(() => {
-    return myAppointments.filter((a) => {
-      if (listFilter === 'all') return true;
-      return a.status === listFilter;
-    });
-  }, [myAppointments, listFilter]);
-
-  const manualAutocompleteMatches = useMemo(() => {
-    if (cariMode !== 'manual' || !cariName.trim()) return [];
-    const q = cariName.trim().toLocaleLowerCase('tr');
-    return (cariler || [])
-      .filter((c) => c.toLocaleLowerCase('tr').includes(q) && c.toLocaleLowerCase('tr') !== q)
-      .slice(0, 5);
-  }, [cariMode, cariName, cariler]);
+  // Kapalı Randevular: Yalnızca "Tamamlandı" işaretlenen randevular
+  const closedAppointments = useMemo(
+    () =>
+      myAppointments
+        .filter((a) => a.status === 'completed')
+        .sort((a, b) => (b.completedAt || b.updatedAt || 0) - (a.completedAt || a.updatedAt || 0)),
+    [myAppointments]
+  );
 
   if (!isOpen) return null;
 
@@ -207,8 +209,16 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
 
   const startEditing = (item: AppointmentItem) => {
     setEditingItem(item);
-    setCariMode(item.isManualCari ? 'manual' : 'select');
-    setCariName(item.cariName || '');
+    const existsInCariler = (cariler || []).some(
+      (c) => c.trim().toLocaleLowerCase('tr') === (item.cariName || '').trim().toLocaleLowerCase('tr')
+    );
+    if (item.isManualCari || (!existsInCariler && item.cariName && item.cariName !== 'Genel Randevu')) {
+      setManualCariName(item.cariName || '');
+      setSelectedCariName('');
+    } else {
+      setSelectedCariName(item.cariName === 'Genel Randevu' ? '' : item.cariName || '');
+      setManualCariName('');
+    }
     setDescription(item.description || '');
     setAppointmentDate(item.appointmentDate || getTodayDateInput());
     setAppointmentTime(item.appointmentTime || '09:00');
@@ -237,7 +247,8 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
 
   const resetForm = () => {
     setEditingItem(null);
-    setCariName('');
+    setSelectedCariName('');
+    setManualCariName('');
     setDescription('');
     const def = getDefaultTimeInput(120);
     setAppointmentDate(def.date);
@@ -247,11 +258,19 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
     setError('');
   };
 
+  const handleReopenAppointment = async (item: AppointmentItem) => {
+    await updateAppointment(item.id, {
+      status: 'pending',
+      completedAt: undefined,
+      dueNotified: false,
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const cleanCari = cariName.trim() || 'Genel Randevu';
+    const cleanCari = effectiveCariName || 'Genel Randevu';
     const cleanDesc = description.trim();
 
     if (!cleanDesc) {
@@ -271,7 +290,6 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
 
     setIsSubmitting(true);
     try {
-      // Ensure notification sound & browser permission are unlocked immediately on user click
       await NotificationService.requestPermission().catch(() => {});
       if (user) {
         OneSignalService.requestPermission({
@@ -286,7 +304,7 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
       if (editingItem) {
         await updateAppointment(editingItem.id, {
           cariName: cleanCari,
-          isManualCari: cariMode === 'manual',
+          isManualCari: isManualCariActive,
           description: cleanDesc,
           appointmentDate,
           appointmentTime,
@@ -297,7 +315,7 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
       } else {
         await addAppointment({
           cariName: cleanCari,
-          isManualCari: cariMode === 'manual',
+          isManualCari: isManualCariActive,
           description: cleanDesc,
           appointmentDate,
           appointmentTime,
@@ -308,8 +326,7 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
       }
 
       resetForm();
-      setActiveTab('list');
-      setListFilter('pending');
+      setActiveTab('open');
     } catch (err: any) {
       setError(err?.message || 'Randevu kaydedilirken bir hata oluştu.');
     } finally {
@@ -320,7 +337,7 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
   const getCountdownBadge = (dateStr: string, timeStr: string, status?: string) => {
     if (status === 'completed') {
       return {
-        label: 'Tamamlandı',
+        label: 'Kapalı (Tamamlandı)',
         cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
       };
     }
@@ -339,8 +356,8 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
           passedMins < 2
             ? '🔔 Randevu Vakti Geldi!'
             : passedMins < 60
-            ? `🚨 ${passedMins} dk geçti`
-            : `🚨 Randevu Saati Geçti`,
+            ? `🚨 ${passedMins} dk geçti (Açık)`
+            : '🚨 Randevu Saati Geçti (Açık)',
         cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse',
       };
     }
@@ -368,6 +385,205 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
   };
 
   const formCountdown = getCountdownBadge(appointmentDate, appointmentTime);
+
+  const renderAppointmentList = (list: AppointmentItem[], isClosedTab: boolean) => {
+    if (list.length === 0) {
+      return (
+        <div className="py-12 px-4 text-center rounded-2xl bg-slate-800/40 border border-dashed border-slate-700 space-y-3">
+          {isClosedTab ? (
+            <FolderCheck className="w-10 h-10 text-emerald-500/60 mx-auto" />
+          ) : (
+            <FolderOpen className="w-10 h-10 text-amber-400/70 mx-auto" />
+          )}
+          <div className="text-sm font-bold text-slate-300">
+            {isClosedTab
+              ? 'Henüz tamamlanmış (kapalı) randevunuz bulunmuyor.'
+              : 'Şu anda açık randevunuz bulunmuyor.'}
+          </div>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {isClosedTab
+              ? 'Açık randevularınızda "Tamamlandı" butonuna bastığınızda randevular buraya aktarılır ve bildirimleri durdurulur.'
+              : 'Yeni bir randevu oluşturduğunuzda siz "Tamamlandı" diyene kadar Açık Randevular sekmesinde kalır ve belirlediğiniz aralıkla bildirim gönderir.'}
+          </p>
+          {!isClosedTab && (
+            <button
+              type="button"
+              onClick={() => {
+                resetForm();
+                setActiveTab('form');
+              }}
+              className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black shadow-md hover:bg-cyan-400 transition cursor-pointer"
+            >
+              + Yeni Randevu Oluştur
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {list.map((item) => {
+          const badge = getCountdownBadge(item.appointmentDate, item.appointmentTime, item.status);
+          const isCompleted = item.status === 'completed';
+          const nextRemDiff =
+            item.nextReminderAt && item.repeatMinutes > 0 && !isCompleted
+              ? Math.max(0, Math.ceil((item.nextReminderAt - nowMs) / 60000))
+              : null;
+
+          return (
+            <div
+              key={item.id}
+              className={`p-4 rounded-2xl border transition space-y-3 ${
+                isCompleted
+                  ? 'bg-slate-800/35 border-emerald-500/25'
+                  : 'bg-slate-800/75 border-slate-700 hover:border-cyan-500/40 shadow-md'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl border shrink-0 ${
+                      isCompleted
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                        : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25'
+                    }`}
+                  >
+                    <Building2 className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-black text-white text-sm sm:text-base truncate">
+                        {item.cariName || 'Genel Randevu'}
+                      </span>
+                      <span
+                        className={`px-2 py-0.2 rounded-md text-[10px] font-bold border ${
+                          isCompleted
+                            ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30'
+                            : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                        }`}
+                      >
+                        {isCompleted ? 'Kapalı Randevu' : 'Açık Randevu'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 flex-wrap">
+                      <span className="font-bold text-cyan-300">
+                        📅 {item.appointmentDate} • 🕒 {item.appointmentTime}
+                      </span>
+                      <span>•</span>
+                      <span className="text-amber-300 font-bold flex items-center gap-1">
+                        <Repeat className="w-3 h-3" />
+                        {item.repeatLabel || formatRepeatIntervalLabel(item.repeatMinutes)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <span className={`px-2.5 py-1 rounded-full text-xs font-black border shrink-0 ${badge.cls}`}>
+                  {badge.label}
+                </span>
+              </div>
+
+              {/* Description */}
+              <div
+                className={`p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs sm:text-sm text-slate-200 whitespace-pre-wrap ${
+                  isCompleted ? 'line-through text-slate-400' : ''
+                }`}
+              >
+                {item.description}
+              </div>
+
+              {/* Bottom Info & Action Buttons */}
+              <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  {!isCompleted && nextRemDiff !== null ? (
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/25 font-bold flex items-center gap-1">
+                      <BellRing className="w-3 h-3 animate-pulse" />
+                      {nextRemDiff <= 0
+                        ? 'Bildirim gönderiliyor...'
+                        : `Sonraki hatırlatma: ~${nextRemDiff} dk sonra`}
+                    </span>
+                  ) : isCompleted ? (
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Tamamlandı • Bildirimler durduruldu
+                    </span>
+                  ) : (
+                    <span>Randevu saatinde bildirim gönderilecek</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {!isCompleted ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          triggerAppointmentTestNotification(item.cariName, item.description)
+                        }
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                        title="Bu Randevu İçin Şimdi Bildirim Gönder"
+                      >
+                        <Bell className="w-3.5 h-3.5" />
+                        <span>Şimdi Hatırlat</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => startEditing(item)}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                        title="Düzenle"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>Düzenle</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => completeAppointment(item.id)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow transition cursor-pointer"
+                        title="Tamamlandı Olarak İşaretle ve Kapalı Randevulara Taşı"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Tamamlandı</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleReopenAppointment(item)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                      title="Tekrar Açık Randevulara Geri Al"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Açık Randevulara Al</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `"${item.cariName}" randevusunu silmek istediğinize emin misiniz?`
+                        )
+                      ) {
+                        deleteAppointment(item.id);
+                      }
+                    }}
+                    className="p-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-400 border border-rose-500/25 transition cursor-pointer"
+                    title="Randevuyu Sil"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 animate-in fade-in duration-200">
@@ -404,43 +620,65 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
           </button>
         </div>
 
-        {/* Navigation Tabs: Yeni Randevu Kur vs Randevularım */}
-        <div className="px-5 pt-3 pb-2 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-2 shrink-0 flex-wrap">
-          <div className="flex items-center gap-2">
+        {/* Navigation Tabs: Yeni Randevu | Açık Randevular | Kapalı Randevular */}
+        <div className="px-5 pt-3 pb-2.5 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-2 shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setActiveTab('form')}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
                 activeTab === 'form'
                   ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
               }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>{editingItem ? 'Randevuyu Düzenle' : 'Yeni Randevu Oluştur'}</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>{editingItem ? 'Randevuyu Düzenle' : 'Yeni Randevu'}</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('list')}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
-                activeTab === 'list'
-                  ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
+              onClick={() => setActiveTab('open')}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'open'
+                  ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>Randevularım</span>
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Açık Randevular</span>
               <span
                 className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                  activeTab === 'list'
+                  activeTab === 'open'
                     ? 'bg-slate-950/30 text-slate-950'
-                    : pendingCount > 0
+                    : openAppointments.length > 0
                     ? 'bg-rose-500 text-white'
                     : 'bg-slate-700 text-slate-300'
                 }`}
               >
-                {pendingCount}
+                {openAppointments.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('closed')}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'closed'
+                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+              }`}
+            >
+              <FolderCheck className="w-3.5 h-3.5" />
+              <span>Kapalı Randevular</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeTab === 'closed'
+                    ? 'bg-slate-950/30 text-slate-950'
+                    : 'bg-slate-700 text-slate-300'
+                }`}
+              >
+                {closedAppointments.length}
               </span>
             </button>
           </div>
@@ -449,7 +687,7 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
             type="button"
             onClick={() => {
               triggerAppointmentTestNotification(
-                cariName.trim() || 'Örnek Cari / Müşteri',
+                effectiveCariName || 'Örnek Cari / Müşteri',
                 description.trim() || 'Randevu bildirim ve ses testi başarıyla çalışıyor!'
               );
             }}
@@ -472,104 +710,77 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
                 </div>
               )}
 
-              {/* 1. CARİ SEÇİMİ VEYA MANUEL YAZIM */}
-              <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/80 space-y-3">
+              {/* 1. CARİ SEÇİMİ VE MANUEL YAZMA TEK EKRANDA */}
+              <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/80 space-y-3.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <label className="text-xs font-extrabold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Building2 className="w-4 h-4 text-cyan-400" />
                     <span>1. Cari / Müşteri Bilgisi</span>
-                    <span className="text-[10px] font-semibold text-slate-400 normal-case">
-                      (İster listeden seçin, ister manuel yazın)
-                    </span>
                   </label>
-
-                  {/* Mode Switcher: Listeden Seç vs Manuel Yaz */}
-                  <div className="inline-flex rounded-xl bg-slate-900 p-1 border border-slate-700">
-                    <button
-                      type="button"
-                      onClick={() => setCariMode('select')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        cariMode === 'select'
-                          ? 'bg-cyan-500 text-slate-950 shadow'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      <ListFilter className="w-3.5 h-3.5" />
-                      <span>Carilerden Seç</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCariMode('manual')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        cariMode === 'manual'
-                          ? 'bg-cyan-500 text-slate-950 shadow'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      <PenTool className="w-3.5 h-3.5" />
-                      <span>Manuel Yaz</span>
-                    </button>
-                  </div>
+                  {effectiveCariName && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 truncate max-w-[260px]">
+                      Aktif Cari: {effectiveCariName}
+                    </span>
+                  )}
                 </div>
 
-                {cariMode === 'select' ? (
-                  <div className="space-y-2">
-                    <CariSelect
-                      value={cariName}
-                      onChange={(val) => setCariName(val)}
-                      placeholder="Kayıtlı carilerden seçin veya arayın..."
+                {/* A) Kayıtlı Carilerden Seçme */}
+                <div className="space-y-1.5">
+                  <span className="block text-[11px] font-bold text-slate-300">
+                    Kayıtlı Carilerden Seçin:
+                  </span>
+                  <CariSelect
+                    value={selectedCariName}
+                    onChange={(val) => {
+                      setSelectedCariName(val);
+                      if (val) {
+                        setManualCariName('');
+                      }
+                    }}
+                    placeholder="Kayıtlı carilerden seçin veya arayın..."
+                  />
+                </div>
+
+                {/* Ayırıcı */}
+                <div className="flex items-center gap-3">
+                  <div className="h-px bg-slate-700/80 flex-1" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    VEYA MANUEL YAZIN
+                  </span>
+                  <div className="h-px bg-slate-700/80 flex-1" />
+                </div>
+
+                {/* B) Manuel Cari / Müşteri Yazma (Aynı Ekranda Doğrudan Açık) */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                    <PenTool className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Manuel Cari / Müşteri / Kişi Adı Yazın:</span>
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={manualCariName}
+                      onChange={(e) => {
+                        setManualCariName(e.target.value);
+                        if (e.target.value.trim()) {
+                          setSelectedCariName('');
+                        }
+                      }}
+                      placeholder="Listede olmayan cari, müşteri veya kişi adını buraya direkt yazabilirsiniz..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 focus:border-cyan-500 text-white placeholder-slate-500 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
                     />
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                      <span>Aradığınız cari listede yoksa sağdaki butonla elle yazabilirsiniz.</span>
+                    {manualCariName && (
                       <button
                         type="button"
-                        onClick={() => setCariMode('manual')}
-                        className="text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer"
+                        onClick={() => setManualCariName('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Temizle"
                       >
-                        ✍️ Manuel Cari Yaz
+                        <X className="w-4 h-4" />
                       </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={cariName}
-                        onChange={(e) => setCariName(e.target.value)}
-                        placeholder="Cari, müşteri, firma veya kişi adını manuel yazınız..."
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-cyan-500/40 text-white placeholder-slate-500 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                      />
-                      {cariName && (
-                        <button
-                          type="button"
-                          onClick={() => setCariName('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
-                          title="Temizle"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Quick Autocomplete suggestions if manual text matches any existing Cari */}
-                    {manualAutocompleteMatches.length > 0 && (
-                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                        <span className="text-[10px] font-bold text-slate-400">Kayıtlı Eşleşmeler:</span>
-                        {manualAutocompleteMatches.map((match) => (
-                          <button
-                            key={match}
-                            type="button"
-                            onClick={() => setCariName(match)}
-                            className="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-cyan-950 text-cyan-300 border border-slate-700 hover:border-cyan-500/40 text-[11px] font-semibold transition cursor-pointer truncate max-w-[220px]"
-                          >
-                            {match}
-                          </button>
-                        ))}
-                      </div>
                     )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* 2. RANDEVU AÇIKLAMASI / KONUSU */}
@@ -789,12 +1000,12 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
                       />
                       <div className="text-xs">
                         <span className="font-extrabold text-white block">
-                          Şimdiden İtibaren Randevu Saatini Beklemeden Periyodik Hatırlatmaya Başla
+                          Şimdiden İtibaren Randevu Tamamlanana Kadar Periyodik Hatırlat
                         </span>
                         <span className="text-slate-400 text-[11px]">
                           İşaretli olduğunda randevu vaktine kadar her{' '}
                           <b className="text-amber-300">{formatRepeatIntervalLabel(effectiveRepeatMinutes)}</b>{' '}
-                          hatırlatır, tam randevu saatinde alarm çalar ve siz "Tamamlandı" diyene kadar hatırlatmaya devam eder.
+                          hatırlatır, tam randevu saatinde alarm çalar ve siz <b>"Tamamlandı"</b> diyene kadar Açık Randevularda kalıp hatırlatmaya devam eder.
                         </span>
                       </div>
                     </label>
@@ -808,16 +1019,16 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
                     <span className="font-black text-emerald-300">Kesintisiz Bildirim Garantisi:</span>{' '}
                     {effectiveRepeatMinutes > 0 ? (
                       <>
-                        <b>{cariName.trim() || 'Seçili Cari'}</b> randevunuz için{' '}
+                        <b>{effectiveCariName || 'Genel Randevu'}</b> için{' '}
                         <b>{formatRepeatIntervalLabel(effectiveRepeatMinutes)}</b> ve tam randevu zamanında (
                         <b>
                           {appointmentDate} • {appointmentTime}
                         </b>
-                        ) telefonunuz kilitli veya uygulama kapalı olsa bile sunucu bekçisi ve OneSignal üzerinden bildirim gönderilecektir.
+                        ) siz randevuyu <b>Tamamlandı</b> olarak kapatana kadar bildirim gönderilecektir.
                       </>
                     ) : (
                       <>
-                        <b>{cariName.trim() || 'Seçili Cari'}</b> randevunuz için tam randevu zamanında (
+                        <b>{effectiveCariName || 'Genel Randevu'}</b> için tam randevu zamanında (
                         <b>
                           {appointmentDate} • {appointmentTime}
                         </b>
@@ -855,227 +1066,51 @@ export const AppointmentsModal: React.FC<AppointmentsModalProps> = ({ isOpen, on
                 </button>
               </div>
             </form>
-          ) : (
-            /* RANDEVULARIM LİSTESİ */
+          ) : activeTab === 'open' ? (
+            /* AÇIK RANDEVULAR SEKMESİ */
             <div className="space-y-4">
-              {/* Filter Pills */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setListFilter('pending')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      listFilter === 'pending'
-                        ? 'bg-amber-500 text-slate-950 font-black'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    Aktif / Bekleyen ({pendingCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setListFilter('completed')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      listFilter === 'completed'
-                        ? 'bg-emerald-500 text-slate-950 font-black'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    Tamamlananlar ({completedCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setListFilter('all')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      listFilter === 'all'
-                        ? 'bg-slate-200 text-slate-900 font-black'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    Tümü ({myAppointments.length})
-                  </button>
+              <div className="flex items-center justify-between gap-2 flex-wrap p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25">
+                <div className="flex items-center gap-2 text-xs text-amber-200 font-bold">
+                  <FolderOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    Açık Randevular ({openAppointments.length}) — "Tamamlandı" denene kadar burada kalır ve bildirim göndermeye devam eder.
+                  </span>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => {
                     resetForm();
                     setActiveTab('form');
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black flex items-center gap-1 cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Yeni Randevu Ekle</span>
+                  <span>Yeni Randevu</span>
                 </button>
               </div>
 
-              {filteredList.length === 0 ? (
-                <div className="py-12 px-4 text-center rounded-2xl bg-slate-800/40 border border-dashed border-slate-700 space-y-3">
-                  <Calendar className="w-10 h-10 text-slate-500 mx-auto" />
-                  <div className="text-sm font-bold text-slate-300">
-                    {listFilter === 'pending'
-                      ? 'Aktif randevunuz bulunmuyor.'
-                      : listFilter === 'completed'
-                      ? 'Henüz tamamlanmış randevu bulunmuyor.'
-                      : 'Henüz kayıtlı randevu bulunmuyor.'}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetForm();
-                      setActiveTab('form');
-                    }}
-                    className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black shadow-md hover:bg-cyan-400 transition cursor-pointer"
-                  >
-                    + İlk Randevuyu Oluştur
-                  </button>
+              {renderAppointmentList(openAppointments, false)}
+            </div>
+          ) : (
+            /* KAPALI RANDEVULAR SEKMESİ */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
+                <div className="flex items-center gap-2 text-xs text-emerald-200 font-bold">
+                  <FolderCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Kapalı Randevular ({closedAppointments.length}) — Tamamlanan ve bildirimleri durdurulan randevular.
+                  </span>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredList.map((item) => {
-                    const badge = getCountdownBadge(
-                      item.appointmentDate,
-                      item.appointmentTime,
-                      item.status
-                    );
-                    const isCompleted = item.status === 'completed';
-                    const nextRemDiff =
-                      item.nextReminderAt && item.repeatMinutes > 0 && !isCompleted
-                        ? Math.max(0, Math.ceil((item.nextReminderAt - nowMs) / 60000))
-                        : null;
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('open')}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold cursor-pointer shrink-0"
+                >
+                  Açık Randevulara Dön ({openAppointments.length})
+                </button>
+              </div>
 
-                    return (
-                      <div
-                        key={item.id}
-                        className={`p-4 rounded-2xl border transition space-y-3 ${
-                          isCompleted
-                            ? 'bg-slate-800/30 border-slate-800 opacity-75'
-                            : 'bg-slate-800/70 border-slate-700 hover:border-cyan-500/40 shadow-md'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/25 shrink-0">
-                              <Building2 className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-black text-white text-sm sm:text-base truncate">
-                                  {item.cariName || 'Genel Randevu'}
-                                </span>
-                                <span className="px-2 py-0.2 rounded-md text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-700">
-                                  {item.isManualCari ? 'Manuel Cari' : 'Kayıtlı Cari'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 flex-wrap">
-                                <span className="font-bold text-cyan-300">
-                                  📅 {item.appointmentDate} • 🕒 {item.appointmentTime}
-                                </span>
-                                <span>•</span>
-                                <span className="text-amber-300 font-bold flex items-center gap-1">
-                                  <Repeat className="w-3 h-3" />
-                                  {item.repeatLabel || formatRepeatIntervalLabel(item.repeatMinutes)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-black border shrink-0 ${badge.cls}`}
-                          >
-                            {badge.label}
-                          </span>
-                        </div>
-
-                        {/* Description */}
-                        <div
-                          className={`p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs sm:text-sm text-slate-200 whitespace-pre-wrap ${
-                            isCompleted ? 'line-through text-slate-500' : ''
-                          }`}
-                        >
-                          {item.description}
-                        </div>
-
-                        {/* Bottom Info & Action Buttons */}
-                        <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
-                          <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                            {!isCompleted && nextRemDiff !== null ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/25 font-bold flex items-center gap-1">
-                                <BellRing className="w-3 h-3 animate-pulse" />
-                                {nextRemDiff <= 0
-                                  ? 'Bildirim gönderiliyor...'
-                                  : `Sonraki hatırlatma: ~${nextRemDiff} dk sonra`}
-                              </span>
-                            ) : isCompleted ? (
-                              <span className="text-emerald-400 font-bold flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                Randevu tamamlandı, bildirimler durduruldu
-                              </span>
-                            ) : (
-                              <span>Randevu saatinde bildirim gönderilecek</span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            {!isCompleted && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    triggerAppointmentTestNotification(item.cariName, item.description)
-                                  }
-                                  className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-                                  title="Bu Randevu İçin Şimdi Bildirim Gönder"
-                                >
-                                  <Bell className="w-3.5 h-3.5" />
-                                  <span>Şimdi Hatırlat</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => startEditing(item)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-                                  title="Düzenle"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                  <span>Düzenle</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => completeAppointment(item.id)}
-                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow transition cursor-pointer"
-                                  title="Tamamlandı İşaretle ve Hatırlatıcıyı Durdur"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Tamamla</span>
-                                </button>
-                              </>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `"${item.cariName}" randevusunu silmek istediğinize emin misiniz?`
-                                  )
-                                ) {
-                                  deleteAppointment(item.id);
-                                }
-                              }}
-                              className="p-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-400 border border-rose-500/25 transition cursor-pointer"
-                              title="Randevuyu Sil"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {renderAppointmentList(closedAppointments, true)}
             </div>
           )}
         </div>
